@@ -677,6 +677,46 @@ fn the_dock_s_tabs_keep_their_form_and_place_whichever_panel_is_in_front() {
     }
 }
 
+/// The Left Dock at its first width (260 points, a window from 1500 to
+/// 2559 wide) shows its tabs' words, "Module" and "Resources", beside
+/// the Module panel's four buttons and the fold button, as the Main
+/// board does (M3 T15: they were icons there, the words 2.4 points too
+/// wide with the fold button T14 put on the bar): the words closer to
+/// their tabs' sides there, apart from the first tool, whichever panel is
+/// in front; icons only where even so they do not fit (230).
+#[test]
+fn the_left_dock_s_tabs_show_their_words_at_its_first_width() {
+    let Some(mut h) = browser_harness("ui-panel-tabs-words", 1600.0, 900.0) else { return };
+    let dock = left_dock_rect(&h);
+    assert_eq!(dock.width().round(), 260.0, "the dock at its first width: {dock:?}");
+    let icon_tab = 2.0 * mg_uikit::shell::DOCK_TAB_ICON_PADDING + 16.0 + 1.0;
+    for panel in [Panel::Module, Panel::Resources] {
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
+        settle(&mut h);
+        let (module, resources) = (dock_tab(&h, "Module").rect(), dock_tab(&h, "Resources").rect());
+        assert!(module.width() > icon_tab + 10.0, "{panel:?}: Module's words: {module:?}");
+        assert!(resources.width() > module.width(), "{panel:?}: Resources' words: {resources:?}");
+        assert_eq!(resources.left(), module.right(), "{panel:?}: side by side");
+        let fold = h.get_by_label("Fold the Left Dock").rect();
+        assert!(fold.right() <= dock.right() + 0.5, "{panel:?}: the fold inside: {fold:?}");
+        // (The first tool: Module Properties, or Export's.)
+        let first = match panel {
+            Panel::Module => h
+                .query_all_by_label("Module Properties")
+                .map(|n| n.rect())
+                .find(|r| r.center().y < module.bottom())
+                .expect("the Module panel's button"),
+            _ => export(&h).rect(),
+        };
+        assert!(resources.right() < first.left(), "{panel:?}: before the tools: {first:?}");
+    }
+    left_dock_width(&mut h, 230.0);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::Module));
+    settle(&mut h);
+    let module = dock_tab(&h, "Module").rect();
+    assert_eq!(module.width(), icon_tab, "icons alone at 230: {module:?}");
+}
+
 /// The Left Dock's right edge: its panel's, as egui keeps it under the
 /// panel's id (`"tree"`).
 fn dock_right(h: &Harness<'_, Moonglow>) -> f32 {

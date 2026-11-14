@@ -3,7 +3,7 @@ type: How-to
 title: Remaking the README and manual pictures (docs/images)
 description: "How docs/images' README and manual pictures are made from screens.rs, and how they are cut and encoded, so a release can make them again the same way."
 tags: []
-status: stable
+status: deprecated
 generated: { by: agdb/0.2.0, at: 2026-11-13T21:52:57Z }
 touches: ["crates/mg-ui/tests/screens.rs:readme_screenshots", "crates/mg-ui/tests/screens.rs:described_table", docs/images/]
 asks:

@@ -2349,11 +2349,9 @@ impl Renderer {
         self.game.begin(bytemuck::cast_slice(&lights));
 
         // Draws.
-        // The sky first, around the camera.
-        // Around the camera, at ground level (the game's horizon fade then
-        // covers what the camera sees of the horizon).
+        // The sky first, around the camera ([`sky_place`]).
         let around = |s: &crate::Instance| crate::Instance {
-            transform: Mat4::from_translation(camera.eye.with_z(0.0)) * s.transform,
+            transform: sky_place(camera.eye) * s.transform,
             ..s.clone()
         };
         let sky = scene.sky.as_ref().map(around);
@@ -4025,10 +4023,49 @@ impl Targets {
     }
 }
 
+/// The highest the game's camera stands over the ground by default: its
+/// farthest distance from what it looks at (`CameraMaxDist`, 1 to 25 since
+/// 1.69; nwn.wiki, "1.69" and "1.74.8163").
+pub(crate) const GAME_CAMERA_HIGHEST: f32 = 25.0;
+
+/// Where the skybox (and the game's horizon fade over it) is drawn for a
+/// camera at `eye`: around it, at ground level, as the client draws it
+/// (`grass_and_sky_look`), so its horizon fade covers what the camera
+/// sees of the horizon. A view's camera higher than the game's
+/// ([`GAME_CAMERA_HIGHEST`]: an area seen whole is 150 m up and more) has
+/// the sky raised with it, to stand that high over the sky's ground: the
+/// skybox (about 460 m to each side, 310 m up from its ground, the fade a
+/// bowl 390 m deep under it) is seen as the game's camera sees it, never
+/// from above its top, and the fade's bands, in the fog's color, stay as
+/// far under the horizon as in the game (from 150 m up they reached the
+/// sides of a wide view looking down).
+pub(crate) fn sky_place(eye: Vec3) -> Mat4 {
+    Mat4::from_translation(eye.with_z((eye.z - GAME_CAMERA_HIGHEST).max(0.0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{LOST_RIPPLE_GRAY, procedure_picture, ripple_of};
     use glam::{Mat4, Vec3};
+
+    /// The sky is around the camera at ground level from the game's camera
+    /// heights (as the client draws it), and raised with a higher view's
+    /// camera to stand as high over it as the game's highest: an area seen
+    /// whole from 151 m showed the horizon fade's fog-colored band at the
+    /// sides of a 2559 by 800 window, and a large area's camera stood over
+    /// the skybox's top (310 m).
+    #[test]
+    fn the_sky_stands_under_the_camera_as_the_game_s() {
+        let at = |eye: Vec3| super::sky_place(eye).transform_point3(Vec3::ZERO);
+        assert_eq!(at(Vec3::new(30.0, 40.0, 12.0)), Vec3::new(30.0, 40.0, 0.0), "the game's");
+        assert_eq!(at(Vec3::new(30.0, 40.0, 25.0)), Vec3::new(30.0, 40.0, 0.0), "its highest");
+        assert_eq!(at(Vec3::new(30.0, 40.0, -3.0)), Vec3::new(30.0, 40.0, 0.0), "under ground");
+        for high in [151.0, 500.0] {
+            let sky = at(Vec3::new(55.0, 55.0, high));
+            assert_eq!(sky.truncate(), glam::Vec2::new(55.0, 55.0));
+            assert_eq!(high - sky.z, super::GAME_CAMERA_HIGHEST, "{high} m up");
+        }
+    }
 
     /// What the surfaces are kept by is numbered anew when they are
     /// forgotten (the resources changed): the instances' value sets,

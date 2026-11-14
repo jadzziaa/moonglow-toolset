@@ -3,7 +3,8 @@
 //! and its draws encoded), and as long again for the GPU to draw it. Each
 //! view is timed as the desktop app runs it (no accessibility tree, the
 //! clock moving on by a 144th of a second a frame), at the development
-//! machine's screen (3440×1440): with the pointer moving over it, with the
+//! machine's screen (3440×1440, in a window 3440×1400: the screen less its
+//! taskbar, as a maximized window has it): with the pointer moving over it, with the
 //! wheel turning, and left alone (where it says how soon it asks to be
 //! drawn again). The views over the budget are named at the end, and a
 //! test fails where one is over it by more than [`MARGIN`] and not among

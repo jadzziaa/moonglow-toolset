@@ -2074,9 +2074,8 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             if !tab_fits {
                 tabs = DockTabs::new(BOTTOM_DOCK);
             }
-            let icons = tabs.icons_in(ui, bar_width);
             let room = bar_width
-                - tabs.tabs_width(ui, icons)
+                - tabs.tabs_width_in(ui, bar_width)
                 - kit::TOOLS_PADDING.0
                 - kit::TOOLS_PADDING.1;
             // (The tools go before the tab does: none without it.)

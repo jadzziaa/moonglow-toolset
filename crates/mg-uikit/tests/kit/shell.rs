@@ -764,6 +764,64 @@ fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
     assert!(h.query_all_by_label("Module").count() >= 2, "its name in its tip");
 }
 
+/// Between their words and their icons, a dock's tabs show their words
+/// closer to their sides ([`shell::DOCK_TAB_TIGHT_PADDING`]) where only
+/// so they fit beside the tools (the Left Dock's at its first 260 points
+/// beside five tools, M3 T15): swept a point at a time, the Module tab is
+/// as wide as its words and the full padding, then (narrower bars) as its
+/// words and the tight padding, then its icon's, in that order, each form
+/// over a band of widths, and the tools never past the bar's end.
+#[test]
+fn a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons() {
+    let width = Cell::new(300.0f32);
+    let ends = Cell::new((0.0f32, 0.0f32));
+    let mut h = Harness::builder().with_size(egui::vec2(400.0, 120.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), Theme::Dark);
+        let w = width.get();
+        ui.allocate_ui(egui::vec2(w, 60.0), |ui| {
+            ui.set_width(w);
+            let mut selected = 0;
+            let out = DockTabs::new("Left Dock")
+                .with(DockTab::new("Module").icon(Icon::Module))
+                .with(DockTab::new("Resources").icon(Icon::Folder))
+                .tools_width(5.0 * 22.0)
+                .show(ui, &mut selected, |ui| {
+                    let mut last = egui::Rect::NOTHING;
+                    for name in ["A", "B", "C", "D", "E"] {
+                        last = ui.add(IconButton::new(Icon::Plus, name).icon_only(true)).rect;
+                    }
+                    last.right()
+                });
+            ends.set((out.inner, out.response.rect.right()));
+        });
+    });
+    let tab = |h: &Harness<'_>| h.get_by_label("Left Dock").get_by_label("Module").rect().width();
+    width.set(400.0);
+    h.run();
+    let words = tab(&h);
+    let tight = words - 2.0 * (shell::DOCK_TAB_PADDING - shell::DOCK_TAB_TIGHT_PADDING);
+    let icon = 2.0 * shell::DOCK_TAB_ICON_PADDING + 16.0 + 1.0;
+    let mut forms = Vec::new();
+    for w in (200..=300).rev().map(|w| w as f32) {
+        width.set(w);
+        h.run();
+        h.run();
+        let (tools_end, bar_end) = ends.get();
+        assert!(tools_end <= bar_end + 0.5, "{w}: the tools past the bar's end");
+        let form = match tab(&h) {
+            t if t == words => 0,
+            t if t == tight => 1,
+            t if t == icon => 2,
+            t => panic!("{w}: a tab {t} wide ({words}, {tight}, {icon})"),
+        };
+        if forms.last().is_none_or(|&(_, f)| f != form) {
+            forms.push((w, form));
+        }
+    }
+    let order: Vec<i32> = forms.iter().map(|&(_, f)| f).collect();
+    assert_eq!(order, [0, 1, 2], "words, closer, icons as the bar narrows: {forms:?}");
+}
+
 /// A strip without its chevron (its dock unfolded by a control of its
 /// own): no "Show the Left Dock" in it, its panels' buttons from its top,
 /// each reporting its click.

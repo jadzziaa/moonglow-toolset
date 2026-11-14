@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T11:27:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T13:30:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -911,26 +911,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   view's overlays are drawn over the 3D view, whatever the theme. What
   else a builder who uses it finds wanting waits on such a pass. (S) (a
   senior builder's review, October 2026)
-- **Panes folded away** (GitHub issue 10, open: waits on its reporter's
-  retest of the one-button rule, built on 1.31.0): a View menu (Left
-  Dock, Right Dock, Log, ticked while shown; Hide All Panels; Reset
-  Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
-  side dock folded away leaves a strip at the window's edge that brings
-  it back, as wide as it was; the state is kept in the settings. Each
-  dock has one control of its own to fold it away, by the reporter's
-  rule: the Left and Right Docks a button beside the edge they face the
-  middle by, half way along it, in the same place folded (beside the
-  strip's edge); the Bottom Dock its Log switch in the Status Bar. The
-  palettes' part is settled by the Right Dock (M3 T5, the owner's
-  ruling R5): the palettes are its Palette panel, fixed there, so their
-  pane's covered egui_dock arrow, its blank room before the first tab,
-  and the palettes joined to the middle's tabs, split above, below or
-  left of it, or in a window with no edge button, are gone with the
-  pane (`each_side_dock_folds_by_one_button_on_its_tab_bar` holds the
-  Right Dock to the Left's assertions). The middle's panes' egui_dock arrows
-  are gone with M3 T9's editor groups (egui_dock patched, `vendor/egui_dock`:
-  the main surface's tab bars draw no arrow and no close all; a floating
-  window's keep its arrow, which folds the window to its bar). (from builders' reports after 1.19.1)
+- **The docks' fold controls and a window dropped on the middle, by
+  hand** (GitHub issues 10 and 21, open: wait on a hand in the running
+  program). Issue 10's one-button rule is built as the shell's (M3, the
+  proposal's U3): each dock has one control of its own to fold it away,
+  the Left and Right Docks a button at the end of their tab bar (folded,
+  the chevron at the top of their strip, which brings the dock back as
+  wide as it was), the Bottom Dock its Log switch in the Status Bar;
+  View › Left Dock, Right Dock, Log, Hide All Panels and Reset Layout,
+  with their keys; the state kept in the settings. It waits on its
+  reporter's retest on the release that carries M3. Issue 21: a tool
+  window dragged from a window of its own onto a side target of the
+  middle was seen to move and not to dock, by the tests' drag, which
+  can't make a window of its own; it waits on a drag by hand, the
+  owner's (a tool's tab dropped on a side of the middle is docked there,
+  `a_tool_tab_dropped_on_a_side_is_docked_there`). (S) (GitHub issues 10
+  to 24, after 1.19.1 and 1.20.0; 21 after 1.30.2)
 - **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
   Alt alone or F10 opens the first menu and closes them (over an area's
   view F10 is Select Tiles', as in Aurora), Left and Right
@@ -946,31 +942,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   events). Waits: Alt alone on Windows, where the system may take Alt
   for its own menu (a Windows build). (S) (from builders' reports
   after 1.19.1)
-- **The middle with a tab beside the palettes** (issue 11): the middle
-  was let go where another tab (the resource browser, then) shared the
-  palettes' pane, and the palettes dropped among the middle's areas
-  were taken for the side pane (issue 20). Settled by the owner's
-  ruling R5 of 2026-11-11: the resource browser is the Left Dock's
-  Resources panel since M3 T4 (issues 21 and 23) and the palettes the
-  Right Dock's Palette panel since M3 T5, neither of them a tab of the
-  editor area to share a pane with or drop on the middle
-  (`the_palette_is_a_panel_not_a_tab`); the editor area holds editors
-  alone, and the middle keeps its place with every area closed
-  (`the_middle_keeps_its_place_with_no_area_open`). A tool's tab
-  dropped on a side of the middle is still docked there
-  (`a_tool_tab_dropped_on_a_side_is_docked_there`). A tool docked alone
-  beside the middle (the Faction Editor split off an area's right) is an
-  editor group since M3 T9, as the boards' editor area has them: with
-  the last area and Module Properties closed it takes the whole editor
-  area, as any group left alone does, and "No area open" shows once no
-  tab is left (`a_tool_s_group_left_alone_takes_the_editor_area`). What
-  remains: a tool window dragged from a window of its own onto a side
-  target of the middle was seen to move and not to dock, by the tests'
-  drag (issue 21's report was the resource browser's; not confirmed
-  either way in the window). (S) (GitHub issues 10 to 24, after 1.20.0;
-  20 and 21 after 1.30.2) (the window's drop waits on a drag by hand in
-  the running program, the owner's: the UI tests can't make a window of
-  its own)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
   Left and fold the tree): after a click in a list (the module tree, a
@@ -1696,9 +1667,6 @@ is not taken for a new gap.
   keep the plain strong style; only section headings were made larger.
 - **Scripts and conversations by name:** they have no names; the tree
   lists them by ResRef.
-- **A window's bar:** egui_dock gives a folded window the height of its
-  tab bar, frame included, so the dock's windows are drawn without a
-  frame margin and their tabs' contents are given one instead.
 - **Copy… of a script** takes its compiled script along; its debug
   information (`.ndb`) is made when the copy is next compiled.
 - **Deleting a prefab** isn't Edit › Undo's: the palette's Undo Delete
@@ -2222,10 +2190,12 @@ is not taken for a new gap.
   set-up, not the walk, as the renders hold the GPU and the others read
   each area differently; no walk of the five together. (Settled by the
   owner, 2026-10-29.)
-- **The Command Palette's Undo in a script** is the module's (its field
-  has the keys), where Edit › Undo, the toolbar's Undo and Ctrl+Z are the
-  script's while its editor has the keyboard. (a builder's report on
-  1.25.1) (Settled by the owner, 2026-10-29.)
+- **Undo chosen in Quick Open, with a script in front,** is the module's
+  (the field has the keys), where Edit › Undo, the Top Bar's Undo and
+  Ctrl+Z are the script's while its editor has the keyboard. Ctrl+Z typed
+  in the field is the field's own (M3 T8's review). (a builder's report on
+  1.25.1, of the Command Palette Quick Open took the place of in M3 T8)
+  (Settled by the owner, 2026-10-29.)
 - **A module's files changed outside, read on a thread of their own**
   (`mg_module::outside`), leave the files' memory in that thread's
   allocator arena: the process keeps about 200 MB more after a 970-file

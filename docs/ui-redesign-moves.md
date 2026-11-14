@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T06:49:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T13:30:18Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -99,7 +99,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Definition, References, Rename Symbol…, Used By | Header icons |
 | To Scratch | Header, More button |
 | Codepage label | Header, right end |
-| "modified" label | The dot on the document tab |
+| "modified" label | The dot on the document tab ✓ M3 T9 (the dot; the editor's own label goes with its header, M4) |
 | Live error line under the toolbar | Status Bar message, and a wavy underline on the line |
 | Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel |
 | Help tab (bottom) | Right Dock, Help under Reference |
@@ -132,7 +132,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel |
+| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) |
 | The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll |
 | Basic: First name, Last name (languages button, Random name), Tag | Identity section |
 | Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section |
@@ -213,19 +213,19 @@ Every control of the screens mocked in the second round and its home in the mock
 | Help tab of the script's bottom pane | Under Reference, as on the Script board |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window |
 | Resize corner | A grip at the bottom right ✓ M3 T11 |
-| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties |
+| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) |
 
 
 #### New
 
-- The docks and Status Bar follow the active docked editor, and a floating editor brings its own panels.
+- The docks and Status Bar follow the active docked editor, and a floating editor brings its own panels. ✓ M3 (the docks T6, the Status Bar's hints and counts T12; a floating editor keeps its own panes inside its window, the plan's Part 2, decision 3)
 
 ### 2DA Table Editor
 
 | Today | In the redesign |
 |---|---|
 | Save, Add Row with its count | Header, left |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Empty Row, Delete Row, Add Column… | Header, icon buttons |
 | Find, Go to, "N cells are wrong" | Header |
 | Values as names, Strings as text | Header, right, icon toggles |
@@ -254,7 +254,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign |
 |---|---|
 | Find, Go to, Add Line, Find References | Header |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Remove Last Line, Save | Header, icon buttons |
 | Only lines with text | Header, icon toggle |
 | Export CSV…, Export JSON… | Export menu |
@@ -313,7 +313,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | Save beside the pages | Editor header, left of the command group: it saves the tileset file |
 | Five pages | Page switch in the header |
 | Make Palette, Check, Render Minimap Pictures | Header |
@@ -403,7 +403,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; Properties is M4's (S2) |
 | Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4 |
 | Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
-| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged |  |
+| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn, More, the shelf and the compass are M4's area header |
 
 
 #### How the Shell Yields
@@ -428,8 +428,8 @@ Every control of the screens mocked in the second round and its home in the mock
 | Recent modules | Recent Modules list, the full path as a weak second line |
 | "No game data…" warning, Options… | Status section |
 | Update bar: What's New…, Install Now, Later | Status section |
-| Left Dock | Not drawn: today it shows only with a module open |
-| Build actions, Save, Undo, Redo | Drawn disabled |
+| Left Dock | Not drawn: today it shows only with a module open ✓ M3 T4 (with no module it holds no panel and is not drawn; Tools › Resource Browser shows it with the Resources panel alone) |
+| Build actions, Save, Undo, Redo | Drawn disabled ✓ M3 T2 (`the_top_bar_s_buttons_are_named_tipped_and_enabled_as_their_commands`) |
 | "No area open" page (today's no_area) | A centered empty state with Area Wizard… and Go to Start; recent areas go to Quick Open and the Module panel |
 
 
@@ -455,7 +455,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Compile Models | Editor header |
 | Path and description memo | Details › File and Description |
 | Add Files…, Add Folder…, Remove, Extract…, Extract All…, Save, Save As…, Find | Editor header, same names |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
 | OK, Cancel | Editor header, right end |
 | By name, By type, By size | Sortable column headers |
 | Name, size and "from path" in each row | Columns Name, Size and Source |

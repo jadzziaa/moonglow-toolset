@@ -601,11 +601,25 @@ impl DockTab {
     }
 
     fn width(&self, ui: &Ui) -> f32 {
+        self.width_at(ui, DOCK_TAB_PADDING)
+    }
+
+    /// Its width showing its words `padding` from each side.
+    fn width_at(&self, ui: &Ui, padding: f32) -> f32 {
         let font = FontId::proportional(metrics::BODY_SIZE);
         let words = ui.painter().layout_no_wrap(self.text.clone(), font, Color32::WHITE).size().x;
         let badge = self.badge.as_ref().map_or(0.0, |b| DOCK_TAB_BADGE_GAP + b.width(ui));
         // (And the 1 px line at its right.)
-        2.0 * DOCK_TAB_PADDING + words + badge + 1.0
+        2.0 * padding + words + badge + 1.0
+    }
+
+    /// Its width in `form`.
+    fn width_in(&self, ui: &Ui, form: TabForm) -> f32 {
+        match form {
+            TabForm::Words => self.width(ui),
+            TabForm::Tight => self.width_at(ui, DOCK_TAB_TIGHT_PADDING),
+            TabForm::Icons => self.icon_width(ui),
+        }
     }
 
     /// Its width showing its icon alone (and its badge).
@@ -617,6 +631,22 @@ impl DockTab {
 
 /// An icon tab's padding at each side ([`DockTab::icon`]).
 pub const DOCK_TAB_ICON_PADDING: f32 = 8.0;
+
+/// A tab's padding at each side of its words where they fit beside the
+/// tools only so ([`DockTabs::tools_width`]): an icon tab's, before the
+/// tabs give their words up. (The Left Dock's Module and Resources at its
+/// first 260 px, beside the Module panel's four buttons and the fold
+/// button, as the Main board shows their words.)
+pub const DOCK_TAB_TIGHT_PADDING: f32 = DOCK_TAB_ICON_PADDING;
+
+/// How a [`DockTabs`]' tabs show at a bar's width: their words, their
+/// words with less room at their sides, or their icons alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TabForm {
+    Words,
+    Tight,
+    Icons,
+}
 
 /// What a [`DockTabs`] did.
 #[derive(Debug)]
@@ -660,11 +690,12 @@ impl DockTabs {
     }
 
     /// The tools' width (`tools` will lay out so much): where the tabs'
-    /// words and the tools do not fit the bar side by side, and every tab
-    /// has an icon ([`DockTab::icon`]), the tabs show their icons alone,
-    /// each its name in its tip (and still named by it). Measured each
-    /// frame from the words and the bar's width alone, so at one width it
-    /// is always the one or the other.
+    /// words and the tools do not fit the bar side by side, the words are
+    /// [`DOCK_TAB_TIGHT_PADDING`] from the tabs' sides, and where they do
+    /// not fit so either, and every tab has an icon ([`DockTab::icon`]),
+    /// the tabs show their icons alone, each its name in its tip (and
+    /// still named by it). Measured each frame from the words and the
+    /// bar's width alone, so at one width it is always the one form.
     pub fn tools_width(mut self, width: f32) -> Self {
         self.tools_width = Some(width);
         self
@@ -681,12 +712,30 @@ impl DockTabs {
 
     /// Whether the tabs show their icons alone in a bar `bar` wide.
     pub fn icons_in(&self, ui: &Ui, bar: f32) -> bool {
-        let Some(tools) = self.tools_width else { return false };
-        if self.tabs.is_empty() || self.tabs.iter().any(|t| t.icon.is_none()) {
-            return false;
+        self.form_in(ui, bar) == TabForm::Icons
+    }
+
+    /// The width its tabs take side by side in a bar `bar` wide, in the
+    /// form they show there (their words, closer, or their icons alone).
+    pub fn tabs_width_in(&self, ui: &Ui, bar: f32) -> f32 {
+        let form = self.form_in(ui, bar);
+        self.tabs.iter().map(|t| t.width_in(ui, form)).sum()
+    }
+
+    /// How the tabs show in a bar `bar` wide ([`DockTabs::tools_width`]).
+    fn form_in(&self, ui: &Ui, bar: f32) -> TabForm {
+        let Some(tools) = self.tools_width else { return TabForm::Words };
+        let fits = |form| {
+            let tabs: f32 = self.tabs.iter().map(|t| t.width_in(ui, form)).sum();
+            tabs + TOOLS_PADDING.0 + tools + TOOLS_PADDING.1 <= bar
+        };
+        if self.tabs.is_empty() || fits(TabForm::Words) {
+            TabForm::Words
+        } else if fits(TabForm::Tight) || self.tabs.iter().any(|t| t.icon.is_none()) {
+            TabForm::Tight
+        } else {
+            TabForm::Icons
         }
-        let words: f32 = self.tabs.iter().map(|t| t.width(ui)).sum();
-        words + TOOLS_PADDING.0 + tools + TOOLS_PADDING.1 > bar
     }
 
     /// A tab reading `text`.
@@ -719,7 +768,8 @@ impl DockTabs {
         let t = ui.tokens();
         let (bar, response) = bar_rect(ui);
         paint_bar(ui, &t, bar);
-        let icons = self.icons_in(ui, bar.width());
+        let form = self.form_in(ui, bar.width());
+        let icons = form == TabForm::Icons;
         let mut changed = false;
         // (The tab the arrow keys went to, given the focus once its id is
         // known.)
@@ -736,7 +786,7 @@ impl DockTabs {
                 });
                 ui.spacing_mut().item_spacing.x = 0.0;
                 for (i, tab) in self.tabs.iter().enumerate() {
-                    let wide = if icons { tab.icon_width(ui) } else { tab.width(ui) };
+                    let wide = tab.width_in(ui, form);
                     let size = vec2(wide, bar.height());
                     let (rect, r) = ui.allocate_exact_size(size, Sense::click());
                     ids.push(r.id);
@@ -784,7 +834,7 @@ impl DockTabs {
                         }
                     });
                     let hovered = self.drawn_hovered == Some(i) || r.hovered() || r.has_focus();
-                    paint_dock_tab(ui, &t, rect, tab, on, hovered, r.has_focus(), icons);
+                    paint_dock_tab(ui, &t, rect, tab, on, hovered, r.has_focus(), form);
                     if icons {
                         r.on_hover_text(&name);
                     }
@@ -838,7 +888,7 @@ fn paint_dock_tab(
     on: bool,
     hovered: bool,
     focused: bool,
-    icon_alone: bool,
+    form: TabForm,
 ) {
     let p = ui.painter();
     // (The tab's own part, its line at the right apart.)
@@ -856,7 +906,7 @@ fn paint_dock_tab(
         let ring = body.with_max_y(body.bottom() - 1.0).shrink(1.0);
         p.rect_stroke(ring, 0.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
     }
-    let (x, words) = match tab.icon.filter(|_| icon_alone) {
+    let (x, words) = match tab.icon.filter(|_| form == TabForm::Icons) {
         Some(icon) => {
             let x = rect.left() + DOCK_TAB_ICON_PADDING;
             let side = metrics::ICON;
@@ -868,7 +918,9 @@ fn paint_dock_tab(
             let font = FontId::proportional(metrics::BODY_SIZE);
             let galley = p.layout_no_wrap(tab.text.clone(), font, color);
             let y = (rect.center().y - 0.5 - galley.size().y / 2.0).round();
-            let x = rect.left() + DOCK_TAB_PADDING;
+            let padding =
+                if form == TabForm::Tight { DOCK_TAB_TIGHT_PADDING } else { DOCK_TAB_PADDING };
+            let x = rect.left() + padding;
             let words = galley.size().x;
             p.galley(pos2(x, y), galley, color);
             (x, words)

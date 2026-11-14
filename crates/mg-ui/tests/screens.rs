@@ -6777,8 +6777,10 @@ fn readme_screenshots() {
         app.palette_dock = false;
         let mut h = Harness::builder()
             // (The README's pictures are cut from (8, 8) to (1592, 808),
-            // above the log, as JPEG at quality 88 or PNG of 256 colors.)
-            .with_size(egui::vec2(1600.0, 976.0))
+            // above the log, as JPEG at quality 88 or PNG of 256 colors:
+            // 1022 high since the shell (M3), whose Bottom Dock begins 46
+            // points higher, under the editor area, over the Status Bar.)
+            .with_size(egui::vec2(1600.0, 1022.0))
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.run_steps(3);
@@ -10572,6 +10574,36 @@ fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static,
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     h
+}
+
+/// A crowded document tab bar (M3 T15, for the owner's ruling on where
+/// a cut title is cut): the Main board's window with Chapter1's twelve
+/// `at_m1q4…` scripts docked beside the area, their titles cut alike
+/// (`doc_tabs_crowded.png`).
+#[test]
+#[ignore]
+fn doc_tabs_crowded() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
+    let mut scripts: Vec<ResKey> = {
+        let ws = h.state().ws.as_ref().unwrap();
+        ws.module
+            .keys_of(ResType::NSS)
+            .filter(|k| k.resref.to_string().to_ascii_lowercase().starts_with("at_m1q4"))
+            .copied()
+            .collect()
+    };
+    scripts.sort_by_key(|k| k.resref.to_string().to_ascii_lowercase());
+    for key in scripts.into_iter().take(12) {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+        h.run_steps(2);
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "doc_tabs_crowded");
 }
 
 #[test]

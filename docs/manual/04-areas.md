@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T04:30:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T12:58:01Z }
 ---
 
 # Areas
@@ -11,7 +11,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T04:30:45Z }
 Double-click an area in the module tree (or right-click it › **View
 Area**) to open it in the **area viewer**, which draws its tiles and
 objects with the area's lighting, fog and sky, by day or night. Areas open
-looking straight down at their middle, north up, as in Aurora.
+looking straight down at their middle, north up, as in Aurora. The sky
+is around the camera, as the game draws it; where the camera is higher
+than the game's goes (25 m over the ground, as when an area is seen
+whole), the sky is seen as from the game's highest, so that its horizon,
+and the fade in the fog's color under it, look as in the game.
 
 ## The toolbar
 

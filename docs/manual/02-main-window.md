@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T11:27:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T12:58:01Z }
 ---
 
 # The main window
@@ -354,9 +354,11 @@ the journal and factions, each group's row with its kind's icon and,
 at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
 group lists). (The dock's other tab, **Resources**, is [the resource
-browser](#the-resource-browser); where the dock is too narrow for the
-tabs' words beside the Module panel's four buttons, the tabs show their
-icons alone, a box and a folder, with their names in their tips: the
+browser](#the-resource-browser); the tabs show their words at the
+dock's first width, a little closer together where only so they fit,
+and where the dock is narrower than that, beside the Module panel's four
+buttons and the fold arrow, their icons alone, a box and a folder, with
+their names in their tips: the
 same on either tab, so a tab stays where it was when you choose the
 other. With a tab reached by the keyboard, Left and Right go to the
 other tab, as Enter and Space choose it.) With

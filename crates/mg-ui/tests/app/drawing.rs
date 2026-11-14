@@ -2084,3 +2084,92 @@ fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
         assert!(h.state().model_views[&source].holds_targets());
     }
 }
+
+/// The sky under a high camera: Chapter1's `map_m1q1a` seen whole, from
+/// above, in a window 2559 by 800 (the widest before the wide layout, its
+/// area view about four times as wide as it is high), with Moonglow's
+/// shaders and the game's. The view's sides look about 57° off straight
+/// down: the skybox stood at ground level around a camera 151 m up, and
+/// the game's horizon fade, in the area's fog color (khaki), filled them
+/// (M3 T15, seen in T14's pictures). The sky now stands under the camera
+/// as under the game's highest (`GAME_CAMERA_HIGHEST`, 25 m), whose
+/// picture at that angle is the fade's dark lower band: the sides show
+/// the sky, under three fifths of the fog's color (they were all of it;
+/// now about 45%). Pictures in
+/// `target/test-output/ui-sky-high/`.
+#[test]
+fn the_sky_under_a_camera_higher_than_the_game_s() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let area = ResRef::from_str("map_m1q1a").unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = area_gpu_harness(app, rs, 2559.0, 800.0);
+    let dir = mg_testkit::scratch_dir("ui-sky-high");
+    // (The area's sun fog color, as the view draws the fade in it.)
+    let fog = [152.0, 145.0, 103.0];
+    // The mean of a strip 20 points wide at `x0` across the view `r`'s
+    // middle half.
+    let strip = |img: &image::RgbaImage, r: egui::Rect, x0: f32| -> [f64; 3] {
+        let mut sum = [0.0; 3];
+        let mut n = 0.0;
+        for y in (r.min.y + r.height() / 4.0) as u32..(r.max.y - r.height() / 4.0) as u32 {
+            for x in x0 as u32..x0 as u32 + 20 {
+                let p = img.get_pixel(x, y);
+                for c in 0..3 {
+                    sum[c] += p[c] as f64;
+                }
+                n += 1.0;
+            }
+        }
+        sum.map(|s| s / n)
+    };
+    for shaders in [false, true] {
+        h.state_mut().settings.game_shaders = Some(shaders);
+        if shaders {
+            until_the_game_draws(&mut h);
+        }
+        // Until the view has drawn and its picture rests: the strips the
+        // same in two pictures a step apart (its textures, read apart,
+        // come in over some frames).
+        let start = std::time::Instant::now();
+        let mut last = None;
+        let (img, r) = loop {
+            h.run_steps(1);
+            let Some(view) = h.state().area_views.get(&area).filter(|v| v.pictures > 0) else {
+                assert!(start.elapsed().as_secs() < 60, "the view never drew");
+                continue;
+            };
+            let r = view.rect;
+            let img = h.render().expect("render");
+            let now =
+                [r.min.x + 4.0, r.center().x - 10.0, r.max.x - 24.0].map(|x| strip(&img, r, x));
+            if last == Some(now) {
+                break (img, r);
+            }
+            last = Some(now);
+            assert!(start.elapsed().as_secs() < 60, "the picture never rested: {now:?}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let view = &h.state().area_views[&area];
+        let eye = view.orbit.as_ref().map(|o| o.camera().eye).unwrap();
+        assert!(eye.z > 100.0, "seen whole from high up: {eye}");
+        assert!(r.width() > 3.5 * r.height(), "a wide view: {r:?}");
+        img.save(dir.join(format!("shaders-{shaders}.png"))).unwrap();
+        let strip = |x0: f32| strip(&img, r, x0);
+        let middle = strip(r.center().x - 10.0);
+        assert!(middle.iter().sum::<f64>() > 60.0, "the area drawn: {middle:?}");
+        for (side, x0) in [("left", r.min.x + 4.0), ("right", r.max.x - 24.0)] {
+            let seen = strip(x0);
+            let (sum, most) = (seen.iter().sum::<f64>(), fog.iter().sum::<f64>() * 0.6);
+            assert!(sum > 6.0, "{side}, shaders {shaders}: the sky drawn: {seen:?}");
+            assert!(
+                sum < most,
+                "{side}, shaders {shaders}: the fade's dark band, not its fog color: {seen:?}"
+            );
+        }
+    }
+}
