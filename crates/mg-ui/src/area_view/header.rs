@@ -243,6 +243,11 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     // the AreaPaint board.)
     let painting = app.paint && editable;
     let paint = Cell::new(app.settings.paint);
+    // (And Select Tiles' commands while it is the tool in hand: the
+    // AreaTiles board.)
+    let tiling = view.tile_mode && editable && !painting;
+    let mut tile_properties = !app.settings.hide_tile_properties;
+    let tile_tips = tiles_tips(app, ui.ctx());
     let scratch_tip = crate::transfer::scratch_tip(
         app.settings.scratch_dir.as_deref(),
         "the area and the blueprints, scripts and conversations it uses",
@@ -273,7 +278,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     // The left group: what is shown, and how objects are placed.
     let kind_names = ObjectKind::ALL.map(|k| crate::icons::area_tool_kind(k.label()));
     let mut show_in_more = None;
-    if compact || painting {
+    if compact || painting || tiling {
         let count = show.iter().filter(|s| **s).count() + usize::from(show_start);
         let mut pop = Popover::new(SHOW).title(Some(Icon::Eye), "Show");
         let mut any = false;
@@ -308,7 +313,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             // (While Paint is on, in More after its options: the
             // Outliner's eyes are the board's, but for Start, All and
             // None, kept here.)
-            match painting {
+            match painting || tiling {
                 true => show_in_more = Some(item.in_more()),
                 false => h = h.left(item),
             }
@@ -353,9 +358,15 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         let placing = (show_snap || show_turn).then_some(placing);
         h = crate::paint_mode::header_items(h, ui, &paint, placing);
     }
+    if tiling {
+        let has = !view.tile_selection.is_empty();
+        let paste = app.tile_clip.as_ref().zip(view.terrain.as_ref());
+        let paste = paste.is_some_and(|(c, t)| c.tileset == t.tileset);
+        h = tiles_items(h, has, paste, &tile_tips, &mut tile_properties);
+    }
     h = show_in_more.into_iter().fold(h, EditorHeader::left);
     h = h.left(Item::separator());
-    if shown("Snap") && !painting {
+    if shown("Snap") && !painting && !tiling {
         let value = &snap;
         let full = lead + snap_width;
         let mut item =
@@ -378,7 +389,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         }
         h = h.left(item);
     }
-    if shown("Turn") && !painting {
+    if shown("Turn") && !painting && !tiling {
         let value = &turn;
         let full = lead + turn_width;
         let mut item =
@@ -412,7 +423,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         let part = Joined::toggle(crate::icons::ONTO_OBJECTS, "Onto Objects", &mut onto);
         placing.push(part.tip(tip));
     }
-    if !placing.is_empty() && !painting {
+    if !placing.is_empty() && !painting && !tiling {
         let item = Item::joined(PLACING, placing);
         h = h.left(if yields.into_more { item.in_more() } else { item });
     }
@@ -704,6 +715,9 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     if painting {
         app.settings.paint = paint.get();
     }
+    if tiling {
+        tiles_asked(app, view, &out, ui, tile_properties);
+    }
     if out.clicked("Area Properties") {
         app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
     }
@@ -716,6 +730,181 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     }
     if out.clicked(&prefab) {
         app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
+    }
+}
+
+/// Select Tiles' commands' names in the header's left group (the
+/// AreaTiles board), on the tiles selected.
+pub(crate) const REFINE: &str = "Refine Tile";
+pub(crate) const PREVIOUS: &str = "Previous Tile Appearance";
+pub(crate) const NEXT: &str = "Next Tile Appearance";
+pub(crate) const APPEARANCE: &str = "Appearance";
+pub(crate) const ROTATE: &str = "Rotate Tile";
+pub(crate) const TILE_CLIPBOARD: &str = "Tile Clipboard";
+pub(crate) const CUT: &str = "Cut Tiles";
+pub(crate) const COPY: &str = "Copy Tiles";
+pub(crate) const PASTE: &str = "Paste Tiles";
+pub(crate) const DELETE: &str = "Delete Tiles";
+pub(crate) const TILE_PROPERTIES: &str = "Tile Properties";
+
+/// Select Tiles' commands' tips, with their keys as bound (the AreaTiles
+/// board's words).
+struct TilesTips {
+    refine: String,
+    previous: String,
+    next: String,
+    rotate: String,
+    cut: String,
+    copy: String,
+    paste: String,
+    delete: String,
+}
+
+/// The tips of Select Tiles' commands, each with its keys as Options ›
+/// Keyboard has them.
+fn tiles_tips(app: &Moonglow, ctx: &egui::Context) -> TilesTips {
+    use crate::keys::Cmd;
+    let key = |cmd: Cmd| app.keymap.label(cmd, ctx);
+    let with = |words: &str, keys: String| match keys.is_empty() {
+        true => words.to_string(),
+        false => format!("{words} ({keys})"),
+    };
+    let rotate = match (key(Cmd::RotateTile), key(Cmd::RotateTileClockwise)) {
+        (k, c) if c.is_empty() => k,
+        (k, c) if k.is_empty() => format!("{c}: clockwise"),
+        (k, c) => format!("{k}; {c}: clockwise"),
+    };
+    // (egui's own Copy, Cut and Paste, which Options › Keyboard doesn't
+    // bind.)
+    let ctrl = if ctx.os() == egui::os::OperatingSystem::Mac { "Cmd" } else { "Ctrl" };
+    let edit = |key: char| format!("{ctrl}+{key}");
+    TilesTips {
+        refine: with(
+            "Refine Tile: the first tile the next that fits there, the others of its kind made \
+             that tile too",
+            key(Cmd::RefineTile),
+        ),
+        previous: with(
+            "Previous Tile Appearance: a step back through them",
+            key(Cmd::PreviousTileAppearance),
+        ),
+        next: with(
+            "Next Tile Appearance: another tile of the same kind here, turned as this one where \
+             it fits",
+            key(Cmd::NextTileAppearance),
+        ),
+        rotate: with(
+            "Rotate Tile: a quarter turn counter-clockwise, where the tile still fits its \
+             neighbors",
+            rotate,
+        ),
+        cut: with("Cut tiles", edit('X')),
+        copy: with("Copy tiles", edit('C')),
+        paste: with("Paste tiles: click to place the copies", edit('V')),
+        delete: with(
+            "Delete: remove crossers, and a group or a feature whole",
+            format!("Delete; the Eraser, {}", key(Cmd::Eraser)),
+        ),
+    }
+}
+
+/// Select Tiles' commands in the header's left group, in place of the
+/// Select tool's options (the AreaTiles board): Refine Tile, the joined ‹
+/// Appearance ›, Rotate, a line, Cut, Copy and Paste joined, Delete and
+/// the Tile Properties toggle. What acts on the tiles selected is grayed
+/// with none (`has`); Paste where no tiles of the area's tileset are
+/// copied (`paste`).
+fn tiles_items<'a>(
+    h: EditorHeader<'a>,
+    has: bool,
+    paste: bool,
+    tips: &'a TilesTips,
+    tile_properties: &'a mut bool,
+) -> EditorHeader<'a> {
+    let none = "Select tiles first";
+    let tip = |t: &str| if has { t.to_string() } else { format!("{t}. {none}.") };
+    let refine = Item::button(crate::icons::REFINE, REFINE).icon_only().enabled(has);
+    let appearance = Item::joined(
+        APPEARANCE,
+        vec![
+            Joined::button(crate::icons::PREVIOUS_APPEARANCE, PREVIOUS).tip(tip(&tips.previous)),
+            Joined::words(APPEARANCE),
+            Joined::button(crate::icons::NEXT_APPEARANCE, NEXT).tip(tip(&tips.next)),
+        ],
+    )
+    .enabled(has);
+    let rotate = Item::button(Icon::Rotate, ROTATE)
+        .shown_words("Rotate")
+        .enabled(has)
+        .tip(tip(&tips.rotate));
+    let clipboard = Item::joined(
+        TILE_CLIPBOARD,
+        vec![
+            Joined::button(Icon::Cut, CUT).enabled(has).tip(tip(&tips.cut)),
+            Joined::button(Icon::Copy, COPY).enabled(has).tip(tip(&tips.copy)),
+            Joined::button(Icon::Paste, PASTE).enabled(paste).tip(match paste {
+                true => tips.paste.clone(),
+                false => format!("{}. Copy tiles of this tileset first.", tips.paste),
+            }),
+        ],
+    );
+    let delete = Item::button(Icon::Delete, DELETE).icon_only().enabled(has).tip(tip(&tips.delete));
+    let props = Item::toggle(None, TILE_PROPERTIES, tile_properties)
+        .tip("Tile Properties of the tiles selected, in the Right Dock");
+    h.left(refine.tip(tip(&tips.refine)))
+        .left(appearance)
+        .left(rotate)
+        .left(Item::separator())
+        .left(clipboard)
+        .left(delete)
+        .left(props)
+}
+
+/// What Select Tiles' commands in the header asked, done on the tiles
+/// selected in `view`; the Tile Properties toggle's state kept
+/// (`Settings::hide_tile_properties`), the panel shown as it is turned on.
+fn tiles_asked(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    out: &mg_uikit::header::HeaderOutput<()>,
+    ui: &Ui,
+    tile_properties: bool,
+) {
+    use crate::terrain_mode::{OnSelection, act_on_selection};
+    use crate::tile_select::TileStep;
+    let shift = ui.input(|i| i.modifiers.shift);
+    if out.clicked(REFINE) {
+        act_on_selection(app, view, OnSelection::Refine { target: app.palette.tile_choice });
+    }
+    if out.clicked(PREVIOUS) {
+        act_on_selection(app, view, OnSelection::Step(TileStep::Appearance { back: true }));
+    }
+    if out.clicked(NEXT) {
+        act_on_selection(app, view, OnSelection::Step(TileStep::Appearance { back: false }));
+    }
+    if out.clicked(ROTATE) {
+        act_on_selection(app, view, OnSelection::Step(TileStep::Rotate { back: shift }));
+    }
+    if (out.clicked(CUT) || out.clicked(COPY)) && !view.tile_selection.is_empty() {
+        app.tile_clip = crate::tile_select::copy_tiles(app, view);
+        if app.tile_clip.is_some() {
+            crate::widgets::mark_clipboard(ui.ctx(), "tiles");
+        }
+        if out.clicked(CUT) {
+            crate::tile_select::delete(app, view);
+        }
+    }
+    if out.clicked(PASTE) && app.tile_clip.is_some() {
+        view.tile_pasting = true;
+    }
+    if out.clicked(DELETE) && !view.tile_selection.is_empty() {
+        crate::tile_select::delete(app, view);
+    }
+    if tile_properties == app.settings.hide_tile_properties {
+        app.settings.hide_tile_properties = !tile_properties;
+        if tile_properties {
+            app.actions.push(Action::ShowPanel(crate::Panel::TileProperties));
+        }
     }
 }
 

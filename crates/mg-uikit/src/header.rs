@@ -76,7 +76,7 @@
 
 use std::cell::RefCell;
 
-use egui::{Id, Rect, Response, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
+use egui::{Color32, Id, Rect, Response, Sense, Stroke, Ui, UiBuilder, pos2, vec2};
 
 use crate::button::{ButtonLook, KitButton};
 use crate::icons::Icon;
@@ -90,6 +90,8 @@ pub const HEADER_PADDING: f32 = 6.0;
 pub const HEADER_GAP: f32 = 4.0;
 /// The seam between a joined group's buttons (`.join`: `gap: 1px`).
 pub const JOIN_SEAM: f32 = 1.0;
+/// The room at each side of a joined group's words ([`Joined::words`]).
+pub const JOIN_WORD_PADDING: f32 = 4.0;
 /// The More button's accessible name.
 pub const MORE: &str = "More";
 
@@ -137,6 +139,8 @@ pub struct Joined<'a> {
     toggle: Option<&'a mut bool>,
     enabled: bool,
     tip: Option<String>,
+    /// Words between the group's buttons, no button ([`Joined::words`]).
+    words: bool,
 }
 
 impl std::fmt::Debug for Joined<'_> {
@@ -148,12 +152,35 @@ impl std::fmt::Debug for Joined<'_> {
 impl<'a> Joined<'a> {
     /// A toggle of `on`, showing `icon`, named `name` (Show Creatures).
     pub fn toggle(icon: Icon, name: impl Into<String>, on: &'a mut bool) -> Self {
-        Joined { icon, name: name.into(), toggle: Some(on), enabled: true, tip: None }
+        Joined { icon, name: name.into(), toggle: Some(on), enabled: true, tip: None, words: false }
     }
 
     /// A button showing `icon`, named `name`.
     pub fn button(icon: Icon, name: impl Into<String>) -> Self {
-        Joined { icon, name: name.into(), toggle: None, enabled: true, tip: None }
+        Joined { icon, name: name.into(), toggle: None, enabled: true, tip: None, words: false }
+    }
+
+    /// Words between the group's buttons (`.join-word`: 4 px at each
+    /// side, on `raised`, in `text`), no button: the AreaTiles board's
+    /// "Appearance" between Previous and Next Tile Appearance. Not a
+    /// control: no name in the header's record, no row in More (where
+    /// the group's heading is its name).
+    pub fn words(words: impl Into<String>) -> Self {
+        let name = words.into();
+        Joined { icon: Icon::Info, name, toggle: None, enabled: true, tip: None, words: true }
+    }
+
+    /// Its width on the row: an icon button's, or its words' and their
+    /// padding.
+    fn width(&self, ui: &Ui) -> f32 {
+        match self.words {
+            true => {
+                let font = egui::FontId::proportional(metrics::BODY_SIZE);
+                let galley = ui.painter().layout_no_wrap(self.name.clone(), font, Color32::WHITE);
+                (galley.size().x + 2.0 * JOIN_WORD_PADDING).ceil()
+            }
+            false => metrics::ICON_BUTTON,
+        }
     }
 
     /// Enabled (`true`, the default) or drawn and said disabled.
@@ -183,6 +210,21 @@ impl<'a> Joined<'a> {
         }
         b
     }
+}
+
+/// Paints a joined group's words ([`Joined::words`]) at `ui`'s cursor:
+/// `raised`, the control's height, its words in `text` (`text-off` where
+/// the group is disabled), 4 px at each side.
+fn paint_join_words(ui: &mut Ui, words: &str, enabled: bool) {
+    let t = ui.tokens();
+    let font = egui::FontId::proportional(metrics::BODY_SIZE);
+    let color = if enabled { t.text } else { t.text_off };
+    let galley = ui.painter().layout_no_wrap(words.to_string(), font, color);
+    let size = vec2((galley.size().x + 2.0 * JOIN_WORD_PADDING).ceil(), metrics::CONTROL_HEIGHT);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, t.raised);
+    let at = pos2(rect.left() + JOIN_WORD_PADDING, rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(at.round(), galley, color);
 }
 
 enum Kind<'a> {
@@ -565,7 +607,8 @@ impl<'a> Item<'a> {
             (Kind::Custom { compact: Some((width, _)), .. }, Place::Icon) => Some(*width),
             (Kind::Joined { parts }, Place::Row) => {
                 let n = parts.len() as f32;
-                Some(n * metrics::ICON_BUTTON + (n - 1.0).max(0.0) * JOIN_SEAM)
+                let each: f32 = parts.iter().map(|p| p.width(ui)).sum();
+                Some(each + (n - 1.0).max(0.0) * JOIN_SEAM)
             }
             (Kind::Popover { popover, unfolds: true, .. }, Place::Unfolded) => {
                 popover.can_unfold().then(|| popover.unfolded_width(ui))
@@ -874,7 +917,9 @@ impl<'a> EditorHeader<'a> {
         let rows_of: Vec<Vec<String>> = (self.items.iter())
             .map(|(_, item)| match &item.kind {
                 Kind::Popover { popover, .. } => popover.check_names(),
-                Kind::Joined { parts } => parts.iter().map(|p| p.name.clone()).collect(),
+                Kind::Joined { parts } => {
+                    parts.iter().filter(|p| !p.words).map(|p| p.name.clone()).collect()
+                }
                 _ => Vec::new(),
             })
             .collect();
@@ -1226,6 +1271,10 @@ impl<'a> EditorHeader<'a> {
                                 let count = parts.len();
                                 child.spacing_mut().item_spacing.x = JOIN_SEAM;
                                 for (k, part) in parts.into_iter().enumerate() {
+                                    if part.words {
+                                        paint_join_words(&mut child, &part.name, enabled);
+                                        continue;
+                                    }
                                     let b = part.kit_button(k == 0, k + 1 == count, enabled);
                                     let response = child.add(b);
                                     if response.clicked() {
@@ -1329,7 +1378,7 @@ impl<'a> EditorHeader<'a> {
                     }),
                     Kind::Joined { parts } => {
                         let mut more = more.heading(name);
-                        for part in parts {
+                        for part in parts.into_iter().filter(|p| !p.words) {
                             let Joined { icon, name, toggle, enabled: on_too, .. } = part;
                             let enabled = enabled && on_too;
                             let icon = Some(icon);

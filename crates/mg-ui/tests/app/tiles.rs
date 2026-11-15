@@ -730,11 +730,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         let after = h.state().tile_props.clone().expect("the window stays");
         assert_eq!(after.variant.map(|p| i64::from(p.tile)), Some(id));
         assert_ne!(after.variant, Some(now), "another than the one that was there");
-        assert_eq!(
-            after.base[0].integer("Tile_ID"),
-            Some(id),
-            "taken up: the window is the new tile's"
-        );
+        assert_eq!(after.first_id, id, "read again: the panel is the new tile's");
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.state_mut().tile_props = Some(props);
         h.run_steps(2);
@@ -798,7 +794,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)) == Some(picker)
     };
     for time in 0..2 {
-        h.get_by_label("Main Light 1 Color").click();
+        h.get_by_label("Main light 1 color").click();
         // (The frames the application asks for, and no more: nothing else
         // draws another.)
         h.run();
@@ -810,7 +806,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         h.key_press(egui::Key::Escape);
         h.run_steps(2);
         assert!(h.state().tile_props.as_ref().unwrap().picking.is_none());
-        let beside = h.get_by_label("Main Light 2 Color").rect().center() + egui::vec2(-60.0, 0.0);
+        let beside = h.get_by_label("Main light 2 color").rect().center() + egui::vec2(-60.0, 0.0);
         h.hover_at(beside);
         press(&h, beside, true, egui::Modifiers::NONE);
         press(&h, beside, false, egui::Modifiers::NONE);
@@ -821,10 +817,9 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
     // (No tic01 tile has a replace_tex texture: Replacement Texture is
     // greyed out, and the file's value kept.)
-    assert!(h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
-    h.run_steps(1);
-    h.get_by_label("OK").click();
-    h.run_steps(2);
+    assert!(h.get_by_label("Replacement texture").accesskit_node().is_disabled());
+    // (Written at once, as they are changed: no OK.)
+    h.run_steps(3);
     let t = tile(&mut h, 5);
     assert_eq!(t.integer("Tile_ReplaceTex"), Some(1), "the file's field kept");
     if props.has_main[0] {
@@ -833,8 +828,8 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     if props.has_loops[0] {
         assert_eq!(t.integer("Tile_AnimLoop1"), Some(0));
     }
-    assert!(h.state().tile_props.is_none());
-    // Undone in one step.
+    assert!(h.state().tile_props.is_some(), "the panel shows the tile still");
+    // Undone in one step (both changed in one frame).
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(1);
     assert_eq!(tile(&mut h, 5), original);
@@ -912,12 +907,12 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
     let disabled = |h: &Harness<'_, Moonglow>, label: &str| {
         h.get_by_label(label).accesskit_node().is_disabled()
     };
-    assert!(!disabled(&h, "Main Light 1 Color"));
-    for label in ["Main Light 2 Color", "Source Light 1 Color", "Source Light 2 Color"] {
+    assert!(!disabled(&h, "Main light 1 color"));
+    for label in ["Main light 2 color", "Source light 1 color", "Source light 2 color"] {
         assert!(disabled(&h, label), "{label}");
     }
     for k in 1..=3 {
-        let label = format!("Animation Loop {k}");
+        let label = format!("Animation loop {k}");
         let node = h.get_by_label(&label);
 
         assert!(node.accesskit_node().is_disabled());
@@ -934,7 +929,7 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
     let props = h.state().tile_props.clone().expect("the window is open");
     assert_eq!((props.has_main, props.has_source), ([true, true], [false, false]));
     assert_eq!(props.has_loops, [true; 3]);
-    assert!(!h.get_by_label("Animation Loop 3").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Animation loop 3").accesskit_node().is_disabled());
     h.render().unwrap().save(dir.join("lights-and-loops.png")).unwrap();
     h.state_mut().tile_props = None;
     h.run_steps(2);
@@ -956,9 +951,7 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
         // first tile shows, and goes to every tile that has it.)
         p.touched[..4].fill(true);
     }
-    h.run_steps(1);
-    h.get_by_label("OK").click();
-    h.run_steps(2);
+    h.run_steps(3);
     let (t5, t6) = (tile(&mut h, 5), tile(&mut h, 6));
     assert_eq!(t5.integer("Tile_MainLight1"), Some(7));
     for label in ["Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2", "Tile_AnimLoop1"] {
@@ -970,86 +963,6 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
         [Some(7), Some(9), Some(3), Some(4)]
     );
     assert_eq!(t6.get("Tile_AnimLoop1"), was6.get("Tile_AnimLoop1"), "no loops: kept");
-}
-
-/// Tile Properties closed with changes not applied (Escape, its tab's X)
-/// asks Save, Don't Save or Cancel, as a side editor's tab does; with
-/// none, it closes; its Cancel button discards. (Jasperre's tile
-/// feedback: Aurora's X discards without asking.)
-#[test]
-fn tile_properties_ask_before_closing_with_changes() {
-    use glam::Vec3;
-    let Some((mut h, area)) = area_harness("tile-props-close") else { return };
-    let tile = |h: &mut Harness<'_, Moonglow>| {
-        let ws = h.state_mut().ws.as_mut().unwrap();
-        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
-        are.root.list("Tile_List").unwrap()[5].clone()
-    };
-    let undo_label =
-        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
-    let at = Vec3::new(15.0, 15.0, 0.0);
-    let was = tile(&mut h);
-    let before = undo_label(&h);
-    let change = |h: &mut Harness<'_, Moonglow>| {
-        let p = h.state_mut().tile_props.as_mut().expect("the window is open");
-        assert!(p.has_main[0], "ttr01's tiles have main light 1");
-        p.main[0] = (p.main[0] + 5) % 32;
-        h.run_steps(1);
-    };
-    // Unchanged: Escape closes it at once.
-    tile_properties_of(&mut h, area, &[at]);
-    h.key_press(egui::Key::Escape);
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none(), "closed: nothing to ask");
-    // Changed: Escape asks; Cancel keeps the window and its change.
-    tile_properties_of(&mut h, area, &[at]);
-    change(&mut h);
-    assert_ne!(tile(&mut h), was, "the change in the area at once");
-    h.key_press(egui::Key::Escape);
-    h.run_steps(3);
-    h.get_by_label("Save changes to Tile Properties?");
-    h.render()
-        .unwrap()
-        .save(mg_testkit::scratch_dir("ui-tile-props-close").join("ask.png"))
-        .unwrap();
-    let cancel = h.get_all_by_label("Cancel").last().unwrap().rect().center();
-    h.hover_at(cancel);
-    press(&h, cancel, true, egui::Modifiers::NONE);
-    press(&h, cancel, false, egui::Modifiers::NONE);
-    h.run_steps(3);
-    let p = h.state().tile_props.clone().expect("Cancel: the window stays");
-    assert!(!p.closing && p.changed());
-    assert!(h.query_by_label("Save changes to Tile Properties?").is_none());
-    // Closed as its tab's X closes it: asked; Don't Save takes the change back.
-    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TileProperties]));
-    h.run_steps(3);
-    h.get_by_label("Don't Save").click();
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none());
-    assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "its tab goes");
-    assert_eq!(tile(&mut h), was);
-    assert_eq!(undo_label(&h), before, "nothing left of it");
-    assert_eq!(h.state().ws.as_ref().unwrap().can_redo(), None, "nor to redo");
-    // Again, and Save: applied, as OK does.
-    tile_properties_of(&mut h, area, &[at]);
-    change(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TileProperties]));
-    h.run_steps(3);
-    apart(&h, "Save").click();
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none());
-    assert_ne!(tile(&mut h).integer("Tile_MainLight1"), was.integer("Tile_MainLight1"));
-    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
-    // Its Cancel button: discarded without asking.
-    tile_properties_of(&mut h, area, &[at]);
-    change(&mut h);
-    let cancel = h.get_all_by_label("Cancel").last().unwrap().rect().center();
-    h.hover_at(cancel);
-    press(&h, cancel, true, egui::Modifiers::NONE);
-    press(&h, cancel, false, egui::Modifiers::NONE);
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none());
-    assert!(h.query_by_label("Save changes to Tile Properties?").is_none());
 }
 
 /// A group or feature is one thing (Jasperre's tile feedback): Next Tile
@@ -1178,7 +1091,7 @@ fn groups_and_features_change_only_whole() {
 
     // Allowed: the next appearance is put there, with a warning.
     h.state_mut().settings.edit_group_tiles = true;
-    h.get_by_label("Next Tile Appearance").click();
+    apart(&h, "Next Tile Appearance").click();
     h.run_steps(2);
     click(&mut h, east, egui::Modifiers::NONE);
     assert_ne!(grid(&mut h).tile(2, 1), placed.tile(2, 1), "allowed: changed");
@@ -2073,7 +1986,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     palette_type(&mut h, "Tiles");
     h.run_steps(2);
     // (Its place among the tools: `tile_tools_change_a_tile_s_appearance_and_turn_it`.)
-    h.get_by_label("Refine Tile").click();
+    apart(&h, "Refine Tile").click();
     h.run_steps(2);
     let before = grid(&mut h);
     let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(1, 1), before.tile(1, 1))
@@ -2104,8 +2017,10 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
 
 /// A right click on a tile opens the tile's items without Select Tiles
 /// (a builder's tile feedback): on the ground with no object there, the
-/// area's menu has them (as Aurora's has Tile Properties for a tile); on
-/// an object, not. With a terrain brush, the tile menu, the brush kept.
+/// area's menu has them (as Aurora's has Tile Properties for a tile;
+/// since M4's U5 its Tile Properties… takes Select Tiles with that tile
+/// selected, the Right Dock's panel showing it); on an object, not. With
+/// a terrain brush, the tile menu, the brush kept.
 #[test]
 fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     use glam::Vec3;
@@ -2136,11 +2051,13 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     );
     h.get_by_label("Tile Properties…").click();
     h.run_steps(2);
-    let props = h.state().tile_props.clone().expect("Tile Properties is open");
+    let props = h.state().tile_props.clone().expect("Tile Properties shows the tile");
     assert_eq!(props.tiles, [5]);
-    assert!(!h.state().area_views[&area].tile_mode, "still working on objects");
-    h.state_mut().tile_props = None;
+    assert!(h.state().area_views[&area].tile_mode, "Select Tiles taken");
+    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    area_click(&mut h, "Select Objects");
     h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
     // A waypoint: its menu, no tile's items.
     let waypoint = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
     right_click(&mut h, waypoint);
@@ -2246,7 +2163,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     let cell = before.lattice.cell(1, 1);
     let now = before.tile(1, 1);
     // Next, then Previous: another tile, then back.
-    h.get_by_label("Next Tile Appearance").click();
+    apart(&h, "Next Tile Appearance").click();
     h.run_steps(2);
     click(&mut h);
     let next = step_appearance(&index, &cell, now, false).expect("Rural's grass has others");
@@ -2255,7 +2172,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     assert_eq!(g.tile(1, 1), next);
     assert_eq!(g.lattice, before.lattice, "no terrain painted");
     assert_eq!(undo_label(&h).as_deref(), Some("Next tile appearance"));
-    h.get_by_label("Previous Tile Appearance").click();
+    apart(&h, "Previous Tile Appearance").click();
     h.run_steps(2);
     click(&mut h);
     assert_eq!(grid(&mut h).tile(1, 1), now, "a step back");
@@ -2272,7 +2189,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
             .map(|l| t.integer(l))
     };
     let was = tile(&mut h);
-    h.get_by_label("Rotate Tile").click();
+    apart(&h, "Rotate Tile").click();
     h.run_steps(2);
     click(&mut h);
     let turned = turn_fit(&index, &cell, now, false).expect("grass turns");
@@ -2385,7 +2302,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     // Next: the selected tile steps, the selection stays; again, a step
     // further; each one step to undo.
     shot(&mut h, "one-before");
-    h.get_by_label("Next Tile Appearance").click();
+    apart(&h, "Next Tile Appearance").click();
     h.run_steps(3);
     shot(&mut h, "one-next");
     let next = step_appearance(&index, &cell((1, 1)), now, false).expect("grass has others");
@@ -2395,7 +2312,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(selecting(&h), (true, one.clone(), true), "Select Tiles and the selection kept");
     assert_eq!(undo_label(&h).as_deref(), Some("Next tile appearance"));
     only_changed(&list, &tiles(&mut h), &[5]);
-    h.get_by_label("Next Tile Appearance").click();
+    apart(&h, "Next Tile Appearance").click();
     h.run_steps(3);
     let further = step_appearance(&index, &cell((1, 1)), next, false).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), further, "a second click: a step further");
@@ -2406,7 +2323,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(tiles(&mut h), list);
 
     // Previous: a step back.
-    h.get_by_label("Previous Tile Appearance").click();
+    apart(&h, "Previous Tile Appearance").click();
     h.run_steps(3);
     let back = step_appearance(&index, &cell((1, 1)), now, true).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), back);
@@ -2417,7 +2334,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
 
     // Rotate: the same tile a quarter round, its lights kept; with Shift,
     // the other way.
-    h.get_by_label("Rotate Tile").click();
+    apart(&h, "Rotate Tile").click();
     h.run_steps(3);
     let turned = turn_fit(&index, &cell((1, 1)), now, false).expect("grass turns");
     assert_eq!(grid(&mut h).tile(1, 1), turned);
@@ -2430,7 +2347,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(undo_label(&h).as_deref(), Some("Rotate tile"));
     undo(&mut h);
     assert_eq!(tiles(&mut h), list, "undone");
-    h.get_by_label("Rotate Tile").click_modifiers(egui::Modifiers::SHIFT);
+    apart(&h, "Rotate Tile").click_modifiers(egui::Modifiers::SHIFT);
     h.run_steps(3);
     let clockwise = turn_fit(&index, &cell((1, 1)), now, true).unwrap();
     assert_eq!(grid(&mut h).tile(1, 1), clockwise, "Shift: clockwise");
@@ -2448,7 +2365,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
         ("Previous Tile Appearance", "Previous tile appearance"),
         ("Rotate Tile", "Rotate tile"),
     ] {
-        h.get_by_label(tool).click();
+        apart(&h, tool).click();
         h.run_steps(3);
         let g = grid(&mut h);
         for c in [(1, 1), (2, 1)] {
@@ -2490,7 +2407,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
         [("Next Tile Appearance", "Next tile appearance"), ("Rotate Tile", "Rotate tile")]
     {
         h.state_mut().area_views.get_mut(&area).unwrap().refused = None;
-        h.get_by_label(tool).click();
+        apart(&h, tool).click();
         h.run_steps(3);
         assert_eq!(grid(&mut h), placed, "{tool}: nothing changed");
         let says = format!("{label}: tiles of a group or feature");
@@ -2505,7 +2422,7 @@ fn palette_tile_tools_step_the_selected_tiles() {
     // No selection: the tool is chosen, as ever, Select Tiles let go.
     h.state_mut().area_views.get_mut(&area).unwrap().tile_selection.clear();
     h.run_steps(2);
-    h.get_by_label("Next Tile Appearance").click();
+    apart(&h, "Next Tile Appearance").click();
     h.run_steps(2);
     let brush = h.state().palette.tile_brush.clone().map(|b| b.brush);
     assert_eq!(brush, Some(mg_area::terrain::Brush::Appearance { back: false }));
@@ -2576,7 +2493,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
 
     // Refine Tile: the first the next that fits, the second (grass too)
     // the same tile.
-    h.get_by_label("Refine Tile").click();
+    apart(&h, "Refine Tile").click();
     h.run_steps(3);
     let first = next_fit(&index, &cell((1, 1)), before.tile(1, 1)).expect("grass has others");
     let g = grid(&mut h);
@@ -2634,7 +2551,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     assert_eq!(selecting(&h), (true, east.clone(), true));
     // Refine Tile on a barn's tile: refused, the reason first on the line.
     h.state_mut().area_views.get_mut(&area).unwrap().refused = None;
-    h.get_by_label("Refine Tile").click();
+    apart(&h, "Refine Tile").click();
     h.run_steps(3);
     assert_eq!(grid(&mut h), placed, "refused");
     let says = "Refine tiles: tiles of a group or feature";
@@ -2715,6 +2632,11 @@ fn the_eraser_s_key_chooses_the_palette_s_eraser() {
 fn tile_variant_pictures_take_the_size_set() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("tile-variant-size") else { return };
+    // (The Right Dock wide enough for two pictures of 200 across: the
+    // panel is its lower section.)
+    wide_window(&mut h);
+    right_dock_width(&mut h, 640.0);
+    settle(&mut h);
     h.state_mut().settings.tile_variant_side = Some(200);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
@@ -2975,9 +2897,9 @@ fn an_exact_tile_goes_in_alone() {
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
     h.run_steps(3);
-    // Not shown with the List and no tile chosen; beside the Gallery's
-    // switch with it.
-    assert!(h.query_by_label("Exact Tile").is_none());
+    // Grayed with the List and no tile chosen (the AreaTiles board);
+    // beside the Gallery's switch with it.
+    assert!(h.get_by_label("Exact Tile").accesskit_node().is_disabled(), "grayed in the List");
     h.get_by_label("Gallery").click();
     h.run_steps(2);
     assert!(!h.state().settings.exact_tiles, "off at first");
@@ -3092,9 +3014,8 @@ fn tile_properties_raise_one_tile_alone() {
     h.get_by_label("Lower Height").click();
     h.run_steps(2);
     h.get_by_label("Raise Height").click();
-    h.run_steps(2);
-    h.get_by_label("OK").click();
     h.run_steps(4);
+    // (Each click a step of its own: no OK.)
     let now = tile_list(&mut h, area);
     assert_eq!(now[10].integer("Tile_Height"), Some(i64::from(was + 2)));
     only_changed(&list, &now, &[10]);
@@ -3111,24 +3032,22 @@ fn tile_properties_raise_one_tile_alone() {
     area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile Properties"));
-    // Two tiles of different heights: mixed; Escape with it set asks.
+    // Two tiles of different heights: mixed; raised, both from the first
+    // tile's height.
     tile_properties_of(&mut h, area, &[Vec3::new(25.0, 25.0, 0.0), Vec3::new(35.0, 25.0, 0.0)]);
-    let props = h.state().tile_props.clone().expect("the window is open");
+    let props = h.state().tile_props.clone().expect("the panel shows them");
     assert_eq!(props.height, None, "mixed");
-    assert!(!props.changed());
     h.get_by_label("Raise Height").click();
-    h.run_steps(2);
+    h.run_steps(3);
     let p = h.state().tile_props.clone().unwrap();
-    assert_eq!(p.height, Some(was + 3), "from the first tile's");
-    assert!(p.changed());
-    h.state_mut().tile_props.as_mut().unwrap().closing = true;
-    h.run_steps(2);
-    h.get_by_label("Save changes to Tile Properties?");
-    h.get_by_label("Don't Save").click();
-    h.run_steps(2);
-    assert!(h.state().tile_props.is_none());
-    // Undone: as it was.
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    assert_eq!(p.height, Some(was + 3), "from the first tile's, both");
+    let now = tile_list(&mut h, area);
+    assert_eq!(now[11].integer("Tile_Height"), Some(i64::from(was + 3)));
+    // Undone, a step for each click (four and one): as it was.
+    for _ in 0..5 {
+        assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    }
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list);
     assert_eq!(waypoints(&mut h), [0.0, 0.0]);
@@ -3216,14 +3135,14 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     h.run_steps(3);
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let all = every.len();
-    h.get_by_label(&format!("All Tiles ({all} in the tileset)"));
+    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
     let shots = mg_testkit::scratch_dir("ui-tile-all-search");
     // A model's name, in part: those tiles alone.
     type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "a04");
     h.run_steps(20);
     let found: Vec<&(u32, String)> = every.iter().filter(|(_, m)| m.contains("a04")).collect();
     assert!(!found.is_empty() && found.len() < all, "{} of {all}", found.len());
-    h.get_by_label(&format!("All Tiles ({} of {all})", found.len()));
+    h.get_by_label(&format!("All tiles ({} of {all})", found.len()));
     let shown: Vec<String> = h
         .query_all_by_label_contains("ttr01_")
         .filter_map(|n| n.accesskit_node().label().or_else(|| n.accesskit_node().value()))
@@ -3251,12 +3170,12 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     h.run_steps(5);
     let by_number =
         every.iter().filter(|(i, m)| i.to_string().contains("117") || m.contains("117"));
-    h.get_by_label(&format!("All Tiles ({} of {all})", by_number.count()));
+    h.get_by_label(&format!("All tiles ({} of {all})", by_number.count()));
     // Escape in the field: cleared, every tile shown, the window open.
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(h.state().tile_props.as_ref().is_some_and(|p| p.find.is_empty()), "cleared, open");
-    h.get_by_label(&format!("All Tiles ({all} in the tileset)"));
+    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list);
@@ -3334,7 +3253,7 @@ fn tile_properties_all_tiles_on_a_large_hak_tileset() {
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let found = every.iter().filter(|(_, m)| m.to_lowercase().contains("tkc02_a01")).count();
     assert!(found > 0 && found < all, "{found} of {all}");
-    h.get_by_label(&format!("All Tiles ({found} of {all})"));
+    h.get_by_label(&format!("All tiles ({found} of {all})"));
     h.render().unwrap().save(shots.join("found.png")).unwrap();
 }
 
@@ -3344,13 +3263,10 @@ fn git_root(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_gff::Struct {
     ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().root.clone()
 }
 
-/// Tile Properties' window moved over the palettes, so that the pictures
-/// show the area beside it.
+/// Tile Properties beside the area, so that the pictures show the area:
+/// the Right Dock's panel (M4's U5) is beside it already.
 fn props_aside(h: &mut Harness<'_, Moonglow>) {
-    let path = h.state().dock.find_tab(&Tab::TileProperties).expect("Tile Properties is open");
-    if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
-        w.set_position(egui::pos2(842.0, 60.0)).set_size(egui::vec2(255.0, 600.0));
-    }
+    assert!(h.state().tile_props.is_some(), "the Right Dock's Tile Properties shows tiles");
     h.run_steps(3);
 }
 
@@ -3386,9 +3302,9 @@ fn undo_label(h: &Harness<'_, Moonglow>) -> Option<String> {
 /// Tile Properties' changes show in the area as they are made (the
 /// owner's report: Height and the lights waited for OK): a tile raised
 /// with + stands raised in the area's Tile_List and its model at once,
-/// what stands on it with it, the window still open; more raising, a
-/// height dragged frame by frame and a light are one step to undo, which
-/// OK keeps.
+/// what stands on it with it; each change after (a raise, a height
+/// typed, a light, Defaults) is a step of its own, and Undo takes them
+/// back to the area as it was, byte for byte (M4's U5: no OK).
 #[test]
 fn tile_properties_changes_show_at_once() {
     use glam::Vec3;
@@ -3403,8 +3319,8 @@ fn tile_properties_changes_show_at_once() {
     shots_beside(&mut h, area, glam::Vec3::new(25.0, 25.0, 0.0), &shots.join("height-before"));
     h.get_by_label("Raise Height").click();
     h.run_steps(2);
-    // At once, before OK: in the area's file and in its view.
-    assert!(h.state().tile_props.is_some(), "the window stays open");
+    // At once: in the area's file and in its view.
+    assert!(h.state().tile_props.is_some(), "the panel shows the tile still");
     let now = tile_list(&mut h, area);
     assert_eq!(now[10].integer("Tile_Height"), Some(i64::from(was + 1)));
     only_changed(&list, &now, &[10]);
@@ -3419,13 +3335,15 @@ fn tile_properties_changes_show_at_once() {
     assert_eq!(point(&mut h), [step, 0.0], "what stands on it with it");
     assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
     shots_beside(&mut h, area, glam::Vec3::new(25.0, 25.0, 0.0), &shots.join("height-raised"));
-    // More: raised again, then a height dragged through frame by frame,
-    // and a light chosen. One step for all.
+    // More: raised again, then a height typed frame by frame, and a light
+    // chosen.
     h.get_by_label("Raise Height").click();
     h.run_steps(2);
     for k in 3..=6 {
         h.state_mut().tile_props.as_mut().unwrap().height = Some(was + k);
-        h.run_steps(1);
+        // (Written, then read again: the next frame's change on what is
+        // read.)
+        h.run_steps(2);
         assert_eq!(tile_list(&mut h, area)[10].integer("Tile_Height"), Some(i64::from(was + k)));
     }
     h.state_mut().tile_props.as_mut().unwrap().height = Some(was + 3);
@@ -3447,9 +3365,7 @@ fn tile_properties_changes_show_at_once() {
     // Defaults: at once too, every control the tile has.
     h.get_by_label("Defaults").click();
     h.run_steps(2);
-    let p = h.state().tile_props.clone().expect("the window stays");
-    // (Not the replacement texture, which Aurora's Defaults hasn't got.)
-    assert_eq!(p.touched, [true, true, true, true, true, true, true, false]);
+    let p = h.state().tile_props.clone().expect("the panel shows the tile still");
     let now = tile_list(&mut h, area);
     for (k, label) in mg_ui::tile_select::FIELDS.iter().enumerate().take(7) {
         let (has, value) = match k {
@@ -3462,125 +3378,24 @@ fn tile_properties_changes_show_at_once() {
         }
     }
     assert_eq!(now[10].integer("Tile_Height"), Some(i64::from(was + 3)), "the height stays");
-    // OK keeps them: one step, which Undo takes back whole.
-    h.get_by_label("OK").click();
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none());
-    assert_eq!(tile_list(&mut h, area), now, "kept");
-    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-    h.run_steps(3);
-    assert_eq!(tile_list(&mut h, area), list, "one step");
-    assert_eq!(git_root(&mut h, area), git);
-    assert_eq!(undo_label(&h), before);
-}
-
-/// Tile Properties' Cancel takes back what the window changed, byte for
-/// byte, nothing left to redo: while its step is the last command, by
-/// taking it back; after a variant put in from the pictures (its own
-/// step, under the window's), the variant stays and the window's height
-/// and light are taken off it; after a command made elsewhere, by a
-/// step of its own that leaves that command's change.
-#[test]
-fn tile_properties_cancel_takes_the_changes_back() {
-    use glam::Vec3;
-    let Some((mut h, area)) = area_harness("tile-live-cancel") else { return };
-    let (list, git, before) = (tile_list(&mut h, area), git_root(&mut h, area), undo_label(&h));
-    let at = Vec3::new(25.0, 25.0, 0.0);
-    let cancel = |h: &mut Harness<'_, Moonglow>| {
-        let c = h.get_all_by_label("Cancel").last().unwrap().rect().center();
-        h.hover_at(c);
-        press(h, c, true, egui::Modifiers::NONE);
-        press(h, c, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-        assert!(h.state().tile_props.is_none(), "closed");
-    };
-    let set_light = |h: &mut Harness<'_, Moonglow>| {
-        let p = h.state_mut().tile_props.as_mut().unwrap();
-        assert!(p.has_main[0], "ttr01's tiles have main light 1");
-        p.main[0] = (p.main[0] + 7) % 32;
-        p.touched[0] = true;
-        h.run_steps(2);
-    };
-    // Raised twice and a light: Cancel, and the area is as it was.
-    tile_properties_of(&mut h, area, &[at]);
-    let was = h.state().tile_props.as_ref().unwrap().height.unwrap();
-    for _ in 0..2 {
-        h.get_by_label("Raise Height").click();
-        h.run_steps(2);
+    // Each a step of its own: undone, the area as it was.
+    let mut steps = 0;
+    while undo_label(&h).as_deref() == Some("Tile Properties") {
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        steps += 1;
     }
-    set_light(&mut h);
-    assert_ne!(tile_list(&mut h, area), list, "shown at once");
-    assert_ne!(git_root(&mut h, area), git);
-    cancel(&mut h);
-    assert_eq!(tile_list(&mut h, area), list, "the tiles byte for byte");
-    assert_eq!(git_root(&mut h, area), git, "what stands on them too");
-    assert_eq!(undo_label(&h), before);
-    assert_eq!(h.state().ws.as_ref().unwrap().can_redo(), None, "nothing to redo");
-
-    // Raised and a light, then a variant put in: the variant goes in at
-    // the window's height and light (its step under the window's), and
-    // Cancel takes them off it, the variant staying.
-    tile_properties_of(&mut h, area, &[at]);
-    h.get_by_label("Raise Height").click();
-    h.run_steps(2);
-    set_light(&mut h);
-    let light = tile_list(&mut h, area)[10].integer("Tile_MainLight1");
-    let props = h.state().tile_props.clone().unwrap();
-    let (_, variants) = props.variants.clone().expect("one tile: its variants");
-    let now = props.variant.unwrap();
-    let other = variants.iter().find(|(p, _)| p.tile != now.tile).expect("another fits").clone();
-    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(other.0.orientation % 4)];
-    let picture = h
-        .get_all_by_label(&format!("{}{turn}", other.1))
-        .next()
-        .map(|n| n.rect().center_top() - egui::vec2(0.0, 40.0))
-        .expect("its picture");
-    h.hover_at(picture);
-    press(&h, picture, true, egui::Modifiers::NONE);
-    press(&h, picture, false, egui::Modifiers::NONE);
-    h.run_steps(4);
-    let t = tile_list(&mut h, area)[10].clone();
-    let id = t.integer("Tile_ID").unwrap();
-    assert_ne!(id, list[10].integer("Tile_ID").unwrap(), "the variant is in");
-    assert_eq!(t.integer("Tile_Height"), Some(i64::from(was + 1)), "at the window's height");
-    assert_eq!(t.integer("Tile_MainLight1"), light, "with the window's light");
-    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"), "the window's step on top");
-    let p = h.state().tile_props.clone().expect("the window stays");
-    assert_eq!(p.base[0].integer("Tile_ID"), Some(id), "the window of the tile put in");
-    cancel(&mut h);
-    let t = tile_list(&mut h, area)[10].clone();
-    assert_eq!(t.integer("Tile_ID"), Some(id), "the variant stays");
-    assert_eq!(t.integer("Tile_Height"), list[10].integer("Tile_Height"), "its height back");
-    assert_eq!(git_root(&mut h, area), git);
-    assert_eq!(undo_label(&h).as_deref(), Some("Tile variant"));
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(3);
-    assert_eq!(tile_list(&mut h, area), list);
-    assert_eq!(undo_label(&h), before);
-
-    // Raised, then a tile changed elsewhere (the window's step no longer
-    // the last): Cancel puts the height back in a step of its own, the
-    // other change staying.
-    tile_properties_of(&mut h, area, &[at]);
-    h.get_by_label("Raise Height").click();
-    h.run_steps(2);
-    let elsewhere = list[0].integer("Tile_ID").unwrap() as i32 + 1;
-    set_tile_id(&mut h, area, 0, elsewhere);
-    assert!(h.state().tile_props.is_some());
-    cancel(&mut h);
-    let now = tile_list(&mut h, area);
-    assert_eq!(now[10], list[10], "the window's tile as it was");
-    assert_eq!(now[0].integer("Tile_ID"), Some(i64::from(elsewhere)), "the other change stays");
+    assert_eq!(steps, 8, "two raises, four heights, the light with one, Defaults");
+    assert_eq!(tile_list(&mut h, area), list, "byte for byte");
     assert_eq!(git_root(&mut h, area), git);
-    assert_eq!(undo_label(&h).as_deref(), Some("Cancel Tile Properties"));
+    assert_eq!(undo_label(&h), before);
 }
 
-/// Undo in the module (Ctrl+Z) while Tile Properties is open (the
-/// owner's report): the window's step goes and the window reads the
-/// tiles again, showing them as they are; a change in it after writes
-/// that change alone (it wrote its old values again with it). Redo
-/// (Ctrl+Y) brings its step back as its own, which Cancel takes back.
+/// Undo in the module (Ctrl+Z) while Tile Properties shows tiles (the
+/// owner's report): a change's step goes and the panel reads the tiles
+/// again, showing them as they are; a change in it after writes that
+/// change alone (it wrote its old values again with it). Redo (Ctrl+Y)
+/// brings the step back, which Ctrl+Z takes back again.
 #[test]
 fn tile_properties_read_the_tiles_again_after_an_undo() {
     use glam::Vec3;
@@ -3609,11 +3424,16 @@ fn tile_properties_read_the_tiles_again_after_an_undo() {
     let shots = mg_testkit::scratch_dir("ui-tile-live-undo");
     h.render().unwrap().save(shots.join("changed.png")).unwrap();
 
-    // Ctrl+Z: the tiles as they were, and the window shows them so.
+    // Ctrl+Z: the light taken back, the height still raised (each change
+    // a step of its own); again: the tiles as they were, and the panel
+    // shows them so.
+    key(&mut h, egui::Key::Z);
+    let p = h.state().tile_props.clone().expect("the panel shows the tile");
+    assert_eq!((p.height, p.main[0]), (Some(was + 1), light), "the light alone undone");
     key(&mut h, egui::Key::Z);
     assert_eq!(tile_list(&mut h, area), list, "undone");
-    let p = h.state().tile_props.clone().expect("the window stays open");
-    assert_eq!((p.height, p.main[0]), (Some(was), light), "the window read them again");
+    let p = h.state().tile_props.clone().expect("the panel shows the tile");
+    assert_eq!((p.height, p.main[0]), (Some(was), light), "the panel read them again");
     assert!(!p.draft().set.iter().any(|s| *s) && p.draft().height.is_none(), "nothing set");
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "and wrote nothing again");
@@ -3633,15 +3453,13 @@ fn tile_properties_read_the_tiles_again_after_an_undo() {
     only_changed(&list, &now, &[10]);
     assert_eq!(git_root(&mut h, area), git, "nothing moved");
     assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
-    // Cancel: as the window opened, one step taken back.
-    h.get_by_label("Cancel").click();
-    h.run_steps(3);
-    assert!(h.state().tile_props.is_none());
+    // Ctrl+Z: one step taken back.
+    key(&mut h, egui::Key::Z);
     assert_eq!(tile_list(&mut h, area), list);
     assert_eq!(undo_label(&h), before);
 
-    // Raised, Ctrl+Z, Ctrl+Y: the window shows the height again, its step
-    // its own, which Cancel takes back with nothing left to redo.
+    // Raised, Ctrl+Z, Ctrl+Y: the panel shows the height again, its step
+    // as it was, which Ctrl+Z takes back.
     tile_properties_of(&mut h, area, &[at]);
     h.get_by_label("Raise Height").click();
     h.run_steps(2);
@@ -3650,12 +3468,10 @@ fn tile_properties_read_the_tiles_again_after_an_undo() {
     key(&mut h, egui::Key::Y);
     assert_eq!(tile_list(&mut h, area)[10].integer("Tile_Height"), Some(i64::from(was + 1)));
     assert_eq!(h.state().tile_props.as_ref().unwrap().height, Some(was + 1), "read again");
-    h.get_by_label("Cancel").click();
-    h.run_steps(3);
-    assert_eq!(tile_list(&mut h, area), list, "Cancel took the redone step back");
+    key(&mut h, egui::Key::Z);
+    assert_eq!(tile_list(&mut h, area), list, "Ctrl+Z took the redone step back");
     assert_eq!(git_root(&mut h, area), git);
     assert_eq!(undo_label(&h), before);
-    assert_eq!(h.state().ws.as_ref().unwrap().can_redo(), None, "nothing to redo");
 }
 
 /// All tiles' Turn turns the tiles chosen at once, each its own tile (its
@@ -3809,7 +3625,7 @@ fn refine_tile_dragged_makes_tiles_of_a_kind_alike() {
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
     h.run_steps(3);
-    h.get_by_label("Refine Tile").click();
+    apart(&h, "Refine Tile").click();
     h.run_steps(2);
     let before = grid(&mut h);
     let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(0, 2), before.tile(0, 2))
@@ -4670,7 +4486,8 @@ fn a_tile_s_textures_show_where_the_tile_is_looked_at() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tile", vec![edit])));
     h.run_steps(4);
     h.get_by_label_contains(&format!("Textures of {} (", other.1.to_lowercase()));
-    h.get_by_label("Cancel").click();
+    // (Out of Select Tiles: the panel goes with it.)
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
 
     // The tile's view.
@@ -4771,7 +4588,7 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
     let props = h.state().tile_props.clone().expect("the window is open");
     assert!(props.has_replace);
     assert_eq!(props.replace, 2);
-    assert!(!h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Replacement texture").accesskit_node().is_disabled());
     h.get_by_value("1: mgr_row1").click();
     h.run_steps(2);
     h.get_by_label("2: mgr_row2").click();
@@ -4780,12 +4597,18 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
     h.get_by_label("Defaults").click();
     h.run_steps(2);
     assert_eq!(replace(&mut h, 5), Some(3), "Defaults leaves it as it is");
-    h.get_by_label("OK").click();
     h.run_steps(20);
     h.render().unwrap().save(dir.join("row-2-chosen.png")).unwrap();
-    // One step to undo.
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-    h.run_steps(2);
+    // The row chosen and Defaults each a step of their own (Defaults one
+    // where the tile has lights or loops to set): undone, row 1 again.
+    for _ in 0..2 {
+        if replace(&mut h, 5) == Some(2) {
+            break;
+        }
+        assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        h.run_steps(2);
+    }
     assert_eq!(replace(&mut h, 5), Some(2));
 
     // With tile 6 (no replace_tex): each tile is written only what its
@@ -4799,16 +4622,14 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         let p = h.state_mut().tile_props.as_mut().unwrap();
         p.replace = 1;
     }
-    h.run_steps(1);
-    h.get_by_label("OK").click();
-    h.run_steps(2);
+    h.run_steps(3);
     assert_eq!(replace(&mut h, 5), Some(1), "row 0");
     assert_eq!(tile(&mut h, 6), was6, "tile 6 has no replace_tex: kept as it was");
 
     // Tile 6 alone: not enabled.
     tile_properties_of(&mut h, area, &[two]);
     assert!(!h.state().tile_props.as_ref().unwrap().has_replace);
-    assert!(h.get_by_label("Replacement Texture").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Replacement texture").accesskit_node().is_disabled());
     h.state_mut().tile_props = None;
     h.run_steps(2);
 
@@ -4830,7 +4651,6 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         if bad == 0 {
             h.render().unwrap().save(dir.join("crash-value.png")).unwrap();
         }
-        h.get_by_label("OK").click();
         h.run_steps(2);
         assert_eq!(replace(&mut h, 5), Some(i64::from(bad)), "kept: nothing chosen");
     }

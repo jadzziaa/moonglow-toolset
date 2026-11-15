@@ -3137,35 +3137,16 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     assert_eq!(chest.integer("Static"), Some(1));
 }
 
-/// An area opens again with its camera where it was left; Tile
-/// Properties (of the tiles it was of), a tile's view and a load order
-/// layer's copy of a resource open again with it.
+/// An area opens again with its camera where it was left; a tile's view
+/// and a load order layer's copy of a resource open again with it.
+/// (Tile Properties is the Right Dock's panel since M4's U5, no tab to
+/// keep: `an_old_record_s_tile_properties_shows_the_panel`.)
 #[test]
 fn an_area_opens_again_with_its_camera_and_tile_tools() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("open-tabs-camera") else { return };
     let path = h.state().module_path().expect("saved");
     h.state_mut().open_tabs_dir = Some(mg_testkit::scratch_dir("ui-open-tabs-camera"));
-    // Tile Properties of the tile at column 1, row 1.
-    area_click(&mut h, "Select Tiles");
-    h.run_steps(2);
-    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
-    h.hover_at(at);
-    press(&h, at, true, egui::Modifiers::NONE);
-    press(&h, at, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Secondary,
-            pressed,
-            modifiers: Default::default(),
-        });
-    }
-    h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
-    h.run_steps(2);
-    assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5]));
     // The camera turned, tilted and nearer.
     let orbit = {
         let view = h.state_mut().area_views.get_mut(&area).unwrap();
@@ -3198,8 +3179,63 @@ fn an_area_opens_again_with_its_camera_and_tile_tools() {
     assert!((now.distance - orbit.distance).abs() < 1e-3, "{now:?} {orbit:?}");
     assert!(app.dock.find_tab(&tile).is_some(), "the tile's view");
     assert!(app.dock.find_tab(&copy).is_some(), "the layer's copy");
-    assert_eq!(app.tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5]));
-    assert!(app.dock.find_tab(&Tab::TileProperties).is_some());
+}
+
+/// A module's kept tabs written before Tile Properties was the Right
+/// Dock's panel (M4's U5) name its tab, `tile-properties:AREA:INDICES`:
+/// read without error, they open the area in Select Tiles with those
+/// tiles selected, so that the Right Dock shows them in its Tile
+/// Properties panel; a record written now keeps no such tab.
+#[test]
+fn an_old_record_s_tile_properties_shows_the_panel() {
+    let Some((mut h, area)) = area_harness("open-tabs-old-tiles") else { return };
+    wide_window(&mut h);
+    let path = h.state().module_path().expect("saved");
+    let dir = mg_testkit::scratch_dir("ui-open-tabs-old-tiles");
+    h.state_mut().open_tabs_dir = Some(dir.clone());
+    // (The record written as the tabs are: the area's.)
+    let written = |h: &mut Harness<'_, Moonglow>| {
+        let mut found = None;
+        for _ in 0..40 {
+            h.run_steps(2);
+            let files = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path());
+            if let Some(f) = files.into_iter().next() {
+                found = Some(f);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        found.expect("the record written")
+    };
+    let file = written(&mut h);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("tile-properties"), "none kept now: {text}");
+    // An older record: Tile Properties of tiles 5 and 6 (columns 1 and 2
+    // of row 1) in a pane of its own, and one past the area's end.
+    let mut record: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let pane = serde_json::json!({
+        "place": "window",
+        "tabs": [format!("tile-properties:{area}:5,6,99")],
+        "rect": [900.0, 100.0, 316.0, 600.0],
+    });
+    record["panes"].as_array_mut().unwrap().push(pane);
+    let old = serde_json::to_string_pretty(&record).unwrap();
+    std::fs::write(&file, old).unwrap();
+    let errors =
+        |app: &Moonglow| app.log.entries.iter().filter(|(l, _)| *l == mg_ui::Level::Error).count();
+    let errors_before = errors(h.state());
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while h.state().tile_props.is_none() && std::time::Instant::now() < deadline {
+        h.run_steps(2);
+    }
+    let app = h.state();
+    let view = &app.area_views[&area];
+    assert!(view.tile_mode, "Select Tiles on");
+    assert_eq!(view.tile_selection, [(1, 1), (2, 1)], "the tiles the area has");
+    assert_eq!(app.tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5, 6]));
+    assert!(h.query_by_label("Tile Properties").is_some(), "the panel's header");
+    assert_eq!(errors(app), errors_before, "read without error");
 }
 
 /// Make Placeables Static: those that lose nothing by it, as one command;

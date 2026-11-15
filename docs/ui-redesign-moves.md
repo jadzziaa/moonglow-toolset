@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -359,26 +359,26 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Select Tiles (F10) | Tool shelf, on |
-| Refine Tile (T) | Header, icon button |
-| Previous and Next Tile Appearance | Header, joined ‹ Appearance › control |
-| Rotate Tile (R) | Header, Rotate button |
-| Copy, Cut, Paste of tiles | Header, three icon buttons |
-| Delete, Eraser (X) | Header, Delete button. The Eraser stays in the palette as a brush |
-| Tile Properties… | Header toggle, and the lower Right Dock panel |
-| Put Down, plugin tile commands | Still the tile menu (right click) |
-| Tile Border, Grid | View controls at the right, as in Main |
-| Tiles palette: search, List and Gallery, Exact Tile | Palette panel, in the same order |
-| Tile Properties: lights, loops, Height, Replacement texture, Defaults, Textures | Properties panel, same fields |
-| Tile Properties OK, Cancel | Gone: the step is one undo step, Cancel becomes Ctrl+Z |
+| Select Tiles (F10) | Tool shelf, on ✓ M4 U4 (and U5: its state's commands take the header's left group) |
+| Refine Tile (T) | Header, icon button ✓ M4 U5 (on the tiles selected, grayed with none; the palette's row stays a brush) |
+| Previous and Next Tile Appearance | Header, joined ‹ Appearance › control ✓ M4 U5 (the kit's `Joined::words` between the two) |
+| Rotate Tile (R) | Header, Rotate button ✓ M4 U5 (Shift + click: clockwise) |
+| Copy, Cut, Paste of tiles | Header, three icon buttons ✓ M4 U5 (joined; Paste grayed until tiles of the tileset are copied) |
+| Delete, Eraser (X) | Header, Delete button. The Eraser stays in the palette as a brush ✓ M4 U5 |
+| Tile Properties… | Header toggle, and the lower Right Dock panel ✓ M4 U5 (the toggle kept in the settings; the tile menu's Tile Properties… takes Select Tiles and shows the panel) |
+| Put Down, plugin tile commands | Still the tile menu (right click) ✓ M4 U5 |
+| Tile Border, Grid | View controls at the right, as in Main ✓ M4 U3 (the Lighting and Overlays popovers) |
+| Tiles palette: search, List and Gallery, Exact Tile | Palette panel, in the same order ✓ M4 U5 (Exact Tile always there, grayed in the List with no tile chosen) |
+| Tile Properties: lights, loops, Height, Replacement texture, Defaults, Textures | Properties panel, same fields ✓ M4 U5 (the Right Dock's lower section, "Lights and Loops", in sentence case) |
+| Tile Properties OK, Cancel | Gone: the step is one undo step, Cancel becomes Ctrl+Z ✓ M4 U5 (each change one step on every tile chosen; a height dragged one step for the drag) |
 | Tile hints | Status Bar: Click, Drag Box, Shift + Click, Ctrl + Click, Right Click ✓ M3 T12 (and Shift + Right Click Next tile, Shift + Drag Add a box; a refusal's notice first; "2 by 3 tiles selected" at the right) |
 
 
 #### New
 
-- The heading "Lights and Loops" and the "6 tiles" subtitle in Tile Properties.
-- The tileset name and counts on the Tiles palette folders.
-- The status count "3 by 2 tiles selected" and the key cap X beside Eraser.
+- The heading "Lights and Loops" and the "6 tiles" subtitle in Tile Properties. ✓ M4 U5 ("Tile (4, 4)" for one tile, "none selected" with none)
+- The tileset name and counts on the Tiles palette folders. ✓ M4 U5 (and the Gallery's terrain and crosser headings their tiles' counts)
+- The status count "3 by 2 tiles selected" and the key cap X beside Eraser. ✓ M3 T12 (the count), M4 U5 (the key caps, the tile tools' too)
 
 #### Not Drawn
 
@@ -632,7 +632,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Palette: Group by, category headings with counts | Unchanged; the pictures wrap inside each heading |
 | Gallery cell: picture, name on two lines, favorite star, hover enlargement with ResRef and Tag | The shared picture cell; the hover enlargement as a tooltip beside the dock |
 | Tiles palette: Exact Tile, terrain and crosser headings with their tiles as pictures | Tiles palette toolbar and list, the tile's model name under each picture |
-| Tile Properties: All tiles (ignore fit), Variant (N fit here) with its Size slider, the variant grid | Tile Properties panel in the Right Dock; the Turn choices and search appear with All tiles on (not drawn) |
+| Tile Properties: All tiles (ignore fit), Variant (N fit here) with its Size slider, the variant grid | Tile Properties panel in the Right Dock; the Turn choices and search appear with All tiles on (not drawn) ✓ M4 U5 (the panel; its pictures today's until U25's shared cell) |
 | Appearance Gallery window: Placeables, Creatures, Doors; hint line with Use the Selection; Find; size slider; count | A document tab: the kind switch, Find, slider and count in its header, the hint line as a strip under it |
 | Appearance Gallery: click, double click, drag, right-click Give to the Selection | Unchanged; the common ones are Status Bar hints |
 | Select Portrait: three radio choices, Race, Gender or Category, the portrait grid, preview, count, OK, Cancel | A dialog by the dialog pattern; the count at the footer's left |

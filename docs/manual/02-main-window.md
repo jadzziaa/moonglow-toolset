@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 ---
 
 # The main window
@@ -588,7 +588,11 @@ on that panel. It holds the
 palettes and the Preview, each on a tab of its tab bar, the one in
 front filling the dock (their words, or their icons alone where the
 dock is too narrow for the words; Left and Right on a tab go to the
-other); they stay there: they can no longer be dragged into the
+other). While **Select Tiles** is on, **Tile Properties** is a second
+section under them, with its own header (**Tile Properties** and what
+it shows, "6 tiles"), the seam between them dragged to share the
+dock's height; in a window under 1400 points it is a third tab of the
+one tab bar ([Areas](04-areas.md#tile-properties)). They stay there: they can no longer be dragged into the
 middle, to the left or into a window of their own. The tab you choose
 in front is remembered, also when the module is opened again and the
 next time Moonglow starts (with nothing chosen, the palette is in
@@ -813,11 +817,11 @@ plugin's panel) opens as **Options › General › Open editors** says:
 **As Tabs**, a tab of the focused editor group (the group last clicked;
 a new installation starts so), or **As Floating Windows**, a window of
 its own over the area, sized for what it shows, so the area view stays put
-(settings from before this switch keep it). Two open in a window of their
-own either way: Tile Properties, which follows the tiles chosen in an
-area view, and a model's view (a blueprint's Pop Out, the palette's
-Preview, a tile's model), opened to look at beside the editor it came
-from. **A kind you move opens where you last put one**: drag a window by
+(settings from before this switch keep it). A model's view (a
+blueprint's Pop Out, the palette's Preview, a tile's model) opens in a
+window of its own either way, to look at beside the editor it came
+from. (Tile Properties is the Right Dock's lower section while Select
+Tiles is on, not a window: [Areas](04-areas.md#tile-properties).) **A kind you move opens where you last put one**: drag a window by
 its tab into the main pane, or beside another, to dock it; drag a tab
 out, or choose **Eject** on its menu, to float it; the next editor of
 its kind opens there too (one moved to the side of the areas' group opens
@@ -849,9 +853,8 @@ no Close: its Cancel answers it.
 **Escape** closes the window in front: a dialog (as its Cancel or close
 button does; a picker opened from a Properties window closes alone, and
 the window stays), then a window with **OK** and **Cancel** (a
-Properties window, Options, Tile Properties) as its **Cancel** does, as in
-Aurora: what was changed in it is set back (Tile Properties with changes
-asks first, as its close button does); a model's window while the pointer
+Properties window, Options) as its **Cancel** does, as in Aurora: what
+was changed in it is set back; a model's window while the pointer
 is over it. **A docked tab with OK and Cancel** (Module Properties, which
 the module opens docked, a Properties tab, Options as a tab) is canceled
 by Escape the same way, in either mode, while it is in front of its
@@ -868,7 +871,7 @@ log, which the Status Bar shows while the log is closed: "Escape canceled
 Module Properties: its changes are set back. Edit › Undo brings them
 back." One **Edit › Undo** brings back what a Properties tab or window
 set back (Module and Area Properties too); what Options had not applied is
-dropped, and Tile Properties with changes asks first. Nothing is said
+dropped. Nothing is said
 where nothing was changed. Escape goes first to what is open over it or has it: an
 open menu or list, Quick Open, a dialog, a window in front with OK and
 Cancel where the keyboard is not in the tab, a search or filter field (the module tree's Filter, an

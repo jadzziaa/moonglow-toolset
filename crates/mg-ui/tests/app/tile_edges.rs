@@ -57,8 +57,9 @@ enum Leave {
     Brush,
     /// Select Tiles on, the raised tile selected.
     TileSelect,
-    /// Tile Properties open (its Height applied as it is changed), Select
-    /// Tiles turned off.
+    /// Tile Properties showing the tile (its Height applied as it is
+    /// changed), then Select Tiles turned off by F10 over the view (the
+    /// panel goes with it, M4's U5).
     PropsOpen,
 }
 
@@ -188,7 +189,8 @@ fn width(h: &Harness<'_, Moonglow>, area: ResRef) -> u32 {
     h.state().area_views[&area].model.as_ref().unwrap().width
 }
 
-/// Tile Properties of the tile at `p`, from Select Tiles' tile menu.
+/// Tile Properties of the tile at `p`, from Select Tiles' tile menu: the
+/// Right Dock's panel shows it.
 fn tile_properties(h: &mut Harness<'_, Moonglow>, area: ResRef, p: Vec3) {
     if !h.state().area_views[&area].tile_mode {
         area_click(h, "Select Tiles");
@@ -210,11 +212,7 @@ fn tile_properties(h: &mut Harness<'_, Moonglow>, area: ResRef, p: Vec3) {
     h.run_steps(2);
     h.get_by_label("Tile Properties…").click();
     h.run_steps(3);
-    let path = h.state().dock.find_tab(&Tab::TileProperties).expect("Tile Properties is open");
-    if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
-        w.set_position(egui::pos2(842.0, 60.0)).set_size(egui::vec2(255.0, 600.0));
-    }
-    h.run_steps(3);
+    assert!(h.state().tile_props.is_some(), "the Right Dock's Tile Properties shows the tile");
 }
 
 /// A tile that fits nowhere in open ground: in Rural the end of a wall,
@@ -340,7 +338,6 @@ fn build(h: &mut Harness<'_, Moonglow>, area: ResRef, case: &Case) -> usize {
         let at = tile_centre(other as u32 % w, other as u32 / w);
         tile_properties(h, area, at);
         height_by(h, case.other_steps);
-        h.get_by_label("OK").click();
         h.run_steps(4);
     }
     let brush_last = case.leave == Leave::Brush;
@@ -365,12 +362,9 @@ fn build(h: &mut Harness<'_, Moonglow>, area: ResRef, case: &Case) -> usize {
         assert_eq!(now[raised].integer("Tile_ID"), Some(i64::from(tile)), "forced in");
     }
     height_by(h, case.steps);
-    if case.leave != Leave::PropsOpen {
-        h.get_by_label("OK").click();
-        h.run_steps(4);
-    }
+    h.run_steps(4);
     if case.leave == Leave::PropsOpen {
-        // (The window lies over the toolbar's switch: F10 over the view.)
+        // (F10 over the view: out of Select Tiles, the panel with it.)
         let c = h.state().area_views[&area].rect.center();
         h.hover_at(c);
         h.run_steps(1);

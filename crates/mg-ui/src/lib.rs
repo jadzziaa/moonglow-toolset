@@ -944,8 +944,16 @@ pub struct Moonglow {
     pub last_light: mg_module::lights::LightSpec,
     /// The Find Instance window.
     pub find_instance: Option<area_tools::FindInstance>,
-    /// The Tile Properties window, while it is open.
+    /// The Tile Properties panel's tiles and values, while it shows tiles
+    /// (`tile_select::panel`: read again as the selection or the area
+    /// changes).
     pub tile_props: Option<tile_select::TileProps>,
+    /// The areas whose views were last drawn in Select Tiles (read where
+    /// the view is out of `area_views`, being drawn: `shell::brings_of`).
+    pub(crate) tile_mode_areas: std::collections::HashSet<mg_core::ResRef>,
+    /// Another area's Tile Properties panel's, while this frame's is
+    /// `tile_props` (two areas in Select Tiles, one dragged out).
+    pub(crate) tile_props_aside: std::collections::HashMap<mg_core::ResRef, tile_select::TileProps>,
     /// The Build Module window, while it is open.
     pub build: Option<build_view::BuildWindow>,
     /// Setup Store (a creature's context menu).
@@ -1584,6 +1592,8 @@ impl Moonglow {
             tile_clip: None,
             after_new_area: (false, false),
             tile_props: None,
+            tile_mode_areas: Default::default(),
+            tile_props_aside: Default::default(),
             area_stats: None,
             build: None,
             store_wizard: None,
@@ -2037,12 +2047,6 @@ impl Moonglow {
         if self.options.is_some() && self.dock.find_tab(&Tab::Options).is_none() {
             self.run_now(Action::OpenTab(Tab::Options));
         }
-        // And Tile Properties in its own; without tiles, the tab goes.
-        match (self.tile_props.is_some(), self.dock.find_tab(&Tab::TileProperties).is_some()) {
-            (true, false) => self.run_now(Action::OpenTab(Tab::TileProperties)),
-            (false, true) => self.run_now(Action::CloseTab(Tab::TileProperties)),
-            _ => {}
-        }
         self.keep_middle();
         table_view::follow_looks(self, ui.ctx());
         self.tab_number_keys(ui.ctx());
@@ -2192,7 +2196,6 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         side_doc::closing_window(self, ui.ctx());
-        tile_select::closing_window(self, ui.ctx());
         table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
@@ -2862,17 +2865,6 @@ impl Moonglow {
         if *tab == Tab::Options {
             self.options = None;
         }
-        // (Tile Properties with changes not applied asks first, and stays
-        // for the answer: `tile_select::closing_window`.)
-        if *tab == Tab::TileProperties {
-            match self.tile_props.as_mut() {
-                Some(p) if p.changed() => {
-                    p.closing = true;
-                    return false;
-                }
-                _ => self.tile_props = None,
-            }
-        }
         // (Closed with what it changed: set back as its Cancel does, when
         // asked for, as Aurora's close button does.)
         if self.settings.close_cancels {
@@ -2885,7 +2877,7 @@ impl Moonglow {
     /// resource or a tool of the module, not a side editor's (a hak's, a
     /// 2DA's, a tileset's: closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
-        if side_doc::is_side(tab) || matches!(tab, Tab::Options | Tab::TileProperties) {
+        if side_doc::is_side(tab) || matches!(tab, Tab::Options) {
             return;
         }
         self.closed_tabs.retain(|t| t != tab);
@@ -4093,6 +4085,8 @@ impl Moonglow {
         self.new_nui = None;
         self.laid_out.clear();
         self.tile_props = None;
+        self.tile_mode_areas.clear();
+        self.tile_props_aside.clear();
         self.area_stats = None;
         self.resize_area = None;
         self.rotate_area = None;
@@ -4627,9 +4621,6 @@ impl Moonglow {
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {
                     self.options = None;
-                }
-                if tab == Tab::TileProperties {
-                    self.tile_props = None;
                 }
                 if let Some(path) = self.dock.find_tab(&tab) {
                     self.dock.remove_tab(path);
@@ -6840,9 +6831,7 @@ mod tests {
             app.settings.open_editors = mode;
             let default = (mode == Floating).then_some(Place::Window);
             assert_eq!(app.place_for(&Tab::Factions), default, "{mode:?}");
-            for floats in [Tab::TileProperties, model.clone()] {
-                assert_eq!(app.place_for(&floats), Some(Place::Window), "{mode:?} {floats:?}");
-            }
+            assert_eq!(app.place_for(&model), Some(Place::Window), "{mode:?} {model:?}");
             // Opened in the main window, then moved to a window of its own
             // (as Eject does).
             app.dock.push_to_first_leaf(Tab::Factions);

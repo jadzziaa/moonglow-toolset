@@ -590,6 +590,10 @@ pub struct Settings {
     /// the walkmeshes and the sound ranges not drawn, each kept as
     /// ticked), in views opened from now on. An older Moonglow ignores it.
     pub hide_overlays: bool,
+    /// The area header's Tile Properties toggle is off in Select Tiles:
+    /// the Right Dock shows no Tile Properties section (U5). An older
+    /// Moonglow ignores it.
+    pub hide_tile_properties: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,
@@ -1204,13 +1208,15 @@ impl Settings {
     /// `resources`), now the Left Dock's Resources panel, and for the
     /// palettes' (kind `palette`: `split left 300` where their pane was
     /// split off the middle's left), now the Right Dock's Palette panel,
-    /// which neither moves nor has a window; and every kind kept in the
+    /// which neither moves nor has a window; Tile Properties' place and
+    /// size (kind `tile-properties`), a window or tab before it was the
+    /// Right Dock's panel (M4's U5); and every kind kept in the
     /// palettes' pane (place `palettes`), which then opens where its kind
     /// opens. Nothing else changes, and run again it changes nothing
     /// more. ([`crate::Moonglow::with_settings`] runs it.)
     pub fn shell_migrate(&mut self) {
         // (The kinds of window that are panels now.)
-        const PANELS: [&str; 2] = ["resources", "palette"];
+        const PANELS: [&str; 3] = ["resources", "palette", "tile-properties"];
         let panel = |kind: &String| PANELS.contains(&kind.as_str());
         self.window_places.retain(|(kind, place)| !panel(kind) && place.trim() != "palettes");
         self.window_sizes.retain(|(kind, _)| !panel(kind));
@@ -1511,6 +1517,21 @@ mod tests {
         let mut new = Settings::default();
         new.shell_migrate();
         assert_eq!(new, Settings::default());
+    }
+
+    /// Tile Properties' window of before its panel (M4's U5): its place
+    /// and size, from an older file's text, read without error and
+    /// dropped, the others kept; run again, nothing more.
+    #[test]
+    fn shell_migrate_drops_tile_properties_window_once() {
+        let old = r#"(window_places:[("tile-properties","split right 316"),("script","middle")],window_sizes:[("tile-properties",(560,640)),("dialog",(900,680))])"#;
+        let mut read: Settings = ron::from_str(old).expect("an older file reads");
+        read.shell_migrate();
+        assert_eq!(read.window_places, [("script".to_string(), "middle".to_string())]);
+        assert_eq!(read.window_sizes, [("dialog".to_string(), [900, 680])]);
+        let once = read.clone();
+        read.shell_migrate();
+        assert_eq!(read, once, "run again: nothing more");
     }
 
     /// The palettes' settings of before the Right Dock (M3 T5): their own

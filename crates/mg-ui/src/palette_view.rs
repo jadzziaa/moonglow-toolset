@@ -1106,6 +1106,32 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
 /// does not open without it and then grow.
 pub(crate) const HOVER_REST: f64 = 0.12;
 
+/// The tiles palette's tileset, as its row says it: "City Exterior
+/// (tcn01)", its name in the game's language (read once, kept in
+/// `tileset_names`), else its ResRef alone. `None` with no area or
+/// tileset.
+fn tileset_shown(app: &Moonglow, view: &mut PaletteView) -> Option<String> {
+    let area = view.area?;
+    let set = app.area_views.get(&area)?.terrain.as_ref()?;
+    let tileset = set.tileset;
+    let name = match view.tileset_names.get(&tileset) {
+        Some(name) => name.clone(),
+        None => {
+            let general = &set.set.general;
+            let game = app.game.as_ref();
+            let name = (game.and_then(|g| g.string(general.display_name)))
+                .or(general.unlocalized_name.clone())
+                .unwrap_or_default();
+            view.tileset_names.insert(tileset, name.clone());
+            name
+        }
+    };
+    Some(match name.is_empty() || name.eq_ignore_ascii_case(&tileset.to_string()) {
+        true => tileset.to_string(),
+        false => format!("{name} ({tileset})"),
+    })
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -1327,6 +1353,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             + gap;
         let beside = width(name, egui::TextStyle::Body) + gap * 2.0 + toggles;
         let apart = sources && beside > ui.available_width();
+        // (The tiles palette's: the area's tileset, by its name and
+        // ResRef, at the row's end, as the AreaTiles board has it.)
+        let tileset = view.tiles.then(|| tileset_shown(app, &mut view)).flatten();
         let mut source = |ui: &mut egui::Ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_enabled_ui(app.ws.is_some(), |ui| {
@@ -1341,6 +1370,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             ui.strong(name);
             if sources && !apart {
                 source(ui);
+            }
+            if let Some(tileset) = &tileset {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(egui::RichText::new(tileset).weak()).truncate())
+                        .on_hover_text("The area's tileset");
+                });
             }
         });
         if apart {

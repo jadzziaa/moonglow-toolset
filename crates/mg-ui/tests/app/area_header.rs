@@ -74,10 +74,16 @@ fn row_at(h: &mut Harness<'_, Moonglow>, width: f32) {
 /// no node of its own) and its arrow, or the compact header's Show
 /// popover; the rest by their items' names. While Paint is on, its
 /// options in place of the Select tool's, as its mode has them (Radius
-/// in Scatter and Erase, Density in Scatter), the Show popover in More.
+/// in Scatter and Erase, Density in Scatter), the Show popover in More;
+/// while Select Tiles is, its commands (the AreaTiles board), the Show
+/// popover in More.
 fn held_names(h: &Harness<'_, Moonglow>) -> Vec<String> {
     let right = ["Night", "Lighting", "Overlays", "Audio", "Area Properties", "To Scratch"]
         .map(String::from);
+    if !h.state().paint && h.state().area_views.values().any(|v| v.tile_mode) {
+        let names = TILES_COMMANDS.iter().chain(&["Show"]).map(|n| n.to_string());
+        return names.chain(right).collect();
+    }
     if h.state().paint {
         let p = h.state().settings.paint;
         let mut names = vec!["How the brush paints".to_string()];
@@ -227,6 +233,62 @@ fn paint_s_options_are_held_at_every_width_in_each_mode() {
                 }
             }
             assert_eq!(h.state().settings.paint, *settings, "{mode:?} {name}: as it was");
+        }
+    }
+}
+
+/// Select Tiles' commands in the header's left group (the AreaTiles
+/// board), by the names a screen reader and the tests find them by.
+const TILES_COMMANDS: [&str; 9] = [
+    "Refine Tile",
+    "Previous Tile Appearance",
+    "Next Tile Appearance",
+    "Rotate Tile",
+    "Cut Tiles",
+    "Copy Tiles",
+    "Paste Tiles",
+    "Delete Tiles",
+    "Tile Properties",
+];
+
+/// Select Tiles' commands in the header's left group (the AreaTiles
+/// board) in place of the Select tool's options: each on the row, as an
+/// icon or in More at every window width from 420 to 1600 (and 989, 990)
+/// and every 40 to 3000, in both modes, with tiles selected and with
+/// none (grayed then, but Tile Properties); the Show popover in More
+/// (Start, All and None kept). No control of today's tile menu, keys or
+/// Tile Properties window is lost (the panel's: `tile_properties.rs`).
+#[test]
+fn select_tiles_commands_are_held_at_every_width() {
+    for mode in MODES {
+        let Some((mut h, area)) = area_harness(&mode.dir("header-tiles")) else { return };
+        h.state_mut().settings.open_editors = mode.settings().open_editors;
+        area_click(&mut h, "Select Tiles");
+        for selected in [vec![(1, 1), (2, 1)], Vec::new()] {
+            h.state_mut().area_views.get_mut(&area).unwrap().tile_selection = selected.clone();
+            let widths =
+                (420..=1600).step_by(20).chain([989, 990]).chain((1640..=3000).step_by(40));
+            for width in widths {
+                h.set_size(egui::vec2(width as f32, 800.0));
+                settle(&mut h);
+                h.run_steps(1);
+                let names = held_names(&h);
+                assert!(names.iter().any(|n| n == "Refine Tile"), "{mode:?}: the Tiles state");
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                header_holds(&mut h, AREA_HEADER, &names);
+                if [420, 1600, 3000].contains(&width) {
+                    for name in ["Refine Tile", "Delete Tiles", "Show Start", "All", "None"] {
+                        let node = area_tool(&mut h, name);
+                        // (What acts on the tiles selected is grayed with
+                        // none.)
+                        let grayed = node.accesskit_node().is_disabled();
+                        let acts = ["Refine Tile", "Delete Tiles"].contains(&name);
+                        assert_eq!(grayed, acts && selected.is_empty(), "{mode:?} {width} {name}");
+                        close_area_popover(&mut h);
+                    }
+                }
+            }
+            assert_eq!(h.state().area_views[&area].tile_selection, selected, "{mode:?}");
         }
     }
 }

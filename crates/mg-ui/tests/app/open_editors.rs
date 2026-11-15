@@ -744,41 +744,6 @@ fn options_and_model(mode: Mode) {
     assert!(open_tab(&h, &model), "{mode:?}: a docked model's view stays");
 }
 
-/// Tile Properties docked (its kind kept beside the area) with a change
-/// not applied asks before it closes at Escape, as its X does; Don't Save
-/// closes it. (The game's data and a GPU, else skipped.)
-#[test]
-fn escape_on_docked_tile_properties_with_changes_asks() {
-    tile_properties_ask(Mode::Floating);
-}
-
-#[test]
-fn escape_on_docked_tile_properties_with_changes_asks_as_tabs() {
-    tile_properties_ask(Mode::Tabs);
-}
-
-fn tile_properties_ask(mode: Mode) {
-    use glam::Vec3;
-    let Some((mut h, area)) = area_harness(&mode.dir("ui-open-escape-tiles")) else { return };
-    put_in(h.state_mut(), mode);
-    h.state_mut().settings.window_places =
-        vec![("tile-properties".into(), "split right 400".into())];
-    crate::tiles::tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
-    settle(&mut h);
-    assert_eq!(in_main(&h, &Tab::TileProperties), Some(true), "{mode:?}: docked");
-    let p = h.state_mut().tile_props.as_mut().expect("open");
-    p.main[0] = (p.main[0] + 5) % 32;
-    settle(&mut h);
-    let at = visible_in(&h, &Tab::TileProperties);
-    click_at(&mut h, at);
-    escape(&mut h);
-    h.get_by_label("Save changes to Tile Properties?");
-    assert!(open_tab(&h, &Tab::TileProperties), "{mode:?}: asked, still open");
-    h.get_by_label("Don't Save").click();
-    settle(&mut h);
-    assert!(!open_tab(&h, &Tab::TileProperties));
-}
-
 /// Options › General's Open editors is a radio group named "Open editors"
 /// (a screen reader says the label with the choices), its choices in it;
 /// the arrow keys on the chosen one choose the other.

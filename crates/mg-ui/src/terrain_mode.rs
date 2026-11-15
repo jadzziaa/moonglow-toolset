@@ -318,6 +318,21 @@ fn tool_key_names(app: &Moonglow, ctx: &egui::Context) -> Vec<(Brush, String)> {
     ]
 }
 
+/// The tile tools' keys as Options › Keyboard has them, shown after
+/// their rows' names (the AreaTiles board's `X` beside the Eraser; Rotate
+/// Tile's first key alone); none for a tool without.
+fn tool_caps(app: &Moonglow, ctx: &egui::Context) -> Vec<(Brush, String)> {
+    use crate::keys::Cmd;
+    let key = |cmd: Cmd| app.keymap.label(cmd, ctx);
+    vec![
+        (Brush::Eraser, key(Cmd::Eraser)),
+        (Brush::Refine, key(Cmd::RefineTile)),
+        (Brush::Appearance { back: false }, key(Cmd::NextTileAppearance)),
+        (Brush::Appearance { back: true }, key(Cmd::PreviousTileAppearance)),
+        (Brush::Rotate, key(Cmd::RotateTile)),
+    ]
+}
+
 /// The name of a tile tool's row in the tiles palette (the Eraser's is
 /// the tileset palette's own, in the game's language: read here if the
 /// palette has not been shown yet).
@@ -1693,15 +1708,18 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // Beside them, for the Gallery's tiles (and a tile chosen from it,
         // the List shown since): an explicit switch, not a key held, as
         // Shift, Ctrl and Alt already do things with a brush (#29).
+        // (Always there, as the AreaTiles board draws it: grayed in the
+        // List with no tile chosen from the pictures.)
         let tile_chosen = app.palette.tile_brush.as_ref().is_some_and(|b| exactable(b.brush));
-        if gallery || tile_chosen {
-            let exact = &mut app.settings.exact_tiles;
-            let button = mg_uikit::IconButton::new(crate::icons::EXACT_TILE, EXACT_TILE);
-            crate::icons::toggled(ui.add(button.selectable(*exact)), exact).on_hover_text(
-                "Put a tile or group chosen from the pictures in as it is. The tiles around aren't \
-                 changed to fit.",
-            );
-        }
+        let applies = gallery || tile_chosen;
+        let exact = &mut app.settings.exact_tiles;
+        let button = mg_uikit::IconButton::new(crate::icons::EXACT_TILE, EXACT_TILE);
+        let tip = "Put a tile or group chosen from the pictures in as it is. The tiles around \
+                   aren't changed to fit.";
+        let r = ui.add_enabled(applies, button.selectable(*exact && applies));
+        crate::icons::toggled(r, exact).on_hover_text(tip).on_disabled_hover_text(format!(
+            "{tip} (In the Gallery, or with a tile chosen from it)"
+        ));
         if gallery {
             // (A slider doesn't wrap of itself: on a row of its own where
             // this one has no room for it.)
@@ -1730,6 +1748,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         selected,
         stepped: None,
         keys: tool_key_names(app, ui.ctx()),
+        caps: tool_caps(app, ui.ctx()),
         // (Its key in its tip, as the tool shelf's has it: its words and
         // its name are "Select Tiles".)
         select_tiles: app.keymap.titled(
@@ -1942,6 +1961,9 @@ struct Place<'a> {
     stepped: Option<OnSelection>,
     /// The tile tools' keys, for their tips ([`tool_key_names`]).
     keys: Vec<(Brush, String)>,
+    /// The tile tools' keys as their rows show them after their names
+    /// (the AreaTiles board's X beside the Eraser: [`tool_caps`]).
+    caps: Vec<(Brush, String)>,
     /// The Select Tiles row's tip, with its key.
     select_tiles: String,
     fold: Option<bool>,
@@ -1976,7 +1998,13 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             // can be closed again after.)
             // (Its own while a search is typed: the search cleared, the
             // heading is open or closed as it was before.)
-            egui::CollapsingHeader::new(label.as_str())
+            // (Its count at the row's end: the tileset's own items in it,
+            // or those the search finds.)
+            let count = match searching {
+                true => items.iter().filter(|i| has_found(i, at.tools, at.filter)).count(),
+                false => items.len(),
+            };
+            let shown = egui::CollapsingHeader::new(label.as_str())
                 .icon(mg_uikit::collapsing_icon)
                 .id_salt((tileset, depth, label.as_str(), searching))
                 .default_open(
@@ -2034,6 +2062,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                     }
                     group_pictures(ui, &groups, at);
                 });
+            row_count(ui, shown.header_response.rect, count);
         }
         PaletteItem::Brush { label, brush } => {
             let tiles = match at.gallery {
@@ -2059,11 +2088,28 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             if let Some(open) = at.fold {
                 state.set_open(open);
             }
-            state
+            let (_, header, _) = state
                 .show_header(ui, |ui| brush_row(ui, label, *brush, at))
                 .body(|ui| tile_pictures(ui, &tiles, at));
+            row_count(ui, header.response.rect, tiles.len());
         }
     }
+}
+
+/// A heading's count at the end of its row (`row`), in `text-3`, as the
+/// blueprint palettes' categories have theirs (the AreaTiles board's
+/// Features 48, the GalleryTiles board's Cobble 359).
+fn row_count(ui: &egui::Ui, row: egui::Rect, count: usize) {
+    let t = mg_uikit::tokens(ui.ctx());
+    let right = ui.max_rect().right() - 4.0;
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    ui.painter().text(
+        egui::pos2(right, row.center().y),
+        egui::Align2::RIGHT_CENTER,
+        count.to_string(),
+        font,
+        t.text_3,
+    );
 }
 
 /// A brush's row: its name, chosen by a click (Refine Tile naming the
@@ -2120,9 +2166,29 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         (tip, _) => tip,
     };
     let selecting = *at.tile_mode && at.selected > 0;
-    let mut r = match icon {
+    let cap = (at.caps.iter().find(|(b, _)| *b == brush)).map(|(_, k)| k.clone());
+    let cap = cap.filter(|k| !k.is_empty());
+    let row = |ui: &mut egui::Ui| match icon {
         Some(icon) => ui.add(mg_uikit::IconButton::new(icon, shown).selectable(on)),
         None => ui.selectable_label(on, shown),
+    };
+    // (Its key after its name, in `text-3`: the board's `.sub`.)
+    let mut r = match cap {
+        Some(cap) => {
+            ui.horizontal(|ui| {
+                let r = row(ui);
+                // (Painted, no label of its own: its key is in the row's
+                // tip, and an "X" label would be one more node of the name.)
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let color = mg_uikit::tokens(ui.ctx()).text_3;
+                let galley = ui.painter().layout_no_wrap(cap, font, color);
+                let (at, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                ui.painter().galley(at.min, galley, color);
+                r
+            })
+            .inner
+        }
+        None => row(ui),
     };
     if let Some(tip) = tip {
         r = r.on_hover_text(tip);

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 ---
 
 # Modules
@@ -38,8 +38,10 @@ a directory), nasher projects (see below) and the game's campaign files
   searched for again: press **Search**). A placed object's Properties are
   found again by the object (its tag, its blueprint and where it
   stands), so that an area changed outside Moonglow since gives the
-  same object's, or none; Tile Properties opens once its area's view
-  is drawn. A tab whose area, script, file or other resource is gone is
+  same object's, or none. (A record from before Tile Properties was the
+  Right Dock's panel kept its tab: its area opens in Select Tiles with
+  those tiles selected once the area's view is drawn, the panel showing
+  them.) A tab whose area, script, file or other resource is gone is
   passed over (said in the debug log). The tabs are kept in Moonglow's
   data folder (`open-tabs`, a file a module, by its path; a module
   folder's and a nasher project's by its folder), never in the module;

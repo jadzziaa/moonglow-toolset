@@ -3087,6 +3087,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     if let Some(o) = &view.orbit {
         app.heard = Some((area, o.target, view.night));
     }
+    // (Read while the view is out of the map, being drawn: whether the
+    // area brings Tile Properties, `shell::brings_of`.)
+    if view.tile_mode && view.read_only.is_none() {
+        app.tile_mode_areas.insert(area);
+    } else {
+        app.tile_mode_areas.remove(&area);
+    }
     app.area_views.insert(area, view);
 }
 

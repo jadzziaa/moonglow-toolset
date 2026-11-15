@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1919,12 +1919,6 @@ is not taken for a new gap.
   in with Tile Properties' All tiles and its Turn (issue #29); the steps
   themselves stay fit-only. (S) (from a builder's tile feedback,
   October 2026) (Settled in the triage of 2026-10-28.)
-- **Tile Properties' lights and loops from the model:** a model not
-  found (or not readable) falls back on the tileset's flags, which say
-  every light and loop; a tile model's `animloop` animations from a
-  supermodel are not looked for (the game's tile models have none).
-  Aurora's ✕ discards without asking (seen on the oracle); Moonglow asks,
-  as the builder asked. (S) (from Jasperre's tile feedback, October 2026) (Settled in the triage of 2026-10-28.)
 - **Uniforms a script sets:** a custom shader's uniform that a module's
   scripts set in the game (`SetMaterialShaderUniformInt`,
   `SetMaterialShaderUniformVec4` on an object that isn't static) shows
@@ -2294,14 +2288,19 @@ is not taken for a new gap.
   Sets window is open and a rename is put back by renaming it (neither
   is in Edit › Undo, the module's), and `variable-sets` has no folders
   inside it. (Settled by the owner, 2026-10-29: the triage's proposals.)
-- **Tile Properties on several tiles** writes only the controls set
-  into every tile chosen. Aurora's OK writes every value shown, the
-  first tile's, into all of them, and the source lights and loops it
-  shows disabled as 0 (captured 2026-10-30, `captures/wave2/tiles-one.mod`:
-  Main Light 1 changed alone on two tiles of lights 5, 6, 1, 2 and 10,
-  11, 3, 4 left both 27, 6, 0, 0, their loops 0); Moonglow keeps its own,
-  as the owner's report on Tile Properties asked. (Settled by the
-  owner, 2026-10-30.)
+- **Tile Properties on several tiles** writes only the control changed
+  into every tile chosen: since Tile Properties became the Right Dock's
+  panel (M4's U5) there is no OK, and "set" means changed in the panel,
+  each change written at once as its own step (a control chosen, even
+  to the value the first tile shows, goes to every tile that has it; a
+  control not touched writes nothing). Aurora's OK writes every value
+  shown, the first tile's, into all of them, and the source lights and
+  loops it shows disabled as 0 (captured 2026-10-30,
+  `captures/wave2/tiles-one.mod`: Main Light 1 changed alone on two
+  tiles of lights 5, 6, 1, 2 and 10, 11, 3, 4 left both 27, 6, 0, 0,
+  their loops 0); Moonglow keeps its own, as the owner's report on Tile
+  Properties asked. (Settled by the owner, 2026-10-30; restated by M4's
+  U5, 2026-11-15.)
 - **The game's text in the language edited, and the feminine talk
   table:** the install is read as that language when its
   `lang/<code>/data/dialog.tlk` is there (its talk table, and the rest

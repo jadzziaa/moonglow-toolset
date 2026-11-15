@@ -1466,9 +1466,11 @@ fn the_talk_table_opens_again_on_its_line() {
     assert_eq!(h.state().talk_view.selected, Some(2), "still on its line");
 }
 
-/// Tile Properties kept with a module, still waiting for its area's view
-/// when the module is closed again (the area never drawn: here, with no
-/// game data), is kept again, not lost.
+/// Tile Properties kept with a module by an older Moonglow (its tab, before
+/// it was the Right Dock's panel), still waiting for its area's view when
+/// the module is closed again (the area never drawn: here, with no game
+/// data), is kept again, not lost: read without error, the other tabs
+/// open.
 #[test]
 fn tile_properties_waiting_for_its_area_is_kept_again() {
     let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
@@ -1487,7 +1489,7 @@ fn tile_properties_waiting_for_its_area_is_kept_again() {
     for session in 0..2 {
         h.state_mut().open_module(&path);
         h.run_steps(3);
-        assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "waiting");
+        assert!(h.state().tile_props.is_none(), "waiting");
         assert!(h.state().dock.find_tab(&Tab::Factions).is_some(), "the others open");
         h.state_mut().actions.push(mg_ui::Action::Close);
         h.run();

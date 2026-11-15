@@ -222,15 +222,13 @@ struct Pending {
     views: BTreeMap<String, View>,
 }
 
-/// Tile Properties waiting for its area's view, to open where it was.
+/// An older record's Tile Properties tab, waiting for its area's view:
+/// its tiles (by index in the area's tile list) selected in Select Tiles
+/// then ([`Moonglow::tiles_again`]).
 #[derive(Debug, Clone)]
 struct TilesWaiting {
     area: ResRef,
     tiles: Vec<usize>,
-    place: Option<Place>,
-    rect: Option<egui::Rect>,
-    /// The tabs it was beside: it joins the first that is open.
-    beside: Vec<String>,
 }
 
 /// The open module's tabs as kept and as they are now.
@@ -449,7 +447,6 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
         | Tab::NoArea
-        | Tab::TileProperties
         | Tab::References
         | Tab::Hak(_)
         | Tab::Table(_)
@@ -719,10 +716,6 @@ impl Moonglow {
                 Some(Query::Tag(t)) => format!("references:tag:{t}"),
                 Some(Query::StrRef(n)) => format!("references:strref:{n}"),
             },
-            Tab::TileProperties => {
-                let p = self.tile_props.as_ref()?;
-                format!("tile-properties:{}:{}", p.area, list(&p.tiles, |t| t.to_string()))
-            }
             tab => plain_text(tab)?,
         })
     }
@@ -1104,22 +1097,16 @@ impl Moonglow {
             middle.split = split_of(self, self.dock.main_surface(), NodeIndex::root())
                 .filter(|s| !s.parts.is_empty());
         }
-        // Tile Properties still waiting for its area's view (its tab not
-        // shown since the module opened): kept as it was read, beside the
-        // tabs it was kept with, else where it was.
+        // An older record's Tile Properties still waiting for its area's
+        // view (`tiles_again`): kept as it was read, in a pane of its own,
+        // until the area is drawn.
         if let Some(w) = &self.open_tabs.tiles {
             let text = format!("tile-properties:{}:{}", w.area, list(&w.tiles, |t| t.to_string()));
-            let beside =
-                |p: &&mut Pane| p.split.is_none() && w.beside.iter().any(|b| p.tabs.contains(b));
-            match panes.iter_mut().find(beside) {
-                Some(p) => p.tabs.push(text),
-                None => panes.push(Pane {
-                    place: w.place.unwrap_or(Place::Window).text(),
-                    tabs: vec![text],
-                    rect: w.rect.map(|r| [r.left(), r.top(), r.width(), r.height()]),
-                    ..Default::default()
-                }),
-            }
+            panes.push(Pane {
+                place: Place::Window.text(),
+                tabs: vec![text],
+                ..Default::default()
+            });
         }
         let pane = focused.or_else(|| self.tab_pane());
         let leaf = pane.and_then(|p| self.dock.leaf(p).ok());
@@ -1356,13 +1343,7 @@ impl Moonglow {
         for pane in &panes {
             for (text, want) in &pane.tabs {
                 if let Want::TileProperties(area, tiles) = want {
-                    self.open_tabs.tiles = Some(TilesWaiting {
-                        area: *area,
-                        tiles: tiles.clone(),
-                        place: pane.place,
-                        rect: pane.rect,
-                        beside: pane.tabs.iter().map(|(t, _)| t.clone()).collect(),
-                    });
+                    self.open_tabs.tiles = Some(TilesWaiting { area: *area, tiles: tiles.clone() });
                     continue;
                 }
                 match self.open_kept(want.clone()) {
@@ -1496,39 +1477,39 @@ impl Moonglow {
         self.open_tabs.views.insert(Tab::Dialog(key), view.clone());
     }
 
-    /// Tile Properties opened again once its area's view has its tiles:
-    /// on the tiles it was of, where it was.
+    /// A record from before Tile Properties was a panel (M4's U5) that
+    /// kept its tab, once its area's view has its tiles: Select Tiles on
+    /// in the area, those of the tiles it was of that the area still has
+    /// selected, so that the Right Dock shows them in its Tile Properties
+    /// panel. Nothing else opens. (Records written since keep no such
+    /// tab.)
     fn tiles_again(&mut self) {
         let Some(w) = &self.open_tabs.tiles else { return };
         let area = w.area;
-        let ready = self.area_views.get(&area).and_then(|v| v.model.as_ref().map(|m| m.width));
-        let (Some(width), true) =
-            (ready, self.area_views.get(&area).is_some_and(|v| v.terrain.is_some()))
-        else {
-            return;
-        };
+        let ready = (self.area_views.get(&area))
+            .filter(|v| v.terrain.is_some())
+            .and_then(|v| v.model.as_ref().map(|m| (m.width, m.height)));
+        let Some((width, height)) = ready else { return };
         let Some(w) = self.open_tabs.tiles.take() else { return };
-        let cells: Vec<(u32, u32)> =
-            w.tiles.iter().map(|&i| (i as u32 % width.max(1), i as u32 / width.max(1))).collect();
-        if let Some(mut view) = self.area_views.remove(&area) {
-            crate::tile_select::properties_of(self, &mut view, &cells);
-            self.area_views.insert(area, view);
-        }
-        if self.tile_props.is_none() || self.dock.find_tab(&Tab::TileProperties).is_some() {
+        let width = width.max(1);
+        let cells: Vec<(u32, u32)> = (w.tiles.iter())
+            .filter_map(|&i| u32::try_from(i).ok())
+            .map(|i| (i % width, i / width))
+            .filter(|&(_, y)| y < height)
+            .collect();
+        if cells.is_empty() {
             return;
         }
-        let beside = (w.beside.iter())
-            .filter_map(|t| {
-                (self.dock.iter_all_tabs()).find(|(_, tab)| self.tab_text(tab).as_ref() == Some(t))
-            })
-            .map(|(p, _)| NodePath { surface: p.surface, node: p.node })
-            .next();
-        match beside {
-            Some(at) => {
-                self.dock.set_focused_node_and_surface(at);
-                self.dock.push_to_focused_leaf(Tab::TileProperties);
+        if let Some(mut view) = self.area_views.remove(&area) {
+            crate::area_view::tools::choose(
+                self,
+                &mut view,
+                crate::area_view::tools::AreaTool::Tiles,
+            );
+            if view.tile_mode {
+                view.tile_selection = cells;
             }
-            None => self.place_pane(w.place, w.rect, vec![Tab::TileProperties], None, None),
+            self.area_views.insert(area, view);
         }
     }
 }

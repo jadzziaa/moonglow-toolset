@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 ---
 
 # Options
@@ -212,8 +212,8 @@ what is used; see [Areas](04-areas.md#the-header)).
   with tabs; settings kept from before this switch keep floating windows.
   A kind of editor you have moved opens where you last put one, in either
   mode, until **View › Reset Layout** (see [The main window](02-main-window.md),
-  Tabs and windows). Tile Properties and a model's view open in a window of their
-  own in both. With the keyboard on the switch, Left and Right (or Home
+  Tabs and windows). A model's view opens in a window of its own in
+  both. With the keyboard on the switch, Left and Right (or Home
   and End) choose; Tab goes on past it.
 
 Under **Floating windows**, the three settings of editors' windows (a

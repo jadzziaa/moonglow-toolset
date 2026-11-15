@@ -50,6 +50,7 @@ mod status_bar;
 mod status_hints;
 mod tables;
 mod tile_edges;
+mod tile_properties;
 mod tiles;
 mod transition_setup;
 mod transition_triggers;

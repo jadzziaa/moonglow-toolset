@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T09:27:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
 ---
 
 # Areas
@@ -1273,7 +1273,11 @@ as Aurora's Terrain tab does:
   can be closed again after, and cleared, each heading is open or closed
   again as it was before), **Expand All** and **Collapse All**,
   how many there are, and **List** or **Gallery**, the same switch
-  as the blueprint palettes', with the pictures' size beside it.
+  as the blueprint palettes', with the pictures' size beside it. Over
+  them, the palette's name row says the area's tileset (**City Exterior
+  (tcn01)**); each folder (Features, Groups, Terrain) has its count at
+  its row's end, and in the Gallery each terrain and crosser the count of
+  its tiles; a tool with a key shows it after its name (**Eraser X**).
 - In the **Gallery**, each terrain and crosser is a heading that opens and
   closes, with every tile it can make under it as pictures: each variant,
   and each transition to another terrain (none of a group's). A tile is
@@ -1293,8 +1297,8 @@ as Aurora's Terrain tab does:
   reads **Refine Tile ->** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
-- **Exact Tile**, beside List and Gallery (shown with the Gallery, or
-  a tile or group chosen from it), puts a tile chosen from the pictures in
+- **Exact Tile**, beside List and Gallery (always there, grayed but with
+  the Gallery or a tile or group chosen from it), puts a tile chosen from the pictures in
   **alone**: a click (or a drag, in every tile it passes, or a picture
   dropped) puts exactly that tile there, turned as the right click
   turns it, at the height of the tile it replaces, and nothing else
@@ -1431,48 +1435,82 @@ and with a tile brush in hand, on the ground where no object is, as
 Aurora's does (no menu opens then). Ctrl+C and Ctrl+V copy and paste
 tiles.
 
+While Select Tiles is the tool in hand, the **header**'s left group is
+its commands, in place of the Select tool's Show toggles, Snap, Turn,
+Together and Onto Objects (the Show toggles wait in **More**):
+**Refine Tile** (the sparkles; T), **‹ Appearance ›** (Previous and
+Next Tile Appearance; Shift+N and N), **Rotate** (Rotate Tile; R, and
+Shift + click or Shift+R clockwise), then **Cut**, **Copy** and
+**Paste** tiles (Ctrl+X, Ctrl+C, Ctrl+V; Paste waits for tiles of this
+tileset copied, then a click places them), **Delete** (the bin; Delete,
+and the Eraser's X), and the **Tile Properties** toggle. They act on the
+selected tiles as the tile menu's items and the keys do, each one step
+to undo, and are grayed with no tile selected. As the header narrows
+they give up their words, then move into More, as its other controls
+do. The tiles palette's tools stay there too, as brushes for clicking
+tiles without selecting them.
+
 A right click on a tile opens the **tile menu**: **Next Tile
 Appearance**, **Previous Tile Appearance** and **Rotate Tile**, as the
 Tiles palette's tools of those names do (each one step to undo), then
-**Delete**, and last **Tile Properties**. In Select Tiles they act on
-the selected tiles (each on its own), as the Tiles palette's three do
-when clicked with tiles selected; with a terrain brush or a tile tool
-chosen, on the tile clicked. Without either, a right click on the ground
-where no object is starts the area's menu with the tile's items (Tile
-(x, y), the three, Tile Properties), as Aurora's menu has Tile
-Properties for a tile; on an object, the object's menu.
+**Delete**, the plugins' commands for tiles, and last **Tile
+Properties…**. In Select Tiles they act on the selected tiles (each on
+its own), as the Tiles palette's three do when clicked with tiles
+selected; with a terrain brush or a tile tool chosen, on the tile
+clicked (and the menu starts with **Put Down** and the brush's name).
+Without either, a right click on the ground where no object is starts
+the area's menu with the tile's items (Tile (x, y), the three, Tile
+Properties…), as Aurora's menu has Tile Properties for a tile; on an
+object, the object's menu. **Tile Properties…** takes Select Tiles
+(putting a brush down) with the tiles it was opened on selected, and
+shows the Right Dock's Tile Properties panel (turning its header toggle
+on).
 
 The Status Bar says why a step was refused, in Select Tiles as with a
 brush: a note at the head of its hints.
 
+### Tile Properties
+
+While Select Tiles is on, **Tile Properties** is the Right Dock's lower
+section, under the Palette and the Preview (in a window under 1400
+points wide, a tab beside them; in an area dragged out into a window of
+its own, that window's right pane). Its header says what it shows,
+**Tile (4, 4)** or **6 tiles**, and it follows the selection as you
+click and drag tiles: with none selected it says how to choose some.
+The header's **Tile Properties** toggle hides the section and shows it
+again (remembered); the tile menu's Tile Properties… always shows it.
+There is no OK or Cancel: what you change is written at once (below).
+
 With one tile chosen, Tile Properties shows the **variants**: every tile
 that fits there, as pictures, the one there now framed (not for a
 group's or a feature's tile, which changes only with its group, unless
-the option above is on). Click another and
-it is put there at once (one step to undo), the window staying open on
-it. Tile Properties is a window like the editors': resize it, maximize it
-or dock it beside the area, and the pictures fill it. The **Size** slider
+the option above is on). Click another and it is put there at once (one
+step to undo), the panel showing the new tile. Widen the Right Dock and
+the pictures fill it. The **Size** slider
 beside the variants makes the pictures larger (up to 224 points), to tell
 tiles much alike apart; it is remembered. Under the pointer, a picture
 shown smaller shows at its largest beside it. The same model turned
 another way is listed again, its picture turned so (seen from the
 south-west) and the turn written under it.
 
-Above them are the tiles' **Main Light 1** and **2** and **Source Light
-1** and **2** colors and their **Animation Loops 1** to **3**, as Aurora
-shows them: a control is there for what the tile's model has (a light
+Above them, under **Lights and Loops**, are the tiles' **Main light 1**
+and **2** and **Source light 1** and **2** colors and their **Animation
+loops 1** to **3**, as Aurora shows them: a control is there for what the tile's model has (a light
 node named `<model>ml1` or `ml2`, a node `<model>sl1` or `sl2` where a
 source light's flame burns, an animation `animloop01` to `03`), and
 greyed out, a loop unchecked, for what it hasn't. The tileset's own
 `MainLight1`…`AnimLoop3` flags don't tell (the game's tilesets have them
-for every tile). With several tiles chosen, a control is there for what
-any of them has, and it shows the first tile's value; a control you set
-goes to every tile that has it, and the ones you don't touch keep each
-tile's own value. Each tile is given only what its own model has: a
+for every tile; a model that can't be found or read falls back on those
+flags, every light and loop, and a model's loops are looked for in the
+model itself, not its supermodel, as the game's tile models have them). With several tiles chosen, a control is
+there for what any of them has, and it shows the first tile's value; a
+control you change (a color chosen, even the one shown) goes to every
+tile that has it, and the ones you don't touch keep each tile's own
+value. Each tile is given only what its own model has: a
 value already in the area for a light the model hasn't is kept as it
 is. **Defaults** puts back the lighting scheme's colors and the loops.
 
-**Replacement Texture**, under the Height, is Enhanced Edition's field
+**Replacement texture**, under the Height, is Enhanced Edition's field
 that Aurora's window hasn't got (`Tile_ReplaceTex`): what a mesh of the
 tile's model drawn with a texture named `replace_tex` is drawn with
 instead, a row of `replacetexture.2da`. It is there for a tile whose
@@ -1484,31 +1522,20 @@ Moonglow writes it so; a tile whose value is 0, or past the table, shows
 it in red, as the game crashes as it loads the area (Verify finds such a
 tile: `tile-replace`). **Defaults** leaves it as it is.
 
-Every change in Tile Properties shows in the area **as you make it**: a
-light, a loop, the Height (each click of - or +, and each step of a
-height dragged), Defaults. While the window stays open, all of them are
-**one step to undo**, however many you make. **OK** keeps them and
-closes the window. **Cancel** takes them back, and the tiles and what
-stands on them are as they were when the window opened (nothing is left
-for Redo). Closed any other way with changes (its tab's or window's close button,
-Escape), it asks, as a side editor's tab does: **Save** keeps them,
-**Don't Save** takes them back, **Cancel** leaves the window open
-(Aurora's close button discards them without asking).
+Every change in Tile Properties is written into the tiles **as you make
+it**, and shows in the area at once: a light, a loop, the Height (each
+click of - or +, a number typed), Defaults, a replacement texture. Each
+is **one step to undo**, on every tile chosen (Edit › Undo names it
+Tile Properties), and **Ctrl+Z** is how you take one back: there is no
+OK or Cancel. A height **dragged** on its number is one step for the
+whole drag, however many heights it passed through. Only the control
+you change is written: a control you don't touch writes nothing, and a
+value every chosen tile already has writes no step at all.
 
-A tile put in from the window's pictures (a variant, a tile of All
-tiles, or the tiles turned by its Turn, below) is a step of its own,
-made at once, and Cancel doesn't take it out: Undo does. The window's
-lights, loops and height go on it, and stay its own step, above the
-tile's: Cancel takes them off the new tile, and the tile stays. If
-another change is made in the module while the window is open (an
-object moved, a tile painted), Cancel still puts back what the window
-changed, in a step of its own, **Cancel Tile Properties**, where those
-tiles still have the window's values; what the other change did stays.
-**Undo** (Ctrl+Z) while the window is open takes its step back, and the
-window reads its tiles again: it shows them as they are now, and what
-you change in it after is written from there, that change alone (Redo
-brings its step back, which Cancel still takes back). So it does after
-any other change to its tiles (a brush, a paste, a plugin).
+A tile put in from the panel's pictures (a variant, a tile of All
+tiles, or the tiles turned by its Turn, below) is a step of its own too.
+After any change to its tiles (yours, Undo and Redo, a brush, a paste, a
+plugin), the panel reads them again and shows them as they are now.
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and
@@ -1524,16 +1551,15 @@ heights: tested from 3 steps below 0 to 1000 above (5 km on Rural's
 5 m steps), the walkmesh with it; Moonglow takes from -1024 to 1024.
 With several tiles chosen of different heights it shows **Mixed** until
 one is set, which they all take (**-** and **+** step from the first's).
-It changes at once, with the lights in the window's one step, as
-above. A tile of a group or a feature changes
+It changes at once, a step of its own, as above. A tile of a group or a feature changes
 height only with the whole group chosen (in Select Tiles, all its
 tiles), so that the group stays whole; otherwise the control is greyed
 out and says why (unless **Allow editing tiles of groups and
 features** is on). The minimap shows a tile's picture whatever its
 height, as the game's does.
 
-**All Tiles (Ignore Fit)** (Moonglow's own; off each time the window
-opens) shows every tile of the tileset in place of the variants, in the
+**All tiles (ignore fit)** (Moonglow's own; off until you tick it, and
+kept while the same tiles stay selected) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
 ↺270°) and the same **Size** slider; only the rows in sight are drawn,
 however many tiles the tileset has (a hak's of 1,872 tiles as readily as
@@ -1544,11 +1570,10 @@ chosen at once: each keeps its own tile and its lights and loops, and
 lies as the Turn says, put in as it is, whether it fits its neighbors
 or not (none of them changes); each Turn chosen is one step to undo.
 The pictures show the tiles turned so. Click one and it is put in the
-tiles chosen as it is, turned so, at the height they have (and the
-window's **Height**, if it is set), whether it fits its neighbors or
-not: none of them changes (as **Exact Tile** puts one in). It is one
-step to undo, the window stays open on it, and its lights are chosen
-afresh (but for those set in the window), its doors come and go, and
+tiles chosen as it is, turned so, at the height they have, whether it
+fits its neighbors or not: none of them changes (as **Exact Tile** puts
+one in). It is one step to undo, the panel shows it, and its lights are
+chosen afresh, its doors come and go, and
 what stands on it moves with a new height, as above. Off, the variants
 are only the tiles that fit, as ever, and Next and Previous Tile
 Appearance and Rotate Tile only ever give a tile that fits. Not for a

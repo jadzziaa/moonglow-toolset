@@ -5183,8 +5183,6 @@ fn exact_tiles_and_tile_height() {
     let middle = h.state().area_views[&area].orbit.unwrap().target;
     open(&mut h, glam::Vec3::new(middle.x, middle.y, 0.0));
     shoot(&mut h, &dir, "tile-properties-group");
-    h.get_by_label("Cancel").click();
-    h.run_steps(2);
     // A tile of open ground, nearer.
     let ground = {
         let view = &h.state().area_views[&area];
@@ -6562,16 +6560,11 @@ fn tile_textures() {
         h.run_steps(2);
         h.get_by_label("Tile Properties…").click();
         h.run_steps(5);
+        // (The Right Dock's Tile Properties panel, as wide as the dock.)
         h.get_by_label_contains("Textures of ").click();
         h.run_steps(20);
-        place(&mut h, &mg_ui::Tab::TileProperties, (500.0, 60.0), (560.0, 760.0));
-        h.run_steps(20);
         shoot(&mut h, &dir, &format!("tile-textures-{name}-properties"));
-        // As narrow as it stands beside the area.
-        place(&mut h, &mg_ui::Tab::TileProperties, (842.0, 60.0), (255.0, 760.0));
-        h.run_steps(20);
-        shoot(&mut h, &dir, &format!("tile-textures-{name}-properties-narrow"));
-        h.get_by_label("Cancel").click();
+        h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = false;
         h.run_steps(2);
         // The tile's view.
         let view = mg_ui::Tab::Tile { tileset, tile: tile as u32 };
@@ -12352,11 +12345,9 @@ fn area_minimap_narrow() {
 }
 
 /// Tile Properties where the AreaTiles board has it: Select Tiles on, six
-/// tiles (three by two) selected, the tiles palette shown. Today Tile
-/// Properties is a window of its own whatever Open editors says (placed
-/// over the Right Dock's lower part, where the board's panel is), and
-/// Select Tiles' commands are its right-click menu, not the header's
-/// buttons.
+/// tiles (three by two) selected, the tiles palette shown: the header's
+/// left group Select Tiles' commands, Tile Properties the Right Dock's
+/// lower section (M4's U5).
 #[test]
 #[ignore]
 fn board_area_tiles() {
@@ -12369,12 +12360,12 @@ fn board_area_tiles() {
 
 /// Select Tiles on with tiles selected in `map_m1q1a`, nothing else: the
 /// tile under the camera's target and those `tiles` steps from it (the
-/// first under the target), the tiles palette shown, and Tile Properties
-/// opened from their right-click menu, placed over the Right Dock's lower
-/// part (the AreaTiles and GalleryTiles boards' panel).
+/// first under the target), the tiles palette shown: the Right Dock's
+/// Tile Properties panel shows them under the palette (the AreaTiles and
+/// GalleryTiles boards).
 fn tiles_selected(h: &mut Harness<'_, Moonglow>, tiles: &[(i32, i32)]) {
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
-    let at = {
+    {
         let app = h.state_mut();
         app.palette.tiles = true;
         let view = app.area_views.get_mut(&area).unwrap();
@@ -12384,33 +12375,9 @@ fn tiles_selected(h: &mut Harness<'_, Moonglow>, tiles: &[(i32, i32)]) {
             tiles.iter().map(|(dx, dy)| ((x + dx).max(0) as u32, (y + dy).max(0) as u32)).collect();
         view.selection.clear();
         view.tile_mode = true;
-        view.tile_selection = chosen.clone();
-        let first = chosen[0];
-        let centre =
-            glam::Vec3::new(first.0 as f32 * 10.0 + 5.0, first.1 as f32 * 10.0 + 5.0, target.z);
-        view.screen_pos(centre).expect("the tile in sight")
-    };
-    h.run_steps(5);
-    h.hover_at(at);
-    h.run_steps(2);
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Secondary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        });
+        view.tile_selection = chosen;
     }
-    h.run_steps(3);
-    h.get_by_label("Tile Properties…").click();
-    let props = mg_ui::Tab::TileProperties;
-    frames_until(h, "Tile Properties", |h| h.state().tab_rect(&props).is_some());
-    // (Placed again once it has found its own size and place.)
-    let size = h.ctx.content_rect().size();
-    for _ in 0..3 {
-        place(h, &props, (size.x - 318.0, size.y * 0.5), (316.0, size.y * 0.5 - 30.0));
-        h.run_steps(5);
-    }
+    frames_until(h, "Tile Properties", |h| h.state().tile_props.is_some());
     rest_pointer(h);
     h.run_steps(20);
 }
@@ -13003,9 +12970,9 @@ fn board_gallery_palette() {
 }
 
 /// GalleryTiles.png: the tiles palette's Gallery, Select Tiles on with one
-/// tile chosen, its Tile Properties (its variants) where the board's panel
-/// is. Today Tile Properties is a window of its own, its variants drawn
-/// by `variant_picture`, not the shared cell.
+/// tile chosen, its Tile Properties (its variants) in the Right Dock's
+/// lower section. Its variants are drawn by `variant_picture`, not the
+/// shared cell (U25's).
 #[test]
 #[ignore]
 fn board_gallery_tiles() {

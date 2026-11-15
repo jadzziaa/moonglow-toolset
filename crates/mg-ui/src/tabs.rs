@@ -79,9 +79,6 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
-    /// Tile Properties of the tiles selected in an area: their lights,
-    /// loops and, of one tile, its variants.
-    TileProperties,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
     /// A tile of a tileset (its index), to look at: its model and what
@@ -128,11 +125,7 @@ impl Tab {
     pub(crate) fn floats(&self) -> bool {
         matches!(
             self,
-            Tab::TileProperties
-                | Tab::Model(_)
-                | Tab::InstanceModel { .. }
-                | Tab::ModelCopy { .. }
-                | Tab::Tile { .. }
+            Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } | Tab::Tile { .. }
         )
     }
 
@@ -152,7 +145,6 @@ impl Tab {
                 | Tab::AreasProperties(_)
                 | Tab::ModuleProperties
                 | Tab::Options
-                | Tab::TileProperties
         )
     }
 
@@ -201,7 +193,6 @@ impl Tab {
             Tab::AdvancedSearch => "advanced-search",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
-            Tab::TileProperties => "tile-properties",
             Tab::Tile { .. } => "tile",
             Tab::PluginPanel { .. } => "plugin-panel",
         }
@@ -240,7 +231,6 @@ impl Tab {
             Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
-            Tab::TileProperties => (560.0, 640.0),
             Tab::PluginPanel { .. } => (380.0, 560.0),
             // (Each with OK and Cancel under it: 32 points of its height.)
             Tab::Blueprint(_)
@@ -263,7 +253,6 @@ impl Tab {
             | Tab::AreaProperties(_)
             | Tab::AreasProperties(_)
             | Tab::Options
-            | Tab::TileProperties
             | Tab::Blueprint(_)
             | Tab::Blueprints(_)
             | Tab::Instance { .. }
@@ -575,13 +564,9 @@ impl Viewer<'_> {
                 self.app.escape_taken = true;
             }
             self.app.escape_docked = None;
-            // (Tile Properties with changes not applied asks first, as
-            // its X does: `may_close`.)
             // (Options' Cancel is its close, which drops what wasn't
             // applied.)
-            if *tab == Tab::TileProperties {
-                self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
-            } else if model || *tab == Tab::Options {
+            if model || *tab == Tab::Options {
                 // (Options with changes not applied says they are dropped.)
                 let draft = self.app.options.as_ref().filter(|_| *tab == Tab::Options);
                 if draft.is_some_and(|d| d.apply(&self.app.settings) != self.app.settings) {
@@ -665,7 +650,6 @@ impl Viewer<'_> {
             Tab::AdvancedSearch => crate::search::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
-            Tab::TileProperties => crate::tile_select::ui(self.app, ui),
             Tab::Tile { tileset, tile } => crate::tile_view::ui(self.app, ui, *tileset, *tile),
             Tab::PluginPanel { plugin, panel } => {
                 crate::plugin_kinds::panel_ui(self.app, ui, plugin, panel)
@@ -1025,7 +1009,6 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         Tab::AdvancedSearch => "Advanced Search".into(),
         Tab::PlaceableGallery => "Appearance Gallery".into(),
         Tab::Options => "Options".into(),
-        Tab::TileProperties => "Tile Properties".into(),
         Tab::Tile { tileset, tile } => {
             // (As an open area has the tileset: not read for a title.)
             let model = (app.open_tileset(*tileset))
@@ -1152,7 +1135,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::AdvancedSearch => I::Search,
         Tab::PlaceableGallery => I::Gallery,
         Tab::Options => I::Settings,
-        Tab::TileProperties | Tab::Tile { .. } => I::Tile,
+        Tab::Tile { .. } => I::Tile,
         // (The plugin API names no icons: a panel is the plugins'.)
         Tab::PluginPanel { .. } => I::Plugin,
     }
@@ -1712,7 +1695,6 @@ mod tests {
             (Tab::AdvancedSearch, I::Search),
             (Tab::PlaceableGallery, I::Gallery),
             (Tab::Options, I::Settings),
-            (Tab::TileProperties, I::Tile),
             (Tab::InstanceModel { area: r, path }, I::Model),
             (Tab::Tile { tileset: r, tile: 0 }, I::Tile),
             (Tab::PluginPanel { plugin: "p".into(), panel: "q".into() }, I::Plugin),
@@ -1750,7 +1732,6 @@ mod tests {
                 | Tab::AdvancedSearch
                 | Tab::PlaceableGallery
                 | Tab::Options
-                | Tab::TileProperties
                 | Tab::InstanceModel { .. }
                 | Tab::Tile { .. }
                 | Tab::PluginPanel { .. } => {}

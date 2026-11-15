@@ -28,7 +28,11 @@ const KEPT: &[(&str, usize, &str)] = &[
     ("paint_mode.rs", 2, "the brush's circle and eraser over the 3D view"),
     ("plugins.rs", 1, "a plugin choice's color swatch (data)"),
     ("terrain_mode.rs", 5, "the tile cursors over the 3D view"),
-    ("tile_select.rs", 6, "the tileset's own toolset color, and tile cursors over the view"),
+    (
+        "tile_select.rs",
+        7,
+        "the tileset's own toolset color, tile cursors over the view, and a swatch's dark outline",
+    ),
     ("widgets.rs", 1, "a PLT palette's tones (data)"),
     ("script_view.rs", 7, "the script colors of Options › Script Editor (data), and its tests"),
     ("blueprint/situated.rs", 5, "transition destinations marked on the area's map (a picture)"),

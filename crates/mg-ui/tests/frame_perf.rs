@@ -1010,6 +1010,33 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         app.palette.chosen.clear();
     }
     fold_palette(h);
+    // Select Tiles on with a box of tiles selected (six by six at most)
+    // and the tiles palette shown (M4's U5: Select Tiles' commands in the
+    // header's left group and Tile Properties the Right Dock's lower
+    // section, reading the tiles once and drawing their lights, height
+    // and textures; before it, the Select tool's group and no panel).
+    show_palette(h);
+    {
+        let app = h.state_mut();
+        app.palette.tiles = true;
+        if let Some(v) = app.area_views.get_mut(&area) {
+            let (w, d) = v.model.as_ref().map_or((0, 0), |m| (m.width, m.height));
+            v.selection.clear();
+            v.tile_mode = true;
+            v.tile_selection =
+                (0..d.min(6)).flat_map(|y| (0..w.min(6)).map(move |x| (x, y))).collect();
+        }
+    }
+    view(h, r, &format!("{name}, Select Tiles on, a box of tiles selected"), Some(&tab));
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        if let Some(v) = app.area_views.get_mut(&area) {
+            v.tile_mode = false;
+            v.tile_selection.clear();
+        }
+    }
+    fold_palette(h);
     // The Outliner (M3's T13) with a kind of 200 objects or more opened
     // (one of them selected: the Outliner opens its kind and brings it
     // into sight), against its kinds closed, the same one selected.

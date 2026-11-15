@@ -153,6 +153,11 @@ pub enum Panel {
     /// The log: the Bottom Dock's global panel, whatever the editor in
     /// front, with its switch in the Status Bar.
     Log,
+    /// The tiles selected in an area's Select Tiles: their lights and
+    /// loops, height, replacement texture, textures and the tiles to put
+    /// in (`tile_select::panel`, M4's U5), the area's Right Dock's lower
+    /// section while Select Tiles is on (the AreaTiles board).
+    TileProperties,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -233,7 +238,7 @@ impl Panel {
     pub(crate) fn dock(self) -> Dock {
         match self {
             Panel::Module | Panel::Resources | Panel::Outliner => Dock::Left,
-            Panel::Palette | Panel::Preview => Dock::Right,
+            Panel::Palette | Panel::Preview | Panel::TileProperties => Dock::Right,
             Panel::Log => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
@@ -251,6 +256,7 @@ impl Panel {
             Panel::Preview => "Preview",
             Panel::Outliner => "Outliner",
             Panel::Log => "Log",
+            Panel::TileProperties => "Tile Properties",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -267,6 +273,7 @@ impl Panel {
             Panel::Preview,
             Panel::Outliner,
             Panel::Log,
+            Panel::TileProperties,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -286,6 +293,7 @@ impl Panel {
             Panel::Preview => Icon::Eye,
             Panel::Outliner => Icon::Outliner,
             Panel::Log => Icon::Log,
+            Panel::TileProperties => Icon::Tile,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -317,6 +325,7 @@ impl Panel {
             Panel::Preview => "Preview: the blueprint chosen in the palette",
             Panel::Outliner => "Outliner: what the area in front holds",
             Panel::Log => "Log: what Moonglow reports",
+            Panel::TileProperties => "Tile Properties: the tiles selected",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -359,6 +368,18 @@ impl Panel {
         }
     }
 
+    /// What its header says after its title where its section holds it
+    /// alone (the kit's `PanelHeader`, `.docktab.title` and its `.t3`
+    /// detail): Tile Properties' "6 tiles" or "Tile (4, 4)" (the AreaTiles
+    /// and GalleryTiles boards). `None`: its section shows a tab bar, as
+    /// every other panel's does. `editor` is the editor it draws for.
+    fn detail(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<String> {
+        match self {
+            Panel::TileProperties => Some(crate::tile_select::detail(app, editor)),
+            _ => None,
+        }
+    }
+
     /// Whether it has something to show now: the module tree a module
     /// open; the resource browser a module open, or (without one) once it
     /// was asked for (Tools › Resource Browser), for the run; the palettes
@@ -390,6 +411,7 @@ impl Panel {
             },
             Panel::Outliner => brings.outliner,
             Panel::Log => true,
+            Panel::TileProperties => brings.has(self) || brings.window_has(self),
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -405,6 +427,9 @@ impl Panel {
             Panel::Preview => Keys::Preview,
             Panel::Outliner => Keys::Outliner,
             Panel::Log => Keys::Log,
+            // (Its fields take the keys they have the focus for, no
+            // arrows of its own.)
+            Panel::TileProperties => Keys::Area,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -438,6 +463,11 @@ pub(crate) struct Brings {
     /// window, after its own on the window's bottom pane (Floating.png's
     /// script: Search Results, U13), where it `floats`.
     pub(crate) window_bottom: &'static [Panel],
+    /// The sections of `right` that go with the editor into a window of
+    /// its own where it does not `floats` (the rest stay the main
+    /// window's): a dragged out area's Tile Properties, its Palette and
+    /// Preview staying in the main window's Right Dock (U5).
+    pub(crate) window_right: &'static [Section],
 }
 
 impl Brings {
@@ -445,11 +475,24 @@ impl Brings {
     pub(crate) fn has(&self, panel: Panel) -> bool {
         self.right.iter().any(|s| s.contains(&panel)) || self.bottom.contains(&panel)
     }
+
+    /// Whether `panel` goes with the editor into its window
+    /// ([`Brings::window_right`]).
+    pub(crate) fn window_has(&self, panel: Panel) -> bool {
+        self.window_right.iter().any(|s| s.contains(&panel))
+    }
 }
 
 /// The area editor's Right Dock (and the placeholder's in its place): the
 /// Palette and the Preview, one section.
 const AREA_RIGHT: &[Section] = &[&[Panel::Palette, Panel::Preview]];
+/// The area's Right Dock while Select Tiles is on (the AreaTiles board):
+/// the Palette and the Preview, and under them Tile Properties.
+const AREA_TILES_RIGHT: &[Section] = &[&[Panel::Palette, Panel::Preview], TILES_SECTION];
+/// Tile Properties' section, alone (where the palettes are not shown, and
+/// in a dragged out area's window).
+const TILES_SECTION: Section = &[Panel::TileProperties];
+const TILES_ALONE: &[Section] = &[TILES_SECTION];
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
 /// `editor_brings` by kind): an area's tab the Outliner (with a module
@@ -471,10 +514,29 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
     let palettes = app.game.is_some() && app.ws.is_some();
     let right = if palettes { AREA_RIGHT } else { &[] };
     match tab {
+        // (While Select Tiles is on, and Tile Properties not hidden by its
+        // header toggle: under the palettes, the AreaTiles board's lower
+        // section; in the area's own window where it is dragged out.)
+        crate::Tab::Area(area) if app.ws.is_some() && tile_properties_shown(app, *area) => {
+            let right = if palettes { AREA_TILES_RIGHT } else { TILES_ALONE };
+            Brings { outliner: true, right, window_right: TILES_ALONE, ..Brings::default() }
+        }
         crate::Tab::Area(_) => Brings { outliner: app.ws.is_some(), right, ..Brings::default() },
         crate::Tab::NoArea => Brings { right, ..Brings::default() },
         _ => Brings::default(),
     }
+}
+
+/// Whether `area`'s editor shows Tile Properties: Select Tiles is on in
+/// its view (as the view was last drawn, where it is being drawn now) and
+/// the header's Tile Properties toggle has not hidden it
+/// (`Settings::hide_tile_properties`).
+pub(crate) fn tile_properties_shown(app: &Moonglow, area: mg_core::ResRef) -> bool {
+    let tiles = match app.area_views.get(&area) {
+        Some(view) => view.tile_mode && view.read_only.is_none(),
+        None => app.tile_mode_areas.contains(&area),
+    };
+    tiles && !app.settings.hide_tile_properties
 }
 
 /// The editor a tab belongs to, whose panels it brings and whose layout
@@ -694,17 +756,20 @@ pub(crate) fn focus_right(app: &mut Moonglow, panel: Panel) {
 /// window's docks (an area's) brings none here.
 pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     let brings = brings_of(app, tab);
-    if !brings.floats {
+    if !brings.floats && brings.window_right.is_empty() {
         return;
     }
     let kind = Some(layout_kind(app, tab));
     let held = |s: Section| -> Vec<Panel> {
         s.iter().copied().filter(|p| p.available_with(app, &brings)).collect()
     };
+    // (A kind that does not float brings only its `window_right` here:
+    // the rest stay the main window's.)
+    let sections = if brings.floats { brings.right } else { brings.window_right };
     let right: Vec<Vec<Panel>> =
-        brings.right.iter().map(|s| held(s)).filter(|s| !s.is_empty()).collect();
-    let mut bottom = held(brings.bottom);
-    for p in held(brings.window_bottom) {
+        sections.iter().map(|s| held(s)).filter(|s| !s.is_empty()).collect();
+    let mut bottom = if brings.floats { held(brings.bottom) } else { Vec::new() };
+    for p in held(brings.window_bottom).into_iter().filter(|_| brings.floats) {
         if !bottom.contains(&p) {
             bottom.push(p);
         }
@@ -740,13 +805,9 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     if pressed(&part, place) {
                         app.plugins.pane = plugin_pane(front, Some(tab)).or(app.plugins.pane);
                     }
-                    let mut at = section.iter().position(|p| *p == front).unwrap_or(0);
-                    let mut tabs = DockTabs::new(&name);
-                    for p in section {
-                        tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
-                    }
-                    let bar = tabs.show(&mut part, &mut at, |_| ());
-                    if bar.changed {
+                    let on = (section.as_slice(), front, Some(tab));
+                    let bar = section_bar(app, &mut part, &name, on, None, |_| ());
+                    if let Some(at) = bar.chosen {
                         chosen = Some(section[at]);
                     }
                     app.window_bars_drawn.push(front);
@@ -2601,24 +2662,18 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 let builder = egui::UiBuilder::new().id_salt(&name).max_rect(place);
                 let mut part = ui.new_child(builder);
                 part.set_clip_rect(place.intersect(ui.clip_rect()));
-                let mut tab = section.iter().position(|p| *p == front).unwrap_or(0);
-                let mut tabs = DockTabs::new(&name);
-                for p in section {
-                    tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
-                }
                 // (The dock's fold button at the outer end of the last
                 // column's top bar, by the window's edge: where it is in
                 // one column, and not mid-dock, where WideArea draws none.)
                 let fold_here = last_column && s == 0;
-                if fold_here {
-                    tabs = tabs.tools_width(tools_width);
-                }
-                let bar = tabs.show(&mut part, &mut tab, |ui| {
+                let tools = fold_here.then_some(tools_width);
+                let on = (section.as_slice(), front, editor.as_ref());
+                let bar = section_bar(app, &mut part, &name, on, tools, |ui| {
                     fold_here && kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
                 });
                 folded |= bar.inner;
-                if bar.changed {
-                    chosen = Some(section[tab]);
+                if let Some(at) = bar.chosen {
+                    chosen = Some(section[at]);
                 }
                 app.right_bars.push(front);
                 panel_body(app, &mut part, front, Host::Dock, pane_id, editor.as_ref());
@@ -2646,6 +2701,50 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         (None, Some(panel)) => focus_right(app, panel),
         (None, None) => {}
     }
+}
+
+/// What a stacked section's bar did ([`section_bar`]): the tab chosen in
+/// it, if one was, and what its tools gave.
+struct SectionBar<R> {
+    chosen: Option<usize>,
+    inner: R,
+}
+
+/// A stacked section's bar, named `name`, of `section` with `front` in
+/// front, drawn for `editor` (the active docked one in the dock, the
+/// floating one in its window): its
+/// tab bar (the kit's `DockTabs`, `tools_width` the tools' width where it
+/// has tools), or where it holds one panel with a detail of its own
+/// ([`Panel::detail`]: Tile Properties' "6 tiles") the kit's
+/// `PanelHeader`, its title and detail, named by both ("Tile Properties,
+/// 6 tiles").
+fn section_bar<R>(
+    app: &Moonglow,
+    ui: &mut Ui,
+    name: &str,
+    (section, front, editor): (&[Panel], Panel, Option<&crate::Tab>),
+    tools_width: Option<f32>,
+    tools: impl FnOnce(&mut Ui) -> R,
+) -> SectionBar<R> {
+    if let [one] = section
+        && let Some(detail) = one.detail(app, editor)
+    {
+        // (Named with its detail, "Tile Properties, 6 tiles", as a screen
+        // reader says it.)
+        let said = format!("{}, {detail}", one.name());
+        let header = mg_uikit::shell::PanelHeader::new(one.name()).detail(detail).name(said);
+        return SectionBar { chosen: None, inner: header.show(ui, tools).inner };
+    }
+    let mut at = section.iter().position(|p| *p == front).unwrap_or(0);
+    let mut tabs = DockTabs::new(name);
+    for p in section {
+        tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
+    }
+    if let Some(width) = tools_width {
+        tabs = tabs.tools_width(width);
+    }
+    let bar = tabs.show(ui, &mut at, tools);
+    SectionBar { chosen: bar.changed.then_some(at), inner: bar.inner }
 }
 
 /// The plugins' "pane last clicked in" for a press in `panel`: a panel an
@@ -2851,6 +2950,13 @@ pub(crate) fn panel_body(
                     body.set_clip_rect(room.intersect(ui.clip_rect()));
                     crate::area_tools::preview_body(app, &mut body, room);
                 }
+            }
+            Panel::TileProperties => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, "tile-properties", pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::tile_select::panel(app, &mut body, editor);
             }
             #[cfg(test)]
             Panel::Sample(_) => {

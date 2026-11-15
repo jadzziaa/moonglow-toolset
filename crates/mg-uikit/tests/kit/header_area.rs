@@ -353,3 +353,43 @@ fn an_item_s_count_follows_its_words() {
     let w = seen.borrow().clone();
     assert!((w[0] - w[1].ceil()).abs() <= 1.0, "wider by the count: {w:?}");
 }
+
+/// A joined group's words between its buttons (`Joined::words`, the
+/// AreaTiles board's ‹ Appearance ›): drawn between them, as wide as the
+/// words and their padding; not a control (no node, no name in the
+/// header's record) and no row of its own in More, where the group's
+/// buttons go with the group's name as their heading.
+#[test]
+fn a_joined_group_s_words_stand_between_its_buttons() {
+    use mg_uikit::header::{JOIN_SEAM, JOIN_WORD_PADDING, Joined};
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let out = seen.clone();
+    let mut h = harness(vec2(600.0, 300.0), move |ui| {
+        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+        let words = ui.painter().layout_no_wrap("Appearance".into(), font, egui::Color32::WHITE);
+        let r = EditorHeader::new(H)
+            .left(Item::joined(
+                "Appearance",
+                vec![
+                    Joined::button(Icon::ChevronLeft, "Previous"),
+                    Joined::words("Appearance"),
+                    Joined::button(Icon::ChevronRight, "Next"),
+                ],
+            ))
+            .show(ui);
+        let rect = |n: &str| r.response(n).map(|r| r.rect).unwrap_or(egui::Rect::NOTHING);
+        let (a, b) = (rect("Previous"), rect("Next"));
+        let gap = b.left() - a.right();
+        let want = (words.size().x + 2.0 * JOIN_WORD_PADDING).ceil() + 2.0 * JOIN_SEAM;
+        *out.borrow_mut() = vec![gap, want];
+    });
+    h.run();
+    let w = seen.borrow().clone();
+    assert!((w[0] - w[1]).abs() <= 1.0, "the words between the buttons: {w:?}");
+    h.get_by_label(H).get_by_label("Previous");
+    h.get_by_label(H).get_by_label("Next");
+    assert!(h.query_by_label("Appearance").is_none(), "the words are no control");
+    let names: Vec<String> = header::places(&h.ctx, H).into_iter().map(|(n, _)| n).collect();
+    assert!(names.contains(&"Previous".to_string()) && names.contains(&"Next".to_string()));
+    assert_eq!(names.iter().filter(|n| *n == "Appearance").count(), 1, "the group's name alone");
+}

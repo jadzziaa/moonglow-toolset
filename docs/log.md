@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U5, the Tiles state and the Tile Properties panel**, as the AreaTiles and GalleryTiles boards draw them ([04](manual/04-areas.md#tile-properties), [02](manual/02-main-window.md), [03](manual/03-modules.md), [10](manual/10-options.md)).
+  * **Select Tiles' commands take the header's left group**: Refine Tile, ‹ Appearance ›, Rotate, Cut, Copy and Paste, Delete and the Tile Properties toggle, on the tiles selected.
+  * **Tile Properties is the Right Dock's lower section** while Select Tiles is on ("Lights and Loops", "6 tiles"), following the selection; in a dragged out area, its window's right pane. No OK or Cancel: each change is one step to undo on every tile chosen, and only what is changed is written.
+  * The tiles palette names the area's tileset, counts its folders, shows the tools' keys (Eraser X) and Exact Tile always.
+  * Deferred: "Tile Properties' lights and loops from the model" closed (no discard is left to ask about; its facts are in the manual); "Tile Properties on several tiles" restated.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U4's review ([04](manual/04-areas.md#the-tool-shelf-and-the-compass)).
   * F10 takes Select Tiles anywhere over the area editor; the tiles palette and the Tile window take their tools the shelf's way; a read-only area shows nothing of Paint.
   * The coordinates' line is cut short before the minimap in a narrow view; the minimap is the board's 132 points.
