@@ -403,6 +403,10 @@ pub(crate) enum Keys {
     Preview,
     /// The Outliner's rows, under the Left Dock's tabs (`outliner.rs`).
     Outliner,
+    /// The Right Dock's Tile Properties (M4's U5): no arrows of its own;
+    /// F6 gives its first control the keyboard's focus, and Tab goes on
+    /// through its controls (`tile_select::panel`).
+    TileProperties,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

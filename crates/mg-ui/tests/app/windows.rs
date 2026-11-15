@@ -1470,7 +1470,7 @@ fn the_talk_table_opens_again_on_its_line() {
 /// it was the Right Dock's panel), still waiting for its area's view when
 /// the module is closed again (the area never drawn: here, with no game
 /// data), is kept again, not lost: read without error, the other tabs
-/// open.
+/// open; once its area is deleted from the module, it is dropped.
 #[test]
 fn tile_properties_waiting_for_its_area_is_kept_again() {
     let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
@@ -1496,6 +1496,23 @@ fn tile_properties_waiting_for_its_area_is_kept_again() {
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("tile-properties:start:5"), "kept again ({session}): {text}");
     }
+    // Its area deleted from the module meanwhile: no longer kept (written
+    // back for ever, else).
+    h.state_mut().open_module(&path);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("start").unwrap();
+    let keys: Vec<ResKey> = [ResType::ARE, ResType::GIT, ResType::GIC]
+        .into_iter()
+        .map(|t| ResKey::new(area, t))
+        .filter(|k| h.state().ws.as_ref().unwrap().module.contains(k))
+        .collect();
+    assert!(!keys.is_empty(), "the module has the area");
+    h.state_mut().actions.push(mg_ui::Action::DeleteResources(keys));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("tile-properties"), "the deleted area's not kept: {text}");
 }
 
 /// With Options › General's Open a module with the tabs it had off, a

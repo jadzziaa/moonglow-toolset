@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U5's review ([04](manual/04-areas.md#tile-properties), [02](manual/02-main-window.md)).
+  * F6 stops at Tile Properties and gives its first control the keyboard, docked and in a dragged out area's window; the area view takes the arrow keys back as the pointer comes in, moves or presses, not while it rests there.
+  * The grayed Height says why again; the tile menu's Tile Properties has no ellipsis; the Replacement texture box reaches the panel's edge; terrains and crossers have their icon.
+  * Old records: the panel shown whatever its toggle said; a waiting entry dropped once its area is deleted.
+  * Deferred "Tile Properties' lights and loops from the model" restated, not closed: two of its facts still differ from Aurora.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U5, the Tiles state and the Tile Properties panel**, as the AreaTiles and GalleryTiles boards draw them ([04](manual/04-areas.md#tile-properties), [02](manual/02-main-window.md), [03](manual/03-modules.md), [10](manual/10-options.md)).
   * **Select Tiles' commands take the header's left group**: Refine Tile, ‹ Appearance ›, Rotate, Cut, Copy and Paste, Delete and the Tile Properties toggle, on the tiles selected.
   * **Tile Properties is the Right Dock's lower section** while Select Tiles is on ("Lights and Loops", "6 tiles"), following the selection; in a dragged out area, its window's right pane. No OK or Cancel: each change is one step to undo on every tile chosen, and only what is changed is written.

@@ -25,3 +25,5 @@ created: 2026-11-15
 ## Watch out
 - A test that mutates `app.tile_props` right after a write must run 2 frames between changes: a mutation on props whose revision is stale is discarded by the re-read.
 - The panel only exists where the Right Dock draws it: under 1400 it is a folded tab (Palette in front unless chosen), so tests use `wide_window` or the tile menu's "Tile Properties…" (which `ShowPanel`s it).
+- (U5 review) The panel has its own `Keys::TileProperties` (in `Panel::KEYED`); F6 there focuses its first control (`Moonglow::tile_props_focus`). `keys_leave_panels_not_drawn` counts `window_bars` as drawn. The area view used to take the arrow keys back EVERY frame the pointer rested over it (so F6 after a tile click stayed on Area, panel or not); it now does so only as the pointer comes in (`AreaView::pointer_was_in`), moves or presses in the view (`area_view::camera_input`).
+- Moonglow::apply can return Ok without applying (a viewed resource): `write_changes` keeps `live` only when the revision moved and withdraws only its own "Tile Properties" command.

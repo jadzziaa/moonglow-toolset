@@ -57,18 +57,30 @@ fn differ(a: &mg_gff::Struct, b: &mg_gff::Struct) -> Vec<String> {
 /// (columns 1 and 2 of row 1) selected, their main light 2 set apart
 /// (3 and 11) so that they differ in a field nothing changes.
 fn two_tiles(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (mut h, area) = two_tiles_set(name)?;
+    select_two(&mut h, area);
+    Some((h, area))
+}
+
+/// [`two_tiles`]' area before anything is selected (its main lights 2
+/// set apart).
+fn two_tiles_set(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let (mut h, area) = area_harness(name)?;
     wide_window(&mut h);
     set_field(&mut h, area, 5, "Tile_MainLight2", 3);
     set_field(&mut h, area, 6, "Tile_MainLight2", 11);
-    area_click(&mut h, "Select Tiles");
-    click(&mut h, area, Vec3::new(15.0, 15.0, 0.0), egui::Modifiers::NONE);
-    click(&mut h, area, Vec3::new(25.0, 15.0, 0.0), egui::Modifiers::COMMAND);
-    settle(&mut h);
+    Some((h, area))
+}
+
+/// Select Tiles on, tiles 5 and 6 selected: the panel shows them.
+fn select_two(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    area_click(h, "Select Tiles");
+    click(h, area, Vec3::new(15.0, 15.0, 0.0), egui::Modifiers::NONE);
+    click(h, area, Vec3::new(25.0, 15.0, 0.0), egui::Modifiers::COMMAND);
+    settle(h);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1), (2, 1)]);
     let tiles = h.state().tile_props.as_ref().map(|p| p.tiles.clone());
     assert_eq!(tiles, Some(vec![5, 6]), "the panel shows them");
-    Some((h, area))
 }
 
 /// A change in the panel (Main light 1, chosen in its color picker) is
@@ -110,15 +122,17 @@ fn a_change_is_one_step_undone_on_every_tile() {
     assert_eq!(p.main[0], props.main[0], "the panel read them again");
 }
 
-/// What is not changed is not written: frames of the panel shown write
-/// nothing; the color the tiles all have chosen again writes nothing; a
+/// What is not changed is not written: the panel shown (from before the
+/// tiles were selected, its first frames too) writes nothing; the color the tiles all have chosen again writes nothing; a
 /// height raised writes the height alone (and moves what stands on the
 /// tiles), the lights the tiles differ in left as they are.
 #[test]
 fn an_unchanged_control_writes_nothing() {
-    let Some((mut h, area)) = two_tiles("tile-props-unchanged") else { return };
+    let Some((mut h, area)) = two_tiles_set("tile-props-unchanged") else { return };
     let before = tile_list(&mut h, area);
-    let at = revision(&h);
+    let (at, label) = (revision(&h), undo_label(&h));
+    select_two(&mut h, area);
+    assert_eq!((revision(&h), undo_label(&h)), (at, label), "shown: nothing written");
     for _ in 0..10 {
         h.run_steps(1);
     }
@@ -225,7 +239,7 @@ fn the_header_toggle_hides_and_shows_the_panel() {
     area_click(&mut h, "Tile Properties");
     settle(&mut h);
     h.get_by_label("Tile Properties, 2 tiles");
-    // Hidden, then the tile menu's Tile Properties…: shown.
+    // Hidden, then the tile menu's Tile Properties: shown.
     area_click(&mut h, "Tile Properties");
     settle(&mut h);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -239,7 +253,7 @@ fn the_header_toggle_hides_and_shows_the_panel() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(&h, "Tile Properties").click();
     settle(&mut h);
     assert!(!h.state().settings.hide_tile_properties);
     h.get_by_label("Tile Properties, 2 tiles");
@@ -419,4 +433,53 @@ fn the_panel_s_controls_fit_the_dock() {
         h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
         settle(&mut h);
     }
+}
+
+/// F6 forward `n` times from where the keys are, the pane each press came
+/// to, by name (`palette_view::arrow_keys_are`).
+fn f6_walk(h: &mut Harness<'_, Moonglow>, n: usize, m: egui::Modifiers) -> Vec<String> {
+    let mut seen = Vec::new();
+    for _ in 0..n {
+        h.key_press_modifiers(m, egui::Key::F6);
+        settle(h);
+        seen.push(mg_ui::palette_view::arrow_keys_are(&h.ctx));
+    }
+    seen
+}
+
+/// F6 goes round every pane with Tile Properties shown, docked under the
+/// palette (a stop of its own after the Palette's, the panel's first
+/// control taking the keyboard's focus there) and in a dragged out area's
+/// window (after the area's view), forward and back, never staying put.
+#[test]
+fn f6_goes_round_every_pane_with_tile_properties_shown() {
+    let Some((mut h, area)) = two_tiles("tile-props-f6") else { return };
+    h.state_mut().settings.hide_log = false;
+    settle(&mut h);
+    let round = |seen: &[String]| {
+        let stuck = seen.windows(2).any(|w| w[0] == w[1]);
+        assert!(!stuck, "F6 stayed put: {seen:?}");
+        assert!(seen.iter().any(|s| s == "TileProperties"), "no Tile Properties stop: {seen:?}");
+        assert!(seen.iter().any(|s| s == "Palette"), "{seen:?}");
+        assert!(seen.iter().any(|s| s == "Area"), "{seen:?}");
+    };
+    let forward = f6_walk(&mut h, 8, egui::Modifiers::NONE);
+    round(&forward);
+    // (There, the panel's first control has the focus: Tab goes on in it.)
+    while mg_ui::palette_view::arrow_keys_are(&h.ctx) != "TileProperties" {
+        f6_walk(&mut h, 1, egui::Modifiers::NONE);
+    }
+    let swatch = h.get_by_label("Main light 1 color");
+    assert!(swatch.accesskit_node().is_focused(), "its first control focused");
+    let back = f6_walk(&mut h, 8, egui::Modifiers::SHIFT);
+    round(&back);
+    // Dragged out: the window's Tile Properties a stop after its view.
+    h.set_size(egui::vec2(1700.0, 900.0));
+    settle(&mut h);
+    own_window(&mut h, &Tab::Area(area), egui::pos2(20.0, 40.0), egui::vec2(1200.0, 800.0));
+    settle(&mut h);
+    let window = f6_walk(&mut h, 8, egui::Modifiers::NONE);
+    let stuck = window.windows(2).any(|w| w[0] == w[1]);
+    assert!(!stuck, "dragged out: F6 stayed put: {window:?}");
+    assert!(window.iter().any(|s| s == "TileProperties"), "dragged out: {window:?}");
 }

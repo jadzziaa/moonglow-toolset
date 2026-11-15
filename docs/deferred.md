@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1919,6 +1919,14 @@ is not taken for a new gap.
   in with Tile Properties' All tiles and its Turn (issue #29); the steps
   themselves stay fit-only. (S) (from a builder's tile feedback,
   October 2026) (Settled in the triage of 2026-10-28.)
+- **Tile Properties' lights and loops from the model:** a model not
+  found (or not readable) falls back on the tileset's flags, which say
+  every light and loop; a tile model's `animloop` animations from a
+  supermodel are not looked for (the game's tile models have none).
+  (Its discard question is gone since Tile Properties became the Right
+  Dock's panel, M4's U5: there is no OK, Cancel or close to ask about.)
+  (S) (from Jasperre's tile feedback, October 2026) (Settled in the
+  triage of 2026-10-28; restated by M4's U5 review, 2026-11-15.)
 - **Uniforms a script sets:** a custom shader's uniform that a module's
   scripts set in the game (`SetMaterialShaderUniformInt`,
   `SetMaterialShaderUniformVec4` on an object that isn't static) shows

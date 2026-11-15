@@ -951,6 +951,9 @@ pub struct Moonglow {
     /// The areas whose views were last drawn in Select Tiles (read where
     /// the view is out of `area_views`, being drawn: `shell::brings_of`).
     pub(crate) tile_mode_areas: std::collections::HashSet<mg_core::ResRef>,
+    /// F6 came to Tile Properties: its first control takes the keyboard's
+    /// focus as it is next drawn (`tile_select::panel`).
+    pub(crate) tile_props_focus: bool,
     /// Another area's Tile Properties panel's, while this frame's is
     /// `tile_props` (two areas in Select Tiles, one dragged out).
     pub(crate) tile_props_aside: std::collections::HashMap<mg_core::ResRef, tile_select::TileProps>,
@@ -1594,6 +1597,7 @@ impl Moonglow {
             tile_props: None,
             tile_mode_areas: Default::default(),
             tile_props_aside: Default::default(),
+            tile_props_focus: false,
             area_stats: None,
             build: None,
             store_wizard: None,
@@ -3043,6 +3047,9 @@ impl Moonglow {
         if next == Keys::Palette {
             self.palette.to_first = true;
         }
+        // (Tile Properties: its first control takes the focus as it is
+        // drawn, `tile_select::panel`.)
+        self.tile_props_focus = next == Keys::TileProperties;
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)

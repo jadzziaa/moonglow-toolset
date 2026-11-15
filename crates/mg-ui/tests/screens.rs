@@ -5176,7 +5176,7 @@ fn exact_tiles_and_tile_height() {
             });
         }
         h.run_steps(2);
-        h.get_by_label("Tile Properties…").click();
+        popup_item(h, "Tile Properties").click();
         h.run_steps(30);
     };
     // A tile of a building (a group) in the middle: its Height is locked.
@@ -6558,7 +6558,7 @@ fn tile_textures() {
             });
         }
         h.run_steps(2);
-        h.get_by_label("Tile Properties…").click();
+        popup_item(&h, "Tile Properties").click();
         h.run_steps(5);
         // (The Right Dock's Tile Properties panel, as wide as the dock.)
         h.get_by_label_contains("Textures of ").click();
@@ -12480,6 +12480,16 @@ fn board_creature() {
 /// A few seconds' frames for what is drawn on threads of its own (an
 /// area's shaders, a preview's model): an area keeps the window
 /// repainting, so not a settle.
+/// The item `name` of the open right-click menu (the header's toggle of
+/// the same name aside): the popup's, with the fewest containers above it.
+fn popup_item<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    let depth = |n: &egui_kittest::Node<'_>| {
+        std::iter::successors(n.accesskit_node().parent(), |p| p.parent()).count()
+    };
+    let all: Vec<_> = h.get_all_by_label(name).collect();
+    all.into_iter().rev().min_by_key(depth).unwrap_or_else(|| panic!("no menu item {name}"))
+}
+
 fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
     for _ in 0..20 {
         h.step();
@@ -12981,6 +12991,15 @@ fn board_gallery_tiles() {
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     h.state_mut().settings.palette_gallery = true;
     tiles_selected(&mut h, &[(0, 0)]);
+    // (The panel scrolled to its variants, as the board shows them.)
+    h.get_by_label_contains("fit here)").scroll_to_me();
+    pictures_shown(&mut h);
+    // (Until the variants' pictures are made, by a deadline.)
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while h.state().thumbnails.waiting() > 0 && std::time::Instant::now() < deadline {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     pictures_shown(&mut h);
     shoot(&mut h, &board_dir(), "board_gallery_tiles");
 }

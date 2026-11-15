@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -365,7 +365,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Rotate Tile (R) | Header, Rotate button ✓ M4 U5 (Shift + click: clockwise) |
 | Copy, Cut, Paste of tiles | Header, three icon buttons ✓ M4 U5 (joined; Paste grayed until tiles of the tileset are copied) |
 | Delete, Eraser (X) | Header, Delete button. The Eraser stays in the palette as a brush ✓ M4 U5 |
-| Tile Properties… | Header toggle, and the lower Right Dock panel ✓ M4 U5 (the toggle kept in the settings; the tile menu's Tile Properties… takes Select Tiles and shows the panel) |
+| Tile Properties… | Header toggle, and the lower Right Dock panel ✓ M4 U5 (the toggle kept in the settings; the tile menu's Tile Properties, without its ellipsis since the review, takes Select Tiles and shows the panel) |
 | Put Down, plugin tile commands | Still the tile menu (right click) ✓ M4 U5 |
 | Tile Border, Grid | View controls at the right, as in Main ✓ M4 U3 (the Lighting and Overlays popovers) |
 | Tiles palette: search, List and Gallery, Exact Tile | Palette panel, in the same order ✓ M4 U5 (Exact Tile always there, grayed in the List with no tile chosen) |

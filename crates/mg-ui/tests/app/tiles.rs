@@ -698,7 +698,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         });
     }
     h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(&h, "Tile Properties").click();
     h.run_steps(2);
     // Its variants: the tiles that fit there, the one there now among
     // them; another chosen is put there at once, the window staying.
@@ -781,7 +781,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         });
     }
     h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(&h, "Tile Properties").click();
     h.run_steps(2);
     let props = h.state().tile_props.clone().expect("the window is open");
     assert_eq!(props.tiles, [5]);
@@ -877,7 +877,7 @@ pub(crate) fn tile_properties_of(
         });
     }
     h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(h, "Tile Properties").click();
     h.run_steps(3);
 }
 
@@ -1067,6 +1067,10 @@ fn groups_and_features_change_only_whole() {
     let props = h.state().tile_props.clone().expect("the window is open");
     assert!(props.grouped && props.variants.is_none(), "no variants for a group's tile");
     h.get_by_label_contains("A tile of a group or a feature");
+    // (One of the barn's tiles alone: its Height grayed, and why, shown.)
+    assert!(props.height_locked);
+    assert!(h.get_by_label("Raise Height").accesskit_node().is_disabled());
+    h.get_by_label(mg_ui::tile_select::HEIGHT_LOCKED);
     h.state_mut().tile_props = None;
     h.run_steps(2);
     // Out of Select Tiles, the area's own menu on the ground: Rotate Tile
@@ -1377,7 +1381,7 @@ fn a_terrain_drag_across_an_undo_of_resize_area_paints_nothing() {
     assert_eq!(area_are(&mut h, area), before, "letting go paints nothing");
 }
 
-/// The tile menu's Tile Properties… on the tiles selected, the menu opened
+/// The tile menu's Tile Properties on the tiles selected, the menu opened
 /// at `at`.
 fn tile_properties_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     for pressed in [true, false] {
@@ -1386,7 +1390,7 @@ fn tile_properties_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
         h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: m });
     }
     h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(h, "Tile Properties").click();
     h.run_steps(3);
 }
 
@@ -2018,7 +2022,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
 /// A right click on a tile opens the tile's items without Select Tiles
 /// (a builder's tile feedback): on the ground with no object there, the
 /// area's menu has them (as Aurora's has Tile Properties for a tile;
-/// since M4's U5 its Tile Properties… takes Select Tiles with that tile
+/// since M4's U5 its Tile Properties takes Select Tiles with that tile
 /// selected, the Right Dock's panel showing it); on an object, not. With
 /// a terrain brush, the tile menu, the brush kept.
 #[test]
@@ -2046,10 +2050,10 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     h.render().unwrap().save(dir.join("ground.png")).unwrap();
     assert_eq!(
         items[..4],
-        ["Next Tile Appearance", "Previous Tile Appearance", "Rotate Tile", "Tile Properties…"],
+        ["Next Tile Appearance", "Previous Tile Appearance", "Rotate Tile", "Tile Properties"],
         "{items:?}"
     );
-    h.get_by_label("Tile Properties…").click();
+    popup_item(&h, "Tile Properties").click();
     h.run_steps(2);
     let props = h.state().tile_props.clone().expect("Tile Properties shows the tile");
     assert_eq!(props.tiles, [5]);
@@ -2073,7 +2077,7 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right_click(&mut h, ground);
-    let items = menu_items(&h, "Tile Properties…");
+    let items = menu_items(&h, "Tile Properties");
     assert_eq!(
         items,
         [
@@ -2081,7 +2085,7 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
             "Next Tile Appearance",
             "Previous Tile Appearance",
             "Rotate Tile",
-            "Tile Properties…"
+            "Tile Properties"
         ]
     );
     assert!(h.state().palette.tile_brush.is_some(), "the brush kept");
@@ -2649,7 +2653,7 @@ fn tile_variant_pictures_take_the_size_set() {
         });
     }
     h.run_steps(3);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(&h, "Tile Properties").click();
     h.run_steps(2);
     let (_, variants) = h.state().tile_props.clone().unwrap().variants.unwrap();
     // (The pictures made, to look at.)
@@ -4137,9 +4141,9 @@ fn a_right_drag_back_to_where_it_began_is_not_a_right_click() {
     click_in_sight(&mut h, "Grass");
     h.run_steps(2);
     right(&mut h, true);
-    assert!(h.query_by_label("Tile Properties…").is_none(), "no tile menu");
+    assert!(h.query_by_label("Tile Properties").is_none(), "no tile menu");
     right(&mut h, false);
-    assert!(h.query_by_label("Tile Properties…").is_some(), "a right click's tile menu");
+    assert!(h.query_by_label("Tile Properties").is_some(), "a right click's tile menu");
 }
 
 /// With a terrain brush in hand, a right click is the brush's (Raise/

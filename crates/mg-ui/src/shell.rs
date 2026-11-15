@@ -215,13 +215,14 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 6] = [
+    pub(crate) const KEYED: [Panel; 7] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
         Panel::Palette,
         Panel::Preview,
         Panel::Log,
+        Panel::TileProperties,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -427,9 +428,9 @@ impl Panel {
             Panel::Preview => Keys::Preview,
             Panel::Outliner => Keys::Outliner,
             Panel::Log => Keys::Log,
-            // (Its fields take the keys they have the focus for, no
-            // arrows of its own.)
-            Panel::TileProperties => Keys::Area,
+            // (No arrows of its own: F6 there gives its first control the
+            // focus, `Moonglow::step_pane`.)
+            Panel::TileProperties => Keys::TileProperties,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -1004,7 +1005,10 @@ pub(crate) fn keys_leave_panels_not_drawn(app: &mut Moonglow, ctx: &egui::Contex
         Dock::Right => {
             let right = right_shown(app).filter(|_| !right_folded(app));
             let apart = app.right_columns && app.right_bars.iter().any(|q| q.keys() == held);
-            (right, right.is_some_and(|p| p.keys() == held) || apart)
+            // (Or in a floating editor's window: a dragged out area's Tile
+            // Properties, the last frame's.)
+            let in_window = app.window_bars.iter().any(|q| q.keys() == held);
+            (right, right.is_some_and(|p| p.keys() == held) || apart || in_window)
         }
         Dock::Bottom => {
             let bottom = bottom_shown(app).filter(|_| !app.settings.hide_log);

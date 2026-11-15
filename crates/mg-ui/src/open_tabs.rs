@@ -1099,8 +1099,12 @@ impl Moonglow {
         }
         // An older record's Tile Properties still waiting for its area's
         // view (`tiles_again`): kept as it was read, in a pane of its own,
-        // until the area is drawn.
-        if let Some(w) = &self.open_tabs.tiles {
+        // until the area is drawn; not once the area has gone from the
+        // module (deleted since: written back for ever, else).
+        let area_kept = |a: ResRef| {
+            self.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(a, ResType::ARE)))
+        };
+        if let Some(w) = self.open_tabs.tiles.as_ref().filter(|w| area_kept(w.area)) {
             let text = format!("tile-properties:{}:{}", w.area, list(&w.tiles, |t| t.to_string()));
             panes.push(Pane {
                 place: Place::Window.text(),
@@ -1343,7 +1347,8 @@ impl Moonglow {
         for pane in &panes {
             for (text, want) in &pane.tabs {
                 if let Want::TileProperties(area, tiles) = want {
-                    self.open_tabs.tiles = Some(TilesWaiting { area: *area, tiles: tiles.clone() });
+                    let tiles = tiles.clone();
+                    self.open_tabs.tiles = Some(TilesWaiting { area: *area, tiles });
                     continue;
                 }
                 match self.open_kept(want.clone()) {
@@ -1480,9 +1485,9 @@ impl Moonglow {
     /// A record from before Tile Properties was a panel (M4's U5) that
     /// kept its tab, once its area's view has its tiles: Select Tiles on
     /// in the area, those of the tiles it was of that the area still has
-    /// selected, so that the Right Dock shows them in its Tile Properties
-    /// panel. Nothing else opens. (Records written since keep no such
-    /// tab.)
+    /// selected, and the Right Dock's Tile Properties panel shown (its
+    /// header toggle turned on), as the tile menu's Tile Properties
+    /// does. Nothing else opens. (Records written since keep no such tab.)
     fn tiles_again(&mut self) {
         let Some(w) = &self.open_tabs.tiles else { return };
         let area = w.area;
@@ -1500,15 +1505,10 @@ impl Moonglow {
         if cells.is_empty() {
             return;
         }
+        // (As the tile menu's Tile Properties shows them: the panel shown
+        // whatever its header toggle said.)
         if let Some(mut view) = self.area_views.remove(&area) {
-            crate::area_view::tools::choose(
-                self,
-                &mut view,
-                crate::area_view::tools::AreaTool::Tiles,
-            );
-            if view.tile_mode {
-                view.tile_selection = cells;
-            }
+            crate::tile_select::properties_of(self, &mut view, &cells);
             self.area_views.insert(area, view);
         }
     }

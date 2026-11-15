@@ -3184,8 +3184,9 @@ fn an_area_opens_again_with_its_camera_and_tile_tools() {
 /// A module's kept tabs written before Tile Properties was the Right
 /// Dock's panel (M4's U5) name its tab, `tile-properties:AREA:INDICES`:
 /// read without error, they open the area in Select Tiles with those
-/// tiles selected, so that the Right Dock shows them in its Tile
-/// Properties panel; a record written now keeps no such tab.
+/// tiles selected and show the Right Dock's Tile Properties panel (its
+/// header toggle off or on); one of an area the module no longer has is
+/// dropped; a record written now keeps neither.
 #[test]
 fn an_old_record_s_tile_properties_shows_the_panel() {
     let Some((mut h, area)) = area_harness("open-tabs-old-tiles") else { return };
@@ -3219,8 +3220,15 @@ fn an_old_record_s_tile_properties_shows_the_panel() {
         "rect": [900.0, 100.0, 316.0, 600.0],
     });
     record["panes"].as_array_mut().unwrap().push(pane);
+    // And one of an area the module no longer has: dropped (not kept and
+    // written back for ever, nor taking the other's place).
+    let gone = serde_json::json!({ "place": "window", "tabs": ["tile-properties:gone:5"] });
+    record["panes"].as_array_mut().unwrap().push(gone);
     let old = serde_json::to_string_pretty(&record).unwrap();
     std::fs::write(&file, old).unwrap();
+    // (The header's toggle off: the record shows the panel all the same,
+    // as the tile menu's Tile Properties does.)
+    h.state_mut().settings.hide_tile_properties = true;
     let errors =
         |app: &Moonglow| app.log.entries.iter().filter(|(l, _)| *l == mg_ui::Level::Error).count();
     let errors_before = errors(h.state());
@@ -3234,8 +3242,18 @@ fn an_old_record_s_tile_properties_shows_the_panel() {
     assert!(view.tile_mode, "Select Tiles on");
     assert_eq!(view.tile_selection, [(1, 1), (2, 1)], "the tiles the area has");
     assert_eq!(app.tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5, 6]));
-    assert!(h.query_by_label("Tile Properties").is_some(), "the panel's header");
+    assert!(!app.settings.hide_tile_properties, "the toggle turned on");
+    assert!(h.query_by_label("Tile Properties, 2 tiles").is_some(), "the panel's header");
     assert_eq!(errors(app), errors_before, "read without error");
+    // Written again: neither old tab kept.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    while text.contains("tile-properties") && std::time::Instant::now() < deadline {
+        h.run_steps(5);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        text = std::fs::read_to_string(&file).unwrap();
+    }
+    assert!(!text.contains("tile-properties"), "the old tabs not written back: {text}");
 }
 
 /// Make Placeables Static: those that lose nothing by it, as one command;
@@ -6632,7 +6650,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     h.run_steps(2);
     let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, tile);
-    let items = menu_items(&h, "Tile Properties…");
+    let items = menu_items(&h, "Tile Properties");
     assert_eq!(
         items,
         [
@@ -6640,7 +6658,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
             "Previous Tile Appearance",
             "Rotate Tile",
             "Delete",
-            "Tile Properties…"
+            "Tile Properties"
         ]
     );
 }

@@ -535,7 +535,7 @@ pub(crate) fn context_menu(
 }
 
 /// The tile menu's item that shows Tile Properties, and its tip.
-pub(crate) const PROPERTIES_ITEM: &str = "Tile Properties…";
+pub(crate) const PROPERTIES_ITEM: &str = "Tile Properties";
 const PROPERTIES_TIP: &str =
     "Select Tiles with these tiles selected, their properties in the Right Dock";
 
@@ -1049,6 +1049,10 @@ fn props_now(app: &mut Moonglow, area: ResRef) -> Option<TileProps> {
 /// once, as one step to undo ([`write_changes`]).
 pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate::Tab>) {
     let Some(crate::Tab::Area(area)) = editor.cloned() else { return };
+    // (The pane F6 is at outlined, as the other panes are.)
+    let keys = crate::palette_view::Keys::TileProperties;
+    crate::palette_view::keys_outline(ui, ui.max_rect(), keys);
+    let focus = std::mem::take(&mut app.tile_props_focus);
     let Some(mut props) = props_now(app, area) else {
         let none = app.area_views.get(&area).is_none_or(|v| v.tile_selection.is_empty());
         ui.add_space(4.0);
@@ -1060,6 +1064,8 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
     let mut pick = None;
     let mut defaults_asked = false;
     let mut dragging = false;
+    // (The first control F6 gives the focus to.)
+    let mut first: Option<egui::Id> = None;
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
     egui::ScrollArea::vertical().id_salt("tile-props-scroll").auto_shrink([false, false]).show(
@@ -1085,6 +1091,9 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                     };
                     let r = swatch(ui, shown, has, false);
                     named(&r, &format!("{words} color"), has);
+                    if has {
+                        first.get_or_insert(r.id);
+                    }
                     if r.on_hover_text("Click here to select a color").clicked() {
                         props.picking = Some(row);
                     }
@@ -1110,7 +1119,9 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                 replacement_row(app, ui, &mut props);
                 ui.label("");
                 let tip = "The lighting scheme's first colors, and the loops";
-                if ui.button("Defaults").on_hover_text(tip).clicked() {
+                let r = ui.button("Defaults");
+                first.get_or_insert(r.id);
+                if r.on_hover_text(tip).clicked() {
                     defaults_asked = true;
                 }
                 ui.end_row();
@@ -1227,6 +1238,9 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
             }
         },
     );
+    if focus && let Some(id) = first {
+        ui.memory_mut(|m| m.request_focus(id));
+    }
     // The color picker: lightcolor's 32 colors (16 for source lights).
     if let Some(which) = props.picking {
         let source = which >= 2;
@@ -1379,14 +1393,16 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) -> bool {
         Some(h) => format!("{} m", h as f32 * props.step),
         None => "mixed".into(),
     };
-    let steps = ui.weak(format!("steps of {} m: {at}", props.step));
-    if locked {
-        steps.on_hover_text(
-            "A group's tile, without the rest of its group: select all of a group's or \
-             feature's tiles to raise or lower it",
-        );
-    }
+    ui.weak(format!("steps of {} m: {at}", props.step));
     ui.end_row();
+    // (Grayed: why, as a line of its own, the tip saying what to do.)
+    if locked {
+        ui.label("");
+        let why = egui::Label::new(egui::RichText::new(HEIGHT_LOCKED).weak()).wrap();
+        ui.add(why)
+            .on_hover_text("Select all of a group's or feature's tiles to raise or lower it");
+        ui.end_row();
+    }
     dragging
 }
 
@@ -1421,6 +1437,8 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
                 row.map(|r| r as i64),
             )
             .ordered()
+            // (To the panel's edge, as the AreaTiles board draws it.)
+            .width(ui.available_width())
             .hover_text(
                 "What the tile's replace_tex meshes are drawn with: a row of replacetexture.2da",
             );
@@ -1453,6 +1471,9 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
 
 /// What Replacement texture says of a value the game crashes on.
 pub const CRASHES: &str = "crashes the game as the area loads";
+
+/// Why Tile Properties' Height is grayed, under it.
+pub const HEIGHT_LOCKED: &str = "(a group's tile, without the rest of its group)";
 
 /// Tile Properties' Replacement texture's label.
 pub const REPLACEMENT: &str = "Replacement texture";
@@ -1754,17 +1775,25 @@ fn write_changes(app: &mut Moonglow, props: &mut TileProps, dragging: bool) {
         return;
     }
     let Some(ws) = app.ws.as_mut() else { return };
-    let again = dragging && height_alone && props.live == Some(ws.revision());
+    // (Its own step, still the last command: the revision it left, and
+    // the command its.)
+    let own = ws.peek_undo().is_some_and(|c| c.label == "Tile Properties");
+    let again = dragging && height_alone && own && props.live == Some(ws.revision());
     if again && let Err(e) = ws.withdraw() {
         app.log.error(format!("Tile Properties: {e}"));
     }
     let edits = draft_edits(app, props, &draft);
     props.live = None;
     if !edits.is_empty() {
+        let before = app.ws.as_ref().map(mg_edit::Workspace::revision);
         match app.apply(Command::new("Tile Properties", edits)) {
             Ok(()) => {
-                if dragging && height_alone {
-                    props.live = app.ws.as_ref().map(mg_edit::Workspace::revision);
+                // (Only where it was written: `Moonglow::apply` says Ok to
+                // a command it leaves, of a resource open only to look at,
+                // and the step after must not take back another's.)
+                let now = app.ws.as_ref().map(mg_edit::Workspace::revision);
+                if dragging && height_alone && now != before {
+                    props.live = now;
                 }
             }
             Err(e) => {

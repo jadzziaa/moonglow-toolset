@@ -210,7 +210,7 @@ fn tile_properties(h: &mut Harness<'_, Moonglow>, area: ResRef, p: Vec3) {
         });
     }
     h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
+    popup_item(h, "Tile Properties").click();
     h.run_steps(3);
     assert!(h.state().tile_props.is_some(), "the Right Dock's Tile Properties shows the tile");
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
 ---
 
 # Areas
@@ -1461,7 +1461,7 @@ clicked (and the menu starts with **Put Down** and the brush's name).
 Without either, a right click on the ground where no object is starts
 the area's menu with the tile's items (Tile (x, y), the three, Tile
 Properties…), as Aurora's menu has Tile Properties for a tile; on an
-object, the object's menu. **Tile Properties…** takes Select Tiles
+object, the object's menu. **Tile Properties** takes Select Tiles
 (putting a brush down) with the tiles it was opened on selected, and
 shows the Right Dock's Tile Properties panel (turning its header toggle
 on).
@@ -1478,8 +1478,11 @@ its own, that window's right pane). Its header says what it shows,
 **Tile (4, 4)** or **6 tiles**, and it follows the selection as you
 click and drag tiles: with none selected it says how to choose some.
 The header's **Tile Properties** toggle hides the section and shows it
-again (remembered); the tile menu's Tile Properties… always shows it.
+again (remembered); the tile menu's Tile Properties always shows it.
 There is no OK or Cancel: what you change is written at once (below).
+**F6** stops at it (after the Palette, or in a dragged out area's
+window after its view) and gives its first control the keyboard; Tab
+goes on through its controls.
 
 With one tile chosen, Tile Properties shows the **variants**: every tile
 that fits there, as pictures, the one there now framed (not for a
@@ -1553,8 +1556,9 @@ With several tiles chosen of different heights it shows **Mixed** until
 one is set, which they all take (**-** and **+** step from the first's).
 It changes at once, a step of its own, as above. A tile of a group or a feature changes
 height only with the whole group chosen (in Select Tiles, all its
-tiles), so that the group stays whole; otherwise the control is greyed
-out and says why (unless **Allow editing tiles of groups and
+tiles), so that the group stays whole; otherwise the control is grayed
+out and says why under it, "(a group's tile, without the rest of its
+group)" (unless **Allow editing tiles of groups and
 features** is on). The minimap shows a tile's picture whatever its
 height, as the game's does.
 

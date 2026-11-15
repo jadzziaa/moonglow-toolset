@@ -499,6 +499,9 @@ pub struct AreaView {
     pub(crate) group_turns: u8,
     /// Why the last stroke did nothing.
     pub(crate) notice: Option<String>,
+    /// The pointer was over the view at the last frame: one coming in
+    /// gives the view the arrow keys back (`camera_input`).
+    pub(crate) pointer_was_in: bool,
     /// The tiles that refused the terrain stroke asked for last, and when:
     /// they flash red for a moment, as in Aurora.
     pub refused: Option<(Vec<(u32, u32)>, std::time::Instant)>,
@@ -1129,6 +1132,7 @@ impl AreaView {
             tile_menu_at: None,
             group_turns: 0,
             notice: None,
+            pointer_was_in: false,
             refused: None,
             wheel_scale: None,
             key_turn: None,
@@ -5585,7 +5589,17 @@ fn camera_input(
     let last = egui::Id::new("area-view-camera-keys");
     if response.hovered() {
         ui.data_mut(|d| d.insert_temp(last, view.area));
-        // (The arrow keys are the camera's again, if the palette had them.)
+    }
+    // (The arrow keys are the camera's again, if a list or a panel had
+    // them, once the pointer comes into the view, or moves or presses in
+    // it: a pointer resting there, after a click on a tile, took back
+    // every pane F6 gave them to, at the next frame.)
+    let moved = ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO || i.pointer.any_pressed());
+    let came_in = response.hovered() && !std::mem::replace(&mut view.pointer_was_in, true);
+    if !response.hovered() {
+        view.pointer_was_in = false;
+    }
+    if response.hovered() && (moved || came_in) {
         crate::palette_view::give_arrows(ui.ctx(), false);
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);

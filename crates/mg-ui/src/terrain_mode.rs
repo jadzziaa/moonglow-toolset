@@ -2132,6 +2132,9 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         Brush::Appearance { back: false } => (Some(NEXT_APPEARANCE), label.to_string()),
         Brush::Appearance { back: true } => (Some(PREVIOUS_APPEARANCE), label.to_string()),
         Brush::Rotate => (Some(ROTATE), label.to_string()),
+        // (A terrain's or crosser's mountain, as the AreaTiles and GalleryTiles boards
+        // draw Bridge, Building, Cobble.)
+        Brush::Terrain(_) | Brush::Crosser(_) => (Some(mg_uikit::Icon::Terrain), label.to_string()),
         _ => (None, label.to_string()),
     };
     let tip = match brush {
