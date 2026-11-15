@@ -7858,7 +7858,7 @@ fn find_instance_lays_out_the_results_in_sight() {
 /// The review's A16: the boxes of a large selection are drawn as one
 /// mesh (twelve shapes an object before), and a drag of it poses a copy
 /// of the model kept from frame to frame. A hundred and twenty chests
-/// selected show their yellow boxes; dragged a step at a time, each is
+/// selected show their amber boxes; dragged a step at a time, each is
 /// drawn where the drag has it, and let go, each has moved by as much.
 #[test]
 fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
@@ -7898,13 +7898,18 @@ fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
     h.state_mut().settings.no_turn_ring = true;
     settle(&mut h);
     let dir = mg_testkit::scratch_dir("ui-area-large-selection-shots");
-    let yellow = |h: &mut Harness<'_, Moonglow>, name: &str| {
+    let amber = |h: &mut Harness<'_, Moonglow>, name: &str| {
         let image = h.render().expect("render");
         image.save(dir.join(name)).unwrap();
-        image.pixels().filter(|p| p.0[0] > 200 && p.0[1] > 200 && p.0[2] < 90).count()
+        // (The selection's amber box, M4's U7: 1 point over a dark edge,
+        // the 2 point yellow box it was.)
+        image
+            .pixels()
+            .filter(|p| p.0[0] > 200 && (130..215).contains(&p.0[1]) && p.0[2] < 90)
+            .count()
     };
-    let boxed = yellow(&mut h, "selected.png");
-    assert!(boxed > 3000, "the boxes of 120 chests: {boxed} yellow pixels");
+    let boxed = amber(&mut h, "selected.png");
+    assert!(boxed > 3000, "the boxes of 120 chests: {boxed} amber pixels");
     // Dragged 5 m east by the first chest's foot, a step a frame.
     let on = screen(&h, area, at(0) + Vec3::Z * 0.02);
     let to = screen(&h, area, at(0) + Vec3::new(5.0, 0.0, 0.02));
@@ -7917,7 +7922,7 @@ fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
         let posed = h.state().area_views[&area].dragged();
         assert_eq!(posed.len(), 120, "step {k}");
     }
-    assert!(yellow(&mut h, "dragged.png") > 3000);
+    assert!(amber(&mut h, "dragged.png") > 3000);
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));

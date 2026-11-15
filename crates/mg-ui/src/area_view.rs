@@ -40,6 +40,7 @@ use mg_set::Tileset;
 use crate::{Action, Moonglow};
 
 mod bar;
+mod handles;
 mod header;
 pub(crate) mod tools;
 pub(crate) use bar::status;
@@ -251,8 +252,10 @@ enum Drag {
 
 /// The ring around the selection for turning it: taken anywhere on it and
 /// led round with the pointer.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct TurnRing {
+    /// Its object (kind and index), whatever pose the model has it in.
+    of: (ObjectKind, usize),
     /// The object's place: the ring lies level around it.
     pivot: Vec3,
     radius: f32,
@@ -268,6 +271,8 @@ struct TiltRing {
     /// 0: about the model's X (Y Rotation tips it so), 1: about its Y (Z
     /// Rotation leans it so).
     axis: usize,
+    /// Its object (kind and index).
+    of: (ObjectKind, usize),
     pivot: Vec3,
     radius: f32,
     /// The ring's plane: `u` × `v` is the axis it turns about.
@@ -291,15 +296,6 @@ impl TiltRing {
         let at = |k: usize| self.point(std::f32::consts::TAU * k as f32 / RING_SEGMENTS as f32);
         (at(k), at(k + 1))
     }
-
-    fn color(&self) -> Color32 {
-        // Red about X, green about Y, as 3D editors have them.
-        if self.axis == 0 {
-            Color32::from_rgb(240, 90, 90)
-        } else {
-            Color32::from_rgb(130, 215, 90)
-        }
-    }
 }
 
 /// An arrow for moving the selection along one axis alone: east (red),
@@ -309,6 +305,8 @@ impl TiltRing {
 struct AxisArrow {
     /// 0 east, 1 north, 2 up.
     axis: usize,
+    /// Its object (kind and index).
+    of: (ObjectKind, usize),
     pivot: Vec3,
     radius: f32,
 }
@@ -323,14 +321,59 @@ impl AxisArrow {
         let along = self.along() * self.radius;
         (self.pivot + along * 1.2, self.pivot + along * 1.7)
     }
+}
 
-    /// Red, green and blue, as 3D editors have X, Y and Z.
-    fn color(&self) -> Color32 {
-        [
-            Color32::from_rgb(240, 90, 90),
-            Color32::from_rgb(130, 215, 90),
-            Color32::from_rgb(90, 150, 255),
-        ][self.axis]
+/// A handle of the selection's (or the start location's marker), as
+/// [`AreaView::handle_under`] finds one under the pointer and a drag
+/// holds one: lit, named in a chip, the pointer a hand over it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Handle {
+    /// A spawn point's arrow's tip (the encounter's place in the model,
+    /// the point's in its list): turns it.
+    SpawnTip(usize, usize),
+    /// A spawn point's post's foot: moves it.
+    SpawnFoot(usize, usize),
+    /// A scale handle (its object).
+    Scale((ObjectKind, usize)),
+    Arrow(AxisArrow),
+    Tilt(TiltRing),
+    Ring(TurnRing),
+    /// The start location's arrow's tip, selected: turns it.
+    StartTip,
+    /// The start location's ring or arrow: moves it.
+    StartBody,
+}
+
+impl Handle {
+    /// Whether it is the same handle as `other`: of the same object (kind
+    /// and index) and kind of handle, whatever pose the model has it in
+    /// (Q and E's turning not yet a command turns the rings drawn, not
+    /// those a press finds).
+    fn same(&self, other: &Handle) -> bool {
+        match (self, other) {
+            (Handle::Ring(a), Handle::Ring(b)) => a.of == b.of,
+            (Handle::Tilt(a), Handle::Tilt(b)) => a.of == b.of && a.axis == b.axis,
+            (Handle::Arrow(a), Handle::Arrow(b)) => a.of == b.of && a.axis == b.axis,
+            (a, b) => a == b,
+        }
+    }
+
+    /// What its name chip says (the gizmo rulings' 4: what a drag on it
+    /// does; a tilt ring by the field it sets, as its readout and Adjust
+    /// Location name it).
+    fn name(&self) -> &'static str {
+        match self {
+            Handle::SpawnTip(..) => "Turn Spawn Point",
+            Handle::SpawnFoot(..) => "Move Spawn Point",
+            Handle::Scale(_) => "Scale",
+            Handle::Arrow(a) => {
+                ["Move East or West", "Move North or South", "Raise or Lower"][a.axis]
+            }
+            Handle::Tilt(r) => ["Tilt (Y Rotation)", "Tilt (Z Rotation)"][r.axis],
+            Handle::Ring(_) => "Turn",
+            Handle::StartTip => "Turn Start Location",
+            Handle::StartBody => "Move Start Location",
+        }
     }
 }
 
@@ -1795,7 +1838,7 @@ impl AreaView {
             .filter(|o| turns(o.kind))
             .map(|o| {
                 let radius = self.handle_radius(&camera, pivot(o));
-                TurnRing { pivot: pivot(o), radius, facing: ring_mark(o) }
+                TurnRing { of: (o.kind, o.index), pivot: pivot(o), radius, facing: ring_mark(o) }
             })
             .collect()
     }
@@ -1875,7 +1918,7 @@ impl AreaView {
                 let radius = self.handle_radius(&camera, pivot);
                 let ring = |axis: usize, n: Vec3| {
                     let u = n.any_orthonormal_vector();
-                    TiltRing { axis, pivot, radius, u, v: n.cross(u) }
+                    TiltRing { axis, of: (o.kind, o.index), pivot, radius, u, v: n.cross(u) }
                 };
                 [ring(0, about_x * Vec3::X), ring(1, about_y * Vec3::Y)]
             })
@@ -1887,6 +1930,11 @@ impl AreaView {
     /// the camera's right of its feet. Each is the object's place and the
     /// handle's.
     fn scale_handles(&self, model: &AreaModel) -> Vec<(Vec3, Vec3)> {
+        self.scale_handles_of(model).into_iter().map(|(_, pivot, handle)| (pivot, handle)).collect()
+    }
+
+    /// [`AreaView::scale_handles`], each with its object (kind and index).
+    fn scale_handles_of(&self, model: &AreaModel) -> Vec<((ObjectKind, usize), Vec3, Vec3)> {
         let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
         let right = (camera.target - camera.eye).cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
         let out = (right + Vec3::Z).normalize();
@@ -1894,18 +1942,23 @@ impl AreaView {
             .filter(|o| o.takes_visual_transform())
             .map(|o| {
                 let radius = self.handle_radius(&camera, o.position);
-                (o.position, o.position + out * radius * 1.25)
+                ((o.kind, o.index), o.position, o.position + out * radius * 1.25)
             })
             .collect()
     }
 
     /// The scale handle `pos` is on: its object's place.
     fn scale_handle_at(&self, pos: Pos2) -> Option<Vec3> {
-        let handles = self.scale_handles(self.model.as_ref()?);
-        let near = |h: &&(Vec3, Vec3)| {
-            self.screen_pos(h.1).is_some_and(|at| (at - pos).length() <= SCALE_HANDLE + 3.0)
+        self.scale_handle_of_at(pos).map(|h| h.1)
+    }
+
+    /// The scale handle `pos` is on: its object and its place.
+    fn scale_handle_of_at(&self, pos: Pos2) -> Option<((ObjectKind, usize), Vec3)> {
+        let handles = self.scale_handles_of(self.model.as_ref()?);
+        let near = |h: &&((ObjectKind, usize), Vec3, Vec3)| {
+            self.screen_pos(h.2).is_some_and(|at| (at - pos).length() <= SCALE_HANDLE + 3.0)
         };
-        handles.iter().find(near).map(|h| h.0)
+        handles.iter().find(near).map(|h| (h.0, h.1))
     }
 
     /// Where the scale handle of the object at `pivot` (its stalk's end
@@ -1976,7 +2029,8 @@ impl AreaView {
         for o in self.chosen(model) {
             let radius = self.handle_radius(&camera, o.position);
             let axes = if lifts(o.kind) { 0..3 } else { 0..2 };
-            arrows.extend(axes.map(|axis| AxisArrow { axis, pivot: o.position, radius }));
+            let of = (o.kind, o.index);
+            arrows.extend(axes.map(|axis| AxisArrow { axis, of, pivot: o.position, radius }));
         }
         arrows
     }
@@ -2075,6 +2129,68 @@ impl AreaView {
                 self.screen_pos(p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
             })
             .map(|(i, k, p, _)| (i, k, p))
+    }
+
+    /// The handle a primary press at `pos` would take, as the press reads
+    /// them (`input`) with `modifiers` held: a spawn point's arrow's tip or
+    /// foot (the nearer; with its markers shown, `spawn_markers`), with
+    /// Shift a scale handle, an arrow's head or a tilt ring, without it a
+    /// turning ring; none with Ctrl (the camera's) or Alt (raising and
+    /// turning by the drag); else the start location's marker at `start`
+    /// where no object is picked there. The handle lit under the pointer,
+    /// named in its chip and given the grab cursor.
+    fn handle_under(
+        &self,
+        pos: Pos2,
+        modifiers: egui::Modifiers,
+        spawn_markers: bool,
+        start: Option<(Vec3, f32)>,
+    ) -> Option<Handle> {
+        let (shift, alt) = (modifiers.shift, modifiers.alt);
+        if modifiers.command || alt {
+            return None;
+        }
+        if !shift && spawn_markers {
+            let spawn = self.spawn_arrow_at(pos);
+            let foot = self.spawn_foot_at(pos);
+            // (Seen from afar the two handles of a point are close: the
+            // nearer one is meant, as a press takes it.)
+            let nearer = |p: Vec3| self.screen_pos(p).map_or(f32::MAX, |q| q.distance(pos));
+            let spawn = spawn.filter(|&(object, point, at)| {
+                let facing = (self.model.as_ref())
+                    .and_then(|m| m.objects[object].spawn_facings.get(point).copied())
+                    .unwrap_or(0.0);
+                foot.is_none_or(|f| nearer(spawn_arrow_tip(at, facing)) < nearer(f.2))
+            });
+            if let Some((object, point, _)) = spawn {
+                return Some(Handle::SpawnTip(object, point));
+            }
+            if let Some((object, point, _)) = foot {
+                return Some(Handle::SpawnFoot(object, point));
+            }
+        }
+        if shift {
+            if let Some((of, _)) = self.scale_handle_of_at(pos) {
+                return Some(Handle::Scale(of));
+            }
+            if let Some(arrow) = self.axis_arrow_at(pos) {
+                return Some(Handle::Arrow(arrow));
+            }
+            if let Some(ring) = self.tilt_ring_at(pos) {
+                return Some(Handle::Tilt(ring));
+            }
+            return None;
+        }
+        if let Some(ring) = self.ring_at(pos) {
+            return Some(Handle::Ring(ring));
+        }
+        // (What stands on the marker comes first; asked only where the
+        // marker is under the pointer: a pick each frame costs.)
+        let turn = start.and_then(|s| self.start_grab(s, pos))?;
+        if self.pick(pos).is_some() {
+            return None;
+        }
+        Some(if turn { Handle::StartTip } else { Handle::StartBody })
     }
 
     /// Whether `pos` is over the view itself: in it, and not over a window
@@ -3504,7 +3620,16 @@ fn viewport(
     let door_brush =
         dragged.map(|d| d.0).or_else(|| brush(app)).is_some_and(|k| k.restype == ResType::UTD);
     let (height, width) = app.settings.spawn_marker_size.unwrap_or(SPAWN_MARKER);
+    // (Whether the handles take a press here.)
+    let answers = !view.tile_mode
+        && !view.pasting
+        && !view.tile_pasting
+        && !app.palette.placing_start
+        && crate::paint_mode::active(app).is_none()
+        && crate::terrain_mode::active(app, view)
+            .is_none_or(|b| crate::terrain_mode::objects_keep_their_presses(&b));
     let marks = Marks {
+        answers,
         spawn_points: (!app.settings.no_spawn_markers)
             .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
         door_arrows: !app.settings.no_door_arrows,
@@ -4180,8 +4305,9 @@ pub(crate) fn outline(painter: &egui::Painter, points: &[Pos2], stroke: impl Int
 /// Aurora's spawn point markers: Height 12 and Width 4 (tenths of a metre).
 pub(crate) const SPAWN_MARKER: (u8, u8) = (12, 4);
 
-/// What Options › Area adds over the view, and the box of a blueprint
-/// about to be placed (placed by the transform, in its own space).
+/// What Options › Area adds over the view, the box of a blueprint about
+/// to be placed (placed by the transform, in its own space), and whether
+/// the handles take a press in the mode in hand.
 #[derive(Clone)]
 struct Marks {
     /// A post over each encounter spawn point: its height and width (m).
@@ -4192,6 +4318,10 @@ struct Marks {
     /// Each copy being pasted: where its model stands and its box (none
     /// where the ghost isn't drawn).
     paste_boxes: Vec<(glam::Mat4, (Vec3, Vec3))>,
+    /// The handles take a press here (lit under the pointer, named, a
+    /// hand): not where Select Tiles, a paste, Paint's brush or a painting
+    /// tile brush takes it, nor while the start location is placed.
+    answers: bool,
 }
 
 /// Markers for objects without models, outlines, the grid, the start
@@ -4214,11 +4344,20 @@ fn overlays(
     // own: a paste's boxes showed under a window where its copies did
     // not.)
     let hover = view.pointer_over(ui);
-    // What a handle says beside itself (an angle, a scale, a height).
-    let note = |at: Pos2, text: String| {
-        let font = egui::FontId::proportional(13.0);
-        painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, Color32::WHITE);
-    };
+    // The handles' look (the kit's handle tokens, one value in both
+    // themes) and what is painted over the boxes, in its layers.
+    let t = mg_uikit::tokens(ui.ctx());
+    let colors = handles::Colors::of(&t);
+    let mut canvas = handles::Canvas::new(colors.edge);
+    // The handle under the pointer, as a press there would take it (where
+    // the mode in hand leaves presses to the objects, `answers`), and
+    // which are lit: it, or what a drag holds.
+    let modifiers = ui.input(|i| i.modifiers);
+    let spawn_markers = marks.spawn_points.is_some();
+    let under = hover
+        .filter(|_| marks.answers && view.drag.is_none())
+        .and_then(|p| view.handle_under(p, modifiers, spawn_markers, start));
+    let lit = handles::Lit::held(view.drag).or(under.map(handles::Lit::One));
     // (A line is cut where it passes behind the eye, as
     // `AreaView::screen_segment` cuts it: the camera worked out once for
     // the thousands of lines of a large selection.)
@@ -4236,14 +4375,18 @@ fn overlays(
     let scene = view.scene.as_ref();
     let chosen = view.selected_set();
     // (The boxes' edges, painted together after the objects are gone
-    // through.)
+    // through: the selected ones' dark edges, then their lines, over the
+    // markers'.)
     let mut boxes: Vec<([Pos2; 2], Stroke)> = Vec::new();
+    let (mut selected_edges, mut selected_lines) = (Vec::new(), Vec::new());
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
         }
         let selected = chosen.contains(&(o.kind, o.index));
-        let highlight = Stroke::new(2.0, Color32::YELLOW);
+        // (Selected, an outline and its spawn points are in the
+        // selection's color over the handles' dark edge.)
+        let highlight = Stroke::new(1.5, colors.turn.0);
         if o.kind.has_outline() {
             // Encounters orange; triggers green, area transitions blue,
             // traps red.
@@ -4254,62 +4397,53 @@ fn overlays(
                 _ => Color32::from_rgb(80, 200, 120),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
+            // (Selected, over the handles' edge.)
+            let draw = |canvas: &mut handles::Canvas, a: Vec3, b: Vec3| {
+                if !selected {
+                    line(a, b, stroke);
+                } else if let Some(points) = segment(a, b) {
+                    handles::edged_line(canvas, points, stroke.width, stroke.color);
+                }
+            };
             let n = o.outline.len();
             for k in 0..n {
-                line(o.outline[k], o.outline[(k + 1) % n], stroke);
+                draw(&mut canvas, o.outline[k], o.outline[(k + 1) % n]);
             }
             if let Some((height, width)) = marks.spawn_points {
                 for (k, &p) in o.spawn_points.iter().enumerate() {
                     let (top, half) = (p + Vec3::Z * height, width / 2.0);
-                    line(p, top, stroke);
-                    line(top - Vec3::X * half, top + Vec3::X * half, stroke);
-                    line(top - Vec3::Y * half, top + Vec3::Y * half, stroke);
+                    draw(&mut canvas, p, top);
+                    draw(&mut canvas, top - Vec3::X * half, top + Vec3::X * half);
+                    draw(&mut canvas, top - Vec3::Y * half, top + Vec3::Y * half);
                     // The way what spawns there faces: an arrow on the
                     // ground.
                     let facing = o.spawn_facings.get(k).copied().unwrap_or(0.0);
                     let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
                     let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.3;
                     let (base, tip) = (p + Vec3::Z * 0.1, p + Vec3::Z * 0.1 + ahead);
-                    line(base, tip, stroke);
-                    line(tip, tip - ahead * 0.4 + side, stroke);
-                    line(tip, tip - ahead * 0.4 - side, stroke);
+                    draw(&mut canvas, base, tip);
+                    draw(&mut canvas, tip, tip - ahead * 0.4 + side);
+                    draw(&mut canvas, tip, tip - ahead * 0.4 - side);
                     // Selected, the tip is a handle: led round, it turns
                     // the way what spawns there faces.
                     if let (true, Some(c)) = (selected && !o.locked, at(spawn_arrow_tip(p, facing)))
                     {
-                        let held = matches!(view.drag, Some(Drag::FaceSpawn { object, point, .. })
-                            if object == i && point == k);
-                        let over = view.drag.is_none()
-                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
-                        let fill = if held || over { Color32::WHITE } else { stroke.color };
-                        painter.circle(
-                            c,
-                            4.5,
-                            fill,
-                            Stroke::new(1.5, Color32::from_black_alpha(200)),
-                        );
-                        if held {
-                            note(
-                                c + egui::vec2(10.0, -10.0),
-                                format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                            );
+                        let handle = Handle::SpawnTip(i, k);
+                        let on = handles::Lit::lights(lit, &handle);
+                        handles::round_handle(&mut canvas, &colors, c, 4.5, on);
+                        if matches!(view.drag, Some(Drag::FaceSpawn { object, point, .. })
+                            if object == i && point == k)
+                        {
+                            let text = format!("{:.0}°", facing.to_degrees().rem_euclid(360.0));
+                            let at = c + handles::RING_CHIP;
+                            canvas.chip(&painter, &t, at, text, colors.turn.0);
                         }
                     }
                     // And the post's foot another: led over the ground,
                     // it moves the point, the encounter staying.
                     if let (true, Some(c)) = (selected && !o.locked, at(p)) {
-                        let held = matches!(view.drag, Some(Drag::MoveSpawn { object, point, .. })
-                            if object == i && point == k);
-                        let over = view.drag.is_none()
-                            && hover.is_some_and(|q| q.distance(c) <= RING_REACH);
-                        let fill = if held || over { Color32::WHITE } else { stroke.color };
-                        painter.rect(
-                            Rect::from_center_size(c, egui::vec2(8.0, 8.0)),
-                            0.0,
-                            fill,
-                            Stroke::new(1.5, Color32::from_black_alpha(200)),
-                            egui::StrokeKind::Outside,
-                        );
+                        let on = handles::Lit::lights(lit, &Handle::SpawnFoot(i, k));
+                        handles::foot_handle(&mut canvas, &colors, c, 8.0, on);
                     }
                 }
             }
@@ -4387,11 +4521,20 @@ fn overlays(
                 ObjectKind::Store => Color32::from_rgb(120, 220, 120),
                 _ => Color32::from_rgb(230, 70, 70),
             };
-            let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            let edges = box_edges(transform, min, max);
-            boxes.extend(edges.filter_map(|(a, b)| segment(a, b).map(|points| (points, stroke))));
+            let edges = box_edges(transform, min, max).filter_map(|(a, b)| segment(a, b));
+            if selected {
+                // (Thin, over a dark edge: the handles lead.)
+                let (dark, lines) = handles::box_lines(edges, &colors);
+                selected_edges.extend(dark);
+                selected_lines.extend(lines);
+            } else {
+                let stroke = Stroke::new(1.5, color);
+                boxes.extend(edges.map(|points| (points, stroke)));
+            }
         }
     }
+    boxes.extend(selected_edges);
+    boxes.extend(selected_lines);
     // (Painted together: one at a time, each of thousands took the
     // window's lock; and past some eighty boxes as one mesh.)
     if boxes.len() > BOXES_MESHED {
@@ -4451,157 +4594,16 @@ fn overlays(
             );
         }
     }
-    // The ring for turning the selection: brighter under the pointer and
-    // while it is led round, a mark on it the way the object faces.
-    // With Shift held, the rings for tilting its model instead: red about
-    // X, green about Y.
-    let tilting = match view.drag {
-        Some(Drag::Tilt { .. }) => true,
-        Some(_) => false,
-        None => ui.input(|i| i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt),
-    };
-    // With them, the handle for scaling its model: a square on a stalk
-    // from its feet, pulled away to grow it and pushed in to shrink it
-    // (and following the pointer as it is).
-    let scaling = matches!(view.drag, Some(Drag::Scale { .. }));
-    if scaling || (tilting && view.drag.is_none()) {
-        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.scale_handle_at(p));
-        let pointer = ui.ctx().pointer_latest_pos();
-        let white = Color32::from_rgb(240, 240, 240);
-        for (pivot, handle) in view.scale_handles(shown) {
-            let lit = scaling || over == Some(pivot);
-            let color = if lit { white } else { white.gamma_multiply(0.75) };
-            let drawn = view.scale_handle_drawn(pivot, handle, pointer);
-            match (scaling, drawn, at(pivot)) {
-                (true, Some(c), Some(foot)) => {
-                    painter.line_segment([foot, c], Stroke::new(1.0, color));
-                }
-                _ => line(pivot, handle, Stroke::new(1.0, color)),
-            }
-            if let Some(c) = drawn {
-                let half = if lit { SCALE_HANDLE + 1.0 } else { SCALE_HANDLE };
-                let square = Rect::from_center_size(c, egui::Vec2::splat(half * 2.0));
-                painter.rect_filled(square, 1.0, color);
-                painter.rect_stroke(
-                    square,
-                    1.0,
-                    Stroke::new(1.0, Color32::BLACK),
-                    egui::StrokeKind::Outside,
-                );
-            }
-        }
-        if scaling
-            && let Some(c) = ui.ctx().pointer_latest_pos()
-            && let Some((_, visual)) = view.scaled().first()
-        {
-            note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
-        }
-    }
+    // The selection's handles: the turning rings, with Shift the tilt
+    // rings, the arrows and the scale handles.
+    handles::selection(ui, view, shown, lit, (&t, &colors), &mut canvas, &painter, &segment);
     // Ctrl + wheel: the size beside the pointer, as a scale drag shows it.
     if view.wheel_scale.is_some()
         && let Some(c) = ui.ctx().pointer_latest_pos()
         && let Some((_, visual)) = view.scaled().first()
     {
-        note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
-    }
-    let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
-    if !rings.is_empty() {
-        let held = match view.drag {
-            Some(Drag::Tilt { ring, .. }) => Some(ring.axis),
-            _ => None,
-        };
-        let over = hover.filter(|_| view.drag.is_none()).and_then(|p| view.tilt_ring_at(p));
-        for ring in rings {
-            // (Led, every ring of the axis; hovered, the one under the
-            // pointer.)
-            let lit = held == Some(ring.axis) || over == Some(ring);
-            let stroke = if lit {
-                Stroke::new(2.5, ring.color())
-            } else {
-                Stroke::new(1.5, ring.color().gamma_multiply(0.7))
-            };
-            for k in 0..RING_SEGMENTS {
-                let (a, b) = ring.segment(k);
-                line(a, b, stroke);
-            }
-        }
-        if let Some(Drag::Tilt { ring, grip, angle, .. }) = view.drag
-            && let Some(c) = at(ring.point(grip + angle))
-            && let Some((_, visual)) = view.tilted().first()
-        {
-            painter.circle_filled(c, 3.5, ring.color());
-            let degrees = visual.rotate[ring.field()];
-            let field = ["X", "Y", "Z"][ring.field()];
-            note(c + egui::vec2(10.0, -10.0), format!("{field} Rotation {degrees:.0}°"));
-        }
-    }
-    // And the arrows for moving it along one axis: east red, north green,
-    // up blue.
-    let sliding = match view.drag {
-        Some(Drag::Slide { axis, .. }) => Some(axis),
-        _ => None,
-    };
-    if sliding.is_some() || (tilting && view.drag.is_none()) {
-        let pointer = hover.filter(|_| view.drag.is_none());
-        let over = pointer.and_then(|p| view.axis_arrow_at(p));
-        for arrow in view.axis_arrows(shown) {
-            if sliding.is_some_and(|axis| axis != arrow.axis) {
-                continue;
-            }
-            let lit = sliding.is_some() || over == Some(arrow);
-            let stroke = if lit {
-                Stroke::new(3.0, arrow.color())
-            } else {
-                Stroke::new(2.0, arrow.color().gamma_multiply(0.75))
-            };
-            let (neck, tip) = arrow.head();
-            line(arrow.pivot, neck, Stroke::new(1.0, stroke.color));
-            line(neck, tip, stroke);
-            let (Some(n), Some(t)) = (at(neck), at(tip)) else { continue };
-            // The head's barbs, on screen.
-            let along = (t - n).normalized();
-            let side = egui::vec2(-along.y, along.x);
-            for s in [-1.0, 1.0] {
-                painter.line_segment([t, t - along * 9.0 + side * 5.0 * s], stroke);
-            }
-            if sliding.is_some() {
-                let name = ["X", "Y", "Z"][arrow.axis];
-                note(
-                    t + egui::vec2(10.0, -4.0),
-                    format!("{name} {:.2} m", arrow.pivot[arrow.axis]),
-                );
-            }
-        }
-    }
-    if !tilting
-        && !matches!(
-            view.drag,
-            Some(Drag::Box { .. } | Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. })
-        )
-    {
-        let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
-        let pointer = hover.filter(|_| view.drag.is_none());
-        let color = Color32::from_rgb(255, 170, 60);
-        for ring in view.turn_rings(shown) {
-            let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
-            let stroke = if lit {
-                Stroke::new(2.5, Color32::from_rgb(255, 225, 150))
-            } else {
-                Stroke::new(1.5, color.gamma_multiply(0.8))
-            };
-            for k in 0..RING_SEGMENTS {
-                let (a, b) = ring.segment(k);
-                line(a, b, stroke);
-            }
-            let ahead = ring.point(ring.facing);
-            line(ring.pivot, ahead, Stroke::new(1.0, stroke.color));
-            let Some(c) = at(ahead) else { continue };
-            painter.circle_filled(c, 3.5, stroke.color);
-            if spinning {
-                let degrees = ring.facing.to_degrees().rem_euclid(360.0);
-                note(c + egui::vec2(10.0, -10.0), format!("{degrees:.0}°"));
-            }
-        }
+        let text = format!("Scale {:.2}", visual.scale.x);
+        canvas.chip(&painter, &t, c + handles::SCALE_CHIP, text, colors.scale.0);
     }
     if let Some(Drag::Box { from, to }) = view.drag {
         let r = Rect::from_two_pos(from, to);
@@ -4638,62 +4640,65 @@ fn overlays(
     // and a red arrow the way the player faces on arriving.
     if let (true, Some((p, facing))) = (view.show_start, start) {
         let m = StartMarker::new(p, facing);
-        // Brighter while it is held.
+        // Brighter while it is held; over the handles' dark edge.
         let held = matches!(view.drag, Some(Drag::Start { .. }));
         let width = if held { 4.0 } else { 3.0 };
-        let ring = Stroke::new(width, Color32::from_rgb(70, 130, 255));
+        let (blue, red) = colors.start;
+        let edged = |canvas: &mut handles::Canvas, a: Vec3, b: Vec3, color: Color32| {
+            if let Some(points) = segment(a, b) {
+                handles::edged_line(canvas, points, width, color);
+            }
+        };
         const PIECES: usize = 24;
         let around = |k: usize| m.around(std::f32::consts::TAU * k as f32 / PIECES as f32);
-        for k in 0..PIECES {
-            line(around(k), around(k + 1), ring);
+        let ring: Vec<Vec3> = (0..PIECES).map(around).collect();
+        for (points, closed) in handles::runs(&ring, &segment) {
+            canvas.path(points, closed, width, blue, 1.0, handles::Lay::Front);
         }
-        let arrow = Stroke::new(width, Color32::from_rgb(235, 40, 40));
-        line(m.tail, m.tip, arrow);
+        edged(&mut canvas, m.tail, m.tip, red);
         let barb = StartMarker::BARB;
-        line(m.tip, m.tip - m.ahead * barb + m.side * barb, arrow);
-        line(m.tip, m.tip - m.ahead * barb - m.side * barb, arrow);
+        edged(&mut canvas, m.tip, m.tip - m.ahead * barb + m.side * barb, red);
+        edged(&mut canvas, m.tip, m.tip - m.ahead * barb - m.side * barb, red);
         // (And its cross-guard.)
-        line(m.guard.0, m.guard.1, arrow);
+        edged(&mut canvas, m.guard.0, m.guard.1, red);
         // Selected, a box round it as round an object: where a character
         // would stand.
         let selected = view.start_is_selected();
         if selected {
             let t = glam::Mat4::from_translation(p) * glam::Mat4::from_rotation_z(facing);
             let (min, max) = (Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, 1.0, 1.8));
-            for (a, b) in box_edges(t, min * START_RING, max * START_RING) {
-                line(a, b, Stroke::new(2.0, Color32::YELLOW));
+            let edges = box_edges(t, min * START_RING, max * START_RING);
+            let (dark, lines) =
+                handles::box_lines(edges.filter_map(|(a, b)| segment(a, b)), &colors);
+            for (points, stroke) in dark.into_iter().chain(lines) {
+                canvas.add(handles::Layer::Box, egui::Shape::LineSegment { points, stroke });
             }
         }
         // Selected, the arrow's tip is a handle: led round, it turns the
         // marker.
         if let (true, Some(c)) = (selected, at(m.tip)) {
             let turning = matches!(view.drag, Some(Drag::Start { turn: true, .. }));
-            let pointer = hover.filter(|_| view.drag.is_none());
-            let lit = turning || pointer.is_some_and(|q| q.distance(c) <= RING_REACH);
-            let (radius, fill) = if lit {
-                (7.5, Color32::from_rgb(255, 225, 150))
-            } else {
-                (6.0, Color32::from_rgb(255, 170, 60))
-            };
-            painter.circle(c, radius, fill, Stroke::new(1.5, Color32::from_black_alpha(220)));
+            let on = handles::Lit::lights(lit, &Handle::StartTip);
+            handles::round_handle(&mut canvas, &colors, c, 6.0, on);
             if turning {
-                note(
-                    c + egui::vec2(12.0, -10.0),
-                    format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                );
+                let text = format!("{:.0}°", facing.to_degrees().rem_euclid(360.0));
+                canvas.chip(&painter, &t, c + handles::RING_CHIP, text, colors.turn.0);
             }
         }
-        // The pointer says the marker can be taken hold of (its ring, its
-        // arrow's lines, its tip): a hand, closed while it is held.
-        let over = view.drag.is_none()
-            && view.pointer_over(ui).is_some_and(|q| {
-                view.start_grab((p, facing), q).is_some() && view.pick(q).is_none()
-            });
-        if held {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-        } else if over {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-        }
+    }
+    // The handle under the pointer named beside it (the gizmo rulings'
+    // 4), before it is taken.
+    if let (Some(h), Some(p)) = (under, hover) {
+        handles::name_chip(&mut canvas, &painter, &t, &colors, &h, p);
+    }
+    canvas.paint(&painter);
+    // The pointer says a handle can be taken hold of: a hand, closed while
+    // one is held (the gizmo rulings' 5; the start location's marker had
+    // it alone).
+    if handles::Lit::held(view.drag).is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if under.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
     }
 }
 

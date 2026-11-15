@@ -12382,83 +12382,292 @@ fn tiles_selected(h: &mut Harness<'_, Moonglow>, tiles: &[(i32, i32)]) {
     h.run_steps(20);
 }
 
-/// GizmoStates.png's States row: a dynamic placeable of `map_m1q1a` seen
-/// close, selected (`board_gizmo_states_selected`), with Shift held (its
-/// arrows, tilt rings and scale handle, `_shift`) and dragged
-/// (`_drag`), triggers and encounters hidden. Today's handles, not Fine
-/// Lines; no drag feedback or readout chips. (The board's other grounds,
-/// its drawings and its measures are sheets, not states of the app.)
+/// GizmoStates.png's States row, on grass (`ttr01`) and snow (`tts01`),
+/// as the board's scene has it (`target/ui-mock/GIZMOS.md` §5): the
+/// chest `plc_chest1` at 30, 30, dynamic (a static one at 14, 30 for its
+/// Shift state), seen from yaw 0.75, pitch 0.72 and 10 m, the view 1280 by
+/// 800 or so. Each state a 480 by 400 picture about the chest, as the
+/// board's cells are (`board_gizmo_states_<ground>_<state>`): selected,
+/// the pointer on each handle, Shift on a static and a dynamic placeable,
+/// each handle dragged (held, then dropped by Escape); and the encounter's
+/// spawn point and the start location, selected and hovered. The grass
+/// run also writes the whole window selected, with Shift and with the
+/// red ring dragged (`board_gizmo_states_selected`, `_shift`, `_drag`).
 #[test]
 #[ignore]
 fn board_gizmo_states() {
+    for (ground, tileset) in [("grass", "ttr01"), ("snow", "tts01")] {
+        gizmo_states_on(ground, tileset);
+    }
+}
+
+/// [`board_gizmo_states`] on one ground.
+fn gizmo_states_on(ground: &str, tileset: &str) {
+    use glam::Vec3;
     use mg_area::ObjectKind;
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = board_dir();
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
-    // (The area's first placeable not static: a Plague Victim Pyre.)
-    let git = ResKey::parse("map_m1q1a", ResType::GIT).unwrap();
-    let list = {
-        let ws = h.state_mut().ws.as_mut().unwrap();
-        ws.doc(&git).unwrap().root.list("Placeable List").unwrap_or(&[]).to_vec()
+    let scratch = mg_testkit::scratch_dir(&format!("screens-gizmo-{ground}"));
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Gizmos", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str(tileset).unwrap(),
+        width: 4,
+        height: 4,
     };
-    let index = list
-        .iter()
-        .position(|s| s.get("Static") == Some(&mg_gff::Value::Byte(0)))
-        .expect("a dynamic placeable");
-    let object = (ObjectKind::Placeable, index);
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let bp = |name: &str, t: ResType| {
+        mg_gff::Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+    };
+    let chest = bp("plc_chest1", ResType::UTP);
+    let place = |x: f32, y: f32, fixed: u8| {
+        let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+        let mut c = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        c.set("Static", mg_gff::Value::Byte(fixed));
+        c
+    };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set(
+        "Placeable List",
+        mg_gff::Value::List(vec![place(30.0, 30.0, 0), place(14.0, 30.0, 1)]),
+    );
+    git.root.set("WaypointList", mg_gff::Value::List(Vec::new()));
+    let ute = bp("nw_giantevil", ResType::UTE);
+    let outline = [[-3.0, -3.0, 0.0], [3.0, -3.0, 0.0], [3.0, 3.0, 0.0], [-3.0, 3.0, 0.0]];
+    let at = Placement { position: [10.0, 10.0, 0.0], rotation: 0.0 };
+    let mut enc = instance(&placing, ResType::UTE, &ute, at, &outline).unwrap();
+    let mut spawn = mg_gff::Struct::new(2);
+    for (label, v) in [("X", 9.0), ("Y", 9.5), ("Z", 0.0), ("Orientation", 0.5)] {
+        spawn.set(label, mg_gff::Value::Float(v));
+    }
+    enc.set("SpawnPointList", mg_gff::Value::List(vec![spawn]));
+    git.root.set("Encounter List", mg_gff::Value::List(vec![enc]));
+    m.set_gff(git_key, &git).unwrap();
+    // (The start location in this area, at 30, 14, facing north.)
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    ifo.root.set("Mod_Entry_Area", mg_gff::Value::ResRef(area.to_string().into_bytes()));
+    for (label, v) in [
+        ("Mod_Entry_X", 30.0),
+        ("Mod_Entry_Y", 14.0),
+        ("Mod_Entry_Z", 0.0),
+        ("Mod_Entry_Dir_X", 0.0),
+        ("Mod_Entry_Dir_Y", 1.0),
+    ] {
+        ifo.root.set(label, mg_gff::Value::Float(v));
+    }
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = scratch.join("gizmos.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.light_theme = light();
+    app.settings.hide_log = true;
+    app.open_module(&path);
+    app.palette_dock = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1924.0, 942.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    {
-        let view = h.state_mut().area_views.get_mut(&area).unwrap();
-        // (Triggers and encounters hidden: the drag's press on the
-        // placeable, not on a trigger's ground around it.)
-        for kind in [ObjectKind::Trigger, ObjectKind::Encounter] {
-            view.show[kind.index()] = false;
+    // (The view's animations go on: its own work done, not the frames.)
+    let ready = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        h.run_steps(3);
+        while h.state().under_way().is_some() {
+            assert!(started.elapsed().as_secs() < 60, "the window's work never ended");
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        let at = view.model.as_ref().unwrap().object(object.0, object.1).unwrap().position;
-        if let Some(o) = &mut view.orbit {
-            o.target = at;
-            o.pitch = 35f32.to_radians();
-            o.distance = 10.0;
-        }
-        view.selection = vec![object];
-    }
-    let rect = h.state().area_views[&area].rect;
-    let aside = rect.center() + egui::vec2(-260.0, 160.0);
-    h.event(egui::Event::PointerMoved(aside));
-    for _ in 0..20 {
-        h.step();
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    shoot(&mut h, &dir, "board_gizmo_states_selected");
-    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
-    h.run_steps(3);
-    shoot(&mut h, &dir, "board_gizmo_states_shift");
-    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
-    h.run_steps(2);
-    // A drag of it under way.
-    let at = {
-        let view = &h.state().area_views[&area];
-        let o = view.model.as_ref().unwrap().object(object.0, object.1).unwrap();
-        view.screen_pos(o.position).unwrap()
+        h.run_steps(2);
     };
-    let button = |h: &mut Harness<'_, Moonglow>, pos, pressed| {
-        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+    ready(&mut h);
+    let place_of = |h: &Harness<'_, Moonglow>, kind: ObjectKind, index: usize| {
+        let m = h.state().area_views[&area].model.as_ref().unwrap();
+        m.objects.iter().position(|o| o.kind == kind && o.index == index).unwrap()
+    };
+    let look = |h: &mut Harness<'_, Moonglow>, target: Vec3| {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) = (target, 0.75, 0.72, 10.0);
+        h.run_steps(2);
+    };
+    let select = |h: &mut Harness<'_, Moonglow>, sel: Vec<(ObjectKind, usize)>, start: bool| {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = sel;
+        view.start_selected = start;
+        h.run_steps(2);
+    };
+    let shift = |h: &mut Harness<'_, Moonglow>, on: bool| {
+        let m = if on { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        h.event(egui::Event::ModifiersChanged(m));
+        h.run_steps(2);
+    };
+    let screen = |h: &Harness<'_, Moonglow>, p: Vec3| {
+        h.state().area_views[&area].screen_pos(p).expect("in view")
+    };
+    // (A 480 by 400 picture about `origin`, the board's cell: its origin
+    // 240 in and 215 down.)
+    let shot = |h: &mut Harness<'_, Moonglow>, state: &str, origin: Vec3| {
+        h.run_steps(3);
+        let image = h.render().expect("render");
+        let scale = image.width() as f32 / 1924.0;
+        let at = screen(h, origin);
+        let x = ((at.x - 240.0) * scale).round().max(0.0) as u32;
+        let y = ((at.y - 215.0) * scale).round().max(0.0) as u32;
+        let (w, hh) = ((480.0 * scale) as u32, (400.0 * scale) as u32);
+        let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
+        let name = format!("board_gizmo_states_{ground}_{state}.png");
+        crop.save(picture_dir(&dir).join(name)).unwrap();
+    };
+    let whole = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        if ground == "grass" {
+            shoot(h, &dir, name);
+        }
+    };
+    let gone = |h: &mut Harness<'_, Moonglow>| {
+        h.event(egui::Event::PointerGone);
+        h.run_steps(2);
+    };
+    let button = |h: &mut Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool, on: bool| {
+        let modifiers = if on { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        let button = egui::PointerButton::Primary;
         h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
         h.run_steps(1);
     };
-    h.event(egui::Event::PointerMoved(at));
-    h.run_steps(2);
-    button(&mut h, at, true);
-    for k in 1..=6 {
-        h.event(egui::Event::PointerMoved(at + egui::vec2(10.0 * k as f32, 3.0 * k as f32)));
+    // A drag along `path`, pictured held, then dropped by Escape (nothing
+    // changed).
+    let drag = |h: &mut Harness<'_, Moonglow>,
+                state: &str,
+                on: bool,
+                path: &[egui::Pos2],
+                origin| {
+        shift(h, on);
+        h.hover_at(path[0]);
         h.run_steps(1);
-    }
-    shoot(&mut h, &dir, "board_gizmo_states_drag");
-    h.key_press(egui::Key::Escape);
+        button(h, path[0], true, on);
+        for p in &path[1..] {
+            h.hover_at(*p);
+        }
+        h.run_steps(2);
+        shot(h, state, origin);
+        if state == "drag_red_ring" {
+            whole(h, "board_gizmo_states_drag");
+        }
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        button(h, *path.last().unwrap(), false, on);
+        shift(h, false);
+        gone(h);
+        assert!(!h.state().ws.as_ref().unwrap().is_modified(), "{state}: Escape changed nothing");
+    };
+    let hover = |h: &mut Harness<'_, Moonglow>, state: &str, on: bool, p: Vec3, origin| {
+        shift(h, on);
+        h.hover_at(screen(h, p));
+        h.run_steps(2);
+        shot(h, state, origin);
+        gone(h);
+        shift(h, false);
+    };
+
+    let ci = place_of(&h, ObjectKind::Placeable, 0);
+    let (chest, pivot, middle) = {
+        let view = &h.state().area_views[&area];
+        let o = view.model.as_ref().unwrap().objects[ci].clone();
+        let (min, max) = view.box_of(ci).unwrap();
+        let middle = o.model_transform().transform_point3((min + max) / 2.0);
+        (o.clone(), o.position, middle)
+    };
+    look(&mut h, middle);
+    gone(&mut h);
+    ready(&mut h);
+    let radius = h.state().area_views[&area].handle_radius_at(pivot).unwrap();
+    let cam = h.state().area_views[&area].camera().unwrap();
+    let sel = vec![(ObjectKind::Placeable, 0)];
+    select(&mut h, sel.clone(), false);
+    ready(&mut h);
+    shot(&mut h, "selected", pivot);
+    whole(&mut h, "board_gizmo_states_selected");
+    let ring = |a: f32| pivot + Vec3::new(a.cos(), a.sin(), 0.0) * radius;
+    let a_turn = 0.75 + 0.9;
+    hover(&mut h, "hover_ring", false, ring(a_turn), pivot);
+    // The ring dragged 45 degrees in 15 degree steps.
+    h.state_mut().settings.snap_angle = Some(15);
     h.run_steps(2);
-    button(&mut h, at + egui::vec2(60.0, 18.0), false);
+    let path: Vec<_> = (0..=6).map(|k| screen(&h, ring(a_turn + 0.785 * k as f32 / 6.0))).collect();
+    drag(&mut h, "drag_ring", false, &path, pivot);
+    h.state_mut().settings.snap_angle = None;
+    h.run_steps(2);
+    shift(&mut h, true);
+    shot(&mut h, "shift_dynamic", pivot);
+    whole(&mut h, "board_gizmo_states_shift");
+    shift(&mut h, false);
+    for (axis, name) in [(0, "x"), (1, "y"), (2, "z")] {
+        let head = pivot + Vec3::AXES[axis] * radius * 1.45;
+        hover(&mut h, &format!("hover_arrow_{name}"), true, head, pivot);
+    }
+    let rz = glam::Quat::from_rotation_z(chest.rotation);
+    let tilt = |axis: usize, a: f32| {
+        let (n, w) = (rz * Vec3::AXES[axis], Vec3::Z);
+        pivot + (w * a.cos() + n.cross(w) * a.sin()) * radius
+    };
+    hover(&mut h, "hover_red_ring", true, tilt(0, 1.1), pivot);
+    hover(&mut h, "hover_green_ring", true, tilt(1, 1.1), pivot);
+    let right = (cam.target - cam.eye).cross(Vec3::Z).normalize();
+    let handle = pivot + (right + Vec3::Z).normalize() * radius * 1.25;
+    hover(&mut h, "hover_scale", true, handle, pivot);
+    for (axis, name, by) in [(0, "x", 1.0), (2, "z", -1.0)] {
+        let head = pivot + Vec3::AXES[axis] * radius * 1.45;
+        let path: Vec<_> =
+            (0..=5).map(|k| screen(&h, head + Vec3::AXES[axis] * (by * k as f32 / 5.0))).collect();
+        drag(&mut h, &format!("drag_arrow_{name}"), true, &path, pivot);
+    }
+    let path: Vec<_> = (0..=6)
+        .map(|k| screen(&h, tilt(0, 1.1 + std::f32::consts::FRAC_PI_6 * k as f32 / 6.0)))
+        .collect();
+    drag(&mut h, "drag_red_ring", true, &path, pivot);
+    let (foot, at) = (screen(&h, pivot), screen(&h, handle));
+    let path: Vec<_> = (0..=5).map(|k| at + (at - foot) * (0.4 * k as f32 / 5.0)).collect();
+    drag(&mut h, "drag_scale", true, &path, pivot);
+    // The static chest with Shift: its arrows alone.
+    let si = place_of(&h, ObjectKind::Placeable, 1);
+    let still = h.state().area_views[&area].model.as_ref().unwrap().objects[si].position;
+    look(&mut h, still + (middle - pivot));
+    select(&mut h, vec![(ObjectKind::Placeable, 1)], false);
+    shift(&mut h, true);
+    shot(&mut h, "shift_static", still);
+    shift(&mut h, false);
+    // The encounter's spawn point, selected, and its arrow's tip hovered.
+    let point = Vec3::new(9.0, 9.5, 0.0);
+    look(&mut h, point + Vec3::Z * 0.5);
+    select(&mut h, vec![(ObjectKind::Encounter, 0)], false);
+    ready(&mut h);
+    shot(&mut h, "spawn_selected", point);
+    let tip = point + Vec3::Z * 0.1 + Vec3::new(0.5f32.cos(), 0.5f32.sin(), 0.0);
+    hover(&mut h, "hover_spawn_arrow", false, tip, point);
+    hover(&mut h, "hover_spawn_foot", false, point, point);
+    // The start location, selected, and its arrow's tip hovered.
+    let start = Vec3::new(30.0, 14.0, 0.0);
+    look(&mut h, start + Vec3::Z * 0.5);
+    select(&mut h, Vec::new(), true);
+    ready(&mut h);
+    shot(&mut h, "start_selected", start);
+    hover(&mut h, "hover_start_tip", false, start + Vec3::new(0.0, 0.75, 0.05), start);
 }
 
 /// Creature.png: Faribeth's Properties As Tabs, on Basic. Today the pages

@@ -540,11 +540,11 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
         let v = &h.state().area_views[&area];
         let step = v.screen_pos(at + glam::Vec3::new(4.0, 3.0, 0.0)).zip(v.screen_pos(at));
         if let (Some(from), Some((ahead, foot))) = (v.move_grip(i), step) {
-            grip = Some((from, from + (ahead - foot)));
+            grip = Some((from, from + (ahead - foot), at));
             break;
         }
     }
-    let Some((from, to)) = grip else {
+    let Some((from, to, pivot)) = grip else {
         println!("  {what}: none to hold away from its handles");
         return;
     };
@@ -602,6 +602,40 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
     while undo(h).as_deref() == Some("Rotate") {
         h.state_mut().actions.push(Action::Undo);
         h.run_steps(1);
+    }
+    // The turning ring led round, the Turn snap at 15 degrees (M4's U8:
+    // the wedge, the snap's ticks, the readout chip), and with Shift the
+    // east arrow led 3 m along (the guide line across the view, the
+    // chip): each taken back.
+    let handles = h.state().area_views.get(&area).and_then(|v| {
+        let r = v.handle_radius_at(pivot)?;
+        let ring = |a: f32| v.screen_pos(pivot + glam::Vec3::new(a.cos(), a.sin(), 0.0) * r);
+        let head = pivot + glam::Vec3::X * r * 1.45;
+        Some((
+            (ring(0.3)?, ring(1.5)?),
+            (v.screen_pos(head)?, v.screen_pos(head + glam::Vec3::X * 3.0)?),
+        ))
+    });
+    if let Some(((ring_from, ring_to), (arrow_from, arrow_to))) = handles {
+        let snap = h.state().settings.snap_angle;
+        h.state_mut().settings.snap_angle = Some(15);
+        h.run_steps(2);
+        let f = frames(h, rect, Pointer::Drags(ring_from, ring_to), r.count, |_, _| {});
+        said(r, &what, "its turning ring dragged", &f);
+        h.state_mut().settings.snap_angle = snap;
+        h.run_steps(2);
+        assert_eq!(undo(h).as_deref(), Some("Rotate"), "{what}: the ring turned it");
+        h.state_mut().actions.push(Action::Undo);
+        h.run_steps(2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        h.run_steps(1);
+        let f = frames(h, rect, Pointer::Drags(arrow_from, arrow_to), r.count, |_, _| {});
+        said(r, &what, "its east arrow dragged", &f);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(2);
+        assert_eq!(undo(h).as_deref(), Some("Move"), "{what}: the arrow moved it");
+        h.state_mut().actions.push(Action::Undo);
+        h.run_steps(2);
     }
     // (The selection let go.)
     if let Some(v) = h.state_mut().area_views.get_mut(&area) {
@@ -1176,6 +1210,34 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     if let Some(v) = h.state_mut().area_views.get_mut(&area) {
         v.selection.clear();
         v.walkmesh = false;
+    }
+    // The 32 objects nearest the view's middle selected (as many as get
+    // handles of their own) and Shift held, seen close: each one's arrows,
+    // tilt rings and scale handle (M4's U7: each line over its edge, the
+    // rings in 96 pieces), lit under the pointer as it goes by.
+    if let Some(v) = h.state_mut().area_views.get_mut(&area)
+        && let (Some(m), Some(orbit)) = (v.model.as_ref(), v.orbit.as_mut())
+    {
+        orbit.pitch = 0.7;
+        orbit.distance = 25.0;
+        let target = orbit.target;
+        let mut near: Vec<_> = m
+            .objects
+            .iter()
+            .filter(|o| o.kind != mg_area::ObjectKind::Sound && !o.locked)
+            .map(|o| ((o.position - target).length(), (o.kind, o.index)))
+            .collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v.selection = near.into_iter().take(32).map(|(_, key)| key).collect();
+    }
+    // (Held from here: the window keeps the modifiers its events gave.)
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(1);
+    view(h, r, &format!("{name}, 32 selected, Shift held"), Some(&tab));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+    if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+        v.selection.clear();
     }
     drag_selection(h, r, &format!("{name}, a selection dragged"), area);
     close(h, &tab);

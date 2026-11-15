@@ -178,6 +178,40 @@ tokens! {
     /// [`Tokens::text_3`]).
     compass_south: "compass-south" = hex(0xaab0ba), hex(0x4c535b);
 
+    // --- the area view's handles (the proposal's section 11.3; the 3D
+    // picture is the same in both themes, so these keep one value)
+    /// The X arrow and the red tilt ring (about the model's X).
+    handle_x: "handle-x" = hex(0xf0566a), hex(0xf0566a);
+    /// The same, lit (hovered or held).
+    handle_x_lit: "handle-x-lit" = hex(0xff9aa6), hex(0xff9aa6);
+    /// The Y arrow and the green tilt ring (about the model's Y).
+    handle_y: "handle-y" = hex(0x86d13a), hex(0x86d13a);
+    /// The same, lit.
+    handle_y_lit: "handle-y-lit" = hex(0xc4f08c), hex(0xc4f08c);
+    /// The up arrow.
+    handle_z: "handle-z" = hex(0x4d9bff), hex(0x4d9bff);
+    /// The same, lit.
+    handle_z_lit: "handle-z-lit" = hex(0xa6ccff), hex(0xa6ccff);
+    /// The turning ring and the selection's box: the dark theme's
+    /// [`Tokens::select`] in both, as the 3D picture is.
+    handle_turn: "handle-turn" = hex(0xffb02e), hex(0xffb02e);
+    /// The same, lit.
+    handle_turn_lit: "handle-turn-lit" = hex(0xffd48a), hex(0xffd48a);
+    /// The scale square and its stalk; the pivot dot.
+    handle_scale: "handle-scale" = hex(0xeef0f3), hex(0xeef0f3);
+    /// The same, lit.
+    handle_scale_lit: "handle-scale-lit" = hex(0xffffff), hex(0xffffff);
+    /// The dark edge under every line, head and square of a handle.
+    handle_edge: "handle-edge" = rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55);
+    /// The start location's ring (Aurora's blue, (70, 130, 255)).
+    handle_start_ring: "handle-start-ring" = hex(0x4682ff), hex(0x4682ff);
+    /// The start location's arrow (Aurora's red, (235, 40, 40)).
+    handle_start_arrow: "handle-start-arrow" = hex(0xeb2828), hex(0xeb2828);
+    /// Under a handle's readout or name chip (section 11.5).
+    chip: "chip" = rgba(12, 13, 15, 0.86), rgba(232, 235, 239, 0.92);
+    /// The chip's 1 px rim (none in the dark theme).
+    chip_rim: "chip-rim" = Color32::TRANSPARENT, rgba(20, 23, 27, 0.18);
+
     // --- the script editor's present colors (Options › Script Editor)
     /// Script text.
     syn_text: "syn-text" = hex(0xe6e8ec), hex(0x14171b);

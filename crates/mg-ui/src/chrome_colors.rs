@@ -10,7 +10,7 @@
 /// Each file that writes colors of its own, how many, and why.
 const KEPT: &[(&str, usize, &str)] = &[
     ("area_grass.rs", 1, "the light ground behind a grass texture's tufts (a picture)"),
-    ("area_view.rs", 68, "handles, outlines, kind colors and labels drawn over the 3D view"),
+    ("area_view.rs", 47, "outlines, kind colors and labels drawn over the 3D view"),
     (
         "area_view/bar.rs",
         6,

@@ -21,6 +21,7 @@ mod drawing;
 mod fields;
 mod gpu_memory;
 mod hak_closing;
+mod handles;
 mod icon_tips;
 mod inventories;
 mod lists_together;

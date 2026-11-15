@@ -1,6 +1,14 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U8, the handles' drag feedback and readout chips** ([04](manual/04-areas.md)); merge point M4a.
+  * **A chip says the value a handle sets** while it is dragged, with a strip in its color, in the light or dark theme: `182°`, `Y Rotation 12°`, `X 28.00 m`, `Scale 1.25` (with its capital, as Ctrl + wheel's too).
+  * **What the drag has done shows**: a turn's faint wedge, a hollow triangle where it began and ticks at Turn's steps; a tilt's wedge and hollow dot; an arrow's guide line across the view and a hollow dot where the object stood; the scale handle's hollow square where it began. The turning ring stays at half strength during a scale drag.
+  * The Status Bar no longer hints the grid's snap while the up arrow or Alt + drag raises (neither snaps).
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U7, the handles: Fine Lines**, as the GizmoStates board draws them ([04](manual/04-areas.md)).
+  * **Every handle a fine line over a thin dark edge**: the rings as true circles, a tilt ring's far half fainter, solid arrow heads, a facing triangle on the turning ring, the scale square, a dot at the object's place; the selected object's box a thin amber line under them.
+  * **The handle under the pointer is lit and named**: brighter and thicker, the rest of its set at half strength, a chip beside the pointer ("Move East or West", "Tilt (Y Rotation)", "Scale"…), and the pointer a hand (closed while held), wherever a press would take that handle.
+  * Spawn points and the start location get the same edge and lit look. The handles' colors are the kit's new tokens, the same in both themes.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U6's review ([05](manual/05-blueprints.md#instances), [04](manual/04-areas.md), [02](manual/02-main-window.md)).
   * Every page of every kind of object fits the Properties panel from 280 points: fields fill its width, rows wrap, tables stand their columns under one another; the window (Open in Tab) keeps its look. The forms' labels in sentence case ("Hit points").
   * A double click on an object's row in the module tree or the Outliner shows the panel too; with Ctrl, a double click keeps the object selected. Up and Down move along the panel's pages.

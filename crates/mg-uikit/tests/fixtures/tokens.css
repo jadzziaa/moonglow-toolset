@@ -76,6 +76,24 @@
   --select-ring: transparent;
   --compass-north: #e5484d;
   --compass-south: #aab0ba;
+  /* The area view's handles (the proposal's section 11.3): the 3D picture
+     is the same in both themes, so they keep one value. */
+  --handle-x: #f0566a;
+  --handle-x-lit: #ff9aa6;
+  --handle-y: #86d13a;
+  --handle-y-lit: #c4f08c;
+  --handle-z: #4d9bff;
+  --handle-z-lit: #a6ccff;
+  --handle-turn: #ffb02e;
+  --handle-turn-lit: #ffd48a;
+  --handle-scale: #eef0f3;
+  --handle-scale-lit: #ffffff;
+  --handle-edge: rgba(0, 0, 0, 0.55);
+  --handle-start-ring: #4682ff;
+  --handle-start-arrow: #eb2828;
+  /* The handles' readout and name chips (section 11.5), theme-aware. */
+  --chip: rgba(12, 13, 15, 0.86);
+  --chip-rim: transparent;
 }
 
 .mg.light {
@@ -147,4 +165,22 @@
   --select-ring: #a35c00;
   --compass-north: #b4232b;
   --compass-south: #4c535b;
+  /* The area view's handles (the proposal's section 11.3): the 3D picture
+     is the same in both themes, so they keep one value. */
+  --handle-x: #f0566a;
+  --handle-x-lit: #ff9aa6;
+  --handle-y: #86d13a;
+  --handle-y-lit: #c4f08c;
+  --handle-z: #4d9bff;
+  --handle-z-lit: #a6ccff;
+  --handle-turn: #ffb02e;
+  --handle-turn-lit: #ffd48a;
+  --handle-scale: #eef0f3;
+  --handle-scale-lit: #ffffff;
+  --handle-edge: rgba(0, 0, 0, 0.55);
+  --handle-start-ring: #4682ff;
+  --handle-start-arrow: #eb2828;
+  /* The handles' readout and name chips (section 11.5), theme-aware. */
+  --chip: rgba(232, 235, 239, 0.92);
+  --chip-rim: rgba(20, 23, 27, 0.18);
 }

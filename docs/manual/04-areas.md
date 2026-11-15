@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:34:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T21:05:34Z }
 ---
 
 # Areas
@@ -507,8 +507,40 @@ tile there: its model's name (`ttr01_a01_01`), its column and row, and its
 height and turn when it has them. With one tile selected (Select Tiles),
 it names that tile too.
 
-**The turning ring**: an orange ring lies around the
-selected object, with a mark on it the way the object faces. Take the
+**How the handles look**: every handle is drawn as a fine line over a
+thin dark edge, so that it reads over grass, snow or a bright floor
+alike, and over the object too (the handles are drawn over everything,
+whatever stands in front). A white dot marks the object's place, the
+point the handles are about; the selected object's box is a thin amber
+line under them. The handle under the pointer is lit, brighter and
+thicker, the rest of its set fades to half, and a small chip beside the
+pointer names what a drag on it does: **Turn**, **Move East or West**,
+**Move North or South**, **Raise or Lower**, **Tilt (Y Rotation)**,
+**Tilt (Z Rotation)**, **Scale** (on an encounter's spawn point, **Turn
+Spawn Point** and **Move Spawn Point**; on the start location's marker,
+**Turn Start Location** and **Move Start Location**). The pointer becomes
+an open hand over any handle and a closed one while you hold it. With
+Ctrl held (the camera's) or Alt (which raises or turns the selection by
+the drag), a handle is not lit, named or taken.
+
+While a handle is dragged, a chip beside it says the value it sets,
+with a strip in the handle's color at its left: the facing in degrees by
+the turning ring's triangle (`182°`), the angle by a tilt ring's grip
+(`Y Rotation 12°` for the red one, `Z Rotation 12°` for the green: the
+game's own field names, as Adjust Location has them, though the red ring
+turns the model about its X axis), the coordinate by an arrow's tip
+(`X 28.00 m`), and the size beside the pointer (`Scale 1.25`). What the
+drag has done shows too: a turn fills a faint wedge from where the
+object faced to where it faces now, with a hollow triangle where it
+began, and with **Turn** set, small ticks on the ring at the angles it
+snaps to; a tilt the same wedge in its ring, with a hollow dot where it
+was taken; an arrow a faint line along its axis across the view and a
+hollow dot where the object stood; the scale handle a hollow square
+where it began. The chips follow the light or dark theme; the handles
+look the same in both, over the same picture.
+
+**The turning ring**: an amber ring lies around the
+selected object, with a small triangle on it the way the object faces. Take the
 ring anywhere along it (near it is enough) and lead it round: the object
 turns with the pointer, its facing shown in degrees; with several
 selected, each has its ring (and with Shift its tilt rings and arrows),
@@ -527,7 +559,8 @@ at something small, a piece of fruit on a table, they are as small as
 it and stay in the view.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning
-ring's place, red and green. Lead the red one round to tip the model
+ring's place, red and green, the half of each that is behind the object
+(seen from the camera) fainter, so that you can see which way it leans. Lead the red one round to tip the model
 about its X axis, the green one to lean it about its Y axis; the angle
 shows in degrees, and **Turn** snaps it. This is the rotation of EE's
 visual transform (the one **Adjust Location…** has as numbers): the red
@@ -576,8 +609,8 @@ properties first; the Status Bar says so, and the wheel zooms the view
 slowly, as it does with nothing selected that takes a scale.
 
 **The arrows**: with **Shift** held, three arrows stand out from the
-selected object: red to the east, green to the north and blue upward.
-Take an arrow's head and lead it along: the object moves along that axis
+selected object: red to the east, green to the north and blue upward,
+each with a solid head. Take an arrow's head and lead it along: the object moves along that axis
 alone, however the pointer strays, with its place on the axis shown in
 meters. East and north keep its height as it is (a raised placeable
 stays where it was raised, whatever the ground below; a trigger's

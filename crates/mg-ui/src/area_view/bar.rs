@@ -242,6 +242,8 @@ fn hints(
             }
             Drag::Start { turn: true, .. } => {}
             Drag::Tilt { .. } | Drag::Scale { .. } => {}
+            // (Up and down take no snap: the up arrow and Alt + drag.)
+            Drag::Slide { axis: 2, .. } | Drag::Lift { .. } => {}
             _ => {
                 if let Some(m) = grid {
                     let at = Hint::new(format!("Snap {m} m"));
