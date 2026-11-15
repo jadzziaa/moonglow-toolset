@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
 ---
 
 # Areas
@@ -498,7 +498,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another): the copies follow the pointer, each outlined by its model's box, and Q and E turn them together before the click puts them down |
-| Double-click | the object's Properties |
+| Double-click | the object's Properties, in the Right Dock's Properties panel, in front ([Blueprints](05-blueprints.md#instances)) |
 | A row of the Outliner (the Left Dock, under its tabs) | select its object, with Ctrl and Shift as in the view; while it shows, it follows the selection, and the module tree stays where you left it: see [The Outliner](02-main-window.md#the-outliner) |
 
 Every move, turn and deletion is one undoable step. The view's corner
@@ -864,7 +864,11 @@ Aurora):
 - **Variables…**: the object's local variables (with the project's
   [described variables](03-modules.md#described-variables) offered).
 - **Properties**, the last item: the object's properties as placed in
-  the area (an instance can differ from its blueprint). With several
+  the area (an instance can differ from its blueprint), in a tab or a
+  window of their own with OK and Cancel, as the Properties panel's
+  **Open in Tab** opens them (the panel, the Right Dock's lower section,
+  shows them for what is selected without either:
+  [Blueprints](05-blueprints.md#instances)). With several
   objects of one kind selected, one window edits them together: a field
   changed there changes in all of them. It shows the first one's values,
   with **≠** before a field where the others have another (so too for
@@ -1472,7 +1476,8 @@ brush: a note at the head of its hints.
 ### Tile Properties
 
 While Select Tiles is on, **Tile Properties** is the Right Dock's lower
-section, under the Palette and the Preview (in a window under 1400
+section, under the Palette and the Preview, in place of the objects'
+**Properties** that every other tool shows there (in a window under 1400
 points wide, a tab beside them; in an area dragged out into a window of
 its own, that window's right pane). Its header says what it shows,
 **Tile (4, 4)** or **6 tiles**, and it follows the selection as you

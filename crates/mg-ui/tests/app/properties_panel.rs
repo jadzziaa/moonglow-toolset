@@ -1,0 +1,648 @@
+//! The Properties panel (M4's U6, scope move S2; the Main, Narrow,
+//! WideArea, Floating and AreaPaint boards): what is selected in an area,
+//! in the Right Dock's lower section under the Palette and the Preview,
+//! with every tool but Select Tiles; the Properties window's pages
+//! without OK and Cancel, as a rail; each change applied at once, one
+//! Undo step; Open in Tab; a double click (ruling Q1); three tabs under
+//! 1400, two columns in the wide layout with their seam dragged; the
+//! palette's narrow row. Docked and floating (`Mode`: the area is docked
+//! in both, As Tabs and As Floating Windows). (The game's data and a GPU,
+//! else skipped.)
+
+use crate::common::*;
+use glam::Vec3;
+use mg_area::ObjectKind;
+use mg_ui::properties_panel::{NOTHING_SELECTED, OPEN_IN_TAB};
+
+/// An area as `area_harness` makes it (two waypoints, at 20 and 30 by 20)
+/// with two chests at 12 and 14 by 20, a bandit, a store and an
+/// encounter, in `mode`, in a window `width` by 900 (1600: the Right
+/// Dock's sections stacked, the palettes over Properties).
+fn props_area(name: &str, mode: Mode, width: f32) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let chests = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let list = [12.0, 14.0].map(|x| {
+            let at = Placement { position: [x, 20.0, 0.0], rotation: 0.0 };
+            instance(&placing, ResType::UTP, &bp, at, &[]).unwrap()
+        });
+        let one = |t: ResType, resref: &str, x: f32| {
+            let key = ResKey::parse(resref, t).unwrap();
+            let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+            let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+            instance(&placing, t, &bp, at, &[]).unwrap()
+        };
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(list.to_vec()));
+        let others = [
+            ("Creature List", ResType::UTC, "nw_bandit001"),
+            ("StoreList", ResType::UTM, "x2_storethief001"),
+            ("Encounter List", ResType::UTE, "nw_giantevil"),
+        ];
+        for (i, (list, t, resref)) in others.into_iter().enumerate() {
+            git.root.set(list, mg_gff::Value::List(vec![one(t, resref, 12.0 + 4.0 * i as f32)]));
+        }
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let (mut app, rs, area) = area_app(&mode.dir(name), "ttr01", None, 4, None, &chests)?;
+    put_in(&mut app, mode);
+    let mut h = area_gpu_harness(app, rs, width, 900.0);
+    h.run_steps(3);
+    settle(&mut h);
+    Some((h, area))
+}
+
+fn select(h: &mut Harness<'_, Moonglow>, area: ResRef, objects: &[(ObjectKind, usize)]) {
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = objects.to_vec();
+    settle(h);
+}
+
+fn placeables(h: &mut Harness<'_, Moonglow>, area: ResRef) -> Vec<mg_gff::Struct> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    git.root.list("Placeable List").unwrap().to_vec()
+}
+
+fn tag(s: &mg_gff::Struct) -> String {
+    String::from_utf8_lossy(s.string("Tag").unwrap()).into_owned()
+}
+
+fn revision(h: &Harness<'_, Moonglow>) -> u64 {
+    h.state().ws.as_ref().unwrap().revision()
+}
+
+fn undo_label(h: &Harness<'_, Moonglow>) -> Option<String> {
+    h.state().ws.as_ref().unwrap().can_undo().map(str::to_string)
+}
+
+fn is_input(n: &egui_kittest::Node<'_>) -> bool {
+    n.accesskit_node().role() == egui::accesskit::Role::TextInput
+}
+
+/// The left edge of the page rail (its Basic page's button, 24 wide,
+/// centered in its 31 points).
+fn rail_left(h: &Harness<'_, Moonglow>) -> f32 {
+    h.get_by_label("Pages").get_by_label("Basic").rect().left() - 3.5
+}
+
+/// Types `text` over the text field showing `value`, and leaves it (Tab).
+fn retype(h: &mut Harness<'_, Moonglow>, value: &str, text: &str) {
+    h.get_all_by_value(value).find(is_input).expect("the field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(value).find(is_input).unwrap().type_text(text);
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(3);
+}
+
+/// The panel follows the selection: with nothing selected it says how to
+/// choose; one placeable, its kind in the header ("Properties,
+/// Placeable"), its pages as the rail's buttons, Basic in front, its
+/// fields; two of one kind, "2 placeables"; a placeable and a waypoint,
+/// said and no fields. No OK or Cancel anywhere in it.
+#[test]
+fn the_panel_shows_the_selection() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-shows", mode, 1600.0) else { return };
+        let w = mode.word();
+        h.get_by_label("Properties, none selected");
+        h.get_by_label(NOTHING_SELECTED);
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        h.get_by_label("Properties, Placeable");
+        let rail = h.get_by_label("Pages");
+        for page in ["Basic", "Inventory", "Lock", "Trap", "Scripts", "Variables"] {
+            rail.get_by_label(page);
+        }
+        assert!(rail.query_by_label("Comments").is_none(), "{w}: the blueprint's alone");
+        let basic = rail.get_by_label("Basic").accesskit_node().toggled();
+        assert_eq!(basic, Some(egui::accesskit::Toggled::True), "{w}: Basic in front");
+        let chest = tag(&placeables(&mut h, area)[0]);
+        assert!(h.get_all_by_value(&chest).any(|n| is_input(&n)), "{w}: its tag's field");
+        assert!(h.query_by_label_contains("plc_chest1 at 12.00, 20.00").is_some(), "{w}: where");
+        for gone in ["OK", "Cancel"] {
+            assert!(h.query_by_label(gone).is_none(), "{w}: no {gone}");
+        }
+        select(&mut h, area, &[(ObjectKind::Placeable, 0), (ObjectKind::Placeable, 1)]);
+        h.get_by_label("Properties, 2 placeables");
+        select(&mut h, area, &[(ObjectKind::Placeable, 0), (ObjectKind::Waypoint, 1)]);
+        h.get_by_label("Properties, 2 objects");
+        h.get_by_label_contains("2 objects of 2 types are selected");
+        assert!(h.query_by_label("Pages").is_none(), "{w}: no pages for a mixed selection");
+    }
+}
+
+/// A change in the panel is the module's at once, one step, which Undo
+/// takes back; the panel shown, each of its pages, and other objects
+/// selected write nothing.
+#[test]
+fn a_change_applies_at_once_and_undo_takes_it_back() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-change", mode, 1600.0) else { return };
+        let w = mode.word();
+        let (at, label) = (revision(&h), undo_label(&h));
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        for page in ["Inventory", "Lock", "Trap", "Scripts", "Advanced", "Variables", "Basic"] {
+            h.get_by_label("Pages").get_by_label(page).click();
+            settle(&mut h);
+        }
+        select(&mut h, area, &[(ObjectKind::Placeable, 0), (ObjectKind::Placeable, 1)]);
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        assert_eq!((revision(&h), undo_label(&h)), (at, label.clone()), "{w}: nothing written");
+        let before = placeables(&mut h, area);
+        retype(&mut h, &tag(&before[0]), "CHEST_PANEL");
+        let now = placeables(&mut h, area);
+        assert_eq!(tag(&now[0]), "CHEST_PANEL", "{w}: written at once");
+        assert_eq!(now[1], before[1], "{w}: the other untouched");
+        assert!(undo_label(&h).is_some_and(|l| l != label.as_deref().unwrap_or("")), "{w}");
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        settle(&mut h);
+        assert_eq!(placeables(&mut h, area), before, "{w}: one step, undone byte for byte");
+        assert_eq!(undo_label(&h), label, "{w}");
+    }
+}
+
+/// Two placeables selected are edited together: a tag typed is set on
+/// both, as one step.
+#[test]
+fn several_of_one_type_edit_together() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-several", mode, 1600.0) else { return };
+        let w = mode.word();
+        let both = [(ObjectKind::Placeable, 0), (ObjectKind::Placeable, 1)];
+        select(&mut h, area, &both);
+        let before = placeables(&mut h, area);
+        let label = undo_label(&h);
+        retype(&mut h, &tag(&before[0]), "CHEST_BOTH");
+        let now = placeables(&mut h, area);
+        assert_eq!((tag(&now[0]), tag(&now[1])), ("CHEST_BOTH".into(), "CHEST_BOTH".into()), "{w}");
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        settle(&mut h);
+        assert_eq!(placeables(&mut h, area), before, "{w}: one step for both");
+        assert_eq!(undo_label(&h), label, "{w}");
+    }
+}
+
+/// Under 1400 the sections fold into one tab bar, Palette, Properties,
+/// Preview (Narrow), the palette's types a dropdown with Standard and
+/// Custom beside it and Expand All and Collapse All at the Group by
+/// row's end; Properties chosen, its detail and Open in Tab at its own
+/// top.
+#[test]
+fn the_narrow_dock_has_three_tabs_and_the_narrow_row() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-narrow", mode, 1280.0) else { return };
+        let w = mode.word();
+        h.state_mut().palette.tiles = false;
+        h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        settle(&mut h);
+        let dock = h.get_by_label("Right Dock");
+        let tabs: Vec<(String, f32)> = ["Palette", "Properties", "Preview"]
+            .iter()
+            .map(|t| (t.to_string(), dock.get_by_label(t).rect().left()))
+            .collect();
+        assert!(tabs.windows(2).all(|p| p[0].1 < p[1].1), "{w}: in this order: {tabs:?}");
+        // The palette's narrow row.
+        let types = palette_types(&h).expect("the types").rect();
+        let standard = h.get_by_label("Standard").rect();
+        assert!((standard.center().y - types.center().y).abs() < 4.0, "{w}: Standard beside");
+        assert!(standard.left() > types.right(), "{w}: after the dropdown");
+        let group = h.get_by_label("Group by").rect();
+        let expand = h.get_by_label("Expand All").rect();
+        assert!((expand.center().y - group.center().y).abs() < 4.0, "{w}: on Group by's row");
+        assert!(expand.left() > group.right() + 60.0, "{w}: at its end");
+        let dock = right_dock_rect(&h);
+        let in_dock = |n: &egui_kittest::Node<'_>| dock.contains(n.rect().center());
+        let more = h.get_all_by_label("More").find(in_dock).expect("the palette's More").rect();
+        let items = h.get_by_label_contains(" items").rect();
+        assert!((more.center().y - items.center().y).abs() < 4.0, "{w}: the toolbar one row");
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        h.get_by_label("Right Dock").get_by_label("Properties").click();
+        settle(&mut h);
+        h.get_by_label("Pages");
+        h.get_by_label(OPEN_IN_TAB);
+        h.get_by_label("Placeable");
+        // Remembered (the owner's ruling of U2's review), the module
+        // opened again: Properties in front of the one bar.
+        let path = h.state().module_path().expect("the module's path");
+        h.state_mut().open_module(&path);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        settle(&mut h);
+        let shows = h.state().right_dock_shows();
+        assert_eq!(shows, Some(mg_ui::Panel::Properties), "{w}: after reopening");
+    }
+}
+
+/// In the wide layout the Palette and the Preview stand in the first
+/// column and Properties in the second (WideArea); the seam between them
+/// is dragged, kept for the area's kind, and held at 280 for either.
+#[test]
+fn the_wide_layout_s_columns_and_their_seam() {
+    let Some((mut h, area)) = props_area("props-wide", Mode::Tabs, 1600.0) else { return };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let dock = right_dock_rect(&h);
+    let palette = h.get_by_label("Right Dock").get_by_label("Palette").rect();
+    let preview = h.get_by_label("Right Dock").get_by_label("Preview").rect();
+    assert!((palette.top() - preview.top()).abs() < 1.0, "Palette and Preview one bar");
+    let first = rail_left(&h) - dock.left();
+    assert!((339.0..=342.0).contains(&first), "Properties in the second column: {first}");
+    // The seam dragged 100 to the right.
+    let x = dock.left() + 340.5;
+    let y = dock.center().y;
+    h.hover_at(egui::pos2(x, y));
+    h.drag_at(egui::pos2(x, y));
+    for k in 1..=5 {
+        h.hover_at(egui::pos2(x + 20.0 * k as f32, y));
+        h.run_steps(1);
+    }
+    h.drop_at(egui::pos2(x + 100.0, y));
+    settle(&mut h);
+    let kept = h.state().settings.dock_layouts.get("area").and_then(|l| l.column);
+    assert_eq!(kept, Some(440), "kept for the area");
+    let moved = rail_left(&h) - dock.left();
+    assert!((439.0..=442.0).contains(&moved), "drawn there: {moved}");
+    // Held at 280 for the second column, past its end.
+    let x = dock.left() + 440.5;
+    h.hover_at(egui::pos2(x, y));
+    h.drag_at(egui::pos2(x, y));
+    for k in 1..=5 {
+        h.hover_at(egui::pos2(x + 200.0 * k as f32, y));
+        h.run_steps(1);
+    }
+    h.drop_at(egui::pos2(x + 1000.0, y));
+    settle(&mut h);
+    let kept = h.state().settings.dock_layouts.get("area").and_then(|l| l.column).unwrap();
+    let second = dock.width() - 1.0 - f32::from(kept);
+    assert!((280.0..=282.0).contains(&second), "the second at least 280: {second}");
+}
+
+/// A double click on a placed object (ruling Q1) shows the Properties
+/// panel in front, the Right Dock unfolded, in either mode, and opens no
+/// window; Open in Tab opens today's window (OK and Cancel), and the panel
+/// then leaves the fields to it, so that a tag typed there is one command.
+#[test]
+fn a_double_click_shows_the_panel_and_open_in_tab_the_window() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-double", mode, 1280.0) else { return };
+        let w = mode.word();
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+        h.state_mut().settings.hide_palettes = true;
+        settle(&mut h);
+        h.run_steps(40);
+        let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+        for _ in 0..2 {
+            press(&h, at, true, egui::Modifiers::NONE);
+            press(&h, at, false, egui::Modifiers::NONE);
+        }
+        settle(&mut h);
+        let path = mg_edit::GffPath::root().item("WaypointList", 1);
+        let window = Tab::Instance { area, path };
+        assert!(h.state().dock.find_tab(&window).is_none(), "{w}: no window");
+        assert!(!h.state().settings.hide_palettes, "{w}: the Right Dock unfolded");
+        assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)], "{w}");
+        // (Under 1400 a tab of the one bar: in front, its detail at its
+        // top.)
+        assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "{w}: in front");
+        h.get_by_label("Pages");
+        h.get_by_label("Waypoint");
+        h.get_by_label(OPEN_IN_TAB).click();
+        settle(&mut h);
+        assert!(h.state().dock.find_tab(&window).is_some(), "{w}: the window, by Open in Tab");
+        h.get_by_label("OK");
+        // (As Floating Windows the area stays the docked editor in front,
+        // its panel saying where the fields are; As Tabs the window is the
+        // tab in front, which brings no Right Dock.)
+        match mode {
+            Mode::Floating => {
+                h.get_by_label_contains("open in a tab or window of their own");
+            }
+            Mode::Tabs => assert_eq!(h.state().right_dock_shows(), None, "{w}"),
+        }
+        let label = undo_label(&h);
+        let at = revision(&h);
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let old = tag(&git.root.list("WaypointList").unwrap()[1]);
+        retype(&mut h, &old, "WP_WINDOW");
+        assert_eq!(revision(&h), at + 1, "{w}: one command");
+        assert_ne!(undo_label(&h), label, "{w}");
+    }
+}
+
+/// Text typed in the panel and left by selecting another object (a click
+/// in the view) is set on the object it was typed for.
+#[test]
+fn text_typed_goes_to_its_own_object_when_another_is_selected() {
+    let Some((mut h, area)) = props_area("props-typed", Mode::Floating, 1600.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let before = placeables(&mut h, area);
+    let old = tag(&before[0]);
+    h.get_all_by_value(&old).find(is_input).expect("the field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&old).find(is_input).unwrap().type_text("CHEST_FIRST");
+    h.run_steps(2);
+    select(&mut h, area, &[(ObjectKind::Placeable, 1)]);
+    let now = placeables(&mut h, area);
+    assert_eq!(tag(&now[0]), "CHEST_FIRST", "the first's");
+    assert_eq!(tag(&now[1]), tag(&before[1]), "not the second's");
+}
+
+/// In an area another builder holds (a project that keeps those
+/// read-only), the panel's fields are only looked at: said, and a tag
+/// typed changes nothing.
+#[test]
+fn a_read_only_area_s_properties_are_looked_at() {
+    let Some((mut h, area)) = read_only_area_harness("props-read-only") else { return };
+    wide_window(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Properties, Placeable");
+    h.get_by_label_contains("read-only here, shown to look at");
+    let before = placeables(&mut h, area);
+    let old = tag(&before[0]);
+    // (Its field there, only looked at: typing into it changes nothing.)
+    let field = h.get_all_by_value(&old).find(is_input).expect("its tag's field").rect();
+    click_pos(&h, field.center());
+    h.run_steps(2);
+    h.get_all_by_value(&old).find(is_input).unwrap().type_text("NOT_MINE");
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    assert_eq!(placeables(&mut h, area), before, "nothing changed");
+}
+
+/// F6 stops at the Properties panel (after the palettes' section), its
+/// page shown taking the keyboard's focus; the keys typed there act on
+/// the field, not on the object (Delete deletes nothing).
+#[test]
+fn f6_reaches_the_properties_panel() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-f6", mode, 1600.0) else { return };
+        let w = mode.word();
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        let mut stops = Vec::new();
+        for _ in 0..8 {
+            h.key_press(egui::Key::F6);
+            settle(&mut h);
+            let props = mg_ui::palette_view::arrow_keys_are(&h.ctx) == "Properties";
+            stops.push(props);
+            if props {
+                break;
+            }
+        }
+        assert!(stops.last() == Some(&true), "{w}: no Properties stop: {stops:?}");
+        let focused = h.get_by_label("Pages").get_by_label("Basic");
+        assert!(focused.accesskit_node().is_focused(), "{w}: its page shown has the focus");
+        let before = placeables(&mut h, area);
+        let old = tag(&before[0]);
+        h.get_all_by_value(&old).find(is_input).unwrap().click();
+        h.run_steps(2);
+        // (The pointer then over the area's view, where Delete would
+        // delete the selection but for the field typed in.)
+        h.hover_at(h.state().area_views[&area].rect.center());
+        h.run_steps(2);
+        h.key_press(egui::Key::Delete);
+        h.key_press(egui::Key::Q);
+        settle(&mut h);
+        // (Typed into the field, not taken by the view: nothing deleted or
+        // turned, the field not left.)
+        assert_eq!(placeables(&mut h, area), before, "{w}: nothing deleted or turned");
+    }
+}
+
+/// The lower section goes by the tool in hand: Properties with Select
+/// Objects and Paint, Tile Properties with Select Tiles (and neither
+/// while its header toggle hides it), Properties again with Select
+/// Objects.
+#[test]
+fn the_tool_in_hand_chooses_the_lower_section() {
+    let Some((mut h, area)) = props_area("props-tools", Mode::Floating, 1600.0) else { return };
+    let lower = |h: &Harness<'_, Moonglow>| {
+        let props = (h.query_all_by_label_contains("Properties, "))
+            .filter_map(|n| n.accesskit_node().label())
+            .find(|l| !l.starts_with("Tile"));
+        let tiles = h.query_by_label_contains("Tile Properties, ").is_some();
+        (props, tiles)
+    };
+    assert_eq!(lower(&h), (Some("Properties, none selected".into()), false), "Select Objects");
+    h.state_mut().paint = true;
+    settle(&mut h);
+    assert!(lower(&h).0.is_some(), "Paint: Properties, as AreaPaint draws it");
+    h.state_mut().paint = false;
+    settle(&mut h);
+    area_click(&mut h, "Select Tiles");
+    settle(&mut h);
+    assert_eq!(lower(&h), (None, true), "Select Tiles: Tile Properties in its place");
+    h.state_mut().settings.hide_tile_properties = true;
+    settle(&mut h);
+    assert_eq!(lower(&h), (None, false), "hidden by its toggle: neither");
+    h.state_mut().settings.hide_tile_properties = false;
+    area_click(&mut h, "Select Objects");
+    settle(&mut h);
+    assert!(lower(&h).0.is_some(), "Select Objects again: Properties");
+    let _ = area;
+}
+
+/// A section dragged as low as it goes ([`SECTION_LEAST`], 80) keeps
+/// every page in reach: the rail scrolls under the wheel to its last.
+#[test]
+fn the_rail_reaches_every_page_in_a_low_section() {
+    let Some((mut h, area)) = props_area("props-low", Mode::Tabs, 1600.0) else { return };
+    let layout = h.state_mut().settings.dock_layouts.entry("area".into()).or_default();
+    layout.shares = vec![1900, 100];
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let dock = right_dock_rect(&h);
+    let last = h.get_by_label("Pages").get_by_label("Description").rect();
+    assert!(last.top() > dock.bottom(), "out of sight at first: {last:?} {dock:?}");
+    let basic = h.get_by_label("Pages").get_by_label("Basic").rect();
+    h.hover_at(basic.center());
+    for _ in 0..20 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -40.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    settle(&mut h);
+    let last = h.get_by_label("Pages").get_by_label("Description").rect();
+    assert!(last.bottom() <= dock.bottom() + 0.5, "in reach: {last:?} in {dock:?}");
+    h.get_by_label("Pages").get_by_label("Description").click();
+    settle(&mut h);
+    let shown = h.get_by_label("Pages").get_by_label("Description").accesskit_node().toggled();
+    assert_eq!(shown, Some(egui::accesskit::Toggled::True), "chosen");
+}
+
+/// The panel's controls draw nothing over each other in the Right Dock at
+/// its least, 280 (a window under 1400, Properties chosen) and stacked at
+/// 280, on each of a placeable's pages.
+#[test]
+fn the_panel_draws_nothing_over_anything_else_at_280() {
+    let Some((mut h, area)) = props_area("props-overlap", Mode::Floating, 1280.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Right Dock").get_by_label("Properties").click();
+    settle(&mut h);
+    let mut found = Vec::new();
+    for width in [1280.0, 1600.0] {
+        h.set_size(egui::vec2(width, 900.0));
+        right_dock_width(&mut h, 280.0);
+        settle(&mut h);
+        for page in ["Basic", "Inventory", "Lock", "Trap", "Scripts", "Advanced", "Visuals"] {
+            h.get_by_label("Pages").get_by_label(page).click();
+            settle(&mut h);
+            // (Of the Right Dock's widgets: both of a pair named there.)
+            let dock = right_dock_rect(&h);
+            let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
+                .filter(|n| {
+                    let b = n.accesskit_node().bounding_box();
+                    b.is_some_and(|b| dock.contains(egui::pos2(b.x0 as f32, b.y0 as f32)))
+                })
+                .filter_map(|n| n.accesskit_node().label())
+                .collect();
+            let ours = |o: &String| {
+                let quoted: Vec<&str> = o.split('"').skip(1).step_by(2).collect();
+                quoted.iter().all(|q| named.iter().any(|n| n == q))
+            };
+            let over = overlapping(&h).into_iter().filter(ours);
+            found.extend(over.map(|o| format!("{page} at {width}: {o}")));
+        }
+    }
+    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
+}
+
+/// A drag on one of the panel's number fields (a chest's hit points)
+/// moves nothing in the area beside it (deferred: "A drag on a number
+/// field moving objects in the area behind", with the panel).
+#[test]
+fn a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area() {
+    let Some((mut h, area)) = props_area("props-drag", Mode::Floating, 1600.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let before = (waypoint(&mut h, area, 0), waypoint(&mut h, area, 1));
+    let chests: Vec<(f32, f32)> = placeables(&mut h, area)
+        .iter()
+        .map(|p| (p.float("X").unwrap_or(0.0), p.float("Y").unwrap_or(0.0)))
+        .collect();
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::SpinButton)
+        .next()
+        .expect("a number field in the panel")
+        .rect();
+    let from = field.center();
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(from + egui::vec2(-60.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    press(&h, from + egui::vec2(-360.0, 0.0), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert_eq!((waypoint(&mut h, area, 0), waypoint(&mut h, area, 1)), before);
+    let now: Vec<(f32, f32)> = placeables(&mut h, area)
+        .iter()
+        .map(|p| (p.float("X").unwrap_or(0.0), p.float("Y").unwrap_or(0.0)))
+        .collect();
+    assert_eq!(now, chests, "the chests stay where they are");
+}
+
+/// Every kind's pages in the panel (a placeable's, a creature's, a
+/// store's, an encounter's): shown one by one, at 280 (under 1400,
+/// Properties chosen) and stacked at 320, they write nothing and draw
+/// nothing over each other in the dock. Picture of the creature's
+/// Inventory page at 320: `ui-area-props-kinds-floating/inventory.png`.
+#[test]
+fn every_kind_s_pages_write_nothing_and_fit() {
+    let Some((mut h, area)) = props_area("props-kinds", Mode::Floating, 1280.0) else { return };
+    h.get_by_label("Right Dock").get_by_label("Properties").click();
+    settle(&mut h);
+    let (at, label) = (revision(&h), undo_label(&h));
+    let mut found = Vec::new();
+    for (width, dock) in [(1280.0, 280.0), (1600.0, 320.0)] {
+        h.set_size(egui::vec2(width, 900.0));
+        right_dock_width(&mut h, dock);
+        settle(&mut h);
+        for (kind, t) in [
+            (ObjectKind::Placeable, ResType::UTP),
+            (ObjectKind::Creature, ResType::UTC),
+            (ObjectKind::Store, ResType::UTM),
+            (ObjectKind::Encounter, ResType::UTE),
+        ] {
+            select(&mut h, area, &[(kind, 0)]);
+            for page in mg_ui::blueprint::instance_pages(t) {
+                h.get_by_label("Pages").get_by_label(page).click();
+                settle(&mut h);
+                let dock = right_dock_rect(&h);
+                let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
+                    .filter(|n| {
+                        let b = n.accesskit_node().bounding_box();
+                        b.is_some_and(|b| dock.contains(egui::pos2(b.x0 as f32, b.y0 as f32)))
+                    })
+                    .filter_map(|n| n.accesskit_node().label())
+                    .collect();
+                let ours = |o: &String| {
+                    let quoted: Vec<&str> = o.split('"').skip(1).step_by(2).collect();
+                    quoted.iter().all(|q| named.iter().any(|n| n == q))
+                };
+                let over = overlapping(&h).into_iter().filter(ours);
+                found.extend(over.map(|o| format!("{kind:?} {page} at {width}: {o}")));
+                if kind == ObjectKind::Creature && page == "Inventory" && width == 1600.0 {
+                    let dir = mg_testkit::test_output().join("ui-area-props-kinds-floating");
+                    let _ = std::fs::create_dir_all(&dir);
+                    h.render().unwrap().save(dir.join("inventory.png")).unwrap();
+                }
+            }
+        }
+    }
+    assert_eq!((revision(&h), undo_label(&h)), (at, label), "shown: nothing written");
+    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
+}
+
+/// An area dragged out into a window of its own has Properties in its
+/// window's right pane (the main Right Dock its palettes): a change there
+/// is one step; F6 stops there after the area's view; Open in Tab opens
+/// the window, and the pane then leaves the fields to it.
+#[test]
+fn a_dragged_out_area_has_properties_in_its_window() {
+    let Some((mut h, area)) = props_area("props-window", Mode::Floating, 1700.0) else { return };
+    own_window(&mut h, &Tab::Area(area), egui::pos2(20.0, 40.0), egui::vec2(1200.0, 800.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let window = egui::Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(1200.0, 800.0));
+    let basics: Vec<egui::Rect> = (h.query_all_by_label("Basic"))
+        .map(|n| n.rect())
+        // (The rail's: 24 square; Module Properties' page row has one too.)
+        .filter(|r| r.width() == mg_uikit::pages::PAGE_BUTTON)
+        .collect();
+    assert_eq!(basics.len(), 1, "one panel: {basics:?}");
+    assert!(window.contains_rect(basics[0]), "in the area's window: {basics:?}");
+    let view = h.state().area_views[&area].rect;
+    assert!(basics[0].left() >= view.right() - 1.0, "at its right: {basics:?} {view:?}");
+    let before = placeables(&mut h, area);
+    let label = undo_label(&h);
+    retype(&mut h, &tag(&before[0]), "CHEST_WINDOW");
+    assert_eq!(tag(&placeables(&mut h, area)[0]), "CHEST_WINDOW", "written");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!(placeables(&mut h, area), before, "one step");
+    assert_eq!(undo_label(&h), label);
+    let mut stops = Vec::new();
+    for _ in 0..10 {
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+        stops.push(mg_ui::palette_view::arrow_keys_are(&h.ctx));
+        if stops.last().map(String::as_str) == Some("Properties") {
+            break;
+        }
+    }
+    assert_eq!(stops.last().map(String::as_str), Some("Properties"), "F6: {stops:?}");
+    h.get_by_label(OPEN_IN_TAB).click();
+    settle(&mut h);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_some(), "the window");
+    h.get_by_label_contains("open in a tab or window of their own");
+}

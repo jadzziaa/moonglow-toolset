@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:09:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
 ---
 
 # The main window
@@ -298,7 +298,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area is in front, the middle, the Right Dock's panel in front where the dock is drawn (and Tile Properties under it, whose first control takes the keyboard), the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area is in front, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard), the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -588,11 +588,17 @@ on that panel. It holds the
 palettes and the Preview, each on a tab of its tab bar, the one in
 front filling the dock (their words, or their icons alone where the
 dock is too narrow for the words; Left and Right on a tab go to the
-other). While **Select Tiles** is on, **Tile Properties** is a second
-section under them, with its own header (**Tile Properties** and what
-it shows, "6 tiles"), the seam between them dragged to share the
-dock's height; in a window under 1400 points it is a third tab of the
-one tab bar ([Areas](04-areas.md#tile-properties)). They stay there: they can no longer be dragged into the
+other). Under them is a second section by the area's tool in hand,
+with its own header and the seam between them dragged to share the
+dock's height (the palettes take a little more than half at first):
+**Properties**, what is selected ("Placeable", "3 placeables", "none
+selected"), with every tool but Select Tiles
+([Blueprints](05-blueprints.md#instances)); while **Select Tiles** is
+on, **Tile Properties** in its place (and nothing there while its
+header toggle hides it), what it shows ("6 tiles";
+[Areas](04-areas.md#tile-properties)). In a window under 1400 points
+the second is a tab of the one tab bar: Palette, Properties, Preview
+(Palette, Preview, Tile Properties in Select Tiles). They stay there: they can no longer be dragged into the
 middle, to the left or into a window of their own. The tab you choose
 in front is remembered, also when the module is opened again and the
 next time Moonglow starts (with nothing chosen, the palette is in
@@ -656,12 +662,14 @@ wider: the Left Dock 320 and the Right Dock 741, and the Module panel
 Dock's width you drag there is kept apart from the one you drag in a
 narrower window: each layout gives back its own. There a Right
 Dock wider than 560 (at its width at first, or dragged so) stands in
-two columns, the Palette in the first (340, or half the dock) and the
-Preview in the second, each with its own tab, a line between them, the
-arrow that folds the dock at the end of the second's tab bar, by the
-window's edge as in one column; F6 stops at each, and the one you press
-in or reach is the dock's panel (the one its strip and View › Right Dock
-bring back).
+two columns, the Palette and the Preview as tabs in the first (340, or
+half the dock) and Properties (or Tile Properties) in the second, a
+line between them that you drag to share the dock (each column at least
+280; kept for each kind of editor, and forgotten by View › Reset
+Layout), the arrow that folds the dock at the end of the second's
+header, by the window's edge as in one column; F6 stops at each, and
+the one you press in or reach is the dock's panel (the one its strip
+and View › Right Dock bring back).
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,

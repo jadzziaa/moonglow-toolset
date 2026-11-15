@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1432,7 +1432,9 @@ log.
   find it. (S) (a senior builder's review, October 2026)
 - **A drag on a number field moving objects in the area behind:**
   reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`). (needs the
+  (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the
+  Properties panel beside the area since M4's U6,
+  `a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`). (needs the
   steps) (a second builder's review, October 2026)
 - **"It kept randomly exiting"** on a persistent world's module (ten
   times before it stayed open), reported without a log. One cause was
@@ -1980,13 +1982,6 @@ is not taken for a new gap.
 - **A picture of a model that emits** is drawn four seconds in, framed
   with its particles (a flame is small under its smoke). (S)
   (from builders' reports after 1.10.1) (Settled in the triage of 2026-10-28.)
-- **The palette's header, not as drawn in the issue:** "More" is a
-  word, and the clear button "×" and the Gallery's "⊞" are the glyphs
-  egui's fonts have (the mock-up's were boxes); the icons are the
-  toolbar's glyphs, not a drawn set; the tile palette and the prefabs
-  keep their own bodies under the same two top rows. Seen in one
-  rendered picture, with the dropdown (not with the row of icons). (S)
-  (GitHub issue 16) (Settled in the triage of 2026-10-28.)
 - **Inventory lists:** a store page or inventory lays out the rows in
   sight and builds their icons only (the persistent world's store, 449
   items on its first page: 30 ms to show where it took 0.4 s, 0.5 ms a

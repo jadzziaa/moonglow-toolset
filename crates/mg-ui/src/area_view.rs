@@ -5159,15 +5159,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.selection.clear();
         view.start_selected = true;
     }
-    // A double click opens the object's Properties (a quick one after
-    // another click counts as a triple).
+    // A double click shows the object's Properties in the Right Dock's
+    // panel (ruling Q1; a quick one after another click counts as a
+    // triple).
     if (response.double_clicked() || response.triple_clicked())
         && let Some(pos) = response.interact_pointer_pos()
-        && let Some(i) = view.pick(pos)
-        && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
+        && view.pick(pos).is_some()
     {
-        let (kind, index) = (o.kind, o.index);
-        open_properties(app, view, kind, index);
+        show_properties(app, view);
     } else if response.double_clicked()
         && !read_only
         && view.drag.is_none()
@@ -6254,6 +6253,20 @@ fn visuals_command(
 }
 
 /// Opens (or shows) the Properties of the placed object `index` of `kind`.
+/// A double click on a placed object (ruling Q1, in either mode of the
+/// Open editors switch): the Properties panel shown in front, the Right
+/// Dock unfolded on it, showing the selection as the clicks left it (the
+/// first click selected the object; with Ctrl the second takes it out
+/// again, and the panel says so); in a dragged out area's window its own
+/// pane shows it. Open in Tab and the context menu's Properties open the
+/// window of today ([`open_properties`]).
+fn show_properties(app: &mut Moonglow, view: &AreaView) {
+    // (Asked for once the frame is drawn: while the editor area is drawn
+    // the dock is out of `app`, and which editor is docked in front not
+    // known.)
+    app.actions.push(Action::ShowProperties(view.area));
+}
+
 fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
     let path = mg_edit::GffPath::root().item(kind.list(), index);
     app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));

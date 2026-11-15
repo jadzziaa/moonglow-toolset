@@ -106,9 +106,11 @@ fn left_as(h: &Harness<'_, Moonglow>) -> &'static str {
     }
 }
 
-/// The Right Dock as shown: `"strip"`, `"columns"` (the Palette's tab bar
-/// and the Preview's side by side, each drawing its panel) or `"tabs"`
-/// (the Palette and the Preview as tabs of one bar).
+/// The Right Dock as shown: `"strip"`, `"columns"` (the Palette's and
+/// the Preview's tab bar beside Properties, each drawing its panel, the
+/// wide layout), `"stacked"` (that bar over Properties) or `"tabs"` (the
+/// Palette, Properties and the Preview as tabs of one bar; or, where no
+/// area brings Properties, the Palette and the Preview).
 fn right_as(h: &Harness<'_, Moonglow>) -> &'static str {
     use egui::accesskit::Role;
     if h.query_by_label("Show the Right Dock").is_some() {
@@ -122,14 +124,19 @@ fn right_as(h: &Harness<'_, Moonglow>) -> &'static str {
                 .collect()
         })
     };
-    match (tabs(mg_ui::RIGHT_DOCK).as_slice(), tabs(mg_ui::RIGHT_COLUMN_TWO).as_slice()) {
-        ([one], [two]) => {
-            assert_eq!((one.as_str(), two.as_str()), ("Palette", "Preview"));
-            "columns"
-        }
-        ([a, b], []) => {
-            assert_eq!((a.as_str(), b.as_str()), ("Palette", "Preview"));
-            "tabs"
+    let names = tabs(mg_ui::RIGHT_DOCK);
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    match names.as_slice() {
+        ["Palette", "Properties", "Preview"] => "tabs",
+        ["Palette", "Preview"] => {
+            // (Properties' header, by its Open in Tab at its end: beside
+            // the palettes' bar, or under it; none, no Properties.)
+            let bar = h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Palette").rect();
+            match h.query_by_label("Open in Tab").map(|n| n.rect()) {
+                Some(open) if (open.center().y - bar.center().y).abs() < 4.0 => "columns",
+                Some(_) => "stacked",
+                None => "tabs",
+            }
         }
         other => panic!("the Right Dock's tabs: {other:?}"),
     }
@@ -157,13 +164,15 @@ fn build_words(h: &Harness<'_, Moonglow>) -> bool {
 /// What the window shows at the widths section 5.2 measures and at the
 /// wide boards', by name, in both modes: at 1280 (the Narrow board) Quick
 /// Open's field, the build actions as icons, the Left Dock folded to its
-/// strip of three, the Right Dock 280 with Palette and Preview as tabs,
+/// strip of three, the Right Dock 280 with Palette, Properties and
+/// Preview as tabs,
 /// the Status Bar's switches as icons and no game folder; at 1399 the
 /// build actions' words back; at 1499 the Right Dock 320, the switches'
 /// words and the folder back, the Left Dock still a strip; at 1600 (Main)
-/// the Left Dock open, 260; at 3440 by 1440 (WideArea) the Left Dock 320,
-/// the Right Dock 741 in two columns (Palette | Preview, each drawing its
-/// panel), the Module panel 760 high over the Outliner.
+/// the Left Dock open, 260, the Right Dock's palettes over Properties; at
+/// 3440 by 1440 (WideArea) the Left Dock 320, the Right Dock 741 in two
+/// columns (Palette and Preview | Properties, each drawing its panel),
+/// the Module panel 760 high over the Outliner.
 #[test]
 fn what_the_shell_shows_at_each_width() {
     for mode in MODES {
@@ -198,10 +207,10 @@ fn what_the_shell_shows_at_each_width() {
         assert_eq!(shown, ("field", true, "strip", "tabs", true, false), "{mode:?} 1399");
         assert_eq!(right, Some(kit::RIGHT_DOCK_NARROW), "{mode:?} 1399");
         let (shown, right) = at(&mut h, 1499.0, 800.0);
-        assert_eq!(shown, ("field", true, "strip", "tabs", false, true), "{mode:?} 1499");
+        assert_eq!(shown, ("field", true, "strip", "stacked", false, true), "{mode:?} 1499");
         assert_eq!(right, Some(mg_uikit::metrics::RIGHT_DOCK), "{mode:?} 1499");
         let (shown, right) = at(&mut h, 1600.0, 900.0);
-        assert_eq!(shown, ("field", true, "open", "tabs", false, true), "{mode:?} 1600");
+        assert_eq!(shown, ("field", true, "open", "stacked", false, true), "{mode:?} 1600");
         assert_eq!(right, Some(mg_uikit::metrics::RIGHT_DOCK), "{mode:?} 1600");
         let tabs = h.get_by_label("Left Dock").get_by_label("Module").rect();
         let left = h.state().editor_area_rect().unwrap().left() - HARNESS_MARGIN;
@@ -212,19 +221,20 @@ fn what_the_shell_shows_at_each_width() {
         assert_eq!(right, Some(kit::RIGHT_DOCK_WIDE), "{mode:?} 3440");
         let left = h.state().editor_area_rect().unwrap().left() - HARNESS_MARGIN;
         assert!((left - kit::LEFT_DOCK_WIDE).abs() <= 1.0, "{mode:?} 320: {left}");
-        // Each column its panel: the palette's types in the first, the
-        // Preview's body in the second, the board's 340 and 400 apart by
-        // a line.
+        // Each column its panel: the palette's types in the first,
+        // Properties in the second (M4's U6: the Preview a tab beside the
+        // Palette again), the board's 340 and 400 apart by a line.
         let dock = h.state().right_dock_rect().unwrap();
         // (The palette's Expand All, at the right of its list's toolbar.)
         let types = (h.get_all_by_label("Expand All"))
             .map(|n| n.rect())
             .find(|r| dock.contains(r.center()))
             .expect("the palette's Expand All in the dock");
-        let preview = h.state().preview_panel_rect().expect("the Preview drawn in its column");
+        let props = h.get_by_label(mg_ui::properties_panel::NOTHING_SELECTED).rect();
+        let open = h.get_by_label("Open in Tab").rect();
         assert!(types.right() <= dock.left() + kit::RIGHT_COLUMN + 0.5, "{types:?} {dock:?}");
-        assert!(preview.left() >= dock.left() + kit::RIGHT_COLUMN, "{preview:?} {dock:?}");
-        assert!(preview.right() <= dock.right() + 0.5 && preview.width() > 300.0, "{preview:?}");
+        assert!(props.left() >= dock.left() + kit::RIGHT_COLUMN, "{props:?} {dock:?}");
+        assert!(open.right() <= dock.right() + 0.5 && open.left() > props.left(), "{open:?}");
         // The Module panel 760 high over the Outliner (GalleryWide's):
         // from the middle of its tab bar to the middle of the Outliner's
         // header, each 26 high.
@@ -715,11 +725,12 @@ fn keys_leave_a_panel_no_longer_drawn() {
 }
 
 /// The wide layout's two columns with a blueprint chosen (3440 by 1440):
-/// the Palette's list in the first and, beside it at once, the chest in
-/// the Preview's column (its ResRef there, its model's view made: no tab
-/// to bring to the front); F6 stops at each column, the Palette's then the
-/// Preview's, each then the dock's panel; a press in a column makes its
-/// panel the dock's.
+/// the Palette's list in the first, the Preview a tab beside it, and
+/// Properties in the second (WideArea, M4's U6); the Preview's tab chosen,
+/// the chest there (its ResRef, its model's view made); the dock's fold
+/// button at the last column's bar's end; F6 stops at each column, the
+/// first's panel in front then Properties, each then the dock's panel; a
+/// press in a column makes its panel the dock's.
 #[test]
 fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
     let Some((mut h, _)) = yielding("yields-columns", Mode::Tabs) else { return };
@@ -727,25 +738,30 @@ fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
     assert_eq!(right_as(&h), "columns");
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
     h.state_mut().palette.selected = Some(chest);
+    h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Preview").click();
     let source = mg_ui::model_view::Source::Resource(chest);
-    until(&mut h, "the chest's model view in the Preview's column", |h| {
+    until(&mut h, "the chest's model view in the Preview's tab", |h| {
         h.state().model_views.contains_key(&source)
     });
     at_rest(&mut h);
-    let preview = h.state().preview_panel_rect().expect("the Preview's column");
-    let named = h.query_all_by_label("plc_chest1").any(|n| preview.contains(n.rect().center()));
-    assert!(named, "the chest's ResRef in the Preview's column");
-    // The dock's fold button at the outer end of the last column's tab
-    // bar, by the window's edge, as in one column (M3 T14's second
-    // review: it stood mid-dock, at the first column's bar's end).
-    let fold = h.get_by_label("Fold the Right Dock").rect();
-    let tab = h.get_by_label(mg_ui::RIGHT_COLUMN_TWO).get_by_label("Preview").rect();
+    let preview = h.state().preview_panel_rect().expect("the Preview's tab");
     let dock = h.state().right_dock_rect().expect("the Right Dock");
+    assert!(preview.right() <= dock.left() + kit::RIGHT_COLUMN + 0.5, "in the first column");
+    let named = h.query_all_by_label("plc_chest1").any(|n| preview.contains(n.rect().center()));
+    assert!(named, "the chest's ResRef in the Preview's tab");
+    h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Palette").click();
+    at_rest(&mut h);
+    // The dock's fold button at the outer end of the last column's bar
+    // (Properties' header, after its Open in Tab), by the window's edge,
+    // as in one column (M3 T14's second review: it stood mid-dock, at the
+    // first column's bar's end).
+    let fold = h.get_by_label("Fold the Right Dock").rect();
+    let open = h.get_by_label("Open in Tab").rect();
     let end = dock.right() - fold.right();
-    let on_bar = tab.y_range().contains(fold.center().y) && fold.left() >= tab.right();
-    assert!(on_bar, "on the last column's bar, after its tab: {fold:?} {tab:?}");
+    let on_bar = open.y_range().contains(fold.center().y) && fold.left() >= open.right();
+    assert!(on_bar, "on the last column's bar, after Open in Tab: {fold:?} {open:?}");
     assert!((0.0..=6.0).contains(&end), "at its outer end, {end} short: {fold:?} {dock:?}");
-    // F6, from the editor area: the Palette's column, then the Preview's.
+    // F6, from the editor area: the Palette's column, then Properties'.
     let keys = |h: &Harness<'_, Moonglow>| mg_ui::palette_view::arrow_keys_are(&h.ctx);
     h.hover_at(egui::pos2(1200.0, 20.0));
     let mut seen = Vec::new();
@@ -756,9 +772,9 @@ fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
     }
     let palette = seen.iter().position(|s| s.0 == "Palette").expect("a stop at the Palette");
     let next = &seen[palette + 1];
-    assert_eq!(next.0, "Preview", "the Preview's column next: {seen:?}");
+    assert_eq!(next.0, "Properties", "Properties' column next: {seen:?}");
     assert_eq!(seen[palette].1, Some(mg_ui::Panel::Palette));
-    assert_eq!(next.1, Some(mg_ui::Panel::Preview));
+    assert_eq!(next.1, Some(mg_ui::Panel::Properties));
     // A press in the Palette's column: its panel the dock's.
     let dock = h.state().right_dock_rect().unwrap();
     let at = egui::pos2(dock.left() + 100.0, dock.bottom() - 40.0);

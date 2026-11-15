@@ -37,6 +37,7 @@ mod plugin_kinds;
 mod plugins;
 mod preview_panel;
 mod projects;
+mod properties_panel;
 mod quick_open;
 mod renderer_check;
 mod resources;

@@ -112,6 +112,9 @@ pub(crate) struct HeldText {
     pub typed: bool,
     /// The window it is in, for its Cancel: set once that is drawn.
     pub window: Option<HeldIn>,
+    /// It is the Properties panel's (no window's, no Cancel's): a window
+    /// drawn after the panel in that frame does not claim it.
+    pub panel: bool,
 }
 
 /// The window a [`HeldText`] is in: what its Cancel is given to note
@@ -477,7 +480,7 @@ pub(crate) fn window_drawn_but(
     // should it be gone before the keyboard leaves it, what it sets then,
     // after the window is drawn, is this window's to set back. A window
     // drawn after it this frame finds it claimed.)
-    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none()) {
+    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none() && !h.panel) {
         let (tab, targets, kept) = (tab.clone(), targets.to_vec(), kept.to_vec());
         held.window = Some(HeldIn { tab, targets, kept });
     }
@@ -1168,7 +1171,8 @@ impl Form<'_> {
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
         let drawn = ui.ctx().cumulative_pass_nr();
         // (Its window says which it is once it is drawn: `window_drawn_but`.)
-        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc });
+        let panel = false;
+        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc, panel });
     }
 
     /// The type the game's files give field `label` of the struct the
@@ -1991,7 +1995,7 @@ fn held_item_at(path: &GffPath) -> Option<usize> {
 
 /// The pages of a placed object's Properties: its blueprint's, less the
 /// blueprint's comments.
-pub(crate) fn instance_pages(t: ResType) -> Vec<&'static str> {
+pub fn instance_pages(t: ResType) -> Vec<&'static str> {
     pages(t).iter().copied().filter(|p| *p != "Comments").collect()
 }
 
@@ -2011,26 +2015,8 @@ pub(crate) fn edit_many(
     path: GffPath,
     also: Vec<(ResKey, GffPath)>,
 ) {
-    let Some(ws) = &mut app.ws else {
-        ui.label("No module is open.");
-        return;
-    };
-    let root = match ws.doc(&key) {
-        Ok(g) => match path.get(&g.root) {
-            Some(s) => s.clone(),
-            None => {
-                ui.label("This object is no longer there.");
-                return;
-            }
-        },
-        Err(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e.to_string());
-            return;
-        }
-    };
+    let Some(root) = object_now(app, ui, &key, &path) else { return };
     let restype = instance_type(&path).unwrap_or(key.restype);
-    // Several blueprints or placed objects edited together.
-    let several = !also.is_empty();
     // The window this is, and the objects it edits.
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
@@ -2043,10 +2029,7 @@ pub(crate) fn edit_many(
             paths: targets.iter().map(|(_, p)| p.clone()).collect(),
         },
     };
-    // (A placed object of an area another builder holds, in a project
-    // that keeps those read-only: looked at, as the game's blueprints are.)
-    let held = crate::claims::area_of(&key).and_then(|a| crate::claims::read_only(app, a));
-    let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
+    let (held, is_viewed) = looked_at(app, &key);
     let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
     // (Every page, of several too: their lists are edited on each,
     // `docs/lists-together-proposal.md`.)
@@ -2066,6 +2049,72 @@ pub(crate) fn edit_many(
     });
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
+    let shown = FormShown { key, path, also, root, restype, page, held, is_viewed, heading: None };
+    let pending = form_ui(app, ui, shown);
+    window_drawn(app, pending, &tab, &targets, pressed);
+}
+
+/// The object at `path` of the document `key` as it is now, or `None`
+/// with what is wrong said in `ui` (no module, the object gone, the
+/// document unread).
+fn object_now(app: &mut Moonglow, ui: &mut Ui, key: &ResKey, path: &GffPath) -> Option<Struct> {
+    let Some(ws) = &mut app.ws else {
+        ui.label("No module is open.");
+        return None;
+    };
+    match ws.doc(key) {
+        Ok(g) => match path.get(&g.root) {
+            Some(s) => Some(s.clone()),
+            None => {
+                ui.label("This object is no longer there.");
+                None
+            }
+        },
+        Err(e) => {
+            ui.colored_label(ui.visuals().error_fg_color, e.to_string());
+            None
+        }
+    }
+}
+
+/// Whether the document `key` is only looked at: held by another builder
+/// (a placed object of an area another builder holds, in a project that
+/// keeps those read-only: why, as `claims::read_only` says it), or the
+/// game's (`Workspace::is_viewed`).
+pub(crate) fn looked_at(app: &Moonglow, key: &ResKey) -> (Option<String>, bool) {
+    let held = crate::claims::area_of(key).and_then(|a| crate::claims::read_only(app, a));
+    let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(key));
+    (held, is_viewed)
+}
+
+/// What a Properties form shows ([`form_ui`]): the objects (the first
+/// `key` and `path`, the others `also`), the first as it is now, its type,
+/// the page shown, why it is only looked at, and a heading over the page
+/// where its host draws one (the Properties panel's page name and the
+/// object's place: `(page, readout)`).
+pub(crate) struct FormShown<'p> {
+    pub key: ResKey,
+    pub path: GffPath,
+    pub also: Vec<(ResKey, GffPath)>,
+    pub root: Struct,
+    pub restype: ResType,
+    pub page: &'p str,
+    pub held: Option<String>,
+    pub is_viewed: bool,
+    pub heading: Option<(&'p str, Option<String>)>,
+}
+
+/// A Properties form's page, as a window (with OK and Cancel, over it)
+/// and the Properties panel (no OK or Cancel, its pages a rail) draw it:
+/// the note of what is only looked at, the note of several, the page in
+/// its scroll; a change only looked at refused and said, and of several
+/// a change only the first would take dropped. Returns where the page's
+/// actions began in `app.actions` (what a window notes for its Cancel).
+pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> usize {
+    let FormShown { key, path, also, root, restype, page, held, is_viewed, heading } = shown;
+    let several = !also.is_empty();
+    let targets: Vec<(ResKey, GffPath)> =
+        std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
     let viewed = is_viewed || held.is_some();
     let refused_id = egui::Id::new(("view-refused", key));
     if viewed {
@@ -2133,6 +2182,12 @@ pub(crate) fn edit_many(
     let mut form = Form { app, key, path, also, root, together: Default::default() };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        if let Some((title, readout)) = &heading {
+            mg_uikit::section_heading(ui, *title);
+            if let Some(readout) = readout {
+                ui.label(egui::RichText::new(readout).small().weak());
+            }
+        }
         read_only_if(ui, viewed, |ui| match restype {
             // (Every kind's, drawn alike.)
             _ if page == "Variables" => form.variables_page(ui),
@@ -2192,7 +2247,7 @@ pub(crate) fn edit_many(
             ui.data_mut(|d| d.remove::<(String, u64)>(note_id));
         }
     }
-    window_drawn(form.app, pending, &tab, &targets, pressed);
+    pending
 }
 
 /// A form only looked at (the game's blueprint, opened by View; what an

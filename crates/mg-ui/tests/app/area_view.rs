@@ -1108,13 +1108,16 @@ fn placed_objects_open_their_properties() {
         let w = &git.root.list("WaypointList").unwrap()[i];
         String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned()
     };
-    // A double click on the second waypoint opens its Properties.
+    // A double click on the second waypoint shows its Properties in the
+    // panel (ruling Q1), whose Open in Tab opens them in a tab.
     let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     h.run_steps(40);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
         press(&h, at, false, egui::Modifiers::NONE);
     }
+    h.run_steps(3);
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
     h.run_steps(3);
     let path = mg_edit::GffPath::root().item("WaypointList", 1);
     let tab = Tab::Instance { area, path };
@@ -5259,8 +5262,9 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     assert!((x - x.round()).abs() < 1e-4 && (y - y.round()).abs() < 1e-4, "on the grid: {x}, {y}");
 }
 
-/// A drag begun in a Properties window lying over the area's view moves
-/// nothing in the area.
+/// A drag begun in a Properties window lying over the area's view (opened
+/// by the panel's Open in Tab) moves nothing in the area. (With the
+/// panel: `properties_panel::a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`.)
 #[test]
 fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
     use glam::Vec3;
@@ -5271,6 +5275,9 @@ fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
         press(&h, at, true, egui::Modifiers::NONE);
         press(&h, at, false, egui::Modifiers::NONE);
     }
+    h.run_steps(5);
+    // (The panel's Open in Tab: the window over the area.)
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
     h.run_steps(5);
     let before = (waypoint(&mut h, area, 0), waypoint(&mut h, area, 1));
     // Where the window covers a waypoint: a drag from there.

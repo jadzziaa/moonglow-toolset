@@ -407,6 +407,10 @@ pub(crate) enum Keys {
     /// F6 gives its first control the keyboard's focus, and Tab goes on
     /// through its controls (`tile_select::panel`).
     TileProperties,
+    /// The Right Dock's Properties (M4's U6): no arrows of its own; F6
+    /// gives its page rail's page shown the keyboard's focus, and Tab goes
+    /// on through its controls (`properties_panel::panel`).
+    Properties,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
@@ -1187,6 +1191,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // The types: one row of icons, a click each, named under the pointer
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
+    // (The types as a dropdown, the narrow dock's row: Expand All and
+    // Collapse All then at the Group by row's end, as Narrow draws them.)
+    let narrow_row: bool;
     {
         use crate::icons::{LIGHTS, PREFABS, START, TILES, object};
         #[derive(Clone, Copy, PartialEq)]
@@ -1229,6 +1236,33 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Click in an area to put the start location there",
         ));
         let mut chosen = None;
+        // (A blueprint type's source, the game's or the module's: Standard
+        // and Custom, beside the type's name, or in the narrow dock beside
+        // the types' dropdown, as Narrow draws them.)
+        let sources = !view.tiles && !view.prefabs && !view.start && !view.lights;
+        let source = |ui: &mut egui::Ui, view: &mut PaletteView| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_enabled_ui(app.ws.is_some(), |ui| {
+                    ui.selectable_value(&mut view.custom, true, "Custom")
+                        .on_hover_text("The module's blueprints");
+                });
+                ui.selectable_value(&mut view.custom, false, "Standard")
+                    .on_hover_text("The game's blueprints");
+            });
+        };
+        let width = |ui: &egui::Ui, text: &str, style: egui::TextStyle| {
+            let font = style.resolve(ui.style());
+            ui.fonts_mut(|f| f.layout_no_wrap(text.into(), font, egui::Color32::PLACEHOLDER))
+                .size()
+                .x
+        };
+        let toggles = |ui: &egui::Ui| {
+            let pad = ui.spacing().button_padding.x * 2.0;
+            width(ui, "Standard", egui::TextStyle::Button)
+                + width(ui, "Custom", egui::TextStyle::Button)
+                + 2.0 * pad
+                + ui.spacing().item_spacing.x
+        };
         // Icon buttons (22 px, 1 apart: the board's `.seg.icons`, all
         // thirteen on one row in the Right Dock's 320 px), in rows where the
         // panel is narrower than them, down to [`TYPE_COMBO_UNDER`]: in a
@@ -1240,7 +1274,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let panel = ui.available_width() + 2.0 * mg_uikit::metrics::PANEL_PADDING;
         // (The button that folds the Right Dock away is beside its edge,
         // not among these: GitHub issue 10, `shell::right_dock`.)
-        if panel >= TYPE_COMBO_UNDER && ui.available_width() >= each * 4.0 {
+        let as_row = panel >= TYPE_COMBO_UNDER && ui.available_width() >= each * 4.0;
+        if as_row {
             ui.horizontal_wrapped(|ui| {
                 mg_uikit::name_group(ui, "Palette types");
                 ui.spacing_mut().item_spacing = egui::vec2(1.0, 2.0);
@@ -1259,12 +1294,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             let shown = types.iter().find(|t| t.0 == now).expect("one of them");
             let all: Vec<_> = types.iter().map(|t| t.0).collect();
             let mut pick = now;
-            // (Its icon before it: what is shown, at a glance.)
+            // (Its icon before it: what is shown, at a glance; Standard and
+            // Custom after it, a blueprint type's.)
             ui.horizontal(|ui| {
                 mg_uikit::icon(ui, shown.1);
+                let after = match sources {
+                    true => toggles(ui) + ui.spacing().item_spacing.x,
+                    false => 0.0,
+                };
                 crate::widgets::dropdown("palette-type")
                     .selected_text(shown.2)
-                    .width(ui.available_width())
+                    .width((ui.available_width() - after).max(60.0))
                     .show_with(
                         ui,
                         &mut pick,
@@ -1277,6 +1317,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                             }
                         },
                     );
+                if sources {
+                    source(ui, &mut view);
+                }
             });
             if pick != now {
                 chosen = Some(pick);
@@ -1337,54 +1380,37 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 _ => view.kind.restype().extension().unwrap_or_default().to_string(),
             });
         }
-        // The type shown, by name; the source beside it (a blueprint
-        // type's: the game's, or the module's).
+        // The type shown, by name, with the source beside it (a blueprint
+        // type's: the game's, or the module's); in the narrow dock the
+        // dropdown names it and holds the source beside it (Narrow), the
+        // tiles' row kept for the area's tileset.
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
-        let sources = !view.tiles && !view.prefabs && !view.start && !view.lights;
         // (The source on a row of its own under the name where the two do
-        // not fit side by side: the dock at its narrowest.)
-        let width = |text: &str, style: egui::TextStyle| {
-            let font = style.resolve(ui.style());
-            ui.fonts_mut(|f| f.layout_no_wrap(text.into(), font, egui::Color32::PLACEHOLDER))
-                .size()
-                .x
-        };
-        let pad = ui.spacing().button_padding.x * 2.0;
+        // not fit side by side.)
         let gap = ui.spacing().item_spacing.x;
-        let toggles = width("Standard", egui::TextStyle::Button)
-            + width("Custom", egui::TextStyle::Button)
-            + 2.0 * pad
-            + gap;
-        let beside = width(name, egui::TextStyle::Body) + gap * 2.0 + toggles;
-        let apart = sources && beside > ui.available_width();
+        let beside = width(ui, name, egui::TextStyle::Body) + gap * 2.0 + toggles(ui);
+        let apart = as_row && sources && beside > ui.available_width();
         // (The tiles palette's: the area's tileset, by its name and
         // ResRef, at the row's end, as the AreaTiles board has it.)
         let tileset = view.tiles.then(|| tileset_shown(app, &mut view)).flatten();
-        let mut source = |ui: &mut egui::Ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled_ui(app.ws.is_some(), |ui| {
-                    ui.selectable_value(&mut view.custom, true, "Custom")
-                        .on_hover_text("The module's blueprints");
-                });
-                ui.selectable_value(&mut view.custom, false, "Standard")
-                    .on_hover_text("The game's blueprints");
+        if as_row || tileset.is_some() {
+            ui.horizontal(|ui| {
+                ui.strong(name);
+                if as_row && sources && !apart {
+                    source(ui, &mut view);
+                }
+                if let Some(tileset) = &tileset {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(egui::RichText::new(tileset).weak()).truncate())
+                            .on_hover_text("The area's tileset");
+                    });
+                }
             });
-        };
-        ui.horizontal(|ui| {
-            ui.strong(name);
-            if sources && !apart {
-                source(ui);
-            }
-            if let Some(tileset) = &tileset {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add(egui::Label::new(egui::RichText::new(tileset).weak()).truncate())
-                        .on_hover_text("The area's tileset");
-                });
-            }
-        });
-        if apart {
-            ui.horizontal(&mut source);
         }
+        if apart {
+            ui.horizontal(|ui| source(ui, &mut view));
+        }
+        narrow_row = !as_row;
     }
     if view.custom != custom_was {
         app.settings.palette_custom = view.custom;
@@ -1452,12 +1478,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     };
     let mut view = std::mem::take(&mut app.palette);
 
+    // Group by's choices (drawn under the toolbar, below): the palette's
+    // categories, or one of the project's groupings offered in it.
+    let groupings =
+        (app.ws.as_ref().map(|ws| ws.module.project_file.palette.clone())).unwrap_or_default();
+    let ext = kind.restype().extension().unwrap_or_default();
+    let offered: Vec<&Grouping> = groupings.offered(kind).collect();
+    // (In the narrow dock Expand All and Collapse All end the Group by
+    // row, which is drawn there whether the project offers groupings or
+    // not, as Narrow draws it: Category alone, grayed, where it offers
+    // none.)
+    let fold_by_group = narrow_row;
     // The list's toolbar, right over the list: every category opened or
     // closed, how many blueprints the list has (of the search, if any),
     // names or pictures, a new blueprint, and the rest under "more".
     let mut categories = None;
     ui.horizontal_wrapped(|ui| {
-        view.fold = fold_icons(ui, "category", &app.keymap);
+        if !fold_by_group {
+            view.fold = fold_icons(ui, "category", &app.keymap);
+        }
         // (Their keys too, while the keys are the palette's.)
         if view.fold.is_none()
             && keys_are(ui.ctx(), Keys::Palette)
@@ -1563,14 +1602,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // groupings offered in it (`[palette.*]` in moonglow.toml), each group
     // with the categories in it (Then by Category) or its blueprints in a
     // list. Not shown where the project offers none.
-    let groupings =
-        (app.ws.as_ref().map(|ws| ws.module.project_file.palette.clone())).unwrap_or_default();
-    let ext = kind.restype().extension().unwrap_or_default();
-    let offered: Vec<&Grouping> = groupings.offered(kind).collect();
     let mut by = (app.settings.palette_group_by.get(ext))
         .and_then(|id| offered.iter().position(|g| g.id == *id));
     let mut nested = !app.settings.palette_flat.iter().any(|e| e == ext);
-    if !offered.is_empty() {
+    if !offered.is_empty() || fold_by_group {
         ui.horizontal_wrapped(|ui| {
             ui.label("Group by").on_hover_text(
                 "The palette's categories, or a grouping from the project's moonglow.toml \
@@ -1580,11 +1615,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 std::iter::once(None).chain((0..offered.len()).map(Some)).collect();
             let text = |o: &Option<usize>| o.map_or("Category", |i| offered[i].title.as_str());
             let mut pick = by;
-            crate::widgets::dropdown(("palette-group-by", kind)).selected_text(text(&by)).show(
-                ui,
-                &mut pick,
-                &options,
-                |o| text(o).to_string(),
+            // (Room kept for Expand All and Collapse All after it.)
+            let after = match fold_by_group {
+                true => 2.0 * (mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x),
+                false => 0.0,
+            };
+            ui.add_enabled_ui(!offered.is_empty(), |ui| {
+                let width = (ui.available_width() - after - ui.spacing().item_spacing.x).max(80.0);
+                crate::widgets::dropdown(("palette-group-by", kind))
+                    .selected_text(text(&by))
+                    .width(width)
+                    .show(ui, &mut pick, &options, |o| text(o).to_string());
+            })
+            .response
+            .on_disabled_hover_text(
+                "The project offers no other grouping (moonglow.toml's [palette.*])",
             );
             if pick != by {
                 match pick {
@@ -1607,6 +1652,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 if !nested {
                     app.settings.palette_flat.push(ext.into());
                 }
+            }
+            if fold_by_group {
+                // (At the row's end, Expand All then Collapse All: a block
+                // laid out left to right, put at the right end.)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let both = 2.0 * mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x;
+                    let size = egui::vec2(both + 4.0, ui.spacing().interact_size.y);
+                    let ltr = egui::Layout::left_to_right(egui::Align::Center);
+                    ui.allocate_ui_with_layout(size, ltr, |ui| {
+                        view.fold = view.fold.or(fold_icons(ui, "category", &app.keymap));
+                    });
+                });
             }
         });
     }

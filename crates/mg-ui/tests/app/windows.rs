@@ -2703,6 +2703,10 @@ fn escape_in_front(mode: Mode) {
         press(&h, at, false, egui::Modifiers::NONE);
     }
     h.run_steps(5);
+    // (The double click shows the Properties panel, ruling Q1; its Open
+    // in Tab, the window of today.)
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
+    h.run_steps(5);
     let path = mg_edit::GffPath::root().item("WaypointList", 1);
     let tab = Tab::Instance { area, path };
     assert!(h.state().dock.find_tab(&tab).is_some(), "the Properties tab");

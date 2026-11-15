@@ -718,12 +718,16 @@ fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
     // (Under its tab bar: the Palette tab's.)
     let tab =
         (h.query_all_by_label("Palette")).map(|n| n.rect()).find(|r| dock.contains(r.center()))?;
-    // (In the wide layout's two columns, M3's T14, its own: the first.)
-    let dock = match h.query_by_label(mg_ui::RIGHT_COLUMN_TWO) {
-        Some(_) => {
+    // (Its own section, M4's U6: in the wide layout's two columns the
+    // first, Properties beside it; stacked, over Properties, whose header
+    // ends with Open in Tab; else the dock.)
+    let open = h.query_by_label(mg_ui::properties_panel::OPEN_IN_TAB).map(|n| n.rect());
+    let dock = match open {
+        Some(open) if (open.center().y - tab.center().y).abs() < 4.0 => {
             let first = mg_uikit::shell::Yields::right_first_column(dock.width());
             dock.with_max_x(dock.left() + first)
         }
+        Some(open) => dock.with_max_y(open.top() - 2.0),
         None => dock,
     };
     // (120 points from its left: the wheel turns at its middle, 60 points
@@ -1037,6 +1041,59 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         }
     }
     fold_palette(h);
+    // A creature selected, its Inventory page in the Properties panel
+    // under the palettes (M4's U6: the Properties window's page drawn in
+    // the Right Dock's lower section every frame; before it, the creature
+    // selected and no panel).
+    let creature = (h.state().area_views.get(&area).and_then(|v| v.model.as_ref()))
+        .and_then(|m| m.objects.iter().find(|o| o.kind == mg_area::ObjectKind::Creature))
+        .map(|o| (o.kind, o.index));
+    if let Some(creature) = creature.filter(|_| std::env::var_os("FRAME_NO_PANEL_VIEWS").is_none())
+    {
+        show_palette(h);
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection = vec![creature];
+        }
+        h.run_steps(3);
+        if let Some(page) = h.query_by_label("Pages").and_then(|p| p.query_by_label("Inventory")) {
+            page.click();
+        }
+        h.run_steps(3);
+        view(
+            h,
+            r,
+            &format!("{name}, a creature's Inventory page in the Properties panel"),
+            Some(&tab),
+        );
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection.clear();
+        }
+        fold_palette(h);
+    }
+    // Every placeable selected (edited together in the Properties panel,
+    // its Basic page, every frame; before M4's U6, selected and no panel).
+    let placeables: Vec<_> = (h.state().area_views.get(&area).and_then(|v| v.model.as_ref()))
+        .map(|m| m.objects.iter().filter(|o| o.kind == mg_area::ObjectKind::Placeable))
+        .map(|all| all.map(|o| (o.kind, o.index)).collect())
+        .unwrap_or_default();
+    if placeables.len() > 1 && std::env::var_os("FRAME_NO_PANEL_VIEWS").is_none() {
+        show_palette(h);
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection = placeables.clone();
+        }
+        h.run_steps(3);
+        if let Some(page) = h.query_by_label("Pages").and_then(|p| p.query_by_label("Basic")) {
+            page.click();
+        }
+        h.run_steps(3);
+        let what =
+            format!("{name}, {} placeables selected, the Properties panel", placeables.len());
+        view(h, r, &what, Some(&tab));
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection.clear();
+        }
+        fold_palette(h);
+    }
     // The Outliner (M3's T13) with a kind of 200 objects or more opened
     // (one of them selected: the Outliner opens its kind and brings it
     // into sight), against its kinds closed, the same one selected.
@@ -1070,13 +1127,15 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         (p.tiles, p.filter) = (false, String::new());
     }
     // The Right Dock in two columns (M3's T14: the wide layout gives it
-    // 741 at 3440, the Palette and the Preview side by side), a blueprint
-    // chosen so that the Preview draws its model beside the area each
-    // frame, against one column of 320 with the Palette in front: the
-    // largest area alone, in a window of the wide layout.
+    // 741 at 3440; since M4's U6 the Palette and the Preview as tabs of the
+    // first, Properties the second), a blueprint chosen and the Preview's
+    // tab in front so that it draws its model beside the area each frame,
+    // against one column of 320 with the Palette in front (over
+    // Properties): the largest area alone, in a window of the wide layout.
     if objects >= 500 && screen_size().x >= mg_uikit::shell::WIDE_FROM {
         let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
         h.state_mut().palette.selected = Some(chest);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
         let started = Instant::now();
         while h.state().preview_panel_rect().is_none() {
             assert!(started.elapsed().as_secs() < 30, "the Preview's column is not drawn");
@@ -1087,6 +1146,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         view(h, r, &both, Some(&tab));
         // The wide layout's own width (`right_dock_width_wide`).
         h.state_mut().settings.right_dock_width_wide = Some(320);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
         let started = Instant::now();
         while h.state().preview_panel_rect().is_some() {
             assert!(started.elapsed().as_secs() < 30, "the Right Dock still in two columns");

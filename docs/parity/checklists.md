@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T10:47:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -193,7 +193,7 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | The Right Dock's Palette panel (Tools › Palettes, View › Right Dock; fixed in the dock, no longer a pane to drag; the dock drawn beside an area's tab, not beside another tab unless asked for by Tools › Palettes): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete, tools_palettes_and_view_right_dock_show_and_fold_it, the_palette_fits_the_right_dock_from_its_least_width_to_600, the_right_dock_follows_the_active_editor, tools_palettes_beside_a_tab_that_brings_none] |
+| Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | The Right Dock's Palette panel (Tools › Palettes, View › Right Dock; fixed in the dock, no longer a pane to drag; the dock drawn beside an area's tab, not beside another tab unless asked for by Tools › Palettes): type, Standard or Custom, categories with their blueprints; creatures show their CR; in the narrow dock the type a dropdown with Standard and Custom beside it, Expand All and Collapse All at the Group by row's end (M4 U6); with an area, the Properties panel under it (a placed object's Properties, the next section) | ✅ [palette_edit_copy_and_delete, tools_palettes_and_view_right_dock_show_and_fold_it, the_palette_fits_the_right_dock_from_its_least_width_to_600, the_right_dock_follows_the_active_editor, tools_palettes_beside_a_tab_that_brings_none, the_narrow_dock_has_three_tabs_and_the_narrow_row] |
 | Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the panel | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
 | Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
@@ -210,6 +210,13 @@ show are kept, and a stored value outside a field's range is shown as it is
 (only edits are clamped). The window's OK and Cancel are Aurora's: Cancel
 sets back what the window changed since it was opened, as one step
 ([a_properties_window_s_cancel_sets_back_what_it_changed]).
+A placed object's (or several of one type's) pages also show in the area
+editor's Properties panel, the Right Dock's lower section, without OK or
+Cancel: each change one Undo step (M4 U6, the UI redesign's S2;
+[a_change_applies_at_once_and_undo_takes_it_back,
+several_of_one_type_edit_together]); a double click on the object shows
+the panel, and its Open in Tab and the object's menu's Properties open
+the window ([a_double_click_shows_the_panel_and_open_in_tab_the_window]).
 Shared parts: Name (`…` for all languages), Tag, palette Category, Blueprint
 ResRef (renames the blueprint, a store's `ResRef` field), Variables…,
 scripts (name, picker, Edit), Comments.

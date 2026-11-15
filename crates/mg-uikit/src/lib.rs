@@ -37,6 +37,7 @@ pub mod marks;
 pub mod menu;
 pub mod metrics;
 pub mod overlay;
+pub mod pages;
 pub mod popover;
 pub mod shelf;
 pub mod shell;

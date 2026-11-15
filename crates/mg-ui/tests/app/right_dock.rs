@@ -436,6 +436,9 @@ fn least_body(kind: Kind, front: mg_ui::Panel) -> usize {
     match (front, kind) {
         (mg_ui::Panel::Preview, Kind::Tiles) => 1,
         (mg_ui::Panel::Preview, _) => 6,
+        // (A Gallery of few blueprints in the narrow dock, its pictures
+        // under the Group by row it has there since M4's U6: two rows.)
+        (_, Kind::Blueprint(_, true)) => 8,
         (_, Kind::Tiles | Kind::Blueprint(..)) => 10,
         (_, Kind::Prefabs | Kind::Lights) => 3,
         (_, Kind::Start) => 1,
@@ -760,6 +763,14 @@ fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
     assert_ne!(top_label(&h), before, "the list scrolled");
 }
 
+/// The foot of the palettes' section: over Properties' section where the
+/// Right Dock stacks them (M4's U6, from 1400), else the dock's.
+fn palette_bottom(h: &Harness<'_, Moonglow>) -> f32 {
+    let note = h.query_by_label(mg_ui::properties_panel::NOTHING_SELECTED).map(|n| n.rect().top());
+    // (The note 8 under Properties' 26 point header.)
+    note.map_or_else(|| right_dock_rect(h).bottom(), |top| top - 34.0)
+}
+
 /// The palette's lists keep their own scroll places: the placeables'
 /// scrolled down stays so through the tiles palette shown and back, the
 /// tiles' list at its top meanwhile; and the Left Dock's tree keeps its
@@ -779,7 +790,7 @@ fn the_palette_s_lists_keep_their_own_scroll_places() {
     expand_all_in_the_dock(&mut h);
     let dock = right_dock_rect(&h);
     let at_top = top_label(&h);
-    let over = egui::pos2(dock.center().x, dock.bottom() - 100.0);
+    let over = egui::pos2(dock.center().x, palette_bottom(&h) - 100.0);
     h.hover_at(over);
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
@@ -1276,7 +1287,7 @@ fn a_floating_window_leaves_the_right_dock_as_it_is() {
     assert!(!focused.surface.is_main(), "the window's");
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
     assert!(palette_shown(h.state()));
-    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
+    assert_eq!(right_tabs(&h), ["Palette", "Properties", "Preview"]);
 }
 
 /// Two panes in the editor area's middle, the area's on the left and a
@@ -1525,9 +1536,8 @@ fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
     settle(&mut h);
     expand_all_in_the_dock(&mut h);
     // (The pointer on a row's words, low in the list.)
-    let dock = right_dock_rect(&h);
     let row = top_row(&h);
-    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    let at = egui::pos2(row.left() + 20.0, palette_bottom(&h) - 120.0);
     h.hover_at(at);
     let before = h.state().thumbnails.asked();
     // (One step for each turn of the wheel: the list scrolls under the
@@ -1567,9 +1577,8 @@ fn a_rested_row_s_picture_is_asked_for_before_its_tooltip_opens() {
     }
     settle(&mut h);
     expand_all_in_the_dock(&mut h);
-    let dock = right_dock_rect(&h);
     let row = top_row(&h);
-    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    let at = egui::pos2(row.left() + 20.0, palette_bottom(&h) - 120.0);
     let tooltip_shown = |h: &Harness<'_, Moonglow>| {
         h.ctx.memory(|m| {
             m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Tooltip)

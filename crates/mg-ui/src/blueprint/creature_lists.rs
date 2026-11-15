@@ -1878,6 +1878,11 @@ pub(super) fn equip_edits(
     e
 }
 
+/// The width under which a creature's Inventory page stands its item
+/// palette over its slots rather than beside them: the palette's least
+/// (200), the slots' compact shape and the gap between.
+const INVENTORY_SIDE_BY_SIDE: f32 = 440.0;
+
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     if f.several() {
         super::inventory_together::page(f, ui, super::inventory_together::Holder::Creature);
@@ -1937,9 +1942,20 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         .collect();
     let mut options = OptionsOut::default();
     let mut pick_item = None;
-    ui.horizontal_top(|ui| {
-        // (Narrower in a narrow window, leaving the slots room.)
-        let palette = (ui.available_width() * 0.4).clamp(200.0, 240.0);
+    // (Side by side; in a room too narrow for both, the Properties panel
+    // at the Right Dock's 280 to 400, the palette over the slots.)
+    let stacked = ui.available_width() < INVENTORY_SIDE_BY_SIDE;
+    let layout = match stacked {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, |ui| {
+        // (Narrower in a narrow window, leaving the slots room; the whole
+        // width where they are stacked.)
+        let palette = match stacked {
+            true => ui.available_width(),
+            false => (ui.available_width() * 0.4).clamp(200.0, 240.0),
+        };
         ui.vertical(|ui| {
             ui.set_width(palette);
             // (The item chosen stays in sight under the tree, and Aurora's

@@ -2134,7 +2134,8 @@ fn a_gallery_s_pictures_are_read_apart_and_look_the_same() {
         // path (another for each harness, and cut where the checkout's
         // path makes it reach).
         let ppp = h.ctx.pixels_per_point();
-        let palette = h.get_all_by_label("Placeables").next().expect("the palette").rect();
+        // (The dock: its type is named by a dropdown in the narrow dock.)
+        let palette = right_dock_rect(&h);
         let log = h.get_all_by_label("Copy Log").next().expect("the log's Copy").rect();
         let image = h.render().expect("render");
         let x = ((palette.min.x * ppp) as u32).min(image.width());
@@ -2882,10 +2883,12 @@ fn the_palette_groups_blueprints_by_the_project_s_groupings() {
     assert!(!open(&h).iter().any(|k| k.starts_with("utp/standard/0")), "no category's");
 
     // Each palette type its own: the doors have no grouping (no Group
-    // by); the waypoints are by Category until asked.
+    // by; in the narrow dock, Narrow's row with Category alone, grayed);
+    // the waypoints are by Category until asked.
     h.state_mut().palette.kind = BlueprintKind::Door;
     settle(&mut h);
-    assert!(h.query_by_label("Group by").is_none(), "no grouping among the doors");
+    let grouped = h.query_all_by_value("Category").any(|n| !n.accesskit_node().is_disabled());
+    assert!(!grouped, "no grouping among the doors");
     h.state_mut().palette.kind = BlueprintKind::Waypoint;
     h.state_mut().palette.custom = true;
     settle(&mut h);

@@ -73,6 +73,7 @@ pub mod plugin_kinds;
 pub mod plugins;
 pub mod prefabs;
 mod project_commands;
+pub mod properties_panel;
 pub mod quick_open;
 pub mod recovery;
 pub mod references;
@@ -232,6 +233,10 @@ pub enum Action {
     /// Resource Browser shows the Resources panel, Tools › Palettes the
     /// Palette panel).
     ShowPanel(Panel),
+    /// Shows the Properties panel in front, its dock unfolded, where the
+    /// area is the active docked editor (a double click on one of its
+    /// objects, ruling Q1; dragged out, its window's own pane shows it).
+    ShowProperties(mg_core::ResRef),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -954,6 +959,13 @@ pub struct Moonglow {
     /// F6 came to Tile Properties: its first control takes the keyboard's
     /// focus as it is next drawn (`tile_select::panel`).
     pub(crate) tile_props_focus: bool,
+    /// F6 has just given the Properties panel the keys: its page shown
+    /// takes the keyboard's focus as it is drawn (`properties_panel`).
+    pub(crate) props_focus: bool,
+    /// The Properties panel's page shown for each type of object (kept
+    /// as another object of that type is selected; the windows keep
+    /// theirs by object, `blueprint_pages`).
+    pub(crate) panel_pages: HashMap<ResType, &'static str>,
     /// Another area's Tile Properties panel's, while this frame's is
     /// `tile_props` (two areas in Select Tiles, one dragged out).
     pub(crate) tile_props_aside: std::collections::HashMap<mg_core::ResRef, tile_select::TileProps>,
@@ -1598,6 +1610,8 @@ impl Moonglow {
             tile_mode_areas: Default::default(),
             tile_props_aside: Default::default(),
             tile_props_focus: false,
+            props_focus: false,
+            panel_pages: HashMap::new(),
             area_stats: None,
             build: None,
             store_wizard: None,
@@ -3050,6 +3064,9 @@ impl Moonglow {
         // (Tile Properties: its first control takes the focus as it is
         // drawn, `tile_select::panel`.)
         self.tile_props_focus = next == Keys::TileProperties;
+        // (Properties: its page shown takes the focus as it is drawn,
+        // `properties_panel::panel`.)
+        self.props_focus = next == Keys::Properties;
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)
@@ -4455,6 +4472,11 @@ impl Moonglow {
             }
             Action::FoldPalettes => self.show_panel(commands::Id::ViewPalettes, false),
             Action::ShowPanel(panel) => self.show_dock_panel(panel),
+            Action::ShowProperties(area) => {
+                if self.active_editor() == Some(&Tab::Area(area)) {
+                    self.show_dock_panel(Panel::Properties);
+                }
+            }
             Action::PackTarget => _ = self.pack_target(),
             Action::TakeInLeftOut => self.take_in_left_out(),
             Action::ExportDialog(keys) => {

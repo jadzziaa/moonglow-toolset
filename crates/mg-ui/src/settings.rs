@@ -536,6 +536,16 @@ pub struct DockLayout {
     /// The Bottom Dock's panel in front, of the kind's own panels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bottom: Option<String>,
+    /// The Right Dock's first column's width where it stands in two (the
+    /// wide layout), as the builder dragged the seam between them (none:
+    /// the layout's, 340 or half the dock).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u16>,
+    /// The panel in front of the one tab bar the sections fold into in a
+    /// window under 1400, where it was chosen there (none: the first
+    /// section's front).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folded: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2053,6 +2063,8 @@ mod tests {
             fronts: vec!["Reference".into(), String::new()],
             shares: vec![1400, 600],
             bottom: Some("Compiler".into()),
+            column: Some(420),
+            folded: Some("Help".into()),
         };
         kept.dock_layouts.insert("script".into(), script);
         // (A newer one's kind, and a panel this version has no name for.)

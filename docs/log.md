@@ -1,6 +1,12 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U6, the Properties panel and the Right Dock as drawn** (scope move S2), as the Main, Narrow, WideArea and Floating boards draw them ([05](manual/05-blueprints.md#instances), [04](manual/04-areas.md), [02](manual/02-main-window.md); [parity](parity/checklists.md), [moves](ui-redesign-moves.md)).
+  * **Properties is the area's Right Dock's lower section** with every tool but Select Tiles: what is selected, one object or several of one type edited together, its pages as icons down its left edge; no OK or Cancel, each change one step to undo. A mixed selection says so.
+  * **A double click on an object shows it in front** (ruling Q1); **Open in Tab** at its header's end and the object's menu's Properties open the Properties window with OK and Cancel as before. The module tree's area rows keep their arrows (ruling Q2).
+  * **Under 1400** Palette, Properties and Preview are three tabs; **in the wide layout** Palette and Preview are tabs in the first column and Properties stands in the second, the line between them dragged and kept.
+  * **The palette's narrow row**: Standard and Custom beside the types' dropdown, Expand All and Collapse All at the Group by row's end.
+  * Deferred: "The palette's header, not as drawn in the issue" closed (overturned by the boards' row); "A drag on a number field moving objects in the area behind" names the panel's test.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U5's review ([04](manual/04-areas.md#tile-properties), [02](manual/02-main-window.md)).
   * F6 stops at Tile Properties and gives its first control the keyboard, docked and in a dragged out area's window; the area view takes the arrow keys back as the pointer comes in, moves or presses, not while it rests there.
   * The grayed Height says why again; the tile menu's Tile Properties has no ellipsis; the Replacement texture box reaches the panel's edge; terrains and crossers have their icon.

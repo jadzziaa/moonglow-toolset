@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T15:02:49Z }
 ---
 
 # Blueprints
@@ -1113,8 +1113,28 @@ the module places or names it.
 
 ## Instances
 
-An object placed in an area has the same pages as its blueprint
-(double-click it, or right-click › **Properties**). Changing an instance
-changes neither its blueprint nor other instances. **Reuse › Add to
+An object placed in an area has the same pages as its blueprint, less
+its Comments. Select it and they show in the **Properties** panel, the
+Right Dock's lower section under the Palette and the Preview, with every
+area tool but Select Tiles (whose lower section is Tile Properties): the
+header says what is shown ("Placeable", "3 placeables"), and the pages
+are the icons down the panel's left edge (the page shown is kept for
+each type of object; in the panel's narrow room a creature's Inventory
+page stands its item palette over its slots). There is no OK or Cancel: each change is the
+module's at once, one step that **Edit › Undo** (Ctrl+Z) takes back.
+Several objects of one type selected are edited together (each field
+changed is set on each; ≠ marks where they differ); a selection of
+several types says so and shows no fields. In an area another builder
+holds, in a project that keeps those read-only, the fields are only
+looked at.
+
+A double click on an object shows the panel in front, the Right Dock
+unfolded on it (in a window under 1400 points wide, its Properties tab
+between Palette and Preview). **Open in Tab**, at the panel's header's
+end (under 1400, at its top), and right-click › **Properties** open the
+Properties window as before, a tab or a window as Options › General ›
+Open editors says, with **OK** and **Cancel**; while it is open, the
+panel leaves those objects' fields to it. Changing an instance changes
+neither its blueprint nor other instances. **Reuse › Add to
 Palette** (its right-click menu) turns an instance into a new custom
 blueprint, and **Update Instances** on a blueprint remakes its instances from it.

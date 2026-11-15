@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -79,14 +79,14 @@ Every control of today's screens and its home in the mockups, by the names the c
 | "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor); "problems" and "N missing" a warning sign with its count at the header's right group's end ✓ M4 U3 (Part 2, decision 8) |
 | Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
 | The strip's right-click menu (which buttons to show) | The header's right-click menu ✓ M4 U3 (anywhere on the row; a hidden control gone from the row, its popover and the wide row) |
-| Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order |
-| A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab |
+| Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order ✓ M4 U6 (in the narrow dock the types' dropdown with Standard and Custom beside it, Expand All and Collapse All at the Group By row's end, that row drawn there with Category alone, grayed, where the project offers no grouping) |
+| A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab ✓ M4 U6 (the Right Dock's lower section with every tool but Select Tiles; one object or several of one type, a mixed selection said; each change applied at once, one Undo step; a double click shows it in front, ruling Q1; Open in Tab and the context menu's Properties open the window with OK and Cancel; one page at a time, the window's) |
 
 
 #### At 3440 by 1440
 
 - The three popovers unfold into the header row. Day, Night, Lighting, Shadows, Fog, Grid, Minimap, Walkmesh and Sound Ranges carry their words. Fade Geometry is a combo. Animations, Grass, Tile Border, Shaders and the three Audio switches are icon toggles. ✓ M4 U3 (those that fit, from the left; the Overlays switch shows as an icon toggle in the row)
-- The Right Dock stands two columns wide (Palette, Properties), a script is open in a second editor group, and the Log is open in the Bottom Dock. (M3 T14: the two columns are built with the Palette and the Preview, where the dock is wider than 560 in a window from 2560, 741 at first there; the Properties column is M4's area editor, S2. The Left Dock 320 and the Module panel 760 high there at first ✓ M3 T14.)
+- The Right Dock stands two columns wide (Palette, Properties), a script is open in a second editor group, and the Log is open in the Bottom Dock. (M3 T14: the two columns are built with the Palette and the Preview, where the dock is wider than 560 in a window from 2560, 741 at first there; the Properties column is M4's area editor, S2. The Left Dock 320 and the Module panel 760 high there at first ✓ M3 T14.) ✓ M4 U6 (Palette and Preview as tabs in the first column, Properties in the second; the seam between them dragged, kept for the editor's kind, each column at least 280)
 
 ### Script Editor
 
@@ -213,7 +213,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Help tab of the script's bottom pane | Under Reference, as on the Script board |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window |
 | Resize corner | A grip at the bottom right ✓ M3 T11 |
-| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) |
+| Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) ✓ M4 U6 (Properties under the Palette and the Preview, as the Floating board draws it) |
 
 
 #### New
@@ -398,9 +398,9 @@ Every control of the screens mocked in the second round and its home in the mock
 | The ten kind toggles and All, None | Show popover, "5 of 10" | ✓ M4 U3 (under an editor 990 wide) |
 | Day \| Night | One moon toggle | ✓ M4 U3 |
 | Lighting, Overlays, Audio, Area Properties | Icon buttons | ✓ M4 U3 (framed, the popovers' with their chevrons) |
-| Palette type strip | Combo, "Placeables" | ✓ M3 T14 (a dropdown with the type's icon under 300 px of dock; Standard and Custom stay on the name's row: M4's palette change puts them beside it) |
-| Expand All, Collapse All | End of the Group By row |  |
-| Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; Properties is M4's (S2) |
+| Palette type strip | Combo, "Placeables" | ✓ M3 T14 (a dropdown with the type's icon under 300 px of dock); ✓ M4 U6 (Standard and Custom beside it, the name's row gone there) |
+| Expand All, Collapse All | End of the Group By row | ✓ M4 U6 (the row drawn in the narrow dock whether the project offers groupings or not) |
+| Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; ✓ M4 U6 (Palette, Properties, Preview; Properties' detail and Open in Tab at its own top there) |
 | Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4 |
 | Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
 | Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn and More ✓ M4 U3; the shelf and the compass ✓ M4 U4 (the shelf's tools that a short view has no room for in its More Tools) |
