@@ -910,7 +910,7 @@ impl Moonglow {
             self.left_panel = crate::Panel::Resources;
         }
         if palette {
-            self.right_panel = crate::Panel::Palette;
+            self.right_panel = Some(crate::Panel::Palette);
         }
         if panes.is_empty() {
             return false;

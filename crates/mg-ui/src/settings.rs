@@ -1263,15 +1263,30 @@ impl Settings {
         else {
             return mine;
         };
-        let merged: Vec<String> = now
+        // (A setting written only where it is not empty, `dock_layouts`, is
+        // missing from a text that has none: missing is a value too, so
+        // that this window untouched takes theirs, and their Reset Layout
+        // is not undone by this window's unchanged one.)
+        let names: Vec<String> = (now.iter().map(|(n, _)| n.clone()))
+            .chain(was.keys().cloned())
+            .chain(theirs.keys().cloned())
+            .fold(Vec::new(), |mut all, n| {
+                if !all.contains(&n) {
+                    all.push(n);
+                }
+                all
+            });
+        let now: std::collections::HashMap<String, String> = now.into_iter().collect();
+        let merged: Vec<String> = names
             .into_iter()
-            .map(|(name, value)| {
-                let changed = was.get(&name) != Some(&value);
-                let kept = match theirs.get(&name) {
-                    Some(theirs) if !changed => theirs,
-                    _ => &value,
+            .filter_map(|name| {
+                let value = now.get(&name);
+                let changed = was.get(&name) != value;
+                let kept = match changed {
+                    false => theirs.get(&name),
+                    true => value,
                 };
-                format!("{name}:{kept}")
+                kept.map(|kept| format!("{name}:{kept}"))
             })
             .collect();
         // (What this version reads of it: a setting of theirs it can't
@@ -2196,6 +2211,28 @@ mod tests {
         std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
         assert_eq!(Settings::text_in_eframe_file(&path, "k"), Some(saved));
         assert_eq!(Settings::text_in_eframe_file(&path, "other"), None);
+        // The docks' layouts, written only where there are some: this
+        // window untouched takes the other's script layout; the other's
+        // Reset Layout (none left) is not undone by this window's
+        // unchanged ones; this window's own change is its.
+        let mut theirs = started.clone();
+        theirs.dock_layouts.insert(
+            "script".into(),
+            DockLayout { fronts: vec!["Reference".into()], ..Default::default() },
+        );
+        let merged: Settings =
+            ron::from_str(&started.saved_over(&started, &theirs.saved_text())).unwrap();
+        assert_eq!(merged.dock_layouts, theirs.dock_layouts, "theirs taken");
+        let reset = started.saved_text();
+        let merged: Settings = ron::from_str(&theirs.saved_over(&theirs, &reset)).unwrap();
+        assert!(merged.dock_layouts.is_empty(), "their reset kept: {:?}", merged.dock_layouts);
+        let mut mine = started.clone();
+        mine.dock_layouts.insert(
+            "area".into(),
+            DockLayout { fronts: vec!["Preview".into()], ..Default::default() },
+        );
+        let merged: Settings = ron::from_str(&mine.saved_over(&started, &reset)).unwrap();
+        assert_eq!(merged.dock_layouts, mine.dock_layouts, "this window's own");
     }
 
     /// A backend's failure is kept by GPU, driver and backend (one in place

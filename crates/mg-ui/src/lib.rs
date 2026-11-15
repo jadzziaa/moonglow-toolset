@@ -833,6 +833,11 @@ pub struct Moonglow {
     /// The panel in front of each of the Right Dock's tab bars at the
     /// last frame, in the order they were drawn (`shell::right_dock`).
     pub(crate) right_bars: Vec<Panel>,
+    /// The panel in front of each pane of the floating editors' windows
+    /// drawn at the last frame (`shell::window_panes`): F6 stops at each,
+    /// after the editor area; and those being drawn this frame.
+    pub(crate) window_bars: Vec<Panel>,
+    pub(crate) window_bars_drawn: Vec<Panel>,
     /// The Right Dock's panels chosen in front in the run, the last one
     /// chosen last: each section's front is the last of its panels here
     /// (`shell::section_front`).
@@ -871,10 +876,11 @@ pub struct Moonglow {
     /// the start of each frame until it is drawn, and while the Palette's
     /// tab is in front).
     pub(crate) preview_rect: Option<egui::Rect>,
-    /// The Right Dock's panel chosen last (its tab in front), for the run
-    /// as the Left Dock's is, and the Palette again as a module opens:
-    /// shown where the dock holds it (`shell::right_shown`).
-    pub(crate) right_panel: Panel,
+    /// The Right Dock's panel chosen or moved to last in the run (its tab
+    /// in front), shown where the dock holds it (`shell::right_shown`);
+    /// `None` until then and again as a module opens, the front the
+    /// settings keep for the editor's kind shown (`shell::section_front`).
+    pub(crate) right_panel: Option<Panel>,
     /// Where panels' bodies are to be drawn in this frame, after the
     /// editor area (`shell::draw_late`: the Preview's, so that an editor's
     /// tab showing the same model keeps its view, as it did beside the
@@ -887,9 +893,13 @@ pub struct Moonglow {
     /// The test panels' bodies drawn, each with its host, and their late
     /// bodies drawn (`shell::panel_body`, `shell::draw_late`).
     #[cfg(test)]
-    pub(crate) sample_hosts: Vec<(Panel, shell::Host)>,
+    pub(crate) sample_hosts: Vec<(Panel, shell::Host, Option<Tab>)>,
     #[cfg(test)]
-    pub(crate) sample_late_drawn: usize,
+    pub(crate) sample_late_drawn: Vec<(Panel, Option<Tab>)>,
+    /// The floating editors' windows' panes drawn, by name, with their
+    /// places (`shell::window_panes`).
+    #[cfg(test)]
+    pub(crate) sample_panes: Vec<(&'static str, egui::Rect)>,
     /// The Palette panel was asked for (Tools › Palettes, Tools ›
     /// Preview, a strip button) where the active editor brings none: no
     /// module open, no game data read, or a tab other than an area's in
@@ -1489,6 +1499,8 @@ impl Moonglow {
             unfolded_last: None,
             right_columns: false,
             right_bars: Vec::new(),
+            window_bars: Vec::new(),
+            window_bars_drawn: Vec::new(),
             right_fronts: Vec::new(),
             bottom_panel: None,
             left_rect: None,
@@ -1500,14 +1512,16 @@ impl Moonglow {
             bottom_rect: None,
             last_line_tips: 0,
             preview_rect: None,
-            right_panel: Panel::Palette,
+            right_panel: None,
             late_slots: Vec::new(),
             #[cfg(test)]
             sample_brings: None,
             #[cfg(test)]
             sample_hosts: Vec::new(),
             #[cfg(test)]
-            sample_late_drawn: 0,
+            sample_late_drawn: Vec::new(),
+            #[cfg(test)]
+            sample_panes: Vec::new(),
             palettes_asked: false,
             palette_dock: true,
             undo_script: None,
@@ -2604,11 +2618,13 @@ impl Moonglow {
     }
 
     /// Whether a dock is shown (View): the Left Dock (`ViewTree`), the
-    /// Right Dock (`ViewPalettes`), the Bottom Dock (`ViewLog`).
+    /// Right Dock (`ViewPalettes`), the Log in front of the open Bottom
+    /// Dock (`ViewLog`).
     pub(crate) fn panel_shown(&self, panel: commands::Id) -> bool {
         match panel {
             commands::Id::ViewTree => !shell::left_folded(self),
-            commands::Id::ViewLog => !self.settings.hide_log,
+            // (View › Log: the Log shown, in front of the Bottom Dock.)
+            commands::Id::ViewLog => shell::bottom_shows(self, Panel::Log),
             _ => !shell::right_folded(self),
         }
     }
@@ -2789,9 +2805,9 @@ impl Moonglow {
     /// (A Right Dock not drawn, the tab in front bringing no panels,
     /// counts as hidden, whatever its fold.)
     pub(crate) fn panels_hidden(&self) -> bool {
-        use commands::Id::{ViewLog, ViewPalettes, ViewTree};
+        use commands::Id::{ViewPalettes, ViewTree};
         let right = shell::right_shown(self).is_some() && self.panel_shown(ViewPalettes);
-        !right && !self.panel_shown(ViewTree) && !self.panel_shown(ViewLog)
+        !right && !self.panel_shown(ViewTree) && self.settings.hide_log
     }
 
     /// Shows a dock, or folds it away (a side dock leaves a strip at its
@@ -2799,7 +2815,13 @@ impl Moonglow {
     pub(crate) fn show_panel(&mut self, panel: commands::Id, show: bool) {
         match panel {
             commands::Id::ViewTree => shell::set_dock_open(self, mg_uikit::shell::Side::Left, show),
-            commands::Id::ViewLog => self.settings.hide_log = !show,
+            // (View › Log: the Bottom Dock opened on the Log, or closed.)
+            commands::Id::ViewLog => {
+                if show {
+                    shell::choose_bottom(self, Panel::Log);
+                }
+                self.settings.hide_log = !show;
+            }
             _ => shell::set_dock_open(self, mg_uikit::shell::Side::Right, show),
         }
     }
@@ -2984,6 +3006,8 @@ impl Moonglow {
         // (The editor area's place among them.)
         let middle = panes.len();
         panes.push(self.editor_keys());
+        // (Each floating editor's window's panes after it.)
+        panes.extend(self.window_bars.iter().map(|p| (p.keys(), None)));
         // (The Right Dock's one stop: its panel in front's, the palette's
         // rows or the Preview's model.)
         if let Some(panel) = self.right_dock_shows() {
@@ -3031,7 +3055,7 @@ impl Moonglow {
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)
         {
-            shell::choose_right(self, p);
+            shell::focus_right(self, p);
         }
         // (At the row they were at in the browser's list, else its first.)
         if next == Keys::Browser && self.browser.cursor.is_none() {
@@ -3776,8 +3800,10 @@ impl Moonglow {
         self.area_names = Default::default();
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
-        // (The Right Dock on the Palette, as each module opens.)
-        self.right_panel = Panel::Palette;
+        // (The Right Dock as the settings keep it for the editor in front,
+        // as each module opens: the owner's ruling of 2026-11-15, the area
+        // remembering its tab; the run's choices go.)
+        self.right_panel = None;
         self.right_fronts.clear();
         // (The side editors kept by `close_keeping`: their tabs.)
         for tab in side {

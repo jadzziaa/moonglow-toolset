@@ -1041,11 +1041,13 @@ impl Id {
                 let show = app.panels_hidden();
                 // (A Right Dock not drawn keeps its fold for the next area.)
                 let right = crate::shell::right_shown(app).is_some();
-                for panel in [Id::ViewTree, Id::ViewPalettes, Id::ViewLog] {
+                for panel in [Id::ViewTree, Id::ViewPalettes] {
                     if panel != Id::ViewPalettes || right {
                         app.show_panel(panel, show);
                     }
                 }
+                // (The Bottom Dock as a whole, on whichever tab it shows.)
+                app.settings.hide_log = !show;
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),

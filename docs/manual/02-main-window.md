@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T04:00:00Z }
 ---
 
 # The main window
@@ -589,13 +589,17 @@ palettes and the Preview, each on a tab of its tab bar, the one in
 front filling the dock (their words, or their icons alone where the
 dock is too narrow for the words; Left and Right on a tab go to the
 other); they stay there: they can no longer be dragged into the
-middle, to the left or into a window of their own. The tab in front
-stays so while Moonglow runs; each module opens on the palette. The
+middle, to the left or into a window of their own. The tab you choose
+in front is remembered, also when the module is opened again and the
+next time Moonglow starts (with nothing chosen, the palette is in
+front). Each kind of editor remembers its own docks' tabs and the
+shares of panels stacked in them. The
 Right Dock is there only
 beside an area (see the start of this chapter): with another tab in
 front it is not drawn at all, and comes back as it was, folded or not,
 as wide. The **log** opens and closes by its switch, **Log**, at
-the left of the Status Bar, lit while the log is open; it comes back as
+the left of the Status Bar, lit while the log is open (View › Log shows
+the log in front of the Bottom Dock, or closes the dock); it comes back as
 high as it was. What is folded stays so the next time Moonglow starts,
 and so do the docks' sizes. In a window too small for a dock's size it
 is drawn smaller (a side dock at most two fifths of the window and

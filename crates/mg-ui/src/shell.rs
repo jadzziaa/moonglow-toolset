@@ -206,6 +206,18 @@ impl Panel {
     pub(crate) const LEFT: [Panel; 2] = [Panel::Module, Panel::Resources];
     /// The Left Dock's panel under its tabs, split from them.
     pub(crate) const OUTLINER: Panel = Panel::Outliner;
+    /// Every panel of the docks that takes the arrow keys, each with its
+    /// own (`Panel::keys`): where they are while it is not drawn, they
+    /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
+    /// of its own is named here.
+    pub(crate) const KEYED: [Panel; 6] = [
+        Panel::Module,
+        Panel::Resources,
+        Panel::Outliner,
+        Panel::Palette,
+        Panel::Preview,
+        Panel::Log,
+    ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
     /// board's Compiler, Bookmarks, then Search Results, Log (U13 puts
@@ -286,13 +298,13 @@ impl Panel {
     /// (their tools are their own rows, as the boards draw them).
     fn tools(self) -> usize {
         match self {
+            // (The Left Dock's draw their own: `module_tools`,
+            // `browser::tools`.)
             Panel::Module => 4,
             Panel::Resources => 2,
-            Panel::Log => LOG_TOOLS.len(),
-            // (Its Expand All and Collapse All are on its own header.)
-            Panel::Palette | Panel::Preview | Panel::Outliner => 0,
-            #[cfg(test)]
-            Panel::Sample(_) => 0,
+            // (The others' from their list; the Outliner's Expand All and
+            // Collapse All are on its own header.)
+            _ => self.header_tools().len(),
         }
     }
 
@@ -335,8 +347,9 @@ impl Panel {
 
     /// Its switch's count badge in the Status Bar, where it has one (M4:
     /// Problems' errors, Search Results' hits, Checks'); the Log has none.
-    fn badge(self, app: &Moonglow) -> Option<mg_uikit::Badge> {
-        let _ = app;
+    /// `editor` is the editor it counts for (the active docked one).
+    fn badge(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<mg_uikit::Badge> {
+        let _ = (app, editor);
         match self {
             #[cfg(test)]
             Panel::Sample(n) if n >= SAMPLE_BOTTOM => {
@@ -369,7 +382,12 @@ impl Panel {
             Panel::Module => app.ws.is_some(),
             Panel::Resources => app.ws.is_some() || app.resources_alone,
             Panel::Palette => app.palette_dock && (app.palettes_asked || brings.has(self)),
-            Panel::Preview => Panel::Palette.available_with(app, brings),
+            // (With the palettes, theirs or asked for by name; or a kind's
+            // own, brought without them: a blueprint's, U11.)
+            Panel::Preview => match brings.has(self) && !brings.has(Panel::Palette) {
+                true => true,
+                false => Panel::Palette.available_with(app, brings),
+            },
             Panel::Outliner => brings.outliner,
             Panel::Log => true,
             #[cfg(test)]
@@ -416,6 +434,10 @@ pub(crate) struct Brings {
     pub(crate) folded: &'static [Panel],
     pub(crate) bottom: &'static [Panel],
     pub(crate) floats: bool,
+    /// The global Bottom Dock panels that follow the editor into its
+    /// window, after its own on the window's bottom pane (Floating.png's
+    /// script: Search Results, U13), where it `floats`.
+    pub(crate) window_bottom: &'static [Panel],
 }
 
 impl Brings {
@@ -439,6 +461,7 @@ const AREA_RIGHT: &[Section] = &[&[Panel::Palette, Panel::Preview]];
 /// Dock is then its tabs' panel alone, the whole height, and the Right
 /// Dock is not drawn, folded or not, its sizes kept.
 pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
+    let tab = owner_of(app, tab);
     #[cfg(test)]
     if let Some((kind, brings)) = app.sample_brings
         && kind == tab.kind()
@@ -454,6 +477,27 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
     }
 }
 
+/// The editor a tab belongs to, whose panels it brings and whose layout
+/// of the docks the settings keep: the tab itself, for every tab today.
+/// A tab that is part of another editor (U19: the NUI designer's source,
+/// a second editor group of the designer's) maps here to the designer's
+/// tab, so that focusing it keeps the designer's Right Dock. A script's
+/// group brings its own (the owner's ruling at T9's review).
+pub(crate) fn owner_of<'a>(app: &Moonglow, tab: &'a crate::Tab) -> &'a crate::Tab {
+    let _ = app;
+    tab
+}
+
+/// The kind a tab's layout of the docks is kept under
+/// (`Settings::dock_layouts`): its owner's `Tab::kind`, the placeholder
+/// that stands for no area the area's (they bring the same section).
+pub(crate) fn layout_kind(app: &Moonglow, tab: &crate::Tab) -> &'static str {
+    match owner_of(app, tab) {
+        crate::Tab::NoArea => crate::Tab::Area(mg_core::ResRef::default()).kind(),
+        owner => owner.kind(),
+    }
+}
+
 /// What the active docked editor ([`Moonglow::active_editor`], in either
 /// mode of the Open editors switch) brings to the docks ([`brings_of`]):
 /// a floating window's editor never fills the main window's docks.
@@ -461,18 +505,11 @@ pub(crate) fn editor_brings(app: &Moonglow) -> Brings {
     app.active_editor().map_or_else(Brings::default, |tab| brings_of(app, tab))
 }
 
-/// The kind of the active docked editor (`Tab::kind`), whose layout of
-/// the docks the settings keep (`Settings::dock_layouts`).
+/// The kind of the active docked editor ([`layout_kind`]), whose layout
+/// of the docks the settings keep (`Settings::dock_layouts`): every kind
+/// keeps its fronts, the area's too (the owner's ruling of 2026-11-15).
 fn editor_kind(app: &Moonglow) -> Option<&'static str> {
-    app.active_editor().map(crate::Tab::kind)
-}
-
-/// Whether the front tabs of a kind's sections are kept in the settings
-/// (`Settings::dock_layouts`): not an area's (nor the placeholder's), whose
-/// Right Dock is on the tab chosen last for the run and on the Palette
-/// again as a module opens (M3's T6, `the_palette_is_in_front_as_a_module_opens`).
-fn keeps_fronts(kind: &str) -> bool {
-    !matches!(kind, "area" | "no-area")
+    app.active_editor().map(|tab| layout_kind(app, tab))
 }
 
 /// The docks follow the active editor: the Palette asked for by name
@@ -496,8 +533,10 @@ pub(crate) fn right_sections(app: &Moonglow) -> Vec<Vec<Panel>> {
         |s: Section| -> Vec<Panel> { s.iter().copied().filter(|p| p.available(app)).collect() };
     let mut sections: Vec<Vec<Panel>> =
         brings.right.iter().map(|s| held(s)).filter(|s| !s.is_empty()).collect();
+    // (Their Preview only where the kind brings none of its own.)
     if Panel::Palette.available(app) && !brings.has(Panel::Palette) {
-        sections.insert(0, held(AREA_RIGHT[0]));
+        let asked = AREA_RIGHT[0].iter().copied();
+        sections.insert(0, asked.filter(|p| *p == Panel::Palette || !brings.has(*p)).collect());
     }
     sections
 }
@@ -575,8 +614,8 @@ pub(crate) fn arrange(
 /// last of its panels in the run, else the one the settings keep for the
 /// editor's kind, else its first.
 pub(crate) fn section_front(app: &Moonglow, section: &[Panel]) -> Panel {
-    if section.contains(&app.right_panel) {
-        return app.right_panel;
+    if let Some(chosen) = app.right_panel.filter(|p| section.contains(p)) {
+        return chosen;
     }
     run_or_kept_front(app, editor_kind(app), &editor_brings(app), section)
 }
@@ -600,7 +639,7 @@ fn run_or_kept_front(
 ) -> Panel {
     let run = app.right_fronts.iter().rev().find(|p| section.contains(p)).copied();
     let kept = || {
-        let layout = app.settings.dock_layouts.get(kind.filter(|k| keeps_fronts(k))?)?;
+        let layout = app.settings.dock_layouts.get(kind?)?;
         let name = layout.fronts.get(own_index(brings, section)?)?;
         Panel::named(name).filter(|p| section.contains(p))
     };
@@ -609,13 +648,12 @@ fn run_or_kept_front(
 
 /// `panel` chosen in front of its section of `kind`'s Right Dock (or its
 /// window's right pane): first among the run's choices, and kept in the
-/// settings where the kind keeps them ([`keeps_fronts`]) and the section
-/// is one the kind brings (`brings`): never the palettes' asked for by
-/// name beside another kind.
+/// settings where the section is one the kind brings (`brings`): never
+/// the palettes' asked for by name beside another kind.
 fn keep_front(app: &mut Moonglow, kind: Option<&'static str>, brings: &Brings, panel: Panel) {
     app.right_fronts.retain(|p| *p != panel);
     app.right_fronts.push(panel);
-    let Some(kind) = kind.filter(|k| keeps_fronts(k)) else { return };
+    let Some(kind) = kind else { return };
     let Some(index) = own_index(brings, &[panel]) else { return };
     let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
     if layout.fronts.len() <= index {
@@ -624,63 +662,60 @@ fn keep_front(app: &mut Moonglow, kind: Option<&'static str>, brings: &Brings, p
     layout.fronts[index] = panel.name().to_string();
 }
 
-/// A tab of the Right Dock chosen (its tab clicked, its section pressed,
-/// F6, its strip button, asked for by name): the dock's panel from then
-/// on, its section's for the run, and kept in the settings as the
-/// section's front for the editor's kind where the kind keeps them
-/// ([`keeps_fronts`]).
+/// A tab of the Right Dock chosen (its tab clicked, its strip button,
+/// asked for by name): the dock's panel from then on, its section's for
+/// the run, and kept in the settings as the section's front for the
+/// editor's kind (the area's too: the owner's ruling of 2026-11-15).
 pub(crate) fn choose_right(app: &mut Moonglow, panel: Panel) {
-    app.right_panel = panel;
+    app.right_panel = Some(panel);
     keep_front(app, editor_kind(app), &editor_brings(app), panel);
+}
+
+/// The Right Dock's panel moved to without choosing a tab (a press in a
+/// section that is not on its tab, F6 to a section): the dock's panel the
+/// strip and the keys come back to, nothing written (the section's front
+/// is already that panel).
+pub(crate) fn focus_right(app: &mut Moonglow, panel: Panel) {
+    app.right_panel = Some(panel);
 }
 
 /// The panels an editor brings into its own window where it floats
 /// ([`Brings::floats`]: Floating.png's script, its Reference over its
-/// Help at its right and its Compiler and Bookmarks under it): its
-/// sections stacked in a right pane and its own Bottom Dock panels on the
-/// tabs of a bottom pane, carved from `ui` (the window's tab) before the
-/// editor draws in what is left; each body the one the dock draws
-/// ([`panel_body`], its host [`Host::Window`]). An editor whose panels
-/// stay in the main window's docks (an area's) brings none here.
+/// Help at its right, the whole height, and its Compiler, Bookmarks and
+/// Search Results under the editor): its sections stacked in a right pane
+/// by the kind's shares, with seams, and its own Bottom Dock panels and
+/// the global ones that follow it (`Brings::window_bottom`) on the tabs
+/// of a bottom pane under the editor, carved from `ui` (the window's tab)
+/// before the editor draws in what is left; each body the one the dock
+/// draws ([`panel_body`], its host [`Host::Window`], its editor `tab`). A
+/// press in a pane makes the editor's pane the plugins' pane last clicked
+/// in ([`plugin_pane`]); each pane's panel in front is a stop of F6
+/// (`Moonglow::window_bars`). An editor whose panels stay in the main
+/// window's docks (an area's) brings none here.
 pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     let brings = brings_of(app, tab);
     if !brings.floats {
         return;
     }
-    let kind = Some(tab.kind());
+    let kind = Some(layout_kind(app, tab));
     let held = |s: Section| -> Vec<Panel> {
         s.iter().copied().filter(|p| p.available_with(app, &brings)).collect()
     };
     let right: Vec<Vec<Panel>> =
         brings.right.iter().map(|s| held(s)).filter(|s| !s.is_empty()).collect();
-    let bottom = held(brings.bottom);
-    let t = mg_uikit::tokens(ui.ctx());
-    let pane = ui.unique_id();
-    if !bottom.is_empty() {
-        let kept = (kind.and_then(|k| app.settings.dock_layouts.get(k)))
-            .and_then(|l| l.bottom.as_deref())
-            .and_then(Panel::named)
-            .filter(|p| bottom.contains(p));
-        let front = kept.unwrap_or(bottom[0]);
-        let shown = egui::Panel::bottom(pane.with("window-bottom"))
-            .resizable(true)
-            .default_size(metrics::BOTTOM_DOCK)
-            .frame(egui::Frame::new().fill(t.panel))
-            .show(ui, |ui| {
-                let mut at = bottom.iter().position(|p| *p == front).unwrap_or(0);
-                let mut tabs = DockTabs::new(WINDOW_BOTTOM);
-                for p in &bottom {
-                    tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
-                }
-                let bar = tabs.show(ui, &mut at, |_| ());
-                panel_body(app, ui, front, Host::Window, pane);
-                bar.changed.then(|| bottom[at])
-            });
-        if let (Some(panel), Some(kind)) = (shown.inner, kind) {
-            app.settings.dock_layouts.entry(kind.to_string()).or_default().bottom =
-                Some(panel.name().to_string());
+    let mut bottom = held(brings.bottom);
+    for p in held(brings.window_bottom) {
+        if !bottom.contains(&p) {
+            bottom.push(p);
         }
     }
+    let t = mg_uikit::tokens(ui.ctx());
+    let pane = ui.unique_id();
+    let pressed = |ui: &Ui, rect: egui::Rect| {
+        ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect)
+    };
+    // (The right pane first, the whole height; the bottom pane under the
+    // editor alone, as Floating.png draws them.)
     if !right.is_empty() {
         let most = (ui.available_width() * 0.6).max(RIGHT_DOCK_LEAST);
         let shown = egui::Panel::right(pane.with("window-right"))
@@ -702,6 +737,9 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     let mut part =
                         ui.new_child(egui::UiBuilder::new().id_salt(&name).max_rect(place));
                     part.set_clip_rect(place.intersect(ui.clip_rect()));
+                    if pressed(&part, place) {
+                        app.plugins.pane = plugin_pane(front, Some(tab)).or(app.plugins.pane);
+                    }
                     let mut at = section.iter().position(|p| *p == front).unwrap_or(0);
                     let mut tabs = DockTabs::new(&name);
                     for p in section {
@@ -711,21 +749,55 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     if bar.changed {
                         chosen = Some(section[at]);
                     }
-                    panel_body(app, &mut part, front, Host::Window, pane);
+                    app.window_bars_drawn.push(front);
+                    panel_body(app, &mut part, front, Host::Window, pane, Some(tab));
                 }
-                section_seams(
-                    app,
-                    ui,
-                    &places,
-                    &right,
-                    stack,
-                    &format!("window-right-{}", pane.value()),
-                );
+                let salt = format!("window-right-{}", pane.value());
+                section_seams(app, ui, &places, &right, stack, &salt);
+                #[cfg(test)]
+                app.sample_panes.push((WINDOW_RIGHT, whole));
                 ui.advance_cursor_after_rect(whole);
                 chosen
             });
         if let Some(panel) = shown.inner {
             keep_front(app, kind, &brings, panel);
+        }
+    }
+    if !bottom.is_empty() {
+        let kept = (kind.and_then(|k| app.settings.dock_layouts.get(k)))
+            .and_then(|l| l.bottom.as_deref())
+            .and_then(Panel::named)
+            .filter(|p| bottom.contains(p));
+        let front = kept.unwrap_or(bottom[0]);
+        let shown = egui::Panel::bottom(pane.with("window-bottom"))
+            .resizable(true)
+            .default_size(metrics::BOTTOM_DOCK)
+            .frame(egui::Frame::new().fill(t.panel))
+            .show(ui, |ui| {
+                if pressed(ui, ui.max_rect()) {
+                    app.plugins.pane = plugin_pane(front, Some(tab)).or(app.plugins.pane);
+                }
+                let mut at = bottom.iter().position(|p| *p == front).unwrap_or(0);
+                let mut tabs = DockTabs::new(WINDOW_BOTTOM);
+                for p in &bottom {
+                    tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
+                }
+                #[cfg(test)]
+                app.sample_panes.push((WINDOW_BOTTOM, ui.max_rect()));
+                let bar = tabs.show(ui, &mut at, |_| ());
+                app.window_bars_drawn.push(front);
+                match front {
+                    Panel::Log => {
+                        let margin = Margin { left: 8, right: 8, top: 4, bottom: 4 };
+                        egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
+                    }
+                    _ => panel_body(app, ui, front, Host::Window, pane, Some(tab)),
+                }
+                bar.changed.then(|| bottom[at])
+            });
+        if let (Some(panel), Some(kind)) = (shown.inner, kind) {
+            app.settings.dock_layouts.entry(kind.to_string()).or_default().bottom =
+                Some(panel.name().to_string());
         }
     }
 }
@@ -741,9 +813,9 @@ pub(crate) const WINDOW_BOTTOM: &str = "Window's Bottom Pane";
 /// front. `None` where it holds none (and is not drawn).
 pub(crate) fn right_shown(app: &Moonglow) -> Option<Panel> {
     let sections = right_sections(app);
-    let held = sections.concat();
-    if held.contains(&app.right_panel) {
-        return Some(app.right_panel);
+    let held = |p: &Panel| sections.iter().any(|s| s.contains(p));
+    if let Some(chosen) = app.right_panel.filter(held) {
+        return Some(chosen);
     }
     sections.first().map(|s| section_front(app, s))
 }
@@ -811,6 +883,8 @@ pub(crate) const BOTH_DOCKS_UNDER: f32 =
 pub(crate) fn frame_yields(app: &mut Moonglow, ctx: &egui::Context) {
     let window = ctx.content_rect().width();
     app.yields = Yields::of(window, app.dock_width.unwrap_or(window));
+    // (The windows' panes drawn at the last frame, for F6.)
+    app.window_bars = std::mem::take(&mut app.window_bars_drawn);
     if !app.yields.left_dock_folded {
         app.left_unfolded_here = false;
     }
@@ -841,43 +915,48 @@ pub(crate) fn right_folded(app: &Moonglow) -> bool {
 }
 
 /// The arrow keys never stay with a panel that is not drawn: where the
-/// side dock panel holding them is not drawn this frame (its dock folded
-/// by the window's width or by the builder, its dock holding no panel, as
-/// beside a script's tab, or the Outliner no longer brought by the editor
-/// in front), they go to the editor area's active editor
-/// ([`Moonglow::editor_keys`]), and stay there when it is drawn again (the
-/// orchestrator's decision of T14's review, reversible). Where its dock is
-/// drawn on another of its tabs, they go with the tab, to that tab's
-/// panel, in either side dock: the Left Dock's tab bar hands them over as
-/// it draws ([`left_dock`]), the Right Dock's here (the Palette's to the
-/// Preview and back). Run once a frame before the docks. (Whether the
-/// Right Dock stands in more than one tab bar, each drawing its panel in
-/// front, is the last frame's (`Moonglow::right_bars`): there the keys'
-/// bar is the dock's panel, [`Moonglow::right_panel`], so the frame it
-/// changes moves no keys.)
+/// dock panel holding them is not drawn this frame (its dock folded by
+/// the window's width or by the builder, the Bottom Dock closed, its dock
+/// holding no panel, as beside a script's tab, or the Outliner no longer
+/// brought by the editor in front), they go to the editor area's active
+/// editor ([`Moonglow::editor_keys`]), and stay there when it is drawn
+/// again (the orchestrator's decision of T14's review, reversible). Where
+/// its dock is drawn on another of its tabs, they go with the tab, to the
+/// panel in front: the Left Dock's tab bar hands them over as it draws
+/// ([`left_dock`]), the Right Dock's and the Bottom Dock's here. Run once
+/// a frame before the docks. (Whether the Right Dock stands in more than
+/// one tab bar, each drawing its panel in front, is the last frame's
+/// (`Moonglow::right_bars`): there the keys' bar is the dock's panel,
+/// [`Moonglow::right_panel`], so the frame it changes moves no keys.)
 pub(crate) fn keys_leave_panels_not_drawn(app: &mut Moonglow, ctx: &egui::Context) {
-    use crate::palette_view::{Keys, give_keys, keys_are};
-    let left = left_shown(app).filter(|_| !left_folded(app));
-    let right = right_shown(app).filter(|_| !right_folded(app));
-    let drawn = |keys: Keys| match keys {
-        // (The Left Dock drawn on its other tab: its tab bar hands them
-        // to that tab's panel, the tree's to the browser's list and back,
-        // as it draws, [`left_dock`].)
-        Keys::Tree | Keys::Browser => left.is_some(),
-        Keys::Outliner => left.is_some() && Panel::OUTLINER.available(app),
-        Keys::Palette | Keys::Preview => right.is_some_and(|p| {
-            p.keys() == keys
-                || (app.right_columns && app.right_bars.iter().any(|q| q.keys() == keys))
-        }),
-        _ => true,
+    use crate::palette_view::{give_keys, keys_are};
+    let Some(owner) = Panel::KEYED.into_iter().find(|p| keys_are(ctx, p.keys())) else { return };
+    let held = owner.keys();
+    let (front, drawn) = match owner.dock() {
+        // (Drawn on its other tab, the Left Dock's tab bar hands them to
+        // that tab's panel, the tree's to the browser's list and back.)
+        Dock::Left => {
+            let left = left_shown(app).filter(|_| !left_folded(app));
+            let drawn = left.is_some() && (owner != Panel::OUTLINER || owner.available(app));
+            (None, drawn)
+        }
+        Dock::Right => {
+            let right = right_shown(app).filter(|_| !right_folded(app));
+            let apart = app.right_columns && app.right_bars.iter().any(|q| q.keys() == held);
+            (right, right.is_some_and(|p| p.keys() == held) || apart)
+        }
+        Dock::Bottom => {
+            let bottom = bottom_shown(app).filter(|_| !app.settings.hide_log);
+            (bottom, bottom.is_some_and(|p| p.keys() == held))
+        }
     };
-    let panels = [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Palette, Keys::Preview];
-    let held = panels.into_iter().find(|k| keys_are(ctx, *k));
-    let Some(held) = held.filter(|k| !drawn(*k)) else { return };
-    // (The Right Dock on its other tab: to that tab's panel.)
-    if let Some(shown) = right.filter(|_| matches!(held, Keys::Palette | Keys::Preview)) {
-        give_keys(ctx, shown.keys());
-        app.palette.to_first |= shown == Panel::Palette;
+    if drawn {
+        return;
+    }
+    // (Its dock drawn on another tab: to that tab's panel.)
+    if let Some(front) = front {
+        give_keys(ctx, front.keys());
+        app.palette.to_first |= front == Panel::Palette;
         return;
     }
     let (keys, table) = app.editor_keys();
@@ -978,14 +1057,40 @@ pub const RIGHT_DOCK_LEAST: f32 = kit::RIGHT_DOCK_NARROW;
 /// ([`draw_late`]; a model is drawn in one place a frame, `model_view`, and
 /// the tab keeps its view): the panel, its rectangle in its host (the
 /// Right Dock, or an editor's window), the host's layer, and the host's
-/// pane in the accessibility tree that its widgets are under. Generalized
-/// from the Preview's slot of M3's T6 (U2).
-#[derive(Clone, Copy, Debug)]
+/// pane in the accessibility tree that its widgets are under, the host,
+/// and the editor it draws for (the active docked editor's in a dock, the
+/// floating editor's in its window). Generalized from the Preview's slot
+/// of M3's T6 (U2).
+#[derive(Clone, Debug)]
 pub(crate) struct LateSlot {
     pub(crate) panel: Panel,
     pub(crate) rect: egui::Rect,
     pub(crate) layer: egui::LayerId,
     pub(crate) pane: egui::Id,
+    pub(crate) host: Host,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the Preview reads it once a blueprint brings its own (U11)")
+    )]
+    pub(crate) editor: Option<crate::Tab>,
+}
+
+impl LateSlot {
+    /// `builder` given the id salt of a body drawn in it, or in its
+    /// place: the dock's `salt` as it always was, a window's with its
+    /// pane, so that two of one panel in one frame (the dock's and a
+    /// floating editor's) keep apart.
+    pub(crate) fn salted(
+        builder: egui::UiBuilder,
+        host: Host,
+        salt: &'static str,
+        pane: egui::Id,
+    ) -> egui::UiBuilder {
+        match host {
+            Host::Dock => builder.id_salt(salt),
+            Host::Window => builder.id_salt((salt, pane)),
+        }
+    }
 }
 
 /// The panels' bodies kept for the late slot this frame
@@ -997,7 +1102,7 @@ pub(crate) fn draw_late(app: &mut Moonglow, ui: &mut Ui) {
             Panel::Preview => crate::area_tools::preview_late(app, ui, slot),
             #[cfg(test)]
             Panel::Sample(_) => {
-                app.sample_late_drawn += 1;
+                app.sample_late_drawn.push((slot.panel, slot.editor));
             }
             _ => {}
         }
@@ -1329,7 +1434,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 _ => format!("Show the {} panel, or close it", p.name()),
             };
-            (p, bottom_shows(app, p), tip, p.badge(app))
+            (p, bottom_shows(app, p), tip, p.badge(app, app.active_editor()))
         })
         .collect();
     // (The log's last line shows while the log is not.)
@@ -1574,9 +1679,8 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         if !on {
             choose_bottom(app, panel);
         }
-        app.show_panel(Id::ViewLog, !on);
+        app.settings.hide_log = on;
     } else if last_clicked {
-        choose_bottom(app, Panel::Log);
         app.show_panel(Id::ViewLog, true);
     }
 }
@@ -2421,6 +2525,8 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         false => panel.default_size(drawn).size_range(range),
     };
     let yields = app.yields;
+    // (The editor its panels draw for: the active docked one.)
+    let editor = app.active_editor().cloned();
     let shown = panel.show(ui, |ui| {
         dock_pane(ui);
         let pane = ui.max_rect();
@@ -2430,7 +2536,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         // (The pane last clicked in, whose selection a plugin's command
         // from the Plugins menu or a key runs on: the panel's editor's.)
         if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(pane) {
-            app.plugins.pane = plugin_pane(app, front).or(app.plugins.pane);
+            app.plugins.pane = plugin_pane(front, app.active_editor()).or(app.plugins.pane);
         }
         // One tab bar: the panel in front under it.
         if let [one] = layout.as_slice()
@@ -2450,8 +2556,8 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             // draws the panel in front as the frame began.)
             let chosen = bar.changed.then(|| bar_panels[tab]);
             app.right_bars.push(front);
-            panel_body(app, ui, front, Host::Dock, pane_id);
-            return (chosen, bar.inner);
+            panel_body(app, ui, front, Host::Dock, pane_id, editor.as_ref());
+            return (chosen, None, bar.inner);
         }
         // In the wide layout, a dock wider than two narrow ones stands in
         // two columns (WideArea's `.dock.cols`), a line between them: the
@@ -2487,7 +2593,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 let front = section_front(app, section);
                 if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(place) {
                     pressed = Some(front);
-                    app.plugins.pane = plugin_pane(app, front).or(app.plugins.pane);
+                    app.plugins.pane = plugin_pane(front, app.active_editor()).or(app.plugins.pane);
                 }
                 let builder = egui::UiBuilder::new().id_salt(&name).max_rect(place);
                 let mut part = ui.new_child(builder);
@@ -2512,38 +2618,44 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                     chosen = Some(section[tab]);
                 }
                 app.right_bars.push(front);
-                panel_body(app, &mut part, front, Host::Dock, pane_id);
+                panel_body(app, &mut part, front, Host::Dock, pane_id, editor.as_ref());
                 index += 1;
             }
             section_seams(app, ui, &places, column, stack, &format!("right-dock-column-{c}"));
         }
         ui.advance_cursor_after_rect(pane);
         app.right_columns = true;
-        (chosen.or(pressed), folded)
+        (chosen, pressed, folded)
     });
     let dock = shown.response.rect;
     if dragged {
         *right_dock_chosen(app) = Some(dock.width().round() as u32);
     }
     app.right_rect = Some(dock);
-    let (chosen, folded) = shown.inner;
+    let (chosen, pressed, folded) = shown.inner;
     if folded {
         app.show_panel(Id::ViewPalettes, false);
     }
-    if let Some(panel) = chosen {
-        choose_right(app, panel);
+    // (A tab clicked is a choice, kept; a press elsewhere in a section only
+    // moves the dock's panel there.)
+    match (chosen, pressed) {
+        (Some(panel), _) => choose_right(app, panel),
+        (None, Some(panel)) => focus_right(app, panel),
+        (None, None) => {}
     }
 }
 
 /// The plugins' "pane last clicked in" for a press in `panel`: a panel an
 /// editor brings counts as that editor's pane (U2, `17-plugin-api.md`):
 /// the Palette's and the Preview's the palette (the Preview shows the
-/// palette's blueprint), another an area's the area's; an editor with no
-/// pane of its own for plugins leaves it as it was (`None`).
-fn plugin_pane(app: &Moonglow, panel: Panel) -> Option<crate::plugins::Pane> {
+/// palette's blueprint), another an area's (`editor`, the editor it
+/// draws for: the active docked one, or the floating one in its window)
+/// the area's; an editor with no pane of its own for plugins leaves it as
+/// it was (`None`).
+fn plugin_pane(panel: Panel, editor: Option<&crate::Tab>) -> Option<crate::plugins::Pane> {
     match panel {
         Panel::Palette | Panel::Preview => Some(crate::plugins::Pane::Palette),
-        _ => match app.active_editor() {
+        _ => match editor {
             Some(crate::Tab::Area(area)) => Some(crate::plugins::Pane::Area(*area)),
             _ => None,
         },
@@ -2692,13 +2804,16 @@ pub const RIGHT_COLUMN_TWO: &str = "Right Dock, Second Column";
 /// Palette (`palette_view::ui`) or the Preview (its body drawn after the
 /// editor area where an editor's tab may show the same model, in the room
 /// kept for it here: [`LateSlot`]). `pane` is the host's panel (its
-/// widgets are under it for a screen reader).
+/// widgets are under it for a screen reader); `editor` the editor it
+/// draws for (decision 2: a body takes the editor's tab): the active
+/// docked editor in a dock, the floating editor in its window.
 pub(crate) fn panel_body(
     app: &mut Moonglow,
     ui: &mut Ui,
     panel: Panel,
     host: Host,
     pane: egui::Id,
+    editor: Option<&crate::Tab>,
 ) {
     let margin = Margin { left: 8, right: 8, top: 6, bottom: 4 };
     egui::Frame::new().inner_margin(margin).show(ui, |ui| {
@@ -2724,9 +2839,11 @@ pub(crate) fn panel_body(
                 let chosen = app.palette.selected.map(crate::model_view::Source::Resource);
                 if chosen.is_some_and(|s| crate::model_view::a_tab_may_show(app, &s)) {
                     let layer = ui.layer_id();
-                    app.late_slots.push(LateSlot { panel, rect: room, layer, pane });
+                    let editor = editor.cloned();
+                    app.late_slots.push(LateSlot { panel, rect: room, layer, pane, host, editor });
                 } else {
-                    let builder = egui::UiBuilder::new().id_salt("preview-panel").max_rect(room);
+                    let builder = egui::UiBuilder::new().max_rect(room);
+                    let builder = LateSlot::salted(builder, host, "preview-panel", pane);
                     let mut body = ui.new_child(builder);
                     body.set_clip_rect(room.intersect(ui.clip_rect()));
                     crate::area_tools::preview_body(app, &mut body, room);
@@ -2736,8 +2853,9 @@ pub(crate) fn panel_body(
             Panel::Sample(_) => {
                 ui.label(format!("{} body", panel.name()));
                 let layer = ui.layer_id();
-                app.late_slots.push(LateSlot { panel, rect: room, layer, pane });
-                app.sample_hosts.push((panel, host));
+                let editor = editor.cloned();
+                app.sample_hosts.push((panel, host, editor.clone()));
+                app.late_slots.push(LateSlot { panel, rect: room, layer, pane, host, editor });
             }
             // (The Left Dock's and the log, drawn by their docks.)
             _ => {}
@@ -2793,17 +2911,19 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
     let line = ui.text_style_height(&egui::TextStyle::Monospace);
     // (The tab bar, a line of the log and the room round it.)
     let least = metrics::DOCK_TABS + line + 8.0 + panel_line(ui);
-    let enabled = !app.log.entries.is_empty();
     // (The panel in front's tools: the Log's.)
     let buttons = front.header_tools();
     let tips: Vec<String> =
         buttons.iter().map(|b| format!("{}{}", b.3, key_note(app, &ctx, b.0))).collect();
+    // (Each tool enabled as its command is: the log's while it has lines.)
+    let enabled: Vec<bool> = buttons.iter().map(|b| b.0.enabled(app)).collect();
     // (Drawn at the height chosen, held to what the window allows: as the
     // side docks' widths.)
     let range = least..=(window.y * 0.5).max(least);
     let high = chosen_size(app.settings.bottom_dock_height, metrics::BOTTOM_DOCK);
     draw_at(&ctx, "log", 1, high.clamp(*range.start(), *range.end()));
     let dragged = edge_dragged(&ctx, "log");
+    let editor = app.active_editor().cloned();
     let shown = egui::Panel::bottom("log")
         .resizable(true)
         .default_size(metrics::BOTTOM_DOCK)
@@ -2847,9 +2967,10 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             };
             let bar = tabs.show(ui, &mut tab, |ui| {
                 let mut chosen = None;
-                for ((id, icon, name, _), tip) in buttons.iter().zip(&tips).take(fitting) {
+                let all = buttons.iter().zip(&tips).zip(&enabled).take(fitting);
+                for (((id, icon, name, _), tip), enabled) in all {
                     let button = IconButton::new(*icon, *name).icon_only(true);
-                    let r = ui.add_enabled(enabled, button);
+                    let r = ui.add_enabled(*enabled, button);
                     if r.on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
                         chosen = Some(*id);
                     }
@@ -2864,7 +2985,7 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
                 Panel::Log => {
                     egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
                 }
-                _ => panel_body(app, ui, front, Host::Dock, pane_id),
+                _ => panel_body(app, ui, front, Host::Dock, pane_id, editor.as_ref()),
             }
             (bar.inner, picked)
         });
@@ -3123,10 +3244,16 @@ mod dock_tests {
         assert_eq!(tabs_of(&h, RIGHT_DOCK), ["Sample 0", "Sample 2"]);
         assert_eq!(tabs_of(&h, "Right Dock, Section 2"), ["Sample 1"]);
         assert_eq!(h.state().right_bars, [S0, S1], "each section's front drawn");
-        let drawn =
-            |h: &Harness<'_, Moonglow>| -> Vec<(Panel, Host)> { h.state().sample_hosts.clone() };
+        let drawn = |h: &Harness<'_, Moonglow>| -> Vec<(Panel, Host)> {
+            h.state().sample_hosts.iter().map(|(p, host, _)| (*p, *host)).collect()
+        };
+        let welcome = Some(crate::Tab::Welcome);
+        assert!(
+            h.state().sample_hosts.contains(&(S0, Host::Dock, welcome.clone())),
+            "for its editor"
+        );
         assert!(drawn(&h).contains(&(S0, Host::Dock)) && drawn(&h).contains(&(S1, Host::Dock)));
-        assert!(h.state().sample_late_drawn > 0, "the late slot drawn");
+        assert!(h.state().sample_late_drawn.contains(&(S0, welcome)), "the late slot drawn");
         assert_eq!(tabs_of(&h, BOTTOM_DOCK), ["Sample 8", "Sample 9", "Log"]);
         assert_eq!(switches_shown(&h), ["Log", "Sample 8", "Sample 9"]);
         let badge = switch(&h, "Sample 9").accesskit_node().value();
@@ -3227,9 +3354,19 @@ mod dock_tests {
         window.set_position(egui::pos2(300.0, 100.0)).set_size(egui::vec2(900.0, 600.0));
         settle(&mut h);
         let state = h.state();
-        assert!(state.sample_hosts.contains(&(S0, Host::Window)), "{:?}", state.sample_hosts);
-        assert!(state.sample_hosts.contains(&(B8, Host::Window)));
-        assert!(!state.sample_hosts.iter().any(|(_, host)| *host == Host::Dock), "none docked");
+        // (Each drawn for the floating editor, not the docked Welcome page.)
+        let manual = Some(crate::Tab::Manual);
+        let hosts = &state.sample_hosts;
+        assert!(hosts.contains(&(S0, Host::Window, manual.clone())), "{hosts:?}");
+        assert!(hosts.contains(&(B8, Host::Window, manual.clone())));
+        assert!(!hosts.iter().any(|(_, host, _)| *host == Host::Dock), "none docked");
+        assert!(state.sample_late_drawn.contains(&(S0, manual)), "its late body, for it");
+        // (The right pane the whole height, the bottom pane under the
+        // editor alone, beside it: Floating.png.)
+        let pane = |name: &str| state.sample_panes.iter().rev().find(|p| p.0 == name).unwrap().1;
+        let (right, bottom) = (pane(WINDOW_RIGHT), pane(WINDOW_BOTTOM));
+        assert!(bottom.right() <= right.left() + 1.0, "{bottom:?} beside {right:?}");
+        assert!(right.bottom() >= bottom.bottom() - 1.0 && right.top() < bottom.top());
         assert_eq!(tabs_of(&h, WINDOW_RIGHT), ["Sample 0", "Sample 2"]);
         assert_eq!(tabs_of(&h, &format!("{WINDOW_RIGHT}, Section 2")), ["Sample 1"]);
         assert_eq!(tabs_of(&h, WINDOW_BOTTOM), ["Sample 8", "Sample 9"]);
@@ -3265,8 +3402,8 @@ mod dock_tests {
         let top = h.get_by_label(WINDOW_RIGHT).query_by_label("Sample 0").unwrap().rect().top();
         let second = format!("{WINDOW_RIGHT}, Section 2");
         let next = h.get_by_label(&second).query_by_label("Sample 1").unwrap().rect().top();
-        let bottom = h.get_by_label(WINDOW_BOTTOM).query_by_label("Sample 8").unwrap().rect().top();
-        let share = (next - top) / (bottom - top);
+        let right = h.state().sample_panes.iter().rev().find(|p| p.0 == WINDOW_RIGHT).unwrap().1;
+        let share = (next - top) / (right.bottom() - top);
         assert!((share - 0.75).abs() < 0.03, "{share}");
     }
 
@@ -3310,13 +3447,163 @@ mod dock_tests {
     #[test]
     fn a_brought_panel_is_its_editor_s_pane_for_plugins() {
         use crate::plugins::Pane;
-        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
-        assert_eq!(plugin_pane(&app, Panel::Palette), Some(Pane::Palette));
-        assert_eq!(plugin_pane(&app, Panel::Preview), Some(Pane::Palette));
-        assert_eq!(plugin_pane(&app, S0), None, "the Welcome page has no pane");
+        let welcome = crate::Tab::Welcome;
+        assert_eq!(plugin_pane(Panel::Palette, Some(&welcome)), Some(Pane::Palette));
+        assert_eq!(plugin_pane(Panel::Preview, None), Some(Pane::Palette));
+        assert_eq!(plugin_pane(S0, Some(&welcome)), None, "the Welcome page has no pane");
         let area = mg_core::ResRef::from_str("area001").unwrap();
-        app.dock = egui_dock::DockState::new(vec![crate::Tab::Area(area)]);
-        assert_eq!(plugin_pane(&app, S0), Some(Pane::Area(area)));
-        assert_eq!(plugin_pane(&app, Panel::Preview), Some(Pane::Palette));
+        let tab = crate::Tab::Area(area);
+        assert_eq!(plugin_pane(S0, Some(&tab)), Some(Pane::Area(area)));
+        assert_eq!(plugin_pane(Panel::Preview, Some(&tab)), Some(Pane::Palette));
+        // A press in a docked panel of the Welcome page's: left as it was.
+        let mut h = sample_window(second_kind(), "welcome", 1600.0);
+        h.get_by_label("Sample 1 body").click();
+        settle(&mut h);
+        assert_eq!(h.state().plugins.pane, None);
+        // A press in a floating area's window's pane: the area's.
+        let brings = Brings { floats: true, ..second_kind() };
+        let mut h = sample_window(brings, "area", 1600.0);
+        let surface = h.state_mut().dock.add_window(vec![tab]);
+        let window = h.state_mut().dock.get_window_state_mut(surface).unwrap();
+        window.set_position(egui::pos2(300.0, 100.0)).set_size(egui::vec2(900.0, 600.0));
+        settle(&mut h);
+        h.get_by_label("Sample 0 body").click();
+        settle(&mut h);
+        assert_eq!(h.state().plugins.pane, Some(Pane::Area(area)));
+    }
+
+    /// A press in a stacked section off its tab bar, and F6 to a section,
+    /// move the dock's panel there and write nothing; a tab clicked is a
+    /// choice, kept (the review's B3).
+    #[test]
+    fn only_a_tab_chosen_is_kept() {
+        let mut h = sample_window(second_kind(), "welcome", 1600.0);
+        h.get_by_label("Sample 1 body").click();
+        settle(&mut h);
+        assert_eq!(h.state().right_panel, Some(S1), "the dock's panel");
+        let ctx = h.ctx.clone();
+        for _ in 0..4 {
+            h.state_mut().step_pane(&ctx, 1);
+            settle(&mut h);
+        }
+        assert!(
+            h.state().settings.dock_layouts.is_empty(),
+            "{:?}",
+            h.state().settings.dock_layouts
+        );
+        h.get_by_label("Sample 2").click();
+        settle(&mut h);
+        assert!(h.state().settings.dock_layouts.contains_key("welcome"), "a tab chosen: kept");
+    }
+
+    /// The arrow keys leave the log where it is not drawn: the Bottom Dock
+    /// closed (to the editor), or another of its tabs in front (to that
+    /// tab's panel) (the review's B4).
+    #[test]
+    fn the_keys_leave_the_log_where_it_is_not_drawn() {
+        use crate::palette_view::{Keys, give_keys, keys_are};
+        let mut h = sample_window(second_kind(), "welcome", 1600.0);
+        choose_bottom(h.state_mut(), Panel::Log);
+        settle(&mut h);
+        give_keys(&h.ctx, Keys::Log);
+        settle(&mut h);
+        assert!(keys_are(&h.ctx, Keys::Log), "the log drawn: kept");
+        h.state_mut().settings.hide_log = true;
+        settle(&mut h);
+        assert!(!keys_are(&h.ctx, Keys::Log), "the dock closed");
+        h.state_mut().settings.hide_log = false;
+        settle(&mut h);
+        give_keys(&h.ctx, Keys::Log);
+        choose_bottom(h.state_mut(), B8);
+        settle(&mut h);
+        assert!(keys_are(&h.ctx, B8.keys()), "to the tab in front");
+    }
+
+    /// A kind may bring the Preview without the palettes (U11, U20, U21);
+    /// the palettes asked for by name beside it add the Palette alone,
+    /// never a second Preview in the dock; a floating editor's Preview and
+    /// the dock's are drawn in one frame apart (the review's C2).
+    #[test]
+    fn a_kind_brings_the_preview_alone() {
+        const OWN: &[Section] = &[&[Panel::Preview]];
+        let brings = Brings { right: OWN, ..Brings::default() };
+        let mut h = sample_window(brings, "welcome", 1600.0);
+        assert_eq!(tabs_of(&h, RIGHT_DOCK), ["Preview"]);
+        h.state_mut().show_dock_panel(Panel::Palette);
+        settle(&mut h);
+        assert_eq!(tabs_of(&h, RIGHT_DOCK), ["Palette"]);
+        assert_eq!(tabs_of(&h, "Right Dock, Section 2"), ["Preview"], "one Preview");
+        // (And one in a floating editor's window beside the dock's.)
+        let mut h = sample_window(Brings { floats: true, ..brings }, "manual", 1600.0);
+        h.state_mut().show_dock_panel(Panel::Preview);
+        let surface = h.state_mut().dock.add_window(vec![crate::Tab::Manual]);
+        let window = h.state_mut().dock.get_window_state_mut(surface).unwrap();
+        window.set_position(egui::pos2(300.0, 100.0)).set_size(egui::vec2(900.0, 600.0));
+        settle(&mut h);
+        let said = "Choose a blueprint in the palette.";
+        let both = h.query_all_by_label(said).count();
+        assert_eq!(both, 2, "the dock's Preview and the window's");
+    }
+
+    /// View › Log shows the Log in front of the Bottom Dock, its row ticked
+    /// only while it is; a second time closes the dock (the review's C3).
+    #[test]
+    fn view_log_shows_the_log_tab() {
+        let mut h = sample_window(second_kind(), "welcome", 1600.0);
+        assert_eq!(bottom_shown(h.state()), Some(B8));
+        assert!(!h.state().panel_shown(Id::ViewLog), "another tab in front: not ticked");
+        let ctx = h.ctx.clone();
+        Id::ViewLog.run(h.state_mut(), &ctx);
+        settle(&mut h);
+        assert!(bottom_shows(h.state(), Panel::Log) && h.state().panel_shown(Id::ViewLog));
+        Id::ViewLog.run(h.state_mut(), &ctx);
+        settle(&mut h);
+        assert!(h.state().settings.hide_log, "closed");
+    }
+
+    /// F6 stops at a floating editor's window's panes, after the editor
+    /// area (the review's C5).
+    #[test]
+    fn f6_stops_at_a_window_s_panes() {
+        use crate::palette_view::keys_are;
+        let brings = Brings { floats: true, ..second_kind() };
+        let mut h = sample_window(brings, "manual", 1600.0);
+        h.state_mut().settings.hide_log = true;
+        let surface = h.state_mut().dock.add_window(vec![crate::Tab::Manual]);
+        let window = h.state_mut().dock.get_window_state_mut(surface).unwrap();
+        window.set_position(egui::pos2(300.0, 100.0)).set_size(egui::vec2(900.0, 600.0));
+        settle(&mut h);
+        assert!(h.state().window_bars.contains(&S0), "{:?}", h.state().window_bars);
+        let ctx = h.ctx.clone();
+        let mut reached = false;
+        for _ in 0..6 {
+            h.state_mut().step_pane(&ctx, 1);
+            settle(&mut h);
+            reached |= keys_are(&ctx, S0.keys());
+        }
+        assert!(reached, "the window's pane reached");
+    }
+
+    /// The global Bottom Dock panels a kind names follow it into its
+    /// window, after its own (the review's B2).
+    #[test]
+    fn a_window_s_bottom_pane_holds_the_globals_its_kind_names() {
+        let brings = Brings { floats: true, window_bottom: &[Panel::Log], ..second_kind() };
+        let mut h = sample_window(brings, "manual", 1600.0);
+        let surface = h.state_mut().dock.add_window(vec![crate::Tab::Manual]);
+        let window = h.state_mut().dock.get_window_state_mut(surface).unwrap();
+        window.set_position(egui::pos2(300.0, 100.0)).set_size(egui::vec2(900.0, 600.0));
+        settle(&mut h);
+        assert_eq!(tabs_of(&h, WINDOW_BOTTOM), ["Sample 8", "Sample 9", "Log"]);
+    }
+
+    /// The placeholder that stands for no area keeps its layout as the
+    /// area's; every tab is its own editor's until U19 maps one (C6).
+    #[test]
+    fn the_placeholder_s_layout_is_the_area_s() {
+        let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        assert_eq!(layout_kind(&app, &crate::Tab::NoArea), "area");
+        assert_eq!(layout_kind(&app, &crate::Tab::Manual), "manual");
+        assert_eq!(owner_of(&app, &crate::Tab::Manual), &crate::Tab::Manual);
     }
 }

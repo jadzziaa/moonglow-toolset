@@ -303,22 +303,35 @@ fn the_arrow_keys_on_a_right_dock_tab_choose_the_other() {
     }
 }
 
-/// Which tab is in front is kept as the Left Dock's is, for the run
-/// (nothing of it in the settings), and a module opened brings the
-/// Palette to the front.
+/// The area remembers the Right Dock's tab (the owner's ruling of
+/// 2026-11-15, overturning M3's "for the run, the Palette again as a
+/// module opens"): with nothing chosen (a new installation's settings),
+/// the Palette in front; the Preview's tab chosen, the Preview in front
+/// again after reopening the module and after a restart (the settings
+/// saved and read back), kept as the area kind's layout.
 #[test]
-fn the_palette_is_in_front_as_a_module_opens() {
+fn the_area_remembers_the_right_dock_s_tab() {
     let Some(mut h) = preview_harness("ui-preview-front", 1400.0, 800.0) else { return };
-    show(&mut h, Panel::Preview);
-    // (Saved and read back: nothing of it in the settings.)
-    let saved = h.state().settings.saved_text();
-    let fields = ["right_panel", "hide_preview", "preview_height", "preview:"];
-    assert!(!fields.iter().any(|f| saved.contains(f)), "{saved}");
-    // Another module (the same, opened again): the Palette in front.
-    let dir = mg_testkit::scratch_dir("ui-preview-front-again");
-    h.state_mut().open_module(&sample_module(&dir));
+    assert_eq!(h.state().right_dock_shows(), Some(Panel::Palette), "nothing chosen");
+    dock_tab(&h, "Preview").click();
     settle(&mut h);
-    assert_eq!(h.state().right_dock_shows(), Some(Panel::Palette));
+    assert_eq!(h.state().right_dock_shows(), Some(Panel::Preview));
+    // The module opened again: the Preview.
+    let dir = mg_testkit::scratch_dir("ui-preview-front-again");
+    let path = sample_module(&dir);
+    h.state_mut().open_module(&path);
+    settle(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(Panel::Preview), "after reopening");
+    // A restart: the settings saved and read back.
+    let saved = h.state().settings.saved_text();
+    assert!(saved.contains("dock_layouts:{\"area\":(fronts:[\"Preview\"])}"), "{saved}");
+    let root = mg_testkit::nwn_root().unwrap();
+    let mut app = game_app(&root, None);
+    app.settings = mg_ui::Settings::read_fields(&saved).unwrap().0;
+    app.open_module(&path);
+    let mut h = harness(app, 1400.0, 800.0);
+    settle(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(Panel::Preview), "after a restart");
 }
 
 /// Escape with the pointer over the Preview does what it does over the

@@ -793,10 +793,10 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
 /// [`preview_body`], so that Tab goes from the dock's tab bar into it.)
 pub(crate) fn preview_late(app: &mut Moonglow, ui: &mut Ui, slot: crate::shell::LateSlot) {
     let builder = egui::UiBuilder::new()
-        .id_salt("preview-panel")
         .max_rect(slot.rect)
         .layer_id(slot.layer)
         .accessibility_parent(slot.pane);
+    let builder = crate::shell::LateSlot::salted(builder, slot.host, "preview-panel", slot.pane);
     let mut body = ui.new_child(builder);
     body.set_clip_rect(slot.rect);
     preview_body(app, &mut body, slot.rect);

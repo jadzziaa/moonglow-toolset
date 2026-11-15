@@ -1,6 +1,12 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U2's review, and the owner's ruling that **the area remembers its Right Dock tab** (kept in the settings like every kind's, restored on the next run and when the module opens again; [02](manual/02-main-window.md)).
+  * Two windows' settings merged without losing or reviving the docks' layouts.
+  * A floating editor's window: the right pane the whole height, the bottom pane under the editor; global panels may follow it there; F6 stops at its panes; a press in one is its editor's pane for plugins ([17](manual/17-plugin-api.md)).
+  * Only a tab chosen is remembered (not a press or F6); the arrow keys leave the log when the Bottom Dock closes or shows another tab.
+  * Panel bodies, the late slot and badges are told their editor; a kind may bring the Preview alone; View › Log shows the Log tab and is ticked only while it is; `owner_of` for the NUI designer's source group (U19).
+  * The Review paragraph lists each fault with its test and failure text.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U2, the docks hold what an editor brings**. Nothing changes for the user: the Right Dock, the Log and the Status Bar draw as before, pixel for pixel in the 44 shell and board pictures.
   * **The registry** (`mg-ui/src/shell.rs`): the Log is a panel of `Dock::Bottom`; `editor_brings` (by the editor's kind, static tables) gives the Outliner, the Right Dock's sections, their order folded into one bar under 1400, the Bottom Dock's own panels and whether they follow the editor into its window. It replaces `editor_brings_palette` and `editor_brings_outliner`.
   * **The Right Dock** stands its sections as one bar, stacked with seams (shares kept per kind), or in the wide layout's two columns (`arrange`); a lone section of two keeps today's Palette | Preview columns until U6.
