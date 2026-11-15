@@ -1920,11 +1920,13 @@ pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// Whether something in front takes the keys and presses the views'
 /// would: an `egui::Modal` (a job's window, a plugin's question), a
-/// dialog, a menu or popup.
+/// dialog, a menu or popup, or a kit popover (an editor header's, which
+/// egui's popups do not count).
 pub(crate) fn keys_blocked(ctx: &egui::Context) -> bool {
     ctx.memory(|m| m.top_modal_layer()).is_some()
         || crate::widgets::dialog_open(ctx)
         || egui::Popup::is_any_open(ctx)
+        || mg_uikit::popover::Popover::any_open(ctx)
 }
 
 /// What the Status Bar shows for the active docked editor

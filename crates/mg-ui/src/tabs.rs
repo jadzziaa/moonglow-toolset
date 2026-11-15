@@ -464,6 +464,7 @@ impl Viewer<'_> {
             && !list
             && !crate::widgets::dialog_open(ui.ctx())
             && !egui::Popup::is_any_open(ui.ctx())
+            && !mg_uikit::popover::Popover::any_open(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
         if !quiet || self.app.escape_hint_next.is_some() {

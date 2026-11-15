@@ -743,7 +743,7 @@ fn the_graphics_backend_is_chosen_in_options() {
 /// kept in the settings) is the editors' toolbars', and the area view's
 /// still honors it, its buttons icons alone at once.
 #[test]
-fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
+fn the_top_bar_draws_icons_with_tips_and_the_area_header_ignores_the_setting() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
     let quick = [
@@ -811,18 +811,15 @@ fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     h.run();
     assert_eq!(rects(&h), before, "and back");
 
-    // The area view's toolbar honors it: its words go, and come back.
+    // The area's header does not (M4's U3): it yields by its width alone.
     let Some((mut h, _)) = area_harness("top-bar-area-icons") else { return };
-    let wide = area_tool(&h, "Reorient Camera").rect().width();
+    settle(&mut h);
+    let row = area_header_row(&h);
     let top_bar = rects(&h);
     h.state_mut().settings.toolbar_icons_only = true;
-    h.run_steps(2);
-    let now = area_tool(&h, "Reorient Camera").rect().width();
-    assert!(now < wide && now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{wide} -> {now}");
+    settle(&mut h);
+    assert_eq!(area_header_row(&h), row, "the area's header as it was");
     assert_eq!(rects(&h), top_bar, "the Top Bar as it was");
-    h.state_mut().settings.toolbar_icons_only = false;
-    h.run_steps(2);
-    assert_eq!(area_tool(&h, "Reorient Camera").rect().width(), wide);
 }
 
 /// Options › General › Light theme: the window's theme follows the

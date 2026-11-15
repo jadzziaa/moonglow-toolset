@@ -191,7 +191,7 @@ fn width(h: &Harness<'_, Moonglow>, area: ResRef) -> u32 {
 /// Tile Properties of the tile at `p`, from Select Tiles' tile menu.
 fn tile_properties(h: &mut Harness<'_, Moonglow>, area: ResRef, p: Vec3) {
     if !h.state().area_views[&area].tile_mode {
-        area_tool(h, "Select Tiles").click();
+        area_click(h, "Select Tiles");
         h.run_steps(2);
     }
     let at = screen(h, area, p);
@@ -377,7 +377,7 @@ fn build(h: &mut Harness<'_, Moonglow>, area: ResRef, case: &Case) -> usize {
         h.key_press(egui::Key::F10);
         h.run_steps(3);
     } else if case.leave != Leave::TileSelect && h.state().area_views[&area].tile_mode {
-        area_tool(h, "Select Tiles").click();
+        area_click(h, "Select Tiles");
         h.run_steps(2);
     }
     if case.forced == Forced::Palette && brush_last {

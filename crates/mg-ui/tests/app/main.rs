@@ -8,6 +8,7 @@
 
 mod common;
 
+mod area_header;
 mod area_view;
 mod areas;
 mod bake;

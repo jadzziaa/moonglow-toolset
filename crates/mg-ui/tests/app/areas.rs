@@ -29,24 +29,26 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     let area = ResRef::from_str("chess").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     h.run();
-    // (One button for the walkmeshes: a right click, or holding it,
-    // opens the two to choose from.)
-    area_tool(&h, "Walkmesh…").click_secondary();
-    h.run();
-    h.get_by_label("Object Walkmeshes").click();
-    h.run();
+    // (The two in the header's Overlays popover.)
+    area_click(&mut h, "Object walkmeshes");
     assert!(h.state().area_views[&area].object_walkmesh);
     assert!(!h.state().area_views[&area].walkmesh);
-    // A click on the button hides what is shown.
-    h.get_by_label("Ground Walkmesh");
+    // The wide row's one Walkmesh toggle (Overlays unfolded into the
+    // row, WideArea): a right click, or holding it, opens the two to
+    // choose from; a click hides what is shown.
+    h.set_size(egui::vec2(3000.0, 800.0));
+    h.run_steps(4);
+    area_tool(&mut h, "Walkmesh").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Ground walkmesh");
     h.key_press(egui::Key::Escape);
-    h.run();
-    area_tool(&h, "Walkmesh…").click();
-    h.run();
+    h.run_steps(3);
+    area_click(&mut h, "Walkmesh");
+    h.run_steps(2);
     assert!(!h.state().area_views[&area].object_walkmesh);
     // Held down a moment: the two open, and stay open when it is let go
     // (the release no click); one chosen there.
-    let at = area_tool(&h, "Walkmesh…").rect().center();
+    let at = area_tool(&mut h, "Walkmesh").rect().center();
     h.hover_at(at);
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
@@ -56,13 +58,13 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     };
     h.event(button(true));
     h.run_steps(30);
-    h.get_by_label("Ground Walkmesh");
+    h.get_by_label("Ground walkmesh");
     h.event(button(false));
     h.run_steps(2);
     let view = &h.state().area_views[&area];
     assert!(!view.walkmesh && !view.object_walkmesh, "the release is no click");
-    h.get_by_label("Ground Walkmesh").click();
-    h.run();
+    h.get_by_label("Ground walkmesh").click();
+    h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh, "chosen in what the hold opened");
 }
 
@@ -387,135 +389,29 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     assert_eq!(saved.unwrap().get(row, "LABEL"), Some("Evening"));
 }
 
-/// Options › General › Editors' toolbar buttons, Icons only: the area view's
-/// toolbar too, at once: icons alone, named in their tips (a button with
-/// no tip of its own: its name) and by their words for a screen reader;
-/// the toggles still toggling. All, None, Together, To Scratch and Save
-/// as Prefab… have icons too.
+/// Options › General › Editors' toolbar buttons, Icons only, is the
+/// editors' toolbars' alone (M4's U3): the area's header keeps its row as
+/// it was, at a width where it is whole (its words and its value text) and
+/// at one where it is compact, and its toggles toggle as before.
 #[test]
-fn the_area_toolbar_shows_icons_only_when_asked() {
+fn the_area_header_ignores_the_toolbar_buttons_setting() {
     let Some((mut h, area)) = area_harness("area-icons-only") else { return };
-    let names = ["Reorient Camera", "Grid", "All", "To Scratch"];
-    let wide: Vec<f32> = names.iter().map(|n| area_tool(&h, n).rect().width()).collect();
-    h.state_mut().settings.toolbar_icons_only = true;
-    h.run_steps(2);
-    for (name, was) in names.iter().zip(wide) {
-        let now = area_tool(&h, name).rect().width();
-        assert!(now < was, "{name} is an icon alone now: {was} -> {now}");
-        // (An icon button, 22 square: the words are gone, its icon drawn.)
-        assert!(now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {now} wide");
+    for width in [1600.0, 1160.0] {
+        h.set_size(egui::vec2(width, 800.0));
+        settle(&mut h);
+        h.state_mut().settings.toolbar_icons_only = false;
+        settle(&mut h);
+        let row = area_header_row(&h);
+        h.state_mut().settings.toolbar_icons_only = true;
+        settle(&mut h);
+        assert_eq!(area_header_row(&h), row, "the header as it was at {width}");
     }
-    let camera = area_tool(&h, "Reorient Camera").rect();
-    assert!(icon_drawn(&h, mg_uikit::Icon::Camera, camera), "Reorient Camera's icon");
-    for name in ["All", "None", "Together", "To Scratch", "Area Properties"] {
-        h.get_by_label(name);
-    }
-    let camera = h.get_by_label("Reorient Camera").rect().center();
-    h.hover_at(camera);
-    // (A tooltip waits a moment.)
-    h.run_steps(60);
-    assert_eq!(h.query_all_by_label("Reorient Camera").count(), 2, "the button and its tip");
-    h.get_by_label("Grid").hover();
-    h.run_steps(60);
-    h.get_by_label("Grid\nDisplay Grid");
     let shown = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].grid;
     let before = shown(&h);
-    h.get_by_label("Grid").click();
-    h.run_steps(2);
-    assert_ne!(shown(&h), before, "Grid toggled by its icon");
-    let on = match before {
-        true => egui::accesskit::Toggled::False,
-        false => egui::accesskit::Toggled::True,
-    };
-    let grid = h.get_by_label("Grid").accesskit_node();
-    assert_eq!(grid.toggled(), Some(on), "a toggle, said to be on or off");
-    h.get_by_label("Area Properties").click();
-    h.run_steps(2);
+    area_click(&mut h, "Grid");
+    assert_ne!(shown(&h), before, "Grid toggled");
+    area_click(&mut h, "Area Properties");
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
-}
-
-/// The area toolbar's controls stay inside its tab's sides at every width, with
-/// Icons and text and with Icons only, and each dropdown's lead icon (Icons
-/// only) stays just before its dropdown on the same row: a dropdown begun
-/// on a row with room for it alone ran some 20 px past the tab's edge, its
-/// icon left at the end of the row above.
-#[test]
-fn the_area_toolbar_stays_inside_its_tab_at_every_width() {
-    let Some((mut h, area)) = area_harness("area-toolbar-sweep") else { return };
-    // (The docks as a narrow window has them, M3 T14: the Left Dock folded
-    // under 1500, the Right Dock 280 under 1400 and folded under 796. The
-    // sweep folded the Left Dock by hand under 772 before.)
-    let tab = Tab::Area(area);
-    // (The tab's body, and the toolbar's controls: each widget in it.)
-    let body = |h: &Harness<'_, Moonglow>| {
-        (h.state().dock.iter_leaves())
-            .find(|(_, leaf)| leaf.tabs.contains(&tab))
-            .map(|(_, leaf)| leaf.viewport)
-            .unwrap()
-    };
-    let controls = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
-        let group = h.get_by_label("Area toolbar");
-        let all = group.query_all_by(|n| n.bounding_box().is_some());
-        let named = |n: &egui_kittest::Node<'_>| {
-            let a = n.accesskit_node();
-            format!("{:?} {}", a.role(), a.label().or(a.value()).unwrap_or_default())
-        };
-        all.map(|n| (named(&n), n.rect())).collect()
-    };
-    let (mut first_wrong, mut widths) = (None, Vec::new());
-    for icons_only in [false, true] {
-        h.state_mut().settings.toolbar_icons_only = icons_only;
-        for width in (640..=1600).step_by(4) {
-            h.set_size(egui::vec2(width as f32, 800.0));
-            // (A dropdown's room is the one it took the frame before: run
-            // until the toolbar is laid out the same twice, with a deadline.)
-            let started = std::time::Instant::now();
-            let mut was = Vec::new();
-            loop {
-                h.run();
-                let now = controls(&h);
-                if now == was {
-                    break;
-                }
-                assert!(started.elapsed().as_secs() < 20, "the toolbar never settles at {width}");
-                was = now;
-            }
-            let body = body(&h).expand(0.5);
-            let mut wrong: Vec<String> = (was.iter())
-                .filter(|(_, r)| r.left() < body.left() || r.right() > body.right())
-                .map(|(n, r)| format!("{n} at {r:?}"))
-                .collect();
-            // Each lead icon: on its dropdown's row, just before it.
-            let combos: Vec<egui::Rect> =
-                (was.iter()).filter(|(n, _)| n.starts_with("ComboBox")).map(|(_, r)| *r).collect();
-            for (icon, name) in [
-                (mg_uikit::Icon::Fade, "Fade Geometry"),
-                (mg_uikit::Icon::Magnet, "Snap"),
-                (mg_uikit::Icon::Rotate, "Turn"),
-            ] {
-                let drawn = mg_uikit::icons_drawn(&h.ctx);
-                let leads: Vec<egui::Rect> = (drawn.iter())
-                    .filter(|(i, r)| *i == icon && body.x_range().contains(r.center().x))
-                    .map(|(_, r)| *r)
-                    .collect();
-                assert_eq!(leads.len(), usize::from(icons_only), "{name}'s icon at {width}");
-                for lead in leads {
-                    let beside = combos.iter().any(|c| {
-                        let gap = c.left() - lead.right();
-                        (0.0..=12.0).contains(&gap) && c.y_range().contains(lead.center().y)
-                    });
-                    if !beside {
-                        wrong.push(format!("{name}'s icon at {lead:?}, apart from its dropdown"));
-                    }
-                }
-            }
-            if !wrong.is_empty() {
-                widths.push((icons_only, width));
-                first_wrong.get_or_insert((icons_only, width, body, wrong));
-            }
-        }
-    }
-    assert!(first_wrong.is_none(), "fails at {widths:?}, first: {first_wrong:#?}");
 }
 
 #[test]
@@ -525,7 +421,7 @@ fn area_properties_edit_the_area() {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
     };
-    area_tool(&h, "Area Properties").click();
+    area_click(&mut h, "Area Properties");
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 

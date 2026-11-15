@@ -638,6 +638,24 @@ pub fn combo_icon(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _op
     paint_chevron(ui.painter(), rect.center(), 1.0, t.text_2);
 }
 
+/// Gives `ui` the open combo box's look (`.combo.open`: `raised-hover`
+/// with its `accent` ring) for the combo boxes laid out in it. The
+/// theme's `widgets.open` fills with `bar`, as egui fills the title bar
+/// of the window on top from it (the dialogs' title row), so a combo box
+/// takes its open look from the `Ui` it is drawn in, not the theme; its
+/// list is a popup of the context's style and keeps the theme's. A `Ui`
+/// without the suite's look is left as it is.
+pub fn combo_style(ui: &mut Ui) {
+    if !themed(ui.style()) {
+        return;
+    }
+    let t = tokens_of(ui.style());
+    let open = &mut ui.visuals_mut().widgets.open;
+    open.weak_bg_fill = t.raised_hover;
+    open.bg_fill = t.raised_hover;
+    open.bg_stroke = Stroke::new(1.0, t.accent);
+}
+
 /// Whether `style` is one the theme made ([`crate::theme::style`], or
 /// one changed from it): its window and selection fills are the
 /// tokens'. The style functions below change only such a style, as the

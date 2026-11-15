@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T04:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
 ---
 
 # The main window
@@ -58,8 +58,8 @@ and follow it as soon as it changes); one left smaller opens at that
 size. Where the Status Bar is short of room, its parts give way in
 one order (see [The Status Bar](#the-status-bar)). The Top Bar
 is the same whatever **Tools › Options › General › Editors' toolbar
-buttons** says: that setting is the area view's and the editors'
-toolbars'. The icons are Moonglow's own drawings, one to a command. The
+buttons** says: that setting is the editors' toolbars' (the area's
+header yields to its width instead). The icons are Moonglow's own drawings, one to a command. The
 toolbar's other buttons of earlier versions have homes of their own:
 **Module Properties** (a box) and **New Area** (the Area Wizard, a
 plus) are icons on the Module panel's tab bar, beside **Expand All** and
@@ -69,8 +69,7 @@ Start filter show its circled arrow); **Resources** is the Left Dock's
 Resources tab (also Tools › Resource Browser); **Palettes** is the
 Right Dock's Palette panel (also Tools › Palettes); **Preview** is the
 Right Dock's Preview panel, on the tab beside the palette's (also
-**Tools › Preview**). Each kind of object has one icon wherever it appears: on
-the area view's toolbar and in the palette's row of types.
+**Tools › Preview**). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types.
 
 ## Menus
 
@@ -711,10 +710,9 @@ has the arrow keys).
 
 **The eyes** are the area view's Show toggles: one state, two controls.
 Click a kind's eye to hide its objects in the view (the eye is struck
-through, the kind's row turns gray, and its toggle on the area toolbar
-goes off), and again to show them; a toggle on the toolbar changes the
-eye with it. What is hidden is hidden in every area view, as the
-toolbar's toggles always did, and a hidden object can't stay selected.
+through, the kind's row turns gray, and its toggle on the area's header goes off), and again to show them; a toggle on
+the header changes the eye with it. What is hidden is hidden in every
+area view, as the area's Show toggles always did, and a hidden object can't stay selected.
 
 **A kind** opens with a click on its row (or its arrow) and lists its
 objects, each with its name and, gray after it, its tag; both are cut
@@ -1250,7 +1248,7 @@ of the galleries, the palettes and a hovered row's preview have no
 shadow. **Shaders** draws it with the game's
 own shaders, a material's custom ones among them (wind-swayed leaves move
 while the viewer plays): the same switch as the area view's toolbar
-(Areas › The toolbar).
+(Areas › The header).
 
 ## The log
 

@@ -2856,6 +2856,10 @@ struct Dialogs {
     /// This frame's Escape clears a search field's text: the dialog it is
     /// in stays open ([`escape_on`]).
     clears_search: bool,
+    /// A popup (a menu, a combo box's list) or a kit popover (the area
+    /// header's) was open as this frame began: its Escape, which closes
+    /// it, is no one else's ([`escape_closes_a_popup`]).
+    popup: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -2883,8 +2887,11 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
     if let Some(l) = d.open.last() {
         ctx.move_to_top(*l);
     }
-    d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
-        && !egui::Popup::is_any_open(ctx);
+    // (Nor a kit popover's, which egui's popups do not count: the
+    // header's Lighting, its More. The Escape closes it, and nothing
+    // else.)
+    d.popup = egui::Popup::is_any_open(ctx) || mg_uikit::popover::Popover::any_open(ctx);
+    d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none()) && !d.popup;
     d.leaves_search = d.escape && d.searching;
     d.clears_search = d.escape && d.searching_text;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
@@ -3658,6 +3665,15 @@ pub(crate) fn dialog_open(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| !d.open.is_empty())
 }
 
+/// Whether this frame's Escape closes a popup or a kit popover that was
+/// open as the frame began (a menu, a combo box's list, a popover of the
+/// area's header), and so is nothing else's: what the area view holds
+/// stays in hand, though the menu has closed by the time the view reads
+/// the key.
+pub(crate) fn escape_closes_a_popup(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.popup)
+}
+
 /// Escape was pressed with no dialog open (for a window of the dock to
 /// close on it).
 pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {
@@ -4050,160 +4066,164 @@ impl<'a> RowChoice<'a> {
         // Just opened: the list is whole and begins at the one chosen, not
         // at its top (a long list was searched for it every time).
         let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-        let list = combo.show_ui(ui, |ui| {
-            mg_uikit::list_rows(ui);
-            let width_id = open_id.with("width");
-            if opened {
-                ui.data_mut(|d| {
-                    d.remove_temp::<String>(filter_id);
-                    d.insert_temp(open_id.with("go"), true);
-                });
-            }
-            if opened && long {
-                // A long list's width, set once while open: the box's, or
-                // the widest row's and its scroll bar's if wider. egui's
-                // popup takes the width its contents had the frame before;
-                // with the rows filling it, and a scroll area that follows
-                // its rows, any part of a point more there grew the list
-                // every frame, until it reached the window's edge (a
-                // builder's report). (A short list is egui's own.)
-                let pad = 2.0 * ui.spacing().button_padding.x;
-                let bar = ui.spacing().scroll.allocated_width();
-                // (Measured: the longest rows by their characters, not
-                // every row of a table of thousands.)
-                let mut texts: Vec<std::borrow::Cow<'_, str>> =
-                    (none.map(std::borrow::Cow::from).into_iter())
-                        .chain(in_order().iter().map(|c| text(c, numbered)))
-                        .collect();
-                let measured = texts.len().min(MEASURED_ROWS);
-                if measured < texts.len() {
-                    texts.select_nth_unstable_by_key(measured, |t| {
-                        std::cmp::Reverse(t.chars().count())
+        let list = combo_looks(ui, |ui| {
+            combo.show_ui(ui, |ui| {
+                mg_uikit::list_rows(ui);
+                let width_id = open_id.with("width");
+                if opened {
+                    ui.data_mut(|d| {
+                        d.remove_temp::<String>(filter_id);
+                        d.insert_temp(open_id.with("go"), true);
                     });
                 }
-                let widest = (texts.into_iter().take(measured))
-                    .map(|t| {
-                        egui::WidgetText::from(t.as_ref())
-                            .into_galley(
-                                ui,
-                                Some(egui::TextWrapMode::Extend),
-                                f32::INFINITY,
-                                egui::TextStyle::Button,
-                            )
-                            .size()
-                            .x
-                    })
-                    .fold(0.0, f32::max);
-                let most = ui.ctx().content_rect().width() - 40.0;
-                let width = ui.available_width().max((widest + pad + bar).min(most));
-                ui.data_mut(|d| d.insert_temp(width_id, width));
-            }
-            if let Some(width) = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| long) {
-                ui.set_width(width);
-            }
-            // (A popup's first pass only measures it: the list is brought
-            // to the chosen row in the first pass that draws it.)
-            let go = !ui.is_sizing_pass()
-                && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
-            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-            // (What is typed narrows the list from its top, wherever it
-            // had been scrolled to.)
-            let mut narrowed = false;
-            if long {
-                // (Escape clears what is typed, then closes the list.)
-                let before = filter.clone();
-                let searched =
-                    SearchField::new(filter_id.with("field"), &mut filter).hint("Filter").show(ui);
-                narrowed = filter != before;
-                if searched.left == Some(FilterLeft::Escape) {
-                    ui.close();
+                if opened && long {
+                    // A long list's width, set once while open: the box's, or
+                    // the widest row's and its scroll bar's if wider. egui's
+                    // popup takes the width its contents had the frame before;
+                    // with the rows filling it, and a scroll area that follows
+                    // its rows, any part of a point more there grew the list
+                    // every frame, until it reached the window's edge (a
+                    // builder's report). (A short list is egui's own.)
+                    let pad = 2.0 * ui.spacing().button_padding.x;
+                    let bar = ui.spacing().scroll.allocated_width();
+                    // (Measured: the longest rows by their characters, not
+                    // every row of a table of thousands.)
+                    let mut texts: Vec<std::borrow::Cow<'_, str>> =
+                        (none.map(std::borrow::Cow::from).into_iter())
+                            .chain(in_order().iter().map(|c| text(c, numbered)))
+                            .collect();
+                    let measured = texts.len().min(MEASURED_ROWS);
+                    if measured < texts.len() {
+                        texts.select_nth_unstable_by_key(measured, |t| {
+                            std::cmp::Reverse(t.chars().count())
+                        });
+                    }
+                    let widest = (texts.into_iter().take(measured))
+                        .map(|t| {
+                            egui::WidgetText::from(t.as_ref())
+                                .into_galley(
+                                    ui,
+                                    Some(egui::TextWrapMode::Extend),
+                                    f32::INFINITY,
+                                    egui::TextStyle::Button,
+                                )
+                                .size()
+                                .x
+                        })
+                        .fold(0.0, f32::max);
+                    let most = ui.ctx().content_rect().width() - 40.0;
+                    let width = ui.available_width().max((widest + pad + bar).min(most));
+                    ui.data_mut(|d| d.insert_temp(width_id, width));
                 }
-                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-            }
-            // (Case and accents aside: `arbol` finds `Árbol`.)
-            let filter = mg_core::text::Needle::new(&filter);
-            let matches = |c: &mg_rules::Choice| {
-                filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
-            };
-            // The rows shown: the row of none (`None`) first, then those
-            // the filter finds.
-            // (Of a long list, found once while it is open and kept until
-            // the filter changes: not sorted and searched every frame.)
-            let found: Vec<&mg_rules::Choice> = if long {
-                // (Where in `choices` each row shown is, by the list it was
-                // found in and the filter.)
-                type Kept = (usize, usize, String, std::sync::Arc<Vec<usize>>);
-                let kept_id = open_id.with("found");
-                let made_for = (choices.as_ptr() as usize, choices.len(), filter.as_str());
-                let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
-                let at = match kept {
-                    Some((p, n, f, at)) if !opened && (p, n, f.as_str()) == made_for => at,
-                    _ => {
-                        let order = match by_name {
-                            true => mg_rules::name_order(choices),
-                            false => (0..choices.len()).collect(),
-                        };
-                        let at: Vec<usize> =
-                            order.into_iter().filter(|&i| matches(&choices[i])).collect();
-                        let at = std::sync::Arc::new(at);
-                        let kept: Kept = (made_for.0, made_for.1, made_for.2.into(), at.clone());
-                        ui.data_mut(|d| d.insert_temp(kept_id, kept));
-                        at
+                if let Some(width) = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| long) {
+                    ui.set_width(width);
+                }
+                // (A popup's first pass only measures it: the list is brought
+                // to the chosen row in the first pass that draws it.)
+                let go = !ui.is_sizing_pass()
+                    && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
+                let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+                // (What is typed narrows the list from its top, wherever it
+                // had been scrolled to.)
+                let mut narrowed = false;
+                if long {
+                    // (Escape clears what is typed, then closes the list.)
+                    let before = filter.clone();
+                    let searched = SearchField::new(filter_id.with("field"), &mut filter)
+                        .hint("Filter")
+                        .show(ui);
+                    narrowed = filter != before;
+                    if searched.left == Some(FilterLeft::Escape) {
+                        ui.close();
+                    }
+                    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+                }
+                // (Case and accents aside: `arbol` finds `Árbol`.)
+                let filter = mg_core::text::Needle::new(&filter);
+                let matches = |c: &mg_rules::Choice| {
+                    filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
+                };
+                // The rows shown: the row of none (`None`) first, then those
+                // the filter finds.
+                // (Of a long list, found once while it is open and kept until
+                // the filter changes: not sorted and searched every frame.)
+                let found: Vec<&mg_rules::Choice> = if long {
+                    // (Where in `choices` each row shown is, by the list it was
+                    // found in and the filter.)
+                    type Kept = (usize, usize, String, std::sync::Arc<Vec<usize>>);
+                    let kept_id = open_id.with("found");
+                    let made_for = (choices.as_ptr() as usize, choices.len(), filter.as_str());
+                    let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
+                    let at = match kept {
+                        Some((p, n, f, at)) if !opened && (p, n, f.as_str()) == made_for => at,
+                        _ => {
+                            let order = match by_name {
+                                true => mg_rules::name_order(choices),
+                                false => (0..choices.len()).collect(),
+                            };
+                            let at: Vec<usize> =
+                                order.into_iter().filter(|&i| matches(&choices[i])).collect();
+                            let at = std::sync::Arc::new(at);
+                            let kept: Kept =
+                                (made_for.0, made_for.1, made_for.2.into(), at.clone());
+                            ui.data_mut(|d| d.insert_temp(kept_id, kept));
+                            at
+                        }
+                    };
+                    at.iter().map(|&i| &choices[i]).collect()
+                } else {
+                    in_order().iter().filter(|c| matches(c)).collect()
+                };
+                let shown: Vec<Option<&mg_rules::Choice>> =
+                    (none.map(|_| None).into_iter()).chain(found.into_iter().map(Some)).collect();
+                let chosen = |c: Option<&mg_rules::Choice>| match c {
+                    Some(c) => current == Some(c.row as i64),
+                    None => current.is_none(),
+                };
+                let mut row = |ui: &mut Ui, c: Option<&mg_rules::Choice>, scroll: bool| {
+                    let label = match c {
+                        Some(c) => text(c, numbered),
+                        None => none.unwrap_or_default().into(),
+                    };
+                    let mut r = ui.selectable_label(chosen(c), label);
+                    if scroll && go && chosen(c) {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if let (Some(about), Some(c)) = (about.as_mut(), c) {
+                        r = r.on_hover_ui_at_pointer(|ui| about(ui, c.row));
+                    }
+                    if r.clicked() {
+                        pick = Some(c.map(|c| c.row as i64));
+                        ui.close();
                     }
                 };
-                at.iter().map(|&i| &choices[i]).collect()
-            } else {
-                in_order().iter().filter(|c| matches(c)).collect()
-            };
-            let shown: Vec<Option<&mg_rules::Choice>> =
-                (none.map(|_| None).into_iter()).chain(found.into_iter().map(Some)).collect();
-            let chosen = |c: Option<&mg_rules::Choice>| match c {
-                Some(c) => current == Some(c.row as i64),
-                None => current.is_none(),
-            };
-            let mut row = |ui: &mut Ui, c: Option<&mg_rules::Choice>, scroll: bool| {
-                let label = match c {
-                    Some(c) => text(c, numbered),
-                    None => none.unwrap_or_default().into(),
-                };
-                let mut r = ui.selectable_label(chosen(c), label);
-                if scroll && go && chosen(c) {
-                    r.scroll_to_me(Some(egui::Align::Center));
-                }
-                if let (Some(about), Some(c)) = (about.as_mut(), c) {
-                    r = r.on_hover_ui_at_pointer(|ui| about(ui, c.row));
-                }
-                if r.clicked() {
-                    pick = Some(c.map(|c| c.row as i64));
-                    ui.close();
-                }
-            };
-            if long {
-                // (The rows scroll under the Filter field, which stays;
-                // only those in sight are laid out, of a table of tens of
-                // thousands too. Opened, the chosen one is in the middle.)
-                let height = ui.spacing().interact_size.y.max(
-                    ui.text_style_height(&egui::TextStyle::Button)
-                        + 2.0 * ui.spacing().button_padding.y,
-                );
-                let step = height + ui.spacing().item_spacing.y;
-                let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
-                if narrowed {
-                    area = area.vertical_scroll_offset(0.0);
-                } else if go && let Some(at) = shown.iter().position(|c| chosen(*c)) {
-                    let offset = at as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
-                    area = area.vertical_scroll_offset(offset.max(0.0));
-                }
-                area.show_rows(ui, height, shown.len(), |ui, range| {
-                    for c in &shown[range] {
-                        row(ui, *c, false);
+                if long {
+                    // (The rows scroll under the Filter field, which stays;
+                    // only those in sight are laid out, of a table of tens of
+                    // thousands too. Opened, the chosen one is in the middle.)
+                    let height = ui.spacing().interact_size.y.max(
+                        ui.text_style_height(&egui::TextStyle::Button)
+                            + 2.0 * ui.spacing().button_padding.y,
+                    );
+                    let step = height + ui.spacing().item_spacing.y;
+                    let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
+                    if narrowed {
+                        area = area.vertical_scroll_offset(0.0);
+                    } else if go && let Some(at) = shown.iter().position(|c| chosen(*c)) {
+                        let offset = at as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
+                        area = area.vertical_scroll_offset(offset.max(0.0));
                     }
-                });
-            } else {
-                for c in &shown {
-                    row(ui, *c, true);
+                    area.show_rows(ui, height, shown.len(), |ui, range| {
+                        for c in &shown[range] {
+                            row(ui, *c, false);
+                        }
+                    });
+                } else {
+                    for c in &shown {
+                        row(ui, *c, true);
+                    }
                 }
-            }
+            })
         });
         let r = &list.response;
         // (In use once a click has opened it, before it is drawn open, or
@@ -4525,12 +4545,13 @@ impl Dropdown {
         options: impl FnOnce() -> Vec<T>,
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
-        let r = (self.combo)
-            .show_ui(ui, |ui| {
+        let r = combo_looks(ui, |ui| {
+            (self.combo).show_ui(ui, |ui| {
                 mg_uikit::list_rows(ui);
                 rows(ui, current)
             })
-            .response;
+        })
+        .response;
         // (The options read only when an arrow key is pressed: not each
         // frame the box has the keys.)
         let keyed = ui.input(|i| {
@@ -4641,8 +4662,8 @@ impl Dropdown {
             let line = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().interact_size.y;
             combo = combo.height(ROWS_HEIGHT + 2.0 * line);
         }
-        let r = combo
-            .show_ui(ui, |ui| {
+        let r = combo_looks(ui, |ui| {
+            combo.show_ui(ui, |ui| {
                 mg_uikit::list_rows(ui);
                 if !filtered {
                     return contents(ui, &mut keys);
@@ -4693,7 +4714,8 @@ impl Dropdown {
                     ui.data_mut(|d| d.insert_temp(width_id, w));
                 }
             })
-            .response;
+        })
+        .response;
         if self.filtered {
             ui.data_mut(|d| d.insert_temp(filter_id, filter));
             // (Where the field's keys put the cursor: at the first row, or
@@ -4733,8 +4755,25 @@ impl Dropdown {
         ui: &mut Ui,
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
-        self.combo.show_ui(ui, contents)
+        combo_looks(ui, |ui| self.combo.show_ui(ui, contents))
     }
+}
+
+/// `show`, a combo box laid out in `ui`, drawn open in the kit's look
+/// ([`mg_uikit::combo_style`]: `raised-hover`, not the theme's `bar`), the
+/// look `ui` had kept for what follows it.
+fn combo_looks<R>(ui: &mut Ui, show: impl FnOnce(&mut Ui) -> R) -> R {
+    // (Only while a popup is open, which an open combo box's list is: a
+    // `Ui`'s visuals changed are its style copied, kept from every frame
+    // of every list.)
+    if !egui::Popup::is_any_open(ui.ctx()) {
+        return show(ui);
+    }
+    let kept = ui.visuals().widgets.open;
+    mg_uikit::combo_style(ui);
+    let r = show(ui);
+    ui.visuals_mut().widgets.open = kept;
+    r
 }
 
 /// How long letters typed to a list go together, seconds: after a rest,

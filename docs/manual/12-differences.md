@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T14:34:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
 ---
 
 # Differences from Aurora
@@ -52,8 +52,8 @@ it differs, it is on purpose:
 - **Environment maps** on creatures and items are always drawn, as the
   game draws them.
 - **The tile border** past an area's edge, which the game draws and
-  Aurora doesn't, can be drawn in the area viewer: the toolbar's **Tile
-  Border**, off by default ([Areas](04-areas.md#the-toolbar)).
+  Aurora doesn't, can be drawn in the area viewer: the header's **Tile
+  border** (its Lighting popover), off by default ([Areas](04-areas.md#the-header)).
 - **A press on an object with a tile or a group in hand** is the
   object's: a click selects it and a drag moves it, the brush staying
   chosen, where Aurora's brushes take every click. A press on bare ground

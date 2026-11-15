@@ -589,8 +589,8 @@ pub(crate) fn module_tool<'t>(
 /// The buttons `name` that are not the Top Bar's, the Module panel
 /// header's or the area view's (an editor's own Save, Undo or Compile, a
 /// dialog's Open, a page's Properties, the palette's Grass): the nodes of
-/// that name that have no "Top Bar", "Left Dock" or "Area toolbar" group
-/// above them.
+/// that name that have no "Top Bar", "Left Dock" or "Area header" group,
+/// nor one of the area header's popovers, above them.
 pub(crate) fn apart_all<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
@@ -612,11 +612,20 @@ pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
 
 /// Whether `n` is on the Top Bar, a dock's tab bar (the Left Dock's, with
 /// the Module panel's header buttons; the Right Dock's Palette and Preview
-/// tabs) or the area view's toolbar.
+/// tabs) or the area view's header, or in one of its popovers.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        let bars = ["Top Bar", "Left Dock", "Area toolbar", mg_ui::RIGHT_DOCK];
+        let bars = [
+            "Top Bar",
+            "Left Dock",
+            AREA_HEADER,
+            "More in Area header",
+            "Lighting",
+            "Overlays",
+            "Audio",
+            mg_ui::RIGHT_DOCK,
+        ];
         if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
             return true;
         }
@@ -725,6 +734,13 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
         let Some(node) = h.get_by_label(&more).query_by_label(name) else {
             panic!("{name} is not in {group}'s More")
         };
+        // (A long More scrolls: what is in it is reached by scrolling it
+        // into sight.)
+        if !popover.expand(0.5).contains_rect(rect_of(&node)) {
+            node.scroll_to_me();
+            h.run();
+        }
+        let node = h.get_by_label(&more).get_by_label(name);
         let r = rect_of(&node);
         assert!(
             popover.expand(0.5).contains_rect(r),
@@ -736,13 +752,200 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
     assert!(h.query_by_label(&more).is_none(), "{group}'s More stayed open");
 }
 
-/// The area view's toolbar's button `name` (found within it: the palette
-/// names the kinds of objects too). The objects' filters are "Show
-/// Creatures"…, "Show Start"; the switch that plays the placed sounds is
-/// "Play Sounds".
+/// The area editor's header (`mg_uikit::header`, M4's U3): its group.
+pub(crate) const AREA_HEADER: &str = "Area header";
+
+/// The area header's popovers and menus by their names, each with the
+/// controls it holds (by their accessible names): the compact header's
+/// Show popover, the full header's All or None menu, Lighting, Overlays,
+/// Audio; and the unfolded row's Shadows and Walkmesh toggles, whose
+/// held menus hold the rows their popovers had.
+const AREA_HOLDERS: [(&str, &[&str]); 7] = [
+    (
+        "Show",
+        &[
+            "Show Creatures",
+            "Show Doors",
+            "Show Encounters",
+            "Show Items",
+            "Show Placeables",
+            "Show Sounds",
+            "Show Stores",
+            "Show Triggers",
+            "Show Waypoints",
+            "Show Start",
+            "All",
+            "None",
+        ],
+    ),
+    ("Show All or None", &["All", "None"]),
+    (
+        "Lighting",
+        &[
+            "Use the area's lighting",
+            "Sun and moon shadows",
+            "Creature shadows",
+            "Light shadows",
+            "Fast",
+            "High",
+            "Fog",
+            "Fade Geometry",
+            "Animations",
+            "Grass",
+            "Tile border",
+            "Shaders",
+        ],
+    ),
+    (
+        "Overlays",
+        &[
+            "Show overlays",
+            "Grid",
+            "Minimap",
+            "Ground walkmesh",
+            "Object walkmeshes",
+            "Sound ranges",
+        ],
+    ),
+    ("Audio", &["Play Sounds", "Ambient", "Music"]),
+    ("Shadows", &["Sun and moon shadows", "Creature shadows", "Light shadows", "Fast", "High"]),
+    ("Walkmesh", &["Ground walkmesh", "Object walkmeshes"]),
+];
+
+/// The node named `name` among the area header's controls: on its row,
+/// or in the popover or menu open from it (none opened for it).
+pub(crate) fn area_tool_shown<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> Option<egui_kittest::Node<'t>> {
+    if let Some(n) = h.query_by_label(AREA_HEADER).and_then(|g| g.query_by_label(name)) {
+        return Some(n);
+    }
+    let holders = ["More in Area header", "Lighting", "Overlays", "Audio", "Show"];
+    for holder in holders {
+        for group in h.query_all_by_label(holder) {
+            if let Some(n) = group.query_by_label(name) {
+                return Some(n);
+            }
+        }
+    }
+    // (A held menu's or the arrow's, an egui popup over everything:
+    // Shadows', Walkmesh's, All or None's rows, drawn last.)
+    let held = AREA_HOLDERS
+        .iter()
+        .filter(|(holder, _)| matches!(*holder, "Shadows" | "Walkmesh" | "Show All or None"));
+    if egui::Popup::is_any_open(&h.ctx) && held.into_iter().any(|(_, rows)| rows.contains(&name)) {
+        return h.query_all_by_label(name).last();
+    }
+    None
+}
+
+/// Opens what holds the area header's control `name` where it is not on
+/// the row (the popover that holds it, More, a held menu): by the
+/// header's record of where each of its items went.
+fn open_area_tool(h: &mut Harness<'_, Moonglow>, name: &str) {
+    use mg_uikit::header::{self, Place};
+    if area_tool_shown(h, name).is_some() {
+        return;
+    }
+    let rec = header::records(&h.ctx, AREA_HEADER).into_iter().next().expect("the area header");
+    let place = |n: &str| rec.places.iter().find(|(p, _)| p == n).map(|(_, p)| *p);
+    let open_more = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label(AREA_HEADER).get_by_label(header::MORE).click();
+        h.run_steps(3);
+    };
+    if place(name) == Some(Place::More) {
+        open_more(h);
+        return;
+    }
+    for (holder, rows) in AREA_HOLDERS {
+        // (The full header's Show is a joined group, not a popover: its
+        // All and None are the arrow's.)
+        let joined = holder == "Show" && place("Show All or None").is_some();
+        if !rows.contains(&name) || joined {
+            continue;
+        }
+        match place(holder) {
+            Some(Place::Row | Place::Icon) => {
+                h.get_by_label(AREA_HEADER).get_by_label(holder).click();
+            }
+            Some(Place::Unfolded) if holder == "Shadows" || holder == "Walkmesh" => {
+                h.get_by_label(AREA_HEADER).get_by_label(holder).click_secondary();
+            }
+            Some(Place::More) => {
+                open_more(h);
+                return;
+            }
+            _ => continue,
+        }
+        h.run_steps(3);
+        return;
+    }
+}
+
+/// The area header's control `name`: on its row (the header's group,
+/// "Area header"), or in the popover, More or held menu that holds it,
+/// which is opened for it. The objects' filters are "Show Creatures"…,
+/// "Show Start"; the switch that plays the placed sounds is "Play
+/// Sounds". What it opened stays open: [`area_click`] clicks and closes.
 #[track_caller]
-pub(crate) fn area_tool<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
-    h.get_by_label("Area toolbar").get_by_label(name)
+pub(crate) fn area_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    open_area_tool(h, name);
+    let h: &'t Harness<'_, Moonglow> = h;
+    match area_tool_shown(h, name) {
+        Some(n) => n,
+        None => {
+            let rec = mg_uikit::header::records(&h.ctx, AREA_HEADER);
+            let (places, open) = rec.first().map(|r| (r.places.clone(), r.open.clone())).unzip();
+            panic!("no {name} in the area header or what it opens: {places:?}, {open:?} open")
+        }
+    }
+}
+
+/// The palette's More (its rarer commands), not the area header's.
+#[track_caller]
+pub(crate) fn palette_more<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    let mut found = h.query_all_by_label("More").filter(|n| !in_group(n, AREA_HEADER));
+    found.next().expect("the palette's More")
+}
+
+/// Each control drawn on the area header's row, by its role and name,
+/// with where it is: what a test compares the row by.
+pub(crate) fn area_header_row(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
+    let group = h.get_by_label(AREA_HEADER);
+    let all = group.query_all_by(|n| n.bounding_box().is_some());
+    let named = |n: &egui_kittest::Node<'_>| {
+        let a = n.accesskit_node();
+        format!("{:?} {}", a.role(), a.label().or(a.value()).unwrap_or_default())
+    };
+    all.map(|n| (named(&n), n.rect())).collect()
+}
+
+/// Clicks the area header's control `name` ([`area_tool`]), runs the
+/// frames that follow, and closes what was opened for it.
+#[track_caller]
+pub(crate) fn area_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    area_tool(h, name).click();
+    h.run_steps(3);
+    close_area_popover(h);
+}
+
+/// Closes the area header's open popover or More (by its button), or a
+/// held menu (Escape), where one is open.
+pub(crate) fn close_area_popover(h: &mut Harness<'_, Moonglow>) {
+    use mg_uikit::header;
+    let rec = header::records(&h.ctx, AREA_HEADER).into_iter().next();
+    if let Some(open) = rec.and_then(|r| r.open) {
+        h.get_by_label(AREA_HEADER).get_by_label(&open).click();
+        h.run_steps(3);
+    }
+    if egui::Popup::is_any_open(&h.ctx) {
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+    }
 }
 
 /// The tooltip shown with the pointer at `rect`'s middle: the words of

@@ -1,6 +1,12 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U3, the area header and its popovers**: the area's toolbar is one header row, as the Main, Narrow and WideArea boards draw it ([04](manual/04-areas.md#the-header), [02](manual/02-main-window.md), [10](manual/10-options.md)).
+  * **The row**: the Show toggles with All and None on their arrow, Snap and Turn, Together and Onto Objects; Day | Night; the **Lighting**, **Overlays** (its switch hides the five overlays and gives them back as they were) and **Audio** popovers; Area Properties; a warning sign for what could not be read; More with To Scratch and Save as Prefab… (and Select Tiles, Paint, Reorient Camera and Go to Start Location until the tool shelf and the compass).
+  * **The yields**: compact under an editor 990 wide (Show "5 of 10", the moon, icons), Snap and Turn without their values under 550, Together and Onto Objects into More under 490; on wide screens the popovers unfold into the row where they fit.
+  * **Right-click** the header for which controls to show (Options › Area › **Header**); the header no longer follows "Editors' toolbar buttons".
+  * An Escape that closes a popover closes nothing else; every open combo box is drawn `raised-hover`.
+  * Kit: a check row named apart from its words, a switch's words unfolded, rows shown only folded or only unfolded, an item's words apart from its name, the combo look; two faults of the header fixed (what follows it began over its lower half; a popover folded early stayed folded where it fit).
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U2's review, and the owner's ruling that **the area remembers its Right Dock tab** (kept in the settings like every kind's, restored on the next run and when the module opens again; [02](manual/02-main-window.md)).
   * Two windows' settings merged without losing or reviving the docks' layouts.
   * A floating editor's window: the right pane the whole height, the bottom pane under the editor; global panels may follow it there; F6 stops at its panes; a press in one is its editor's pane for plugins ([17](manual/17-plugin-api.md)).

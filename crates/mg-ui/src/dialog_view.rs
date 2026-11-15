@@ -1035,6 +1035,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         && !choosing
         && view.input.is_none()
         && !egui::Popup::is_any_open(ui.ctx())
+        && !mg_uikit::popover::Popover::any_open(ui.ctx())
     {
         // Escape hands them back (to the area's view, as the module tree's
         // does), unless it took the keyboard from a field or closes a

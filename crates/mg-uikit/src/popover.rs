@@ -120,6 +120,7 @@ pub struct PopCheck<'a> {
     sub: bool,
     enabled: bool,
     unfolded_words: bool,
+    name: Option<String>,
 }
 
 impl<'a> PopCheck<'a> {
@@ -134,7 +135,22 @@ impl<'a> PopCheck<'a> {
             sub: false,
             enabled: true,
             unfolded_words: false,
+            name: None,
         }
+    }
+
+    /// Named `name` for a screen reader (and tests, and an editor
+    /// header's record) in place of its words: the area's Audio row
+    /// "Sounds" is "Play Sounds", apart from the Show filter's "Show
+    /// Sounds".
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Its accessible name: [`PopCheck::name`], or its words.
+    fn accessible_name(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.words)
     }
 
     /// With `icon` after its box (`.ic.lead`, `text-2`); unfolded, the
@@ -176,6 +192,9 @@ impl<'a> PopCheck<'a> {
             .toggle(*self.value)
             .icon_only(icon_only)
             .enabled(enabled);
+        if let Some(name) = &self.name {
+            b = b.name(name.as_str());
+        }
         if let Some(tip) = &self.tip {
             b = b.tip(tip.as_str());
         }
@@ -261,6 +280,13 @@ enum Row<'a> {
         add: AddUi<'a>,
         unfolded: Option<(f32, AddUi<'a>)>,
     },
+    /// A part of the caller's shown only where the popover is unfolded
+    /// into a header's row ([`Popover::unfolded_only`]).
+    UnfoldedOnly {
+        name: String,
+        width: f32,
+        add: AddUi<'a>,
+    },
     /// The kit's own (an editor header's More): given the popover's
     /// width, needing `needed`; never unfolds.
     Raw {
@@ -278,6 +304,9 @@ impl std::fmt::Debug for Row<'_> {
             Row::Separator => f.write_str("Separator"),
             Row::Custom { unfolded, .. } => {
                 f.debug_struct("Custom").field("unfolds", &unfolded.is_some()).finish()
+            }
+            Row::UnfoldedOnly { name, width, .. } => {
+                f.debug_struct("UnfoldedOnly").field("name", name).field("width", width).finish()
             }
             Row::Raw { needed, .. } => f.debug_struct("Raw").field("needed", needed).finish(),
         }
@@ -328,8 +357,11 @@ pub struct Popover<'a> {
     name: String,
     title: Option<(Option<Icon>, String)>,
     switch: Option<(&'a mut bool, String)>,
+    switch_words: Option<String>,
     rows_follow_switch: bool,
     rows: Vec<Row<'a>>,
+    /// The rows (by their place) shown only where it is not unfolded.
+    folded: Vec<usize>,
     hang: Hang,
     enabled: bool,
 }
@@ -341,8 +373,10 @@ impl<'a> Popover<'a> {
             name: name.into(),
             title: None,
             switch: None,
+            switch_words: None,
             rows_follow_switch: true,
             rows: Vec::new(),
+            folded: Vec::new(),
             hang: Hang::Auto,
             enabled: true,
         }
@@ -367,6 +401,14 @@ impl<'a> Popover<'a> {
             self.title = Some((None, self.name.clone()));
         }
         self.switch = Some((on, name.into()));
+        self
+    }
+
+    /// Unfolded into a header, its switch's toggle shows `words` beside
+    /// the title's icon (the wide area header's Lighting), not the icon
+    /// alone; its accessible name stays the switch's.
+    pub fn switch_words(mut self, words: impl Into<String>) -> Self {
+        self.switch_words = Some(words.into());
         self
     }
 
@@ -432,6 +474,33 @@ impl<'a> Popover<'a> {
         self
     }
 
+    /// The row added last is shown only where the popover hangs (and in
+    /// an editor header's More), not where it is unfolded into the row:
+    /// with [`Popover::unfolded_only`], several rows that stand as one
+    /// control on the row (the area's three kinds of shadows and their
+    /// quality, under one Shadows toggle). A row of the caller's so
+    /// marked needs no unfolded form.
+    pub fn folded_only(mut self) -> Self {
+        if let Some(last) = self.rows.len().checked_sub(1) {
+            self.folded.push(last);
+        }
+        self
+    }
+
+    /// A part of the caller's named `name`, `add` laid out exactly
+    /// `width` wide and a control high, shown only where the popover is
+    /// unfolded into a header's row (the rows marked
+    /// [`Popover::folded_only`] stand for it where it hangs).
+    pub fn unfolded_only(
+        mut self,
+        name: impl Into<String>,
+        width: f32,
+        add: impl FnOnce(&mut Ui) + 'a,
+    ) -> Self {
+        self.rows.push(Row::UnfoldedOnly { name: name.into(), width, add: Box::new(add) });
+        self
+    }
+
     /// Enabled (`true`, the default) or, with its switch and every row,
     /// drawn and said disabled (an editor header's item disabled).
     pub fn enabled(mut self, enabled: bool) -> Self {
@@ -456,6 +525,9 @@ impl<'a> Popover<'a> {
             self.rows.push(Row::Check(PopCheck::new(on, name).enabled(other.enabled)));
         }
         for row in other.rows {
+            if matches!(row, Row::UnfoldedOnly { .. }) {
+                continue;
+            }
             self.rows.push(match row {
                 Row::Check(c) => {
                     let e = c.enabled && enabled;
@@ -488,10 +560,12 @@ impl<'a> Popover<'a> {
     /// the caller's (in order): what its unfolded form shows on the row,
     /// by these names.
     pub fn check_names(&self) -> Vec<String> {
-        let rows = self.rows.iter().filter_map(|r| match r {
-            Row::Check(c) => Some(c.words.clone()),
+        let rows = self.rows.iter().enumerate().filter_map(|(i, r)| match r {
+            _ if self.folded.contains(&i) => None,
+            Row::Check(c) => Some(c.accessible_name().to_string()),
             Row::Action(a) => Some(a.words.clone()),
             Row::Custom { name: Some(name), unfolded: Some(_), .. } => Some(name.clone()),
+            Row::UnfoldedOnly { name, .. } => Some(name.clone()),
             _ => None,
         });
         self.switch.iter().map(|(_, n)| n.clone()).chain(rows).collect()
@@ -500,7 +574,10 @@ impl<'a> Popover<'a> {
     /// Whether every row has a form for the header's row (rows of the
     /// caller's given one by [`Popover::custom_unfolded`]).
     pub fn can_unfold(&self) -> bool {
-        self.rows.iter().all(|r| !matches!(r, Row::Custom { unfolded: None, .. } | Row::Raw { .. }))
+        (self.rows.iter().enumerate()).all(|(i, r)| {
+            self.folded.contains(&i)
+                || !matches!(r, Row::Custom { unfolded: None, .. } | Row::Raw { .. })
+        })
     }
 
     fn rows_enabled(&self) -> bool {
@@ -517,12 +594,15 @@ impl<'a> Popover<'a> {
         // (usize::MAX: the switch; usize::MAX - 1: a separator.)
         let mut parts = Vec::new();
         if let (Some((on, name)), Some((icon, _))) = (&self.switch, &self.title) {
-            let b = KitButton::new(Some(icon.unwrap_or(Icon::Eye)), name.as_str()).toggle(**on);
-            parts.push((usize::MAX, b.icon_only(true).enabled(self.enabled).width(ui)));
+            let b = switch_toggle(*icon, name, self.switch_words.as_deref(), **on);
+            parts.push((usize::MAX, b.enabled(self.enabled).width(ui)));
         }
         let enabled = self.rows_enabled();
         let mut pending_sep = false;
         for (i, row) in self.rows.iter().enumerate() {
+            if self.folded.contains(&i) {
+                continue;
+            }
             let width = match row {
                 Row::Heading(_) => continue,
                 Row::Separator => {
@@ -532,6 +612,7 @@ impl<'a> Popover<'a> {
                 Row::Check(c) => c.toggle(enabled && c.enabled).width(ui),
                 Row::Action(a) => a.button(enabled && a.enabled).width(ui),
                 Row::Custom { unfolded: Some((w, _)), .. } => *w,
+                Row::UnfoldedOnly { width, .. } => *width,
                 Row::Custom { unfolded: None, .. } | Row::Raw { .. } => continue,
             };
             if pending_sep {
@@ -558,7 +639,7 @@ impl<'a> Popover<'a> {
         let whole = self.enabled;
         let mut out = PopoverOutput::default();
         let start = ui.cursor().min;
-        let Popover { title, switch, rows, .. } = self;
+        let Popover { title, switch, switch_words, rows, .. } = self;
         let mut rows: Vec<Option<Row<'a>>> = rows.into_iter().map(Some).collect();
         let mut switch = switch;
         ui.horizontal(|ui| {
@@ -566,9 +647,9 @@ impl<'a> Popover<'a> {
             for (i, _) in parts {
                 if i == usize::MAX {
                     if let Some((on, name)) = switch.take() {
-                        let icon = title.as_ref().and_then(|(i, _)| *i).unwrap_or(Icon::Eye);
-                        let b = KitButton::new(Some(icon), name.as_str()).toggle(*on);
-                        if ui.add(b.icon_only(true).enabled(whole)).clicked() {
+                        let icon = title.as_ref().and_then(|(i, _)| *i);
+                        let b = switch_toggle(icon, &name, switch_words.as_deref(), *on);
+                        if ui.add(b.enabled(whole)).clicked() {
                             *on = !*on;
                             out.changed = true;
                         }
@@ -592,7 +673,10 @@ impl<'a> Popover<'a> {
                             out.changed = true;
                         }
                     }
-                    Some(Row::Custom { unfolded: Some((width, add)), .. }) => {
+                    Some(
+                        Row::Custom { unfolded: Some((width, add)), .. }
+                        | Row::UnfoldedOnly { width, add, .. },
+                    ) => {
                         let (rect, _) = ui.allocate_exact_size(
                             vec2(width, metrics::CONTROL_HEIGHT),
                             Sense::hover(),
@@ -836,6 +920,7 @@ impl<'a> Popover<'a> {
                         }
                     }
                     Row::Raw { add, .. } => add(ui, width),
+                    Row::UnfoldedOnly { .. } => {}
                     Row::Custom { add, .. } => {
                         let margin = Margin::symmetric(ROW_PADDING as i8, 1);
                         egui::Frame::new().inner_margin(margin).show(ui, |ui| {
@@ -1016,6 +1101,17 @@ fn paint_switch_with(
     }
 }
 
+/// The toggle a master switch is unfolded into: the title's icon alone
+/// (an eye where it has none), or with `words` beside it; named as the
+/// switch.
+fn switch_toggle(icon: Option<Icon>, name: &str, words: Option<&str>, on: bool) -> KitButton {
+    let icon = Some(icon.unwrap_or(Icon::Eye));
+    match words {
+        Some(words) => KitButton::new(icon, words).name(name).toggle(on),
+        None => KitButton::new(icon, name).toggle(on).icon_only(true),
+    }
+}
+
 /// Gives `response` the keyboard's focus where `first` asks for it (the
 /// first row that takes it, in a popover opened by the keyboard).
 fn take_focus(response: &Response, first: &mut bool) {
@@ -1039,8 +1135,9 @@ fn row(ui: &mut Ui, width: f32, enabled: bool) -> Response {
 fn check_row(ui: &mut Ui, width: f32, c: &PopCheck<'_>, enabled: bool) -> Response {
     let response = row(ui, width, enabled);
     let enabled = enabled && ui.is_enabled();
-    response
-        .widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, *c.value, &c.words));
+    response.widget_info(|| {
+        WidgetInfo::selected(WidgetType::Checkbox, enabled, *c.value, c.accessible_name())
+    });
     let rect = response.rect;
     if ui.is_rect_visible(rect) {
         let t = ui.tokens();

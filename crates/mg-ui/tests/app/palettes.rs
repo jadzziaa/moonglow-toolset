@@ -705,7 +705,7 @@ fn the_palette_s_header() {
     assert_eq!(count(&h), all);
     // The rarer commands are under "more".
     assert!(h.query_by_label("Categories…").is_none());
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…");
 }
@@ -773,7 +773,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         app.palette.custom = true;
     }
     h.run();
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
@@ -929,7 +929,7 @@ fn a_module_gets_palette_categories_of_its_own() {
     // With a blueprint in it, Remove asks where the blueprint goes;
     // Keep It keeps it, Cancel moves nothing.
     let reopen = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("More").click();
+        palette_more(h).click();
         h.run();
         h.get_by_label("Categories…").click();
         h.run();
@@ -1001,7 +1001,7 @@ fn a_palette_category_is_named_by_a_talk_table_string() {
         app.palette.custom = true;
     }
     h.run();
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
@@ -1643,8 +1643,8 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     // Two objects selected: the toolbar offers to save them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
     h.run_steps(2);
-    h.get_by_label("Save 2 as Prefab…").click();
-    h.run_steps(2);
+    // (In the area header's More.)
+    area_click(&mut h, "Save 2 as Prefab…");
     let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
     assert_eq!(clip.objects.len(), 2);
     h.state_mut().prefab_save = None;
@@ -1921,7 +1921,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
 
     // More › Refresh Palette: the one put in while the module was closed
     // is listed; Undo takes it out again.
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run_steps(2);
     h.get_by_label("Refresh Palette").click();
     h.run_steps(4);

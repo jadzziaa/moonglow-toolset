@@ -40,6 +40,7 @@ use mg_set::Tileset;
 use crate::{Action, Moonglow};
 
 mod bar;
+mod header;
 pub(crate) use bar::status;
 
 /// How far from a door hook a click places a door on it, metres.
@@ -158,8 +159,10 @@ pub(crate) struct Held {
 impl Held {
     fn read(ui: &egui::Ui, response: &egui::Response, was: Held) -> Held {
         use egui::PointerButton::{Middle, Primary, Secondary};
+        // (An Escape that closes a popover of the header's ends nothing.)
+        let popover = mg_uikit::popover::Popover::any_open(ui.ctx());
         ui.input(|i| {
-            let escape = i.key_pressed(egui::Key::Escape);
+            let escape = i.key_pressed(egui::Key::Escape) && !popover;
             let on = response.dragged() || (was.on && i.pointer.any_down() && !escape);
             Held {
                 on,
@@ -543,6 +546,10 @@ pub struct AreaView {
     map: Option<crate::minimap::Map>,
     pub map_rect: Option<Rect>,
     pub grid: bool,
+    /// The header's Overlays switch is off: the grid, the minimap, the
+    /// walkmeshes and the sound ranges are not drawn, each kept as it was
+    /// ticked ([`AreaView::overlay`]).
+    pub hide_overlays: bool,
     /// Which kinds of object are shown, by [`ObjectKind::index`].
     pub show: [bool; 9],
     pub show_start: bool,
@@ -947,6 +954,13 @@ impl Watching {
 }
 
 impl AreaView {
+    /// Whether an overlay ticked `on` (the grid, the minimap, a walkmesh,
+    /// the sound ranges) is drawn: not while the header's Overlays switch
+    /// is off.
+    pub fn overlay(&self, on: bool) -> bool {
+        on && !self.hide_overlays
+    }
+
     /// Whether its first reading is under way, on a thread of its own.
     pub(crate) fn reading(&self) -> bool {
         self.reading.is_some()
@@ -1128,6 +1142,7 @@ impl AreaView {
             map: None,
             map_rect: None,
             grid: true,
+            hide_overlays: false,
             show: [true; 9],
             show_start: true,
             start_selected: false,
@@ -3001,7 +3016,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.redraw = None;
         view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. }));
     }
-    toolbar(app, ui, &mut view);
+    header::header(app, ui, &mut view);
+    // The placeable brush's settings, while Paint is on (until they take
+    // the header's left group, U4).
+    if app.paint {
+        crate::paint_mode::strip(app, ui);
+    }
     // Whose the area is, where it isn't the builder's (the claims table).
     crate::claims::banner(app, ui, area);
     let start = start_on_ground(app, &view);
@@ -3083,362 +3103,6 @@ pub(crate) fn show_kind(app: &mut Moonglow, area: mg_core::ResRef, kind: ObjectK
     };
     show[kind.index()] = on;
     share(app, show, start);
-}
-
-fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
-    let was = (view.show, view.show_start);
-    // (Icons only: each icon alone, its name in its tip.)
-    // (Those Options › Area › Toolbar hides left out.)
-    let tools = crate::icons::Tools::of_area(&app.settings);
-    let hidden = app.settings.hidden_area_tools.clone();
-    // A right click on the toolbar between its buttons: which it shows (its
-    // rectangle from the frame before, under the buttons).
-    let row_id = ui.id().with("area-toolbar-row");
-    if let Some(rect) = ui.data(|d| d.get_temp::<egui::Rect>(row_id)) {
-        let behind = ui.interact(rect, row_id.with("menu"), egui::Sense::click());
-        mg_uikit::context_menu(&behind, |ui| {
-            egui::ScrollArea::vertical().max_height(480.0).show(ui, |ui| {
-                toolbar_menu(ui, &mut app.settings.hidden_area_tools, false);
-            });
-        });
-    }
-    let row = ui.horizontal_wrapped(|ui| {
-        // (Its buttons found within it: the palette names its types too.)
-        mg_uikit::name_group(ui, "Area toolbar");
-        use crate::icons;
-        for kind in ObjectKind::ALL {
-            let (on, name) = (&mut view.show[kind.index()], kind.label());
-            if hidden.contains(&icons::area_tool_kind(name)) {
-                continue;
-            }
-            // (Named for what they do, as the view's switches are: "Show
-            // Sounds", apart from the "Play Sounds" switch.)
-            let all = tools.showing_all();
-            let show = format!("Show {name}");
-            all.toggle_as(ui, on, icons::object(kind), name, &show, &show);
-        }
-        tools.toggle_as(
-            ui,
-            &mut view.show_start,
-            icons::START,
-            "Start",
-            "Show Start",
-            "Show the start location's marker, a blue ring with a red arrow",
-        );
-        if tools.button(ui, icons::SHOW_ALL, "All", "Show All").clicked() {
-            view.show = [true; 9];
-            view.show_start = true;
-        }
-        if tools.button(ui, icons::SHOW_NONE, "None", "Show None").clicked() {
-            view.show = [false; 9];
-            view.show_start = false;
-        }
-        if (view.show, view.show_start) != was {
-            share_shown(app, view);
-        }
-        // Hidden objects cannot stay selected.
-        let show = view.show;
-        view.selection.retain(|(k, _)| show[k.index()]);
-        ui.separator();
-        tools.toggle(ui, &mut view.night, icons::NIGHT, "Night", "Show the area at night");
-        if tools
-            .toggle(
-                ui,
-                &mut view.lit,
-                icons::LIGHTING,
-                "Lighting",
-                "Use the area's lighting. Off, everything is evenly lit.",
-            )
-            .changed()
-        {
-            app.settings.unlit_areas = !view.lit;
-        }
-        if !tools.hides("Shadows") {
-            shadows_button(ui, view, tools, &mut app.settings.shadow_quality);
-        }
-        let kinds = (view.shadows, view.creature_shadows, view.light_shadows);
-        let s = &mut app.settings;
-        if kinds != (!s.no_shadows, !s.no_creature_shadows, !s.no_light_shadows) {
-            (s.no_shadows, s.no_creature_shadows, s.no_light_shadows) =
-                (!kinds.0, !kinds.1, !kinds.2);
-        }
-        tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
-        if !tools.hides("Fade Geometry") {
-            let before = view.fade;
-            // (With Icons only, an icon for what the list is: its tip says.)
-            let fade = match tools.icons_only {
-                true => view.fade.name().to_string(),
-                false => format!("Fade Geometry: {}", view.fade.name()),
-            };
-            // (The arrow keys step through it once it is clicked, as through
-            // every list of choices.)
-            let tip = "Hide the roofs and upper walls the game fades, to see what is under them";
-            lead_dropdown(ui, tools, "fade-geometry", &fade, icons::FADE, "Fade Geometry", |ui| {
-                crate::widgets::dropdown("fade-geometry")
-                    .selected_text(fade.clone())
-                    .show(ui, &mut view.fade, &Fade::ALL, |f| f.name())
-                    .on_hover_text(tip)
-            });
-            if view.fade != before {
-                app.settings.fade_geometry = view.fade as u8;
-            }
-        }
-        let mut animated = !app.settings.still_objects;
-        if tools
-            .toggle(
-                ui,
-                &mut animated,
-                icons::ANIMATIONS,
-                "Animations",
-                "Play placed objects' animations, in every area view. Off, they hold still.",
-            )
-            .changed()
-        {
-            app.settings.still_objects = !animated;
-        }
-        let mut grass = !app.settings.no_grass;
-        if tools
-            .toggle(
-                ui,
-                &mut grass,
-                icons::GRASS,
-                "Grass",
-                "Draw the tileset's and the area's own grass, in every area view",
-            )
-            .changed()
-        {
-            app.settings.no_grass = !grass;
-        }
-        tools.toggle(
-            ui,
-            &mut app.settings.tile_border,
-            icons::TILE_BORDER,
-            "Tile Border",
-            "Draw the tileset's edge tiles past the area's edge, as the game does",
-        );
-        let mut shaders = app.game_shaders();
-        if tools
-            .toggle(
-                ui,
-                &mut shaders,
-                icons::SHADERS,
-                "Shaders",
-                "Draw with the game's own shaders. Off, with Moonglow's own (every 3D view).",
-            )
-            .changed()
-        {
-            app.set_game_shaders(shaders);
-        }
-        tools.toggle(ui, &mut view.grid, icons::GRID, "Grid", "Display Grid");
-        if tools
-            .toggle(
-                ui,
-                &mut view.minimap,
-                icons::MINIMAP,
-                "Minimap",
-                "Show the area's map in a corner: click or drag on it to look there",
-            )
-            .changed()
-        {
-            app.settings.area_minimap = view.minimap;
-        }
-        // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
-        // Music (the Options › Sounds settings).
-        let mut placed = !app.settings.no_placed_sounds;
-        if tools
-            .toggle_as(
-                ui,
-                &mut placed,
-                icons::SOUNDS,
-                "Sounds",
-                "Play Sounds",
-                "Play placed sound objects in area",
-            )
-            .changed()
-        {
-            app.settings.no_placed_sounds = !placed;
-        }
-        if tools
-            .toggle(
-                ui,
-                &mut view.sound_ranges,
-                icons::SOUND_RANGES,
-                "Sound Ranges",
-                "Show each placed sound's circles: full volume inside, silent outside",
-            )
-            .changed()
-        {
-            app.settings.sound_ranges = view.sound_ranges;
-        }
-        let ambient = &mut app.settings.ambient_sound;
-        tools.toggle(ui, ambient, icons::AMBIENT, "Ambient", "Play ambient sound in area");
-        let music = &mut app.settings.ambient_music;
-        tools.toggle(ui, music, icons::MUSIC, "Music", "Play ambient music in area");
-        ui.separator();
-        if !tools.hides("Snap") {
-            let snap = if tools.icons_only { "" } else { "Snap: " };
-            let grid = |v: Option<u16>| {
-                v.map_or(format!("{snap}off"), |cm| format!("{snap}{} m", f32::from(cm) / 100.0))
-            };
-            let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
-            let shown = grid(app.settings.snap_grid);
-            lead_dropdown(ui, tools, "snap-grid", &shown, icons::SNAP, "Snap", |ui| {
-                crate::widgets::dropdown("snap-grid")
-                    .selected_text(shown.clone())
-                    .show(ui, &mut app.settings.snap_grid, &grids, |g| grid(*g))
-                    .on_hover_text("Moved and placed objects snap to this grid")
-            });
-        }
-        if !tools.hides("Turn") {
-            let turn = if tools.icons_only { "" } else { "Turn: " };
-            let angle = |v: Option<u16>| v.map_or(format!("{turn}free"), |a| format!("{turn}{a}°"));
-            let angles = [None, Some(5), Some(15), Some(45), Some(90)];
-            let shown = angle(app.settings.snap_angle);
-            lead_dropdown(ui, tools, "snap-angle", &shown, icons::TURN, "Turn", |ui| {
-                crate::widgets::dropdown("snap-angle")
-                    .selected_text(shown.clone())
-                    .show_with(
-                        ui,
-                        &mut app.settings.snap_angle,
-                        || angles.to_vec(),
-                        |ui, snap| {
-                            for a in angles {
-                                ui.selectable_value(snap, a, angle(a));
-                            }
-                            // Any other angle, in whole degrees.
-                            ui.horizontal(|ui| {
-                                ui.label("Other");
-                                let mut degrees = snap.unwrap_or(30);
-                                let field =
-                                    egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
-                                if ui.add(field).changed() {
-                                    *snap = Some(degrees);
-                                }
-                            });
-                        },
-                    )
-                    .on_hover_text(
-                        "The angle turned objects snap to, and Q and E turn by (15° when free)",
-                    )
-            });
-        }
-        tools.toggle(
-            ui,
-            &mut app.settings.turn_together,
-            icons::TOGETHER,
-            "Together",
-            "Turn several selected objects about their middle as one. Off, each turns in place.",
-        );
-        tools.toggle(
-            ui,
-            &mut app.settings.place_onto_objects,
-            icons::ONTO_OBJECTS,
-            "Onto Objects",
-            "Place onto the placeable or door under the pointer, not the ground",
-        );
-        if !tools.hides("Walkmesh…") {
-            walkmesh_button(ui, view, tools);
-        }
-        let tip = app.keymap.titled(
-            "Select tiles rather than objects (Aurora's Select Terrain)",
-            crate::keys::Cmd::SelectTiles,
-            ui.ctx(),
-        );
-        // (Off on a read-only area: its tiles and placeables aren't
-        // changed.)
-        let editable = view.read_only.is_none();
-        let off = |ui: &mut egui::Ui, f: &mut dyn FnMut(&mut egui::Ui) -> egui::Response| {
-            if editable { f(ui) } else { ui.add_enabled_ui(false, |ui| f(ui)).inner }
-        };
-        let r = off(ui, &mut |ui| {
-            tools.toggle(ui, &mut view.tile_mode, icons::SELECT_TILES, "Select Tiles", &tip)
-        });
-        if r.changed() {
-            view.selection.clear();
-            view.tile_selection.clear();
-            // (A tile brush would sit on top of tile mode.)
-            if view.tile_mode {
-                app.palette.tile_brush = None;
-            }
-        }
-        let tip = app.keymap.titled(
-            "Paint the placeables chosen in the palette onto the ground, scattered or in a row",
-            crate::keys::Cmd::PaintPlaceables,
-            ui.ctx(),
-        );
-        let mut painting = app.paint && editable;
-        let r = off(ui, &mut |ui| tools.toggle(ui, &mut painting, icons::PAINT, "Paint", &tip));
-        if r.changed() {
-            app.paint = painting;
-        }
-        if r.changed() && app.paint {
-            view.tile_mode = false;
-            app.palette.tile_brush = None;
-        }
-        if tools.button(ui, icons::AREA_PROPERTIES, "Area Properties", "").clicked() {
-            app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
-        }
-        if tools.button(ui, icons::CAMERA, "Reorient Camera", "").clicked()
-            && let Some(o) = &mut view.orbit
-        {
-            o.yaw = -FRAC_PI_2;
-        }
-        if tools.button(ui, icons::START, "Go to Start Location", "").clicked() {
-            // In another area: that area's view is opened at it, as Aurora does.
-            if !look_at_start(app, view) {
-                go_to_start(app);
-            }
-        }
-        let tip = crate::transfer::scratch_tip(
-            app.settings.scratch_dir.as_deref(),
-            "the area and the blueprints, scripts and conversations it uses",
-        );
-        if tools.button(ui, icons::TO_SCRATCH, "To Scratch", &tip).clicked() {
-            app.actions.push(Action::ExportFiles {
-                keys: vec![ResKey::new(view.area, ResType::ARE)],
-                dependencies: true,
-                scratch: true,
-            });
-        }
-        // Several objects chosen: they can be kept as a group to place
-        // again (the palette's Prefabs has them).
-        let prefab = format!("Save {} as Prefab…", view.selection.len());
-        if view.selection.len() > 1
-            && tools
-                .button(
-                    ui,
-                    icons::PREFABS,
-                    &prefab,
-                    "Keep the selected objects as a group, to place again in any module",
-                )
-                .clicked()
-        {
-            app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
-        }
-        // (The area's counts are the Status Bar's, `bar`; what is wrong
-        // with what it reads stays here, beside its tools.)
-        if let Some(m) = &view.model {
-            if !m.problems.is_empty() {
-                ui.colored_label(ui.visuals().warn_fg_color, "problems")
-                    .on_hover_text(m.problems.join("\n"));
-            }
-            if let Some(s) = view.scene.as_ref().filter(|s| !s.missing.is_empty()) {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    format!("{} missing", s.missing.len()),
-                )
-                .on_hover_text(format!("Models not found:\n{}", s.missing.join("\n")));
-            }
-        }
-    });
-    ui.data_mut(|d| d.insert_temp(row_id, row.response.rect));
-    // The placeable brush's settings, while Paint is on.
-    if app.paint {
-        crate::paint_mode::strip(app, ui);
-    }
-    // (What the view's state lets the builder do is the Status Bar's
-    // hints: `bar`, M3's T12. The line of words that stood here is gone,
-    // and the view has its height.)
 }
 
 /// The tiles' outlines (Display Grid), drawn in the scene so that what
@@ -3659,7 +3323,7 @@ fn viewport(
         size: (w, h),
         orbit,
         settings: View { time: 0.0, ..settings },
-        grid: view.grid,
+        grid: view.overlay(view.grid),
         background: app.settings.area_background,
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
@@ -3728,7 +3392,7 @@ fn viewport(
         frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
         frame.instances.extend(ghost_instances);
         frame.instances.extend(preview_instances);
-        if view.grid {
+        if view.overlay(view.grid) {
             frame.lines = grid_lines(view, shown);
         }
         let placed: Vec<(usize, Vec3)> = (shown.objects.iter())
@@ -3877,7 +3541,7 @@ pub(crate) fn animates_now(ui: &egui::Ui, always: bool, drawn: bool, pending: bo
 /// drag on it moves the camera's target there.
 fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     view.map_rect = None;
-    if !view.minimap {
+    if !view.overlay(view.minimap) {
         return;
     }
     let mut kept = view.map.take();
@@ -4016,7 +3680,7 @@ fn beside(points: &[Pos2], rect: Rect) -> bool {
 /// and a face wholly in front of the eye is put on screen without being
 /// cut, as [`AreaView::screen_polygon`] would leave it.)
 fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
-    if !view.walkmesh {
+    if !view.overlay(view.walkmesh) {
         return;
     }
     view.read_walkable(app);
@@ -4067,7 +3731,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 /// in the picture, hidden by what stands in front of them
 /// ([`sound_range_shapes`]).
 fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown: &AreaModel) {
-    if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
+    if !view.overlay(view.sound_ranges) || !view.show[ObjectKind::Sound.index()] {
         return;
     }
     let Some(ws) = app.ws.as_mut() else { return };
@@ -4099,7 +3763,7 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
 /// The positional sounds whose distances Sound Ranges draws (none while
 /// it is off or the sounds are hidden), read from the area's GIT.
 fn sound_ranges_of(app: &mut Moonglow, view: &AreaView) -> Vec<SoundRange> {
-    if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
+    if !view.overlay(view.sound_ranges) || !view.show[ObjectKind::Sound.index()] {
         return Vec::new();
     }
     let chosen = view.selected_set();
@@ -4275,7 +3939,7 @@ fn sound_circle(centre: Vec3, radius: f32, points: usize) -> Vec<Vec3> {
 /// doors blue, the selection's brighter; and while Bake Walkmesh to
 /// Transform is open on this area, the selection's as baked, green.
 fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
-    if !view.object_walkmesh {
+    if !view.overlay(view.object_walkmesh) {
         return;
     }
     let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) else { return };
@@ -4322,62 +3986,10 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     }
 }
 
-/// A toolbar's list of choices, with Icons only its lead icon before it
-/// (`icon`, `name` its tip), the two begun together on the next row where
-/// they would not fit in what is left of this one. (A list is
-/// laid out as one group, which a wrapping row does not move down by
-/// itself: it ran past the tab's edge, and widened the rows after it; and
-/// the room checked was once the list's alone, its icon added after, so
-/// that a list with room for itself and not its icon ran past the edge
-/// too.) The room is what the two took in the last frame; `text`, what
-/// the list shows, before they are first drawn.
-fn lead_dropdown(
-    ui: &mut egui::Ui,
-    tools: crate::icons::Tools,
-    salt: &str,
-    text: &str,
-    icon: crate::icons::Icon,
-    name: &str,
-    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
-) -> egui::Response {
-    let id = ui.id().with(("fits", salt, tools.icons_only));
-    let width = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| {
-        let font = egui::TextStyle::Button.resolve(ui.style());
-        let text = ui
-            .fonts_mut(|f| f.layout_no_wrap(text.to_string(), font, egui::Color32::WHITE).size().x);
-        let spacing = ui.spacing();
-        let around = 2.0 * spacing.button_padding.x + spacing.icon_width + spacing.icon_spacing;
-        let lead = match tools.icons_only {
-            true => mg_uikit::metrics::ICON + spacing.item_spacing.x,
-            false => 0.0,
-        };
-        (text + around).max(spacing.combo_width) + lead
-    });
-    let row_begun = ui.cursor().left() > ui.max_rect().left() + 1.0;
-    if row_begun && width > ui.available_size_before_wrap().x {
-        ui.end_row();
-    }
-    // (Laid out in the row itself, not as a group of their own: a group
-    // asks for the rest of the row, which widened the tab's least width.)
-    let mut lead = None;
-    if tools.icons_only {
-        // (In `text-2`, as an icon button's at rest: the mock's combo's
-        // lead icon.)
-        let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
-        let (rect, r) = ui.allocate_exact_size(side, egui::Sense::hover());
-        icon.paint(ui.painter(), rect, mg_uikit::tokens(ui.ctx()).text_2);
-        r.on_hover_text(name);
-        lead = Some(rect);
-    }
-    let r = add(ui);
-    let both = lead.map_or(r.rect, |lead| lead.union(r.rect));
-    ui.data_mut(|d| d.insert_temp(id, both.width()));
-    r
-}
-
-/// The area toolbar's buttons to show, ticked (its right-click menu, one
-/// to a line, and Options › Area › Toolbar, `wrapped` in rows): `hidden`,
-/// those left out, by name.
+/// The area header's controls to show, ticked (its right-click menu, one
+/// to a line, and Options › Area › Header, `wrapped` in rows): `hidden`,
+/// those left out, by name (the names the toolbar before it kept, so that
+/// a stored list keeps its meaning: "Walkmesh…" the two walkmeshes).
 pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped: bool) {
     use crate::icons::{AREA_TOOLS, area_tool_kind};
     let mut ticks: Vec<(String, String)> = (ObjectKind::ALL.iter())
@@ -4416,7 +4028,7 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
             }
         });
     } else {
-        mg_uikit::menu_heading(ui, "Show on the Toolbar");
+        mg_uikit::menu_heading(ui, "Show in the Header");
         for (i, t) in ticks.iter().enumerate() {
             if i == ObjectKind::ALL.len() {
                 mg_uikit::menu_separator(ui);
@@ -4428,31 +4040,6 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
     if ui.button("Show All").on_hover_text("Every button on the area's toolbar").clicked() {
         hidden.clear();
     }
-}
-
-/// The toolbar's one button for the walkmeshes: a click shows or hides
-/// the ground's (or hides whichever are shown); held, or right-clicked,
-/// it opens the two to choose from, the ground's and the objects'.
-fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
-    let on = view.walkmesh || view.object_walkmesh;
-    let r = tools.add(
-        ui,
-        tools.widget(crate::icons::WALKMESH, "Walkmesh…").selectable(on),
-        "Walkmesh…",
-        "Show the ground's walkmesh. Hold or right-click to choose which walkmeshes.",
-    );
-    let (clicked, menu) = held_menu(ui, &r);
-    if clicked {
-        (view.walkmesh, view.object_walkmesh) = (!on, false);
-    }
-    menu.show(|ui| {
-        ui.check_box(&mut view.walkmesh, "Ground Walkmesh").on_hover_text(
-            "The ground's walkmesh, walkable faces green (Aurora's Render AABB Nodes)",
-        );
-        ui.check_box(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
-            "Where placeables and doors keep creatures out: placeables orange, doors blue",
-        );
-    });
 }
 
 /// A toolbar button with a menu behind it (Walkmesh…, Shadows): a click
@@ -4489,58 +4076,6 @@ fn held_menu<'r>(ui: &egui::Ui, r: &'r egui::Response) -> (bool, egui::Popup<'r>
         .open_memory(open.then_some(egui::SetOpenCommand::Bool(true)))
         .close_behavior(close);
     (clicked, menu)
-}
-
-/// The Shadows button: down while any kind of shadow is drawn; a click
-/// turns them all off, or on again as they were (all at first); held or
-/// right-clicked, the kinds to choose from and their `quality` (Options ›
-/// Area's, every area view's).
-fn shadows_button(
-    ui: &mut egui::Ui,
-    view: &mut AreaView,
-    tools: crate::icons::Tools,
-    quality: &mut crate::settings::ShadowQuality,
-) {
-    let kinds = [view.shadows, view.creature_shadows, view.light_shadows];
-    // (Light Shadows alone draw none: `View::light_shadows_cast`.)
-    let lights = mg_area::View::light_shadows_cast(view.creature_shadows, view.light_shadows);
-    let on = view.shadows || view.creature_shadows || lights;
-    let r = tools.add(
-        ui,
-        tools.widget(crate::icons::SHADOWS, "Shadows").selectable(on),
-        "Shadows",
-        "Show the game's shadows. Hold or right-click to choose which.",
-    );
-    let (clicked, menu) = held_menu(ui, &r);
-    if clicked {
-        let again = view.shadows_before.take().unwrap_or([true; 3]);
-        if on {
-            view.shadows_before = Some(kinds);
-        }
-        [view.shadows, view.creature_shadows, view.light_shadows] =
-            if on { [false; 3] } else { again };
-    }
-    menu.show(|ui| {
-        ui.check_box(&mut view.shadows, "Sun and Moon Shadows").on_hover_text(
-            "The sun's by day and the moon's at night, cast by tiles and static placeables",
-        );
-        ui.check_box(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
-            "Creatures, doors and dynamic placeables cast shadows too, as at the game's best detail",
-        );
-        // (Grayed out without Creature Shadows, its tick kept: the lights'
-        // shadows are the creatures', as in the game.)
-        let creatures = view.creature_shadows;
-        ui.add_enabled(creatures, mg_uikit::Checkbox::new(&mut view.light_shadows, "Light Shadows"))
-            .on_hover_text(
-                "Creatures cast shadows from the nearest light that casts them, without sun or moon",
-            )
-            .on_disabled_hover_text("Tick Creature Shadows first: creatures cast these");
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Quality");
-            crate::options::shadow_quality_choice(ui, quality);
-        });
-    });
 }
 
 /// The corners of the tile-sized square whose low corner is at tile
@@ -5936,9 +5471,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 }
 
 /// Escape pressed over the view (not where a window in front of it, or
-/// a field elsewhere, takes it): what is in hand is put down.
+/// a field elsewhere, takes it; nor where it closes a menu, a list or a
+/// popover of the header's that was open as the frame began): what is in
+/// hand is put down.
 pub(crate) fn escaped(ui: &egui::Ui, response: &egui::Response) -> bool {
-    response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape))
+    response.hovered()
+        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+        && !mg_uikit::popover::Popover::any_open(ui.ctx())
+        && !crate::widgets::escape_closes_a_popup(ui.ctx())
 }
 
 /// Escape over the view ([`escaped`]) or a right click on it: the brush,

@@ -993,10 +993,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 mg_uikit::icon_label(ui, mg_uikit::Icon::Warning, Some(warn), text);
                             }
                             ui.add_space(crate::widgets::SECTION_GAP);
-                            crate::widgets::section_heading(ui, "Toolbar");
+                            crate::widgets::section_heading(ui, "Header");
                             ui.weak(
-                                "The buttons the area's toolbar shows (right-click the toolbar \
-                                 for the same).",
+                                "The controls the area's header shows, on its row and in its \
+                                 popovers (right-click the header for the same).",
                             );
                             crate::area_view::toolbar_menu(ui, &mut draft.hidden_area_tools, true);
                         }
@@ -1398,7 +1398,8 @@ fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
             .selected_text(name(&draft.toolbar_icons_only))
             .show(ui, &mut draft.toolbar_icons_only, &[false, true], name)
             .on_hover_text(
-                "The area view's and the editors' toolbar buttons with their names, or icons alone",
+                "The editors' toolbar buttons with their names, or icons alone. The area's header \
+                 no longer follows it: it yields to its width.",
             );
     });
 }

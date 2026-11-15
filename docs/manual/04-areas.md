@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Areas
-description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:49:14Z }
 ---
 
 # Areas
@@ -19,7 +19,43 @@ camera stands as high over the sky as the game's would at the same
 angle, and the horizon, and the fade in the fog's color under it, look
 as in the game.
 
-## The toolbar
+## The header
+
+The row over the view is the area's **header**: on the left what you do
+(which objects show, how they are placed), on the right how the view
+looks (day or night, and the **Lighting**, **Overlays** and **Audio**
+popovers), then **Area Properties** and **⋯** (More). It never wraps:
+where the editor is narrow it gives way, a step at a time, and every
+control stays on the row, as an icon (its name in its tip) or in More:
+
+- Under 990 points of editor (a window about 1300 wide), it goes
+  compact: the ten Show toggles become one **Show** popover whose button
+  says how many kinds are shown ("Show 5 of 10"), Day and Night one moon
+  toggle (**Night**), and Lighting, Overlays, Audio and Area Properties
+  icons.
+- Under 550, **Snap** and **Turn** show their icon alone, their value in
+  their list.
+- Under 490, **Together** and **Onto Objects** move into More.
+- Where it has room (a wide screen, the editor some 2000 points wide),
+  the popovers unfold into the row, from the left, those that fit:
+  **Day** and **Night** side by side, **Lighting**, **Shadows**, **Fog**,
+  **Grid**, **Minimap**, **Walkmesh** and **Sound ranges** with their
+  words, **Fade Geometry** a list, and Animations, Grass, Tile border,
+  Shaders and the three Audio switches icon toggles.
+
+A popover opens under its button and stays open while you tick its rows;
+a click outside it, its button again or **Escape** closes it (that
+Escape does nothing else: what you hold in the view stays in hand, a
+window's Cancel isn't pressed). The header doesn't follow **Tools ›
+Options › General › Editors' toolbar buttons** (that is the other
+editors' toolbars'): it yields to its width instead.
+
+**Right-click** the header, anywhere on it (but on the wide row's
+**Shadows** and **Walkmesh**, which open their own), for the list of its controls
+with a tick each: untick one to hide it, from the row, its popover and
+the wide row alike (**Tools › Options › Area › Header** has the same
+list, and **Show All** ticks them all back). Hiding **Walkmesh…** hides
+both walkmeshes.
 
 What the keys and the mouse do in the view, and what you hold, are in
 the **Status Bar** at the window's foot, as key caps and a word each
@@ -34,20 +70,15 @@ now leads the hints, read as it moves). The view's keys (Q and E, G,
 Page Up and Page Down, B) act while the pointer is over the view; the
 hints say what they do there wherever the pointer is, and show nothing
 while a dialog, a menu or a job's window is in front, which takes them.
-They were a line of words under the toolbar before; the view has its
-height now.
+They were a line of words under the area's toolbar before; the view
+has its height now.
 
-Each button shows an icon and its name. With **Tools › Options ›
-General › Editors' toolbar buttons: Icons only** the buttons that have an icon
-show it alone, and the toolbar takes about half the rows it took: rest
-the pointer on an icon and its tip names it (and gives its key, as
-Select Tiles' and Paint's do). All, None, Together, Onto Objects,
-To Scratch and Save as Prefab… have icons too, and with Icons only the
-Fade Geometry, Snap and Turn dropdowns show an icon before their choice.
-A palette's List and Gallery switches are icons as well.
+### Show
 
-- **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
-  object and the start location marker; **All** and **None**. What you
+- **Creatures, Doors, … Waypoints, Start** (the icons at the left; in
+  the compact header the **Show** popover): show or hide each kind of
+  object and the start location marker; **All** and **None** on the
+  arrow after them (the Show popover's last rows). What you
   hide is hidden in every area view, as in Aurora: the other open ones
   and those you open later, until Moonglow is closed (the next time it
   starts, every kind shows again, as in Aurora).
@@ -71,6 +102,89 @@ A palette's List and Gallery switches are icons as well.
   Selected, **Q** and **E** turn it as they turn an object, and its menu
   (a right click on it) has **Adjust Location…** for its exact X, Y, Z
   and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **View › Go to Start Location** does the same with no area open: move the start location to where you are working, and it is a bookmark.
+
+### Placing
+
+- **Snap** and **Turn** (a magnet and a turning arrow, each with its
+  value): the grid moved and placed objects snap to and the angle they
+  turn by (see [Snapping](#selecting-and-arranging-objects)).
+- **Together** and **Onto Objects**: turn several selected objects about
+  their middle as one, and place onto the placeable or door under the
+  pointer.
+
+### Day and Night
+
+- **Day** | **Night** (one moon toggle, **Night**, in the compact header):
+  show the area by day or at night.
+
+### Lighting
+
+The **Lighting** popover: its switch at the top is the area's lighting,
+then the shadows, the fog and how the scene is drawn.
+
+- **Lighting** (the popover's switch, named "Use the area's lighting"): the area's lighting: the sun or moon colors of Area
+  Properties, the tiles' main and source lights (Tile Properties), the
+  light of each placeable whose appearance has one (placeables.2da's
+  `LightColor`, unless its **Illuminated** is off) and the light nodes of
+  every object's models (a builder's lamps and braziers, a held torch),
+  as the game lights them: each with its color and reach, a light node's
+  `multiplier` lengthening its reach, and each surface lit by the 32
+  most important lights that reach it (by their priority, then their
+  nearness), as the game's client is by default. Compared with Aurora an
+  interior looks darker and its colors deeper: Aurora's lighting isn't
+  the game's, Moonglow's is checked against the game's own pictures.
+  Switched off, everything is evenly lit, whatever the area's colors and
+  lights: for working in a dark area. Areas opened later open as you left
+  it.
+- **Shadows**: the shadows the game draws, where the area has them
+  (Area Properties' **Shadows**, sun and moon, and its **Shadow
+  Opacity**), so that you can set the opacity by eye. The popover ticks
+  each kind and chooses the quality; in the wide row they are one
+  **Shadows** toggle, whose click turns them all off, and on again as
+  they were, and which shows the kinds to choose from when held a
+  moment or right-clicked:
+  - **Sun and moon shadows**: the sun's by day and the moon's at night,
+    falling away from the sun (to the south-west, as the game's sun stands
+    for every area), cast by the tiles and the **static** placeables (a
+    model's meshes flagged `shadow`, including shadow-only meshes that
+    aren't drawn).
+  - **Creature shadows**: creatures, dynamic placeables and doors cast the
+    sun's and moon's shadows too, posed as they stand, as the game's
+    Creature Shadow Detail at Best has them (its default; at Fast or Off,
+    none of them casts).
+  - **Light shadows**: where the area has no sun's or moon's shadows at
+    the time (an interior, or night without Moon Shadows), each creature
+    casts one from the nearest light that casts shadows, as in the game: a
+    light with `shadow 1` and a radius of 10 m or more (a placeable's
+    light, a lamp post; the tiles' torches, 7 m, cast none), from a little
+    above it (its `verticaldisplacement`: a placeable's light 3 m).
+    They are the creatures' shadows, so they need **Creature shadows**
+    too, as the game's Creature Shadow Detail Off takes them away: with
+    Creature shadows unticked, Light shadows is grayed out and no light
+    casts, its tick kept, and ticking Creature shadows again brings them
+    back as you left them.
+  - **Quality**: **Fast** or **High**, as in Options › Area (and kept
+    there): Fast, a shadow map standing in for the game's shadows; High,
+    the game's own stencil shadow volumes, their edges sharp up close,
+    dearer in the largest areas (see
+    [Options](10-options.md#area)).
+
+  All three are on at first. Every shadow darkens the tiles and the
+  static placeables, not dynamic ones or creatures, as in the game.
+  Opacity 100 is as dark as the game makes them; like the game, Moonglow
+  fades them toward the top of the picture (from a camera looking
+  straight down, not at all), so they look as dark as in the game from
+  the same angle; a light's shadow is lighter than the sun's at the same
+  opacity, as the game's, and darkens the floor only by the light's share
+  of the light falling there: dark near the lamp, fainter farther off and
+  where other lights and the area's light are bright. Grass stays bright
+  in a shadow, and with **Fade Geometry** on the roofs it leaves out
+  still cast their shadows, as in the game. Switched off (or with
+  **Lighting** off) there are none; areas opened later open as you left
+  them. Changes to the shadow fields in Area Properties show at once.
+- **Fog**: the area's fog. It is drawn as the game's camera (at most
+  20 m from the player) would see it from where the view looks, so a
+  view from farther off isn't lost in it.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls, trees'
   crowns; the black caps and strips under and beside them stay, as in
@@ -83,19 +197,6 @@ A palette's List and Gallery switches are icons as well.
   of choices does (Up and Down choose; the camera stays where it is
   meanwhile, and Escape gives the keys back to the view); so do the
   lists of Resize Area, Find Instance and Edit Areas Together.
-- **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
-  the tile grid. The grid is faint from above; as the view comes down to
-  look along the ground from the area's edge it turns Aurora's red, to
-  count tiles by and line areas up, and under raised ground it is drawn
-  at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
-  the player) would see it from where the view looks, so a view from
-  farther off isn't lost in it.
-- **Minimap**: the area's map in the view's top right corner, as the
-  game's map draws it ([Minimaps](#minimaps)), with where the camera
-  looks (a white dot, and a wedge the way it faces) and the selected
-  objects (yellow dots). Click or drag on it to look there: the
-  camera's target goes to that place, the camera keeping its turn and
-  distance. Areas opened later open as you left it.
 - **Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
@@ -192,66 +293,33 @@ A palette's List and Gallery switches are icons as well.
   as you leave it: switched off, it stays off. The pictures already made
   (the galleries', a hovered row's preview, a tile's variants) are made
   anew with the shaders it switches to.
-- **Lighting**: the area's lighting: the sun or moon colors of Area
-  Properties, the tiles' main and source lights (Tile Properties), the
-  light of each placeable whose appearance has one (placeables.2da's
-  `LightColor`, unless its **Illuminated** is off) and the light nodes of
-  every object's models (a builder's lamps and braziers, a held torch),
-  as the game lights them: each with its color and reach, a light node's
-  `multiplier` lengthening its reach, and each surface lit by the 32
-  most important lights that reach it (by their priority, then their
-  nearness), as the game's client is by default. Compared with Aurora an
-  interior looks darker and its colors deeper: Aurora's lighting isn't
-  the game's, Moonglow's is checked against the game's own pictures.
-  Switched off, everything is evenly lit, whatever the area's colors and
-  lights: for working in a dark area. Areas opened later open as you left
-  it.
-- **Shadows**: the shadows the game draws, where the area has them
-  (Area Properties' **Shadows**, sun and moon, and its **Shadow
-  Opacity**), so that you can set the opacity by eye. A click turns them
-  all off, and on again as they were; hold the button a moment, or
-  right-click it, for the kinds to choose from:
-  - **Sun and Moon Shadows**: the sun's by day and the moon's at night,
-    falling away from the sun (to the south-west, as the game's sun stands
-    for every area), cast by the tiles and the **static** placeables (a
-    model's meshes flagged `shadow`, including shadow-only meshes that
-    aren't drawn).
-  - **Creature Shadows**: creatures, dynamic placeables and doors cast the
-    sun's and moon's shadows too, posed as they stand, as the game's
-    Creature Shadow Detail at Best has them (its default; at Fast or Off,
-    none of them casts).
-  - **Light Shadows**: where the area has no sun's or moon's shadows at
-    the time (an interior, or night without Moon Shadows), each creature
-    casts one from the nearest light that casts shadows, as in the game: a
-    light with `shadow 1` and a radius of 10 m or more (a placeable's
-    light, a lamp post; the tiles' torches, 7 m, cast none), from a little
-    above it (its `verticaldisplacement`: a placeable's light 3 m).
-    They are the creatures' shadows, so they need **Creature Shadows**
-    too, as the game's Creature Shadow Detail Off takes them away: with
-    Creature Shadows unticked, Light Shadows is grayed out and no light
-    casts, its tick kept, and ticking Creature Shadows again brings them
-    back as you left them.
-  - **Quality**: **Fast** or **High**, as in Options › Area (and kept
-    there): Fast, a shadow map standing in for the game's shadows; High,
-    the game's own stencil shadow volumes, their edges sharp up close,
-    dearer in the largest areas (see
-    [Options](10-options.md#area)).
 
-  All three are on at first. Every shadow darkens the tiles and the
-  static placeables, not dynamic ones or creatures, as in the game.
-  Opacity 100 is as dark as the game makes them; like the game, Moonglow
-  fades them toward the top of the picture (from a camera looking
-  straight down, not at all), so they look as dark as in the game from
-  the same angle; a light's shadow is lighter than the sun's at the same
-  opacity, as the game's, and darkens the floor only by the light's share
-  of the light falling there: dark near the lamp, fainter farther off and
-  where other lights and the area's light are bright. Grass stays bright
-  in a shadow, and with **Fade Geometry** on the roofs it leaves out
-  still cast their shadows, as in the game. Switched off (or with
-  **Lighting** off) there are none; areas opened later open as you left
-  them. Changes to the shadow fields in Area Properties show at once.
-- **Sounds**, **Ambient**, **Music**: play the placed sound objects, the
-  area's ambient sound and its music, heard from where the camera looks.
+### Overlays
+
+The **Overlays** popover: what is drawn over the area. Its switch at the
+top (**Show overlays**) hides all five at once, each kept as you ticked
+it (its row grayed), and shows them again as they were.
+
+- **Grid**: the tile grid. The grid is faint from above; as the view comes down to
+  look along the ground from the area's edge it turns Aurora's red, to
+  count tiles by and line areas up, and under raised ground it is drawn
+  at the area's foot as well.
+- **Minimap**: the area's map in the view's top right corner, as the
+  game's map draws it ([Minimaps](#minimaps)), with where the camera
+  looks (a white dot, and a wedge the way it faces) and the selected
+  objects (yellow dots). Click or drag on it to look there: the
+  camera's target goes to that place, the camera keeping its turn and
+  distance. Areas opened later open as you left it.
+- **Ground walkmesh** and **Object walkmeshes**: the ground's walkmesh
+  over the area (Aurora's Render AABB Nodes), walkable faces green, the
+  others red; and where placeables (their `.pwk`, orange) and doors (their
+  `.dwk`, blue, for the state they're placed in: closed or open) keep
+  creatures out. The selection's are brighter. In the wide row they are
+  one **Walkmesh** toggle: a click shows the ground's (or hides what is
+  shown), held or right-clicked it shows the two to choose from. They stand where the
+  object stands, turned by its Bearing, and not by its visual
+  transform: the game doesn't scale, turn, tilt or move a walkmesh with
+  its model (see Adjust Location below).
 - **Sound Ranges**: two spheres of dots around each placed sound that
   is heard from where it stands, as Aurora draws them: at full volume
   inside the inner one (its minimum distance), not at all outside the
@@ -262,29 +330,36 @@ A palette's List and Gallery switches are icons as well.
   A sound that plays from a random place has a rectangle too, where it
   may play: its random ranges wide and deep, about where it stands, as
   Aurora draws it. Areas opened later open as you left it.
-- **Walkmesh…**: a click shows the ground's walkmesh over the area
-  (Aurora's Render AABB Nodes): walkable faces green, the others red; a
-  click again hides what is shown. Hold the button, or right-click it,
-  for the two to choose from: **Ground Walkmesh** and **Object
-  Walkmeshes**, where placeables (their `.pwk`, orange) and doors (their
-  `.dwk`, blue, for the state they're placed in: closed or open) keep
-  creatures out. The selection's are brighter. They stand where the
-  object stands, turned by its Bearing, and not by its visual
-  transform: the game doesn't scale, turn, tilt or move a walkmesh with
-  its model (see Adjust Location below).
+
+### Audio
+
+- **Sounds**, **Ambient**, **Music**: play the placed sound objects, the
+  area's ambient sound and its music, heard from where the camera looks. (The Audio popover; **Sounds** is named "Play
+  Sounds", apart from the Show toggle of the placed sound objects.)
+
+### Area Properties, More and the warning
+
+- **Area Properties**: the area's properties ([Area
+  Properties](#area-properties)).
+- **⋯** (More): **To Scratch**, **Save N as Prefab…** (several objects
+  selected; see [Prefabs](#placing-objects)), and, until they move to
+  the view's tool shelf and compass, **Select Tiles**, **Paint**,
+  **Reorient Camera** (north up again) and **Go to Start Location**.
+  More holds what the row has no room for, too, in the row's order.
+- A **warning** sign with a count, at the right group's end, when
+  something could not be read for the view: its tip lists what (the
+  area's own problems, and the models not found).
 - **Select Tiles** (F10): select tiles rather than objects (Aurora's
-  Select Terrain); the Tiles palette has it too, at the top of its tools.
-  Without the toolbar: a double click on the ground selects its tile
+  Select Terrain), in More; the Tiles palette has it too, at the top of its
+  tools. Without the header: a double click on the ground selects its tile
   (Select Tiles comes on), and a click on an object while tiles are
   selected selects it (Select Tiles goes off). Turning it on puts down
   the terrain brush, and choosing a brush turns it off, but for Next
   and Previous Tile Appearance and Rotate Tile with tiles selected,
   which step those tiles and leave Select Tiles on (see [Painting
   terrain](#painting-terrain)).
-- **Paint** (B): paint the placeables chosen in the palette onto the
+- **Paint** (B), in More: paint the placeables chosen in the palette onto the
   ground (see [Painting placeables](#painting-placeables)).
-- **Area Properties**, **Reorient Camera** (north up again), **Go to Start
-  Location**.
 - **To Scratch**: copy the area as it is now (its `.are`, `.git` and
   `.gic`) into the scratch folder (chosen the first time; Tools › Options
   › Folders changes it), with the module's own blueprints, scripts
@@ -319,8 +394,8 @@ asking once, with the files named, before writing over any of that name
 there; the log says how many were written. `mg minimap MODULE AREA…
 --to FOLDER` (or `--all`) does the same from the command line.
 
-The same map shows in the area view's corner with the toolbar's
-**Minimap**, and in **Setup Area Transition**, where a door's or
+The same map shows in the area view's corner with the Overlays
+popover's **Minimap**, and in **Setup Area Transition**, where a door's or
 trigger's destination is picked on it ([Blueprints](05-blueprints.md#placeables-and-doors)).
 
 ## The camera
@@ -390,13 +465,13 @@ ring anywhere along it (near it is enough) and lead it round: the object
 turns with the pointer, its facing shown in degrees; with several
 selected, each has its ring (and with Shift its tilt rings and arrows),
 any of which leads them all: each turns about itself by the same angle. With
-**Together** on (beside Turn on the toolbar), they turn about their
+**Together** on (beside Turn on the header), they turn about their
 middle as one instead, keeping their places among themselves, like a
 prefab turned whole; Q and E turn them so too. A trigger or an
 encounter turns by its outline: alone about the outline's middle (an
 encounter's spawn points go round with it), and with the others when
 they turn together. **Turn** on the
-toolbar snaps it. **Tools › Options › Area** switches the ring off.
+header snaps it. **Tools › Options › Area** switches the ring off.
 The ring, and the tilt rings, arrows and scale handle below, keep their
 size on screen however near or far the camera is (about a tenth of the
 view's height, or of its width where it is narrower): looking closely
@@ -542,7 +617,7 @@ camera (hold the middle button too and swing the view, or move it with
 **Middle drag moves the view**), until you let go
 of the button that holds it. **Escape** drops the drag: nothing moves.
 
-**Snapping** (the toolbar's **Snap** and **Turn**):
+**Snapping** (the header's **Snap** and **Turn**):
 - **Snap** moves objects to a grid of 0.25 to 5 m as you drag, place or
   paste them.
 - **Turn** turns them in steps of 5° to 90°, or of any number of degrees
@@ -611,7 +686,7 @@ Aurora):
     on the placeable or door below its center (a skull on an altar, a
     book on a table), by that object's model, up to 2 m above it; with
     nothing there, on the ground. Not creatures, which the game stands on
-    the ground. **Onto Objects** on the toolbar places them so in the
+    the ground. **Onto Objects** on the header places them so in the
     first place.
   - **Position › Up to the Next Surface** (Page Up) and **Down to the
     Next Surface** (Page Down): move the selection up or down to the
@@ -796,7 +871,7 @@ placed or pasted on the void around the area, where no copy shows, and
 a drag leads what it moves no further than the area's edge. **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
 placed facing that way; a door faces as its hook does. With **Onto
-Objects** on (the toolbar, beside Together) it goes onto the top of the
+Objects** on (the header, beside Together) it goes onto the top of the
 placeable or door the pointer is on, by that object's model (a book on a
 table, a skull on an altar), as Drop onto Object sets it after; where
 that top is more than 2 m above the ground (a tree's canopy) it goes on
@@ -849,8 +924,8 @@ of the area as it is.
 camp, a market stall or a furnished room: the way to copy a group of
 placeables around.
 - **Saving one:** select the objects (a click, Ctrl+click for more, or a
-  box dragged around them), then **Save N as Prefab…** on the area's
-  toolbar (it shows when several are selected), **Reuse › Save as
+  box dragged around them), then **Save N as Prefab…** in the area
+  header's More (it shows when several are selected), **Reuse › Save as
   Prefab…** on the selection's right-click menu, or **Save Selection as
   Prefab…** in the palette's **Prefabs**.
 - **Placing one:** choose it in the palette's **Prefabs** (beside the
@@ -983,7 +1058,7 @@ warns of one that is twice in one area.
 
 ## Painting placeables
 
-Trees, rocks, bushes, rubble: **Paint** on the area's toolbar (or **B**
+Trees, rocks, bushes, rubble: **Paint** in the area header's More (or **B**
 with the pointer over the area) turns the placeable brush on, and the
 placeables chosen in the palette are painted onto the ground rather than
 placed one a click. Choose them in the **Placeables** palette, the
@@ -1016,7 +1091,7 @@ the next time.
 - **Height** raises them above the ground (or sinks them, below 0): roots
   into a slope, rocks half buried.
 - Placeables go only on **walkable ground** (the walkmesh's walkable
-  faces, as **Walkmesh…** shows them green), at the level nearest the
+  faces, as **Ground walkmesh** shows them green), at the level nearest the
   pointer's: not into water, onto roofs or inside walls.
 - **Row** lays pieces end to end instead: drag from where the row
   begins to where it ends (floor tiles, a fence, a line of benches). Each
@@ -1203,7 +1278,7 @@ as Aurora's Terrain tab does:
   press on bare ground places as ever, and a drag begun there paints
   every tile it passes, those under objects too: to put a tile or a
   group under an object, start on the ground beside it (a tile: drag
-  over it), or hide the object's kind (the toolbar's switches) or lock
+  over it), or hide the object's kind (the header's Show toggles) or lock
   it first. An object hidden, locked or seen behind a raised tile
   doesn't take the press: what is seen there is placed on. A right
   click still turns the tile or group, a picture dropped on an object
@@ -1522,7 +1597,7 @@ instead.
 ## Area Properties
 
 Right-click the area in the module tree › **Properties**, or **Area
-Properties** on the viewer's toolbar:
+Properties** on the viewer's header:
 
 - **Basic**: name, the tileset (fixed once made) and the size.
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,

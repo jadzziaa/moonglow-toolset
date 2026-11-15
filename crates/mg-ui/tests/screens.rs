@@ -99,11 +99,11 @@ fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) 
 }
 
 /// Whether `n` is on the Top Bar, the Left Dock's tab bar (the Module
-/// panel's header buttons) or the area view's toolbar.
+/// panel's header buttons) or the area view's header.
 fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area toolbar")) {
+        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area header")) {
             return true;
         }
         up = p.parent();
@@ -5240,10 +5240,14 @@ fn area_grid() {
     shoot(&mut h, &dir, "area-grid");
 }
 
+/// The area's header (M4's U3) at the widths of its forms, Main.png's,
+/// Narrow.png's and WideArea.png's, each popover open (Lighting,
+/// Overlays, Audio, More; the compact header's Show), and narrower still:
+/// Snap and Turn without their values under an editor 550 wide, Together
+/// and Onto Objects in More under 490.
 #[test]
 #[ignore]
-fn area_toolbar_narrow() {
-    // The area's toolbar in a narrow tab: its rows end at the tab's edge.
+fn area_header_narrow() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -5256,22 +5260,46 @@ fn area_toolbar_narrow() {
     app.set_render_state(rs.clone());
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
+        .with_size(egui::vec2(1600.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
     h.run_steps(3);
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-    h.run_steps(5);
-    h.run_steps(10);
-    shoot(&mut h, &dir, "area-toolbar-narrow");
-    // With Icons only, at a width where a dropdown with its lead icon once
-    // had room for the dropdown alone: it ran past the tab's edge.
-    h.state_mut().settings.toolbar_icons_only = true;
-    // (1068 wide: Turn's dropdown ran 4 px past the edge before.)
-    h.set_size(egui::vec2(1068.0, 700.0));
+    h.run_steps(15);
+    // (A popover opened by its button, shot, and closed by it.)
+    let popover = |h: &mut Harness<'_, Moonglow>, button: &str, name: &str| {
+        h.get_by_label("Area header").get_by_label(button).click();
+        h.run_steps(4);
+        shoot(h, &dir, name);
+        h.get_by_label("Area header").get_by_label(button).click();
+        h.run_steps(4);
+    };
+    shoot(&mut h, &dir, "area-header-full");
+    // An open combo box: `raised-hover` with its ring (`.combo.open`).
+    h.get_by_label("Area header").get_by_label("Snap").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-header-snap-open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    popover(&mut h, "Lighting", "area-header-lighting");
+    popover(&mut h, "Overlays", "area-header-overlays");
+    popover(&mut h, "Audio", "area-header-audio");
+    popover(&mut h, "More", "area-header-more");
+    h.set_size(egui::vec2(1280.0, 700.0));
     h.run_steps(6);
-    shoot(&mut h, &dir, "area-toolbar-narrow-icons-only");
+    shoot(&mut h, &dir, "area-header-compact");
+    popover(&mut h, "Show", "area-header-show");
+    popover(&mut h, "Lighting", "area-header-compact-lighting");
+    for width in [600.0, 520.0] {
+        h.set_size(egui::vec2(width, 700.0));
+        h.run_steps(6);
+        shoot(&mut h, &dir, &format!("area-header-{width}"));
+    }
+    h.set_size(egui::vec2(3000.0, 700.0));
+    h.run_steps(6);
+    shoot(&mut h, &dir, "area-header-wide");
 }
 
 /// The View menu: its panes ticked, the tick drawn in the room its row
@@ -5295,10 +5323,11 @@ fn view_menu() {
 #[test]
 #[ignore]
 fn toolbar_icons_only() {
-    // Options › General › Editors' toolbar buttons: an area's toolbar
-    // with icons and text, then icons only (in the same tab, and in a
-    // narrow one), and a glyph's tip; the Top Bar, icons either way, and
-    // one of its tips.
+    // Options › General › Editors' toolbar buttons: an area's header with
+    // icons and text, then icons only (the same: the header follows its
+    // width alone, M4's U3; in the same tab, and in a narrow one), and a
+    // popover's button's tip; the Top Bar, icons either way, and one of
+    // its tips.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
@@ -5327,7 +5356,8 @@ fn toolbar_icons_only() {
         let low = |n: &egui_kittest::Node<'_>| n.rect().top();
         h.get_all_by_label(label).max_by(|a, b| low(a).total_cmp(&low(b))).unwrap().rect().center()
     };
-    h.hover_at(center(&h, "Shaders"));
+    // (The area's header is as it was: it follows no setting, M4's U3.)
+    h.hover_at(center(&h, "Lighting"));
     h.run_steps(60);
     shoot(&mut h, &dir, "toolbar-icons-only-tip");
     let save = h.get_by_label("Top Bar").get_by_label("Save").rect().center();
@@ -9153,10 +9183,10 @@ fn appearance_dropdown_frames() {
     image.save(dir.join("appearance-dropdown-300.png")).unwrap();
 }
 
-/// The area view's toolbar with the Shadows button's menu open (held or
-/// right-clicked: Sun and Moon Shadows, Creature Shadows, Light Shadows),
-/// with the buttons labelled and as icons only, and with Creature Shadows
-/// unticked (Light Shadows grayed out, its tooltip shown), in
+/// The area header's Lighting popover with the shadows' kinds and quality
+/// (Sun and moon shadows, Creature shadows, Light shadows, Fast | High),
+/// with Creature shadows unticked (Light shadows grayed out, its tooltip
+/// shown), and the wide row's Shadows toggle's menu, in
 /// `target/test-output/screens-area/shadows-menu-*.png`.
 #[test]
 #[ignore]
@@ -9180,41 +9210,42 @@ fn area_shadows_menu() {
     let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
     let path = scratch.join("shadows.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    for icons_only in [false, true] {
-        let rs = egui_kittest::wgpu::create_render_state(
-            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
-            egui_wgpu::RendererOptions::PREDICTABLE,
-        );
-        let mut app = Moonglow::new(
-            Some(GameInstall::new(&root, None, "en")),
-            Box::new(NoDialogs::default()),
-        );
-        app.settings.toolbar_icons_only = icons_only;
-        app.set_render_state(rs.clone());
-        app.open_module(&path);
-        app.palette_dock = false;
-        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1400.0, 700.0))
-            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-        h.run_steps(5);
-        // (With icons only the button shows its icon and is named by its
-        // word, for a screen reader.)
-        let label = "Shadows";
-        h.get_by_label(label).click_secondary();
-        let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
-        shoot(&mut h, &dir, name);
-        if !icons_only {
-            // Creature Shadows unticked: Light Shadows grayed out, its tick
-            // kept, the tooltip saying why.
-            h.get_by_label("Creature Shadows").click();
-            h.run_steps(3);
-            h.get_by_label("Light Shadows").hover();
-            h.run_steps(60);
-            shoot(&mut h, &dir, "shadows-menu-no-creatures");
-        }
-    }
+    // The area header's Lighting popover (M4's U3): the shadows' kinds
+    // and quality among its rows; then, Creature shadows unticked, Light
+    // shadows grayed out, its tick kept, the tooltip saying why; and the
+    // wide row's Shadows toggle, right-clicked, its menu.
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.palette_dock = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(5);
+    h.get_by_label("Area header").get_by_label("Lighting").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "shadows-menu");
+    h.get_by_label("Creature shadows").click();
+    h.run_steps(3);
+    h.get_by_label("Light shadows").hover();
+    h.run_steps(60);
+    shoot(&mut h, &dir, "shadows-menu-no-creatures");
+    h.get_by_label("Creature shadows").click();
+    h.get_by_label("Area header").get_by_label("Lighting").click();
+    h.run_steps(3);
+    h.set_size(egui::vec2(2800.0, 700.0));
+    h.run_steps(6);
+    h.get_by_label("Area header").get_by_label("Shadows").click_secondary();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "shadows-menu-wide");
 }
 
 /// The main window's log and module tree as the deferred sprint's third
@@ -12093,11 +12124,12 @@ fn palette_gallery(h: &mut Harness<'_, Moonglow>, open: &[&str]) {
     h.run_steps(5);
 }
 
-/// Main.png: the area editor As Tabs. Today: the area toolbar, not the
-/// board's header row, popovers (the Overlays one open on the board),
-/// tool shelf and compass; no Properties panel under the Right Dock's
-/// Palette (the selection's Properties open in a tab of their own); the
-/// minimap at the view's top right.
+/// Main.png: the area editor As Tabs. Today: the board's header row (M4's
+/// U3; its popovers closed, the board has Overlays open), but no tool
+/// shelf and compass (Select Tiles, Paint, Reorient Camera and Go to
+/// Start Location in its More until U4); no Properties panel under the
+/// Right Dock's Palette (the selection's Properties open in a tab of
+/// their own); the minimap at the view's top right.
 #[test]
 #[ignore]
 fn board_main() {
@@ -12107,9 +12139,9 @@ fn board_main() {
     shoot(&mut h, &board_dir(), "board_main");
 }
 
-/// Narrow.png at 1280 by 800: today's toolbar wraps where the board has
-/// its compact header and the tool strip at the view's left; the Right
-/// Dock has no Properties tab beside Palette and Preview.
+/// Narrow.png at 1280 by 800: the compact header (M4's U3), but no tool
+/// strip at the view's left; the Right Dock has no Properties tab beside
+/// Palette and Preview.
 #[test]
 #[ignore]
 fn board_narrow() {
@@ -12122,7 +12154,8 @@ fn board_narrow() {
 /// WideArea.png at 3440 by 1440: the script in a second editor group at
 /// the area's right (Split Editor), the focus back on the area. Today the
 /// wide layout's second column holds the Preview, not the board's
-/// Properties column; the toolbar is not unfolded into the header row.
+/// Properties column; the header unfolds what fits of its popovers into
+/// its row (M4's U3: Audio, at this editor's width).
 #[test]
 #[ignore]
 fn board_wide() {

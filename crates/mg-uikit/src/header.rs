@@ -11,7 +11,11 @@
 //! gives up, one step at a time and in this order, until they do:
 //!
 //! 1. a popover unfolded into the row ([`Item::unfolds`], section 5.3)
-//!    folds back to its button, from the right group's end;
+//!    folds back to its button, from the right group's end (and where
+//!    only popovers were folded, one folded early that fits again beside
+//!    those folded after it unfolds once more, from the left: a narrow
+//!    popover at the right group's end stays unfolded beside a wide one
+//!    folded);
 //! 2. the left group's word buttons lose their words (an icon with a
 //!    tooltip; a part of the caller's takes its compact form,
 //!    [`Item::compact`]), from its end to its start, then the right
@@ -224,6 +228,7 @@ pub struct Item<'a> {
     tip: Option<String>,
     words_icon: bool,
     force_icon: bool,
+    shown_words: Option<String>,
 }
 
 impl std::fmt::Debug for Item<'_> {
@@ -258,6 +263,7 @@ impl<'a> Item<'a> {
             tip: None,
             words_icon: true,
             force_icon: false,
+            shown_words: None,
         }
     }
 
@@ -463,15 +469,25 @@ impl<'a> Item<'a> {
         self
     }
 
-    /// Whether a popover's or menu's button shows its icon beside its
-    /// words (the Talk board's Export does; Lighting, View and More do
-    /// not, the default). A button made by [`Item::button`] or a toggle
-    /// with an icon always shows it; this changes popovers' and menus'
-    /// alone.
+    /// Whether a button's, popover's or menu's button shows its icon
+    /// beside its words (the Talk board's Export does; Lighting, View and
+    /// More do not, the default for popovers and menus; the Main board's
+    /// Area Properties neither, its icon shown alone where its words
+    /// yield). A button made by [`Item::button`] or a toggle with an icon
+    /// shows it unless told not to.
     pub fn words_icon(mut self, shown: bool) -> Self {
-        if matches!(self.kind, Kind::Popover { .. } | Kind::Menu { .. }) {
+        if matches!(self.kind, Kind::Popover { .. } | Kind::Menu { .. } | Kind::Button { .. }) {
             self.words_icon = shown;
         }
+        self
+    }
+
+    /// The words its button shows where they are not its name: the
+    /// compact area header's Show popover reads "Show 5 of 10", named
+    /// "Show" (its name stays its accessible name, its name in the record
+    /// and its heading in More). A button's, popover's or menu's.
+    pub fn shown_words(mut self, words: impl Into<String>) -> Self {
+        self.shown_words = Some(words.into());
         self
     }
 
@@ -496,7 +512,7 @@ impl<'a> Item<'a> {
             Kind::Button { icon, look, toggle, icon_only } => {
                 let shown_icon =
                     if self.words_icon || *icon_only || icon_form { *icon } else { None };
-                let mut b = KitButton::new(shown_icon, self.name.as_str())
+                let mut b = KitButton::new(shown_icon, self.words_shown())
                     .look(*look)
                     .icon_only(*icon_only || icon_form);
                 if let Some(on) = toggle {
@@ -506,7 +522,7 @@ impl<'a> Item<'a> {
             }
             Kind::Popover { icon, .. } | Kind::Menu { icon, .. } => {
                 let shown_icon = if self.words_icon || icon_form { *icon } else { None };
-                KitButton::new(shown_icon, self.name.as_str())
+                KitButton::new(shown_icon, self.words_shown())
                     .look(ButtonLook::Raised)
                     .icon_only(icon_form)
                     .opens(open)
@@ -514,10 +530,18 @@ impl<'a> Item<'a> {
             _ => return None,
         };
         b = b.enabled(self.enabled);
+        if self.shown_words.is_some() {
+            b = b.name(self.name.as_str());
+        }
         if let Some(tip) = &self.tip {
             b = b.tip(tip.as_str());
         }
         Some(b)
+    }
+
+    /// The words its button shows ([`Item::shown_words`], or its name).
+    fn words_shown(&self) -> &str {
+        self.shown_words.as_deref().unwrap_or(&self.name)
     }
 
     /// Its width on the row in `form` (where it has that form).
@@ -874,6 +898,8 @@ impl<'a> EditorHeader<'a> {
                 steps.push((i, to));
             }
         }
+        // (The steps that fold an unfolded popover back, all first.)
+        let folds = steps.len();
         let sides = || order(Side::Left).into_iter().chain(order(Side::Right));
         for i in sides() {
             let item = &self.items[i].1;
@@ -977,12 +1003,27 @@ impl<'a> EditorHeader<'a> {
             sum + HEADER_GAP * parts.len().saturating_sub(1) as f32
         };
         let mut fits = total(&parts_of(&forms, false), &forms) <= room;
+        let mut taken = 0;
         for &(i, to) in &steps {
             if fits {
                 break;
             }
             forms[i] = to;
+            taken += 1;
             fits = total(&parts_of(&forms, false), &forms) <= room;
+        }
+        // (Where only popovers were folded, one folded early that has room
+        // again beside those folded after it unfolds once more, from the
+        // left: the wide area header's Audio, narrower unfolded than its
+        // button, beside Overlays folded.)
+        if fits && taken <= folds {
+            for &(i, _) in steps[..taken].iter().rev() {
+                let was = forms[i];
+                forms[i] = Place::Unfolded;
+                if total(&parts_of(&forms, false), &forms) > room {
+                    forms[i] = was;
+                }
+            }
         }
         let parts = parts_of(&forms, !fits);
 
@@ -1208,6 +1249,10 @@ impl<'a> EditorHeader<'a> {
                 }
             }
         });
+        // (The row's scope put the cursor after what its items took, which
+        // stand centered in the row: back after the whole row, so that
+        // what follows the header begins under it.)
+        ui.advance_cursor_after_rect(rect);
 
         // The More popover: what is in it, in the row's order.
         if open.as_deref() == Some(MORE)

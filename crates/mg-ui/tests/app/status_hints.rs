@@ -574,6 +574,10 @@ fn the_other_area_states_show_their_hints() {
 fn nothing_in_front_or_no_area_hints() {
     let Some((mut h, area)) = area_harness("status-hints-in-front") else { return };
     view(&mut h, area).selection = vec![(mg_area::ObjectKind::Waypoint, 0)];
+    // (The pointer off the view: an Escape over it with nothing in hand
+    // lets the selection go, whatever closed with it.)
+    let window = h.ctx.content_rect();
+    h.hover_at(egui::pos2(window.center().x, window.bottom() - 4.0));
     let selected = ["Drag: Move", "G: Drop to ground"];
     says(&mut h, &selected, &[]);
     // A menu.
@@ -586,6 +590,8 @@ fn nothing_in_front_or_no_area_hints() {
     says(&mut h, &selected, &[]);
     // A dialog.
     menu_command(&mut h, "Edit", "Resize Area…");
+    // (The menu's row was clicked over the view: the pointer off it again.)
+    h.hover_at(egui::pos2(window.center().x, window.bottom() - 4.0));
     until(&mut h, "no hints, a dialog open", |h| {
         let s = said(h);
         !s.iter().any(|s| s == "Drag: Move") && s.iter().any(|s| s == "1 selected")

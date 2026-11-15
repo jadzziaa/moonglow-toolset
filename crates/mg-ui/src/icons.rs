@@ -162,21 +162,20 @@ pub(crate) mod editor {
 /// How a toolbar's buttons are labelled (Options › General › Editors'
 /// toolbar buttons): a glyph and its name, or, with Icons only, the glyph
 /// alone and its name in its tip (and as its name for a screen reader),
-/// as Aurora's toolbars have them. The area view's toolbar takes it from
-/// the settings each frame; the editors' toolbars show their words alone
-/// beside them ([`Tools::word`]); the Top Bar's quick actions are icons
-/// alone ([`Tools::icons_alone`]).
+/// as Aurora's toolbars have them. The editors' toolbars take it from the
+/// settings each frame and show their words alone beside them
+/// ([`Tools::word_look`]); the Top Bar's quick actions are icons alone
+/// ([`Tools::icons_alone`]). The area's header reads none of it (M4's
+/// U3): it yields by the editor's width (`area_view::header`).
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
     pub(crate) icons_only: bool,
-    /// The area toolbar's buttons left out ([`AREA_TOOLS`], a bit each by
-    /// its place there; none on other toolbars).
-    hidden: u64,
 }
 
-/// The area view's toolbar's buttons that can be hidden (Options › Area ›
-/// Toolbar, the toolbar's right-click menu), by the names they give
-/// [`Tools`]; the objects' filters are [`area_tool_kind`]'s.
+/// The area header's controls that can be hidden (Options › Area ›
+/// Header, the header's right-click menu), by the names the toolbar
+/// before it gave them, kept so that a stored list keeps its meaning
+/// (`area_view::header`); the objects' filters are [`area_tool_kind`]'s.
 pub(crate) const AREA_TOOLS: [&str; 29] = [
     "Start",
     "All",
@@ -217,14 +216,14 @@ pub(crate) fn area_tool_kind(label: &str) -> String {
 
 impl Tools {
     pub(crate) fn of(settings: &crate::Settings) -> Tools {
-        Tools { icons_only: settings.toolbar_icons_only, hidden: 0 }
+        Tools { icons_only: settings.toolbar_icons_only }
     }
 
     /// Icons alone, whatever the settings say (the Top Bar's quick
     /// actions: Options › General › Editors' toolbar buttons is the
     /// editors' toolbars' alone), or icons and words.
     pub(crate) fn icons_alone(only: bool) -> Tools {
-        Tools { icons_only: only, hidden: 0 }
+        Tools { icons_only: only }
     }
 
     /// The same, with the icons alone where `buttons` with their words
@@ -241,26 +240,7 @@ impl Tools {
     pub(crate) fn fitted_after(self, ui: &egui::Ui, before: f32, buttons: &[IconButton]) -> Tools {
         let gaps = ui.spacing().item_spacing.x * buttons.len().saturating_sub(1) as f32;
         let words: f32 = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gaps;
-        Tools { icons_only: self.icons_only || before + words > ui.available_width(), ..self }
-    }
-
-    /// The area view's toolbar's: those its settings hide left out.
-    pub(crate) fn of_area(settings: &crate::Settings) -> Tools {
-        let hidden = (AREA_TOOLS.iter().enumerate())
-            .filter(|(_, n)| settings.hidden_area_tools.iter().any(|h| h == *n))
-            .fold(0, |m, (i, _)| m | 1 << i);
-        Tools { icons_only: settings.toolbar_icons_only, hidden }
-    }
-
-    /// Whether the button named `name` is left out.
-    pub(crate) fn hides(self, name: &str) -> bool {
-        AREA_TOOLS.iter().position(|n| *n == name).is_some_and(|i| self.hidden & 1 << i != 0)
-    }
-
-    /// The same, hiding nothing (the objects' filters, named as buttons
-    /// that may be hidden).
-    pub(crate) fn showing_all(self) -> Tools {
-        Tools { hidden: 0, ..self }
+        Tools { icons_only: self.icons_only || before + words > ui.available_width() }
     }
 
     /// How a button of the main or the area toolbar is labelled: its icon
@@ -304,52 +284,6 @@ impl Tools {
         }
     }
 
-    /// A button: `icon`, named `name`, with `tip`.
-    pub(crate) fn button(
-        self,
-        ui: &mut egui::Ui,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        if self.hides(name) {
-            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-        }
-        self.add(ui, self.widget(icon, name), name, tip)
-    }
-
-    /// A button that stays down while `on`, and turns it on and off.
-    pub(crate) fn toggle(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        self.toggle_as(ui, on, icon, name, name, tip)
-    }
-
-    /// [`Tools::toggle`] showing `words` (by which it is hidden) and named
-    /// `name` for a screen reader and in its tip: the area toolbar's
-    /// "Sounds" filter named "Show Sounds", its "Sounds" switch "Play
-    /// Sounds".
-    pub(crate) fn toggle_as(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        words: &str,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        if self.hides(words) {
-            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-        }
-        let r = toggled(ui.add(self.widget(icon, words).name(name).selectable(*on)), on);
-        self.with_tip(r, name, tip)
-    }
-
     /// An editor's toolbar toggle: its words, or its icon ([`Tools::word_look`]).
     pub(crate) fn toggle_word(
         self,
@@ -378,18 +312,6 @@ impl Tools {
             true => toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on),
             false => ui.check_box(on, name),
         };
-        self.with_tip(r, name, tip)
-    }
-
-    /// `button` (an [`IconButton`], named by its words) added, with its tip.
-    pub(crate) fn add(
-        self,
-        ui: &mut egui::Ui,
-        button: impl egui::Widget,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = ui.add(button);
         self.with_tip(r, name, tip)
     }
 
@@ -438,8 +360,8 @@ mod tests {
     /// as it was.
     #[test]
     fn icons_only_moves_the_name_into_the_tip() {
-        let both = Tools { icons_only: false, hidden: 0 };
-        let icons = Tools { icons_only: true, hidden: 0 };
+        let both = Tools { icons_only: false };
+        let icons = Tools { icons_only: true };
         assert_eq!(both.look(), Label::Both);
         assert_eq!(icons.look(), Label::IconOnly);
         assert_eq!(both.word_look(), Label::WordsOnly);

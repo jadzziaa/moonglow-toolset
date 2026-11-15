@@ -682,7 +682,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
@@ -764,7 +764,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     let set = mg_edit::Command::new("Replacement texture", vec![set]);
     h.state_mut().actions.push(mg_ui::Action::Apply(set));
     h.run_steps(2);
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     // The room in the middle: tile (1, 1), index 5.
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -861,7 +861,7 @@ pub(crate) fn tile_properties_of(
     points: &[glam::Vec3],
 ) {
     if !h.state().area_views[&area].tile_mode {
-        area_tool(h, "Select Tiles").click();
+        area_click(h, "Select Tiles");
         h.run_steps(2);
     }
     for (i, p) in points.iter().enumerate() {
@@ -1158,7 +1158,7 @@ fn groups_and_features_change_only_whole() {
     h.run_steps(2);
     // Out of Select Tiles, the area's own menu on the ground: Rotate Tile
     // refused, the log saying why (the status line is the objects').
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     assert!(!h.state().area_views[&area].tile_mode);
     for pressed in [true, false] {
@@ -1203,7 +1203,7 @@ fn groups_and_features_change_only_whole() {
     // Not allowed: Delete on one of its tiles takes the whole barn.
     h.state_mut().settings.edit_group_tiles = false;
     if !h.state().area_views[&area].tile_mode {
-        area_tool(&h, "Select Tiles").click();
+        area_click(&mut h, "Select Tiles");
         h.run_steps(2);
     }
     click(&mut h, east, egui::Modifiers::NONE);
@@ -1488,7 +1488,7 @@ fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
     let before = area_are(&mut h, area);
     resize_area_to(&mut h, area, 4, 8);
     if !h.state().area_views[&area].tile_mode {
-        area_tool(&h, "Select Tiles").click();
+        area_click(&mut h, "Select Tiles");
         h.run_steps(2);
     }
     let south = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -1529,7 +1529,7 @@ fn tiles_selected_across_rotate_area_are_dropped() {
     use glam::Vec3;
     use mg_edit::Command;
     let Some((mut h, area)) = area_harness("tiles-rotate") else { return };
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     // (Where tile (0, 0) is on screen: Tile Properties' pane takes room.)
     let at = |h: &Harness<'_, Moonglow>| screen(h, area, Vec3::new(5.0, 5.0, 0.0));
@@ -1586,7 +1586,7 @@ fn tiles_copy_and_paste() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -3102,13 +3102,13 @@ fn tile_properties_raise_one_tile_alone() {
     let shown = &h.state().area_views[&area].model.as_ref().unwrap().tiles[10];
     assert_eq!(shown.position.z, (was + 2) as f32 * step, "drawn at its height");
     assert_eq!(waypoints(&mut h), [2.0 * step, 0.0], "what stands on it rises with it");
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     area_shots(&mut h, area, &shots.join("after"));
     // Its walkmesh with it: the ground the game walks on (green).
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = true;
     area_shots(&mut h, area, &shots.join("walkmesh"));
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = false;
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile Properties"));
     // Two tiles of different heights: mixed; Escape with it set asks.
@@ -3734,7 +3734,7 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Turn", vec![turn])));
     h.run_steps(3);
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
@@ -4930,7 +4930,7 @@ fn drag_with(
 fn select_tiles_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let (mut h, area) = area_harness(name)?;
     if !h.state().area_views[&area].tile_mode {
-        area_tool(&h, "Select Tiles").click();
+        area_click(&mut h, "Select Tiles");
         h.run_steps(2);
     }
     assert!(h.state().area_views[&area].tile_mode);
@@ -5579,7 +5579,10 @@ fn not_pickable_objects_take_no_press(hand: Hand) {
     settle(&mut h);
     if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
         o.target = chest;
-        (o.distance, o.pitch, o.yaw) = (45.0, 0.3, (-135f32).to_radians());
+        // (Not straight along the tiles' diagonal, which their ground's
+        // faces are split along: a ray down it met the raised tile's
+        // corner or passed by it, as the view's height made it.)
+        (o.distance, o.pitch, o.yaw) = (45.0, 0.3, (-130f32).to_radians());
     }
     h.run_steps(5);
     let behind = screen(&h, area, chest + Vec3::Z * 0.3);
@@ -5819,7 +5822,7 @@ fn other_brushes_on_an_object_today() {
             "Terrain (Water)" => choose_tile_brush(&mut h, "Water"),
             "Crosser (Road)" => choose_tile_brush(&mut h, "Road"),
             "Select Tiles" => {
-                area_tool(&h, "Select Tiles").click();
+                area_click(&mut h, "Select Tiles");
                 h.run_steps(2);
             }
             "Paint (placeables)" => {

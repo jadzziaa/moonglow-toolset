@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T13:30:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -62,30 +62,30 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner ✓ M3 T13 (the eyes: one state with the toggles, which stay on the toolbar until M4's header; nine eyes, no row for Start, as the boards draw them) |
-| All, None | The arrow at the end of that group |
-| Snap, Turn | Header combos (magnet and rotate icons) |
-| Together, Onto Objects | Header icon toggles beside Turn |
-| Night | Header, Day \| Night |
-| Lighting, Shadows and their kinds and quality, Fog, Fade Geometry | Lighting popover |
-| Shaders, Grass, Tile Border, Animations | Lighting popover |
-| Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges | Overlays popover, with a master switch |
-| Sounds, Ambient, Music | Audio popover |
-| Area Properties | Header, right end |
-| To Scratch, Save as Prefab… | Header, More button |
+| Show Creatures, Doors, Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints, Start | Header, a group of icon toggles; the same eyes in the Outliner ✓ M3 T13 (the eyes: one state with the toggles; nine eyes, no row for Start, as the boards draw them); the header's joined group ✓ M4 U3 |
+| All, None | The arrow at the end of that group ✓ M4 U3 (a menu; the Show popover's last rows in the compact header) |
+| Snap, Turn | Header combos (magnet and rotate icons) ✓ M4 U3 (each as wide as its value) |
+| Together, Onto Objects | Header icon toggles beside Turn ✓ M4 U3 |
+| Night | Header, Day \| Night ✓ M4 U3 |
+| Lighting, Shadows and their kinds and quality, Fog, Fade Geometry | Lighting popover ✓ M4 U3 (Lighting its switch; in the wide row one Shadows toggle with the kinds held or right-clicked) |
+| Shaders, Grass, Tile Border, Animations | Lighting popover ✓ M4 U3 (in the wide board's order: Animations, Grass, Tile border, Shaders) |
+| Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges | Overlays popover, with a master switch ✓ M4 U3 (Walkmesh… folded into its two rows; one Walkmesh toggle in the wide row) |
+| Sounds, Ambient, Music | Audio popover ✓ M4 U3 |
+| Area Properties | Header, right end ✓ M4 U3 |
+| To Scratch, Save as Prefab… | Header, More button ✓ M4 U3 (Select Tiles, Paint, Reorient Camera and Go to Start Location there too until U4's shelf and compass) |
 | Select Tiles (F10), Paint (B) | Tool shelf at the left of the 3D view |
 | Paint's second strip (Scatter, Row, Fill, Erase, Radius, Density and the rest) | Takes the header's left group while Paint is the active tool (not drawn) |
 | Reorient Camera, Go to Start Location | Buttons under the compass |
-| "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor; "problems" and "N missing" stay on the toolbar, beside its tools) |
+| "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor); "problems" and "N missing" a warning sign with its count at the header's right group's end ✓ M4 U3 (Part 2, decision 8) |
 | Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
-| The strip's right-click menu (which buttons to show) | The header's right-click menu |
+| The strip's right-click menu (which buttons to show) | The header's right-click menu ✓ M4 U3 (anywhere on the row; a hidden control gone from the row, its popover and the wide row) |
 | Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order |
 | A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab |
 
 
 #### At 3440 by 1440
 
-- The three popovers unfold into the header row. Day, Night, Lighting, Shadows, Fog, Grid, Minimap, Walkmesh and Sound Ranges carry their words. Fade Geometry is a combo. Animations, Grass, Tile Border, Shaders and the three Audio switches are icon toggles.
+- The three popovers unfold into the header row. Day, Night, Lighting, Shadows, Fog, Grid, Minimap, Walkmesh and Sound Ranges carry their words. Fade Geometry is a combo. Animations, Grass, Tile Border, Shaders and the three Audio switches are icon toggles. ✓ M4 U3 (those that fit, from the left; the Overlays switch shows as an icon toggle in the row)
 - The Right Dock stands two columns wide (Palette, Properties), a script is open in a second editor group, and the Log is open in the Bottom Dock. (M3 T14: the two columns are built with the Palette and the Preview, where the dock is wider than 560 in a window from 2560, 741 at first there; the Properties column is M4's area editor, S2. The Left Dock 320 and the Module panel 760 high there at first ✓ M3 T14.)
 
 ### Script Editor
@@ -395,15 +395,15 @@ Every control of the screens mocked in the second round and its home in the mock
 |---|---|---|
 | Compile, Verify, Test Module with words | Icon buttons with tooltips; Quick Open at 300 px | ✓ the icons M3 T2; Quick Open at 300 px, and its icon where it would be under 240, M3 T8 |
 | Left Dock: Module, Resources, Outliner | Folded to a 24 px strip of icons; its chevron replaces the 16 px pane edge | The strip ✓ M3 T4, the Outliner's icon on it ✓ M3 T13; folded by the window's width under 1500 ✓ M3 T14 (unfolded by hand, by F6 or by View until the window is 1500 wide; `hide_tree` never written by a width; the strip's chevron is the button beside its edge, T5's) |
-| The ten kind toggles and All, None | Show popover, "5 of 10" |  |
-| Day \| Night | One moon toggle |  |
-| Lighting, Overlays, Audio, Area Properties | Icon buttons |  |
+| The ten kind toggles and All, None | Show popover, "5 of 10" | ✓ M4 U3 (under an editor 990 wide) |
+| Day \| Night | One moon toggle | ✓ M4 U3 |
+| Lighting, Overlays, Audio, Area Properties | Icon buttons | ✓ M4 U3 (framed, the popovers' with their chevrons) |
 | Palette type strip | Combo, "Placeables" | ✓ M3 T14 (a dropdown with the type's icon under 300 px of dock; Standard and Custom stay on the name's row: M4's palette change puts them beside it) |
 | Expand All, Collapse All | End of the Group By row |  |
 | Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; Properties is M4's (S2) |
 | Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4 |
 | Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
-| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn, More, the shelf and the compass are M4's area header |
+| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn and More ✓ M4 U3; the shelf and the compass are U4's |
 
 
 #### How the Shell Yields
@@ -411,7 +411,7 @@ Every control of the screens mocked in the second round and its home in the mock
 - Top bar: below a window width of 1300, Compile, Verify and Test Module become icons and Quick Open is capped at 300 px. If it would fall under 240 px, it becomes an icon button.
 - Left Dock: below 1500, it folds to its 24 px strip. The user can unfold it, and the compact header still fits.
 - Right Dock: below 1400, it narrows from 320 to 280 px and its panels become tabs. Under 300 px of panel width, the palette's type strip becomes a combo.
-- Header: below an editor width of 990, it goes compact. Below 550, Snap and Turn lose their value text. Below 490, Together and Onto Objects move into More. At 1280 the editor is 974 wide.
+- Header: below an editor width of 990, it goes compact. Below 550, Snap and Turn lose their value text. Below 490, Together and Onto Objects move into More. At 1280 the editor is 974 wide. ✓ M4 U3 (the area's header, `area_view::header`, by `Yields` of its own row's width)
 - Status Bar: below a window width of 1400, the panel switches become icons. Then the game folder drops, then hints drop from the end. At 1280 all six hints fit.
 - Built: the Top Bar's in M3 T2 and T8; the Left Dock's, the Right Dock's and the Status Bar's in M3 T14, from one `Yields` decided once a frame. T14 adds what no board draws: below 796 the Right Dock folds to its strip too (the editor area's least, 490, beside the Left Dock's strip), and below 962 a dock unfolded by hand folds the other. The header's (E 990, 550, 490) are M4's area header.
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
 ---
 
 # Options
@@ -124,9 +124,8 @@ the module is opened again from its file.
 
 ### Graphics
 
-- **Shadows quality**: how the area view draws the game's shadows (its
-  **Shadows**; also chosen in that button's menu, see
-  [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
+- **Shadows quality**: how the area view draws the game's shadows (its **Shadows**; also chosen in the area header's Lighting popover, see
+  [Areas](04-areas.md#lighting)). **Fast** (the default): a shadow map stands in
   for the game's shadows, cheap in every area; in a large area seen out
   to its far side, its edges up close are a little soft and stepped.
   **High**: stencil shadow volumes, the game's own kind: each mesh
@@ -188,13 +187,15 @@ the module is opened again from its file.
   half changed is hard to see and to put right later (Undo does). See
   [Areas](04-areas.md#painting-terrain).
 
-### Toolbar
+### Header
 
-Which buttons the area's toolbar shows: a tick for each (the objects'
-filters as **Show Creatures**…, the button that plays placed sounds as
-**Play Sounds**), all of them shown at first; **Show All** puts back
-every one. A right click on the toolbar between its buttons opens the
-same list. Moonglow's own (a builder's ask: a toolbar of what is used).
+Which controls the area's header shows, on its row, in its popovers and
+in the wide row where they unfold: a tick for each (the objects'
+filters as **Show Creatures**…, the switch that plays placed sounds as
+**Play Sounds**, both walkmeshes as **Walkmesh…**), all of them shown at
+first; **Show All** puts back every one. A right click anywhere on the
+header opens the same list. Moonglow's own (a builder's ask: a toolbar of
+what is used; see [Areas](04-areas.md#the-header)).
 
 ## General
 
@@ -294,17 +295,14 @@ window is one in As Tabs too, for a kind you moved to a window):
   colors where a Background of your own is set: a dark Background takes
   the dark theme's colors and a light one the light theme's, so its text
   stays readable whichever theme the window wears.
-- **Editors' toolbar buttons** (Icons and text): **Icons only** shows
-  the buttons of the area view's toolbar and of the editors' toolbars
-  (the script editor's, the conversation editor's, a model's view and
-  the NUI Creator's) as their icons alone, as Aurora's
-  toolbars are, to save room: the area view's toolbar takes about half
-  the rows it took. Rest the pointer on an icon and its tip names it,
-  with its key and what it does; a screen reader reads the button's
-  name, not its icon. With Icons only, the area view's Fade Geometry,
-  Snap and Turn dropdowns show an icon for what they set before their
-  choice. The
-  editors' buttons show their words alone with Icons and text, as they
+- **Editors' toolbar buttons** (Icons and text): **Icons only** shows the buttons of the editors' toolbars (the script
+  editor's, the conversation editor's, a model's view, the hak editor's
+  and the NUI Creator's) as their icons alone, as Aurora's toolbars are,
+  to save room. Rest the pointer on an icon and its tip names it, with
+  its key and what it does; a screen reader reads the button's name, not
+  its icon. The area's header no longer follows it (its tip says so): it
+  gives its words up to its width instead (see
+  [Areas](04-areas.md#the-header)). The editors' buttons show their words alone with Icons and text, as they
   always have; the palette's tile tools (Select Tiles, Eraser, Refine
   Tile…) are rows of its list, named as in Aurora's palette, and keep
   their names. It takes effect at once, when you choose OK. The Top
@@ -559,8 +557,7 @@ outside Moonglow) always ask.
 ## Sounds
 
 - **Play placed sound objects in area**, **Play ambient sound in area**,
-  **Play ambient music in area**: what plays when an area view opens (the
-  area viewer's toolbar also turns each on and off).
+  **Play ambient music in area**: what plays when an area view opens (the area header's Audio popover also turns each on and off).
 - **Ambient music volume**.
 
 ## Verify

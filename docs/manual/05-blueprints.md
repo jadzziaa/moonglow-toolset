@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T19:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
 ---
 
 # Blueprints
@@ -695,7 +695,7 @@ Shared parts:
     passes the values only to a mesh drawn with that MTR when the MTR
     names its own shaders (`customshadervs`, `customshaderfs`); declare
     each parameter in it too (`parameter int Name 0`). With
-    [Shaders](04-areas.md#the-toolbar) on, the area view and the
+    [Shaders](04-areas.md#the-header) on, the area view and the
     blueprint's view draw them (since Moonglow 3.10.0).
   - **Tint**, at the top of a placeable's page, where its model has a
     material that takes one: The Domains of Dread's colorways, the color

@@ -2247,12 +2247,12 @@ fn arrow_keys_step_through_the_area_s_lists() {
     use mg_area::grass::{AreaGrass, GrassOverride};
     let Some((mut h, area)) = area_harness("area-list-arrows") else { return };
     h.run_steps(3);
-    let combo = egui::accesskit::Role::ComboBox;
-    let click = |h: &mut Harness<'_, Moonglow>, value: &str| {
-        h.get_all_by_role(combo)
-            .find(|n| n.accesskit_node().value().as_deref() == Some(value))
-            .unwrap_or_else(|| panic!("the list showing {value:?}"))
-            .click();
+    // (The area header's lists by their names, Fade Geometry's in its
+    // Lighting popover, opened for it.)
+    let click = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let node = area_tool(h, name);
+        assert_eq!(node.accesskit_node().role(), egui::accesskit::Role::ComboBox, "{name}");
+        node.click();
         h.run_steps(2);
     };
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
@@ -2261,15 +2261,16 @@ fn arrow_keys_step_through_the_area_s_lists() {
     };
     let camera = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit;
     let before = camera(&h);
-    click(&mut h, "Fade Geometry: Never");
+    click(&mut h, "Fade Geometry");
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(h.state().settings.fade_geometry, 1, "the next, while working on objects");
     key(&mut h, egui::Key::Escape);
-    click(&mut h, "Snap: off");
+    close_area_popover(&mut h);
+    click(&mut h, "Snap");
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(h.state().settings.snap_grid, Some(25));
     key(&mut h, egui::Key::Escape);
-    click(&mut h, "Turn: free");
+    click(&mut h, "Turn");
     key(&mut h, egui::Key::ArrowDown);
     key(&mut h, egui::Key::ArrowDown);
     assert_eq!(h.state().settings.snap_angle, Some(15));
@@ -2291,7 +2292,10 @@ fn arrow_keys_step_through_the_area_s_lists() {
     let eax = |h: &mut Harness<'_, Moonglow>| props(h).integer("EnvAudio");
     let was = eax(&mut h);
     let line = h.get_by_label("Environmental Audio Effects").rect().center().y;
-    h.get_all_by_role(combo).find(|n| (n.rect().center().y - line).abs() < 6.0).unwrap().click();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| (n.rect().center().y - line).abs() < 6.0)
+        .unwrap()
+        .click();
     h.run_steps(2);
     // (The area's may be the last row: then Up is the one to try.)
     key(&mut h, egui::Key::ArrowDown);
@@ -2313,7 +2317,11 @@ fn arrow_keys_step_through_the_area_s_lists() {
         AreaGrass::read(&ws.doc(&git).unwrap().root).overrides[0].material
     };
     assert_eq!(material(&mut h), 1);
-    click(&mut h, "Dirt (1)");
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Dirt (1)"))
+        .expect("the list showing \"Dirt (1)\"")
+        .click();
+    h.run_steps(2);
     key(&mut h, egui::Key::ArrowDown);
     if material(&mut h) == 1 {
         key(&mut h, egui::Key::ArrowUp);

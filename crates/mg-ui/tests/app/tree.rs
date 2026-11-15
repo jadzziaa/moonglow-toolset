@@ -106,9 +106,10 @@ fn resources_open_in_their_editors() {
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(area).unwrap()));
     h.run();
-    // The area viewer, with its object filters.
+    // The area viewer, with its object filters (the header's Show popover:
+    // compact in a window this narrow).
     assert!(h.state().dock.find_tab(&Tab::Area(area.resref)).is_some());
-    area_tool(&h, "Show Placeables");
+    h.get_by_label(AREA_HEADER).get_by_label("Show");
 }
 
 /// The log is among Next Pane's panes (the module tree and the palettes'
@@ -2528,14 +2529,14 @@ fn an_object_of_a_hidden_kind_gone_to_from_the_tree_shows_its_kind() {
     until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Waypoints (2)").is_empty());
     tree_rows_with(&h, "Waypoints (2)")[0].click();
     until_tree(&mut h, "its rows", |h| tree_rows_with(h, "NW_WAYPOINT001").len() == 2);
-    area_tool(&h, "Show Waypoints").click();
+    area_click(&mut h, "Show Waypoints");
     until_tree(&mut h, "hidden", |h| !shown(h));
     tree_rows_with(&h, "NW_WAYPOINT001")[0].click();
     until_tree(&mut h, "shown and selected", |h| {
         shown(h) && h.state().area_views[&area].selection.len() == 1
     });
     // With Ctrl.
-    area_tool(&h, "Show Waypoints").click();
+    area_click(&mut h, "Show Waypoints");
     until_tree(&mut h, "hidden again", |h| {
         !shown(h) && h.state().area_views[&area].selection.is_empty()
     });

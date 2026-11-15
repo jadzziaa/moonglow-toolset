@@ -1716,7 +1716,7 @@ fn several_objects_edited_together() {
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };
-    area_tool(&h, "Walkmesh…").click();
+    area_click(&mut h, "Ground walkmesh");
     h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh);
     h.get_by_label("Build").click();
@@ -2513,7 +2513,7 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0));
     // (The button is at the end of a toolbar's row, which ends at the
     // tab's edge in a window this narrow too.)
-    area_tool(&h, "Go to Start Location").click();
+    area_click(&mut h, "Go to Start Location");
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
@@ -3144,7 +3144,7 @@ fn an_area_opens_again_with_its_camera_and_tile_tools() {
     let path = h.state().module_path().expect("saved");
     h.state_mut().open_tabs_dir = Some(mg_testkit::scratch_dir("ui-open-tabs-camera"));
     // Tile Properties of the tile at column 1, row 1.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
@@ -3883,7 +3883,7 @@ fn rings_and_arrows_are_led_from_straight_above() {
 
     // Lighting, switched off, stays off for views opened later.
     assert!(!h.state().settings.unlit_areas);
-    area_tool(&h, "Lighting").click();
+    area_click(&mut h, "Use the area's lighting");
     h.run_steps(2);
     assert!(h.state().settings.unlit_areas);
 }
@@ -4289,7 +4289,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
         h.state().area_views[&area].show[kind.index()]
     };
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
-    area_tool(&h, "Show Triggers").click();
+    area_click(&mut h, "Show Triggers");
     h.run_steps(2);
     assert!(!shown(&h, second, ObjectKind::Trigger), "hidden where it was clicked");
     assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
@@ -4305,7 +4305,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     h.run_steps(3);
     assert!(!shown(&h, first, ObjectKind::Trigger));
     // Show All: everywhere, and nothing kept hidden.
-    area_tool(&h, "All").click();
+    area_click(&mut h, "All");
     h.run_steps(2);
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
     assert!(h.state().settings.hidden_in_areas.is_empty());
@@ -4416,7 +4416,8 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
         app.palette.tiles = false;
     }
     h.run_steps(3);
-    h.get_by_label("More").click();
+    // (The palette's More, not the area header's.)
+    h.get_all_by_label("More").find(|n| !in_group(n, AREA_HEADER)).unwrap().click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run_steps(3);
@@ -5794,7 +5795,7 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     h.run_steps(1);
     // Paint and Select Tiles are off.
     for tool in ["Paint", "Select Tiles"] {
-        let node = area_tool(&h, tool);
+        let node = area_tool(&mut h, tool);
         assert!(node.accesskit_node().is_disabled(), "{tool} is off");
     }
     // Its menu: what looks at it, nothing that changes it.
@@ -5854,7 +5855,7 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     h.run_steps(2);
     assert_eq!(h.state().area_views[&area].map_rect, None, "off at first");
-    area_tool(&h, "Minimap").click();
+    area_click(&mut h, "Minimap");
     h.run_steps(3);
     assert!(h.state().settings.area_minimap, "kept");
     let rect = h.state().area_views[&area].map_rect.expect("the map is shown");
@@ -5879,46 +5880,69 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
 }
 
-/// The area toolbar's buttons can be hidden (a builder's ask: a toolbar of
-/// what is used): Options › Area › Toolbar, kept in the settings, and the
-/// toolbar's right-click menu, where they are ticked back.
+/// The area header's controls can be hidden (a builder's ask: a toolbar of
+/// what is used): Options › Area › Header, kept in the settings, and the
+/// header's right-click menu, where they are ticked back. A hidden control
+/// is gone from the row, from its popover and from the wide row's
+/// unfolded popovers ("Walkmesh…", the name the toolbar kept, both
+/// walkmeshes).
 #[test]
-fn the_area_toolbar_s_buttons_can_be_hidden() {
+fn the_area_header_s_controls_can_be_hidden() {
     let Some((mut h, _)) = area_harness("toolbar-hidden") else { return };
     settle(&mut h);
-    assert!(h.query_all_by_label_contains("Night").count() > 0);
-    // (The module tree names creatures too.)
-    let creatures = h.query_all_by_label_contains("Creatures").count();
-    h.state_mut().settings.hidden_area_tools = vec!["Night".into(), "Show Creatures".into()];
-    h.run_steps(3);
-    assert_eq!(h.query_all_by_label("Night").count(), 0, "Night hidden");
-    assert_eq!(
-        h.query_all_by_label_contains("Creatures").count(),
-        creatures - 1,
-        "the creatures' filter hidden"
-    );
-    assert!(h.query_all_by_label_contains("Lighting").count() > 0, "the rest stays");
-    // Its right-click menu, between its buttons: Night ticked back.
-    let lighting = h.get_all_by_label_contains("Lighting").next().unwrap().rect();
-    let gap = egui::pos2(lighting.right() + 2.0, lighting.center().y);
-    h.hover_at(gap);
+    let in_header = |h: &Harness<'_, Moonglow>, name: &str| {
+        mg_uikit::header::places(&h.ctx, AREA_HEADER).iter().any(|(n, _)| n == name)
+    };
+    assert!(in_header(&h, "Night"));
+    area_tool(&mut h, "Show Creatures");
+    area_tool(&mut h, "Grid");
+    area_tool(&mut h, "Ground walkmesh");
+    close_area_popover(&mut h);
+    h.state_mut().settings.hidden_area_tools =
+        vec!["Night".into(), "Show Creatures".into(), "Grid".into(), "Walkmesh…".into()];
+    settle(&mut h);
+    assert!(!in_header(&h, "Night"), "Night hidden");
+    // (In their popovers: gone, the rest there.)
+    area_tool(&mut h, "Show Doors");
+    assert!(area_tool_shown(&h, "Show Creatures").is_none(), "the creatures' filter hidden");
+    close_area_popover(&mut h);
+    area_tool(&mut h, "Minimap");
+    for gone in ["Grid", "Ground walkmesh", "Object walkmeshes"] {
+        assert!(area_tool_shown(&h, gone).is_none(), "{gone} hidden in the popover");
+    }
+    close_area_popover(&mut h);
+    // (And from the wide row, where Overlays unfolds into it.)
+    h.set_size(egui::vec2(3000.0, 800.0));
+    settle(&mut h);
+    let places = mg_uikit::header::places(&h.ctx, AREA_HEADER);
+    let overlays = places.iter().find(|(n, _)| n == "Overlays").map(|(_, p)| *p);
+    assert_eq!(overlays, Some(mg_uikit::header::Place::Unfolded), "{places:?}");
+    for gone in ["Grid", "Walkmesh", "Night"] {
+        assert!(!places.iter().any(|(n, _)| n == gone), "{gone} unfolded: {places:?}");
+    }
+    assert!(places.iter().any(|(n, _)| n == "Minimap"), "the rest stays: {places:?}");
+    // Its right-click menu, anywhere on the row: Night ticked back.
+    let row = mg_uikit::header::records(&h.ctx, AREA_HEADER)[0].row;
+    let at = egui::pos2(row.center().x, row.center().y);
+    h.hover_at(at);
     h.run_steps(2);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
-            pos: gap,
+            pos: at,
             button: egui::PointerButton::Secondary,
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
     }
     h.run_steps(3);
-    h.get_by_label("Show on the Toolbar");
+    h.get_by_label("Show in the Header");
     h.get_all_by_label("Night").last().unwrap().click();
     h.run_steps(3);
-    assert_eq!(h.state().settings.hidden_area_tools, ["Show Creatures"]);
+    let hidden = &h.state().settings.hidden_area_tools;
+    assert_eq!(hidden, &["Show Creatures", "Grid", "Walkmesh…"]);
     h.key_press(egui::Key::Escape);
-    h.run_steps(3);
-    assert!(h.query_all_by_label_contains("Night").count() > 0, "Night shown again");
+    settle(&mut h);
+    assert!(in_header(&h, "Night"), "Night shown again");
 }
 
 /// A list takes letters (a builder's report: a long one could only be
@@ -5930,6 +5954,8 @@ fn a_dropdown_goes_to_what_is_typed() {
     use mg_ui::area_view::Fade;
     let Some((mut h, area)) = area_harness("typed-dropdown") else { return };
     settle(&mut h);
+    // (In the header's Lighting popover, opened.)
+    area_tool(&mut h, "Fade Geometry");
     let fade = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].fade;
     assert_eq!(fade(&h), Fade::Never);
     // (Its box, by what it shows: an icon or "Fade Geometry:" before it.)
@@ -6563,7 +6589,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // A tile, in tile mode.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, tile);
@@ -6719,8 +6745,8 @@ fn the_area_menus_group_related_commands_in_submenus() {
 
 /// Area Properties' shadow fields show in the view at once (the area read
 /// anew at the edit: the sun's shadows as opaque as its Shadow Opacity),
-/// and the toolbar's Shadows switch takes them away, kept for the views
-/// opened after.
+/// and the header's Lighting popover's Sun and moon shadows takes them
+/// away, kept for the views opened after.
 #[test]
 fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     let Some((mut h, area)) = area_harness("shadows") else { return };
@@ -6745,26 +6771,29 @@ fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     h.run_steps(3);
     let s = shadows(&h).expect("the sun's shadows");
     assert!((s.opacity - 0.4).abs() < 1e-6, "{s:?}");
-    area_tool(&h, "Shadows").click();
+    area_click(&mut h, "Sun and moon shadows");
+    area_click(&mut h, "Creature shadows");
     h.run_steps(2);
     assert_eq!(shadows(&h), None);
     assert!(h.state().settings.no_shadows);
 }
 
-/// The Shadows button's menu: held a moment it opens (its release no
-/// click), its checkboxes choose the kinds, kept in the settings for the
-/// views opened after; a click turns them all off and on again as they
-/// were.
+/// The wide header's Shadows toggle (the Lighting popover unfolded into
+/// the row, WideArea): held a moment it opens the kinds to choose (its
+/// release no click), its checkboxes choose them, kept in the settings
+/// for the views opened after; a click turns them all off and on again
+/// as they were.
 #[test]
-fn the_shadows_button_held_opens_the_kinds_to_choose() {
+fn the_shadows_toggle_held_opens_the_kinds_to_choose() {
     let Some((mut h, area)) = area_harness("shadow-kinds") else { return };
     let kinds = |h: &Harness<'_, Moonglow>| {
         let v = &h.state().area_views[&area];
         [v.shadows, v.creature_shadows, v.light_shadows]
     };
     assert_eq!(kinds(&h), [true; 3], "the defaults");
+    unfolded_header(&mut h);
     // Held half a second.
-    let at = area_tool(&h, "Shadows").rect().center();
+    let at = area_tool(&mut h, "Shadows").rect().center();
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
         button: egui::PointerButton::Primary,
@@ -6777,35 +6806,46 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
         h.input_mut().predicted_dt = 1.0 / 60.0;
         h.step();
     }
-    assert!(h.query_by_label("Light Shadows").is_some(), "open while held");
+    assert!(h.query_by_label("Light shadows").is_some(), "open while held");
     h.input_mut().events.push(button(false));
     h.run_steps(2);
     // (Open still: the release, outside it, closed it until 2.11.0.)
-    assert!(h.query_by_label("Light Shadows").is_some(), "open after the release");
+    assert!(h.query_by_label("Light shadows").is_some(), "open after the release");
     assert_eq!(kinds(&h), [true; 3], "the release is no click");
-    h.get_by_label("Light Shadows").click();
-    h.run();
-    h.get_by_label("Creature Shadows").click();
-    h.run();
+    h.get_by_label("Light shadows").click();
+    h.run_steps(3);
+    h.get_by_label("Creature shadows").click();
+    h.run_steps(3);
     assert_eq!(kinds(&h), [true, false, false]);
     let s = &h.state().settings;
     assert!(!s.no_shadows && s.no_creature_shadows && s.no_light_shadows);
     // A click: none; another: as they were.
     h.key_press(egui::Key::Escape);
-    h.run();
-    area_tool(&h, "Shadows").click();
-    h.run();
+    h.run_steps(3);
+    area_click(&mut h, "Shadows");
+    h.run_steps(2);
     assert_eq!(kinds(&h), [false; 3]);
-    area_tool(&h, "Shadows").click();
-    h.run();
+    area_click(&mut h, "Shadows");
+    h.run_steps(2);
     assert_eq!(kinds(&h), [true, false, false]);
 }
 
-/// With Creature Shadows unticked, the Shadows menu's Light Shadows is
-/// grayed out, its tooltip saying why, and keeps its tick (in the view and
-/// the settings); ticking Creature Shadows again brings it back as it was
-/// (the review's R4, the owner's decision: the game's lights' shadows are
-/// the creatures'). Light Shadows alone leave the button up.
+/// The area harness's window made wide enough for the area header to
+/// unfold its popovers into its row (section 5.3), and settled.
+fn unfolded_header(h: &mut Harness<'_, Moonglow>) {
+    h.set_size(egui::vec2(3000.0, 800.0));
+    settle(h);
+    let places = mg_uikit::header::places(&h.ctx, AREA_HEADER);
+    let lighting = places.iter().find(|(n, _)| n == "Lighting").map(|(_, p)| *p);
+    assert_eq!(lighting, Some(mg_uikit::header::Place::Unfolded), "{places:?}");
+}
+
+/// With Creature shadows unticked, the Lighting popover's Light shadows
+/// is grayed out, its tooltip saying why, and keeps its tick (in the view
+/// and the settings); ticking Creature shadows again brings it back as it
+/// was (the review's R4, the owner's decision: the game's lights' shadows
+/// are the creatures'). Light shadows alone leave the wide header's
+/// Shadows toggle off.
 #[test]
 fn light_shadows_are_grayed_out_without_creature_shadows() {
     let Some((mut h, area)) = area_harness("light-shadows-gray") else { return };
@@ -6814,19 +6854,19 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
         [v.shadows, v.creature_shadows, v.light_shadows]
     };
     let disabled =
-        |h: &Harness<'_, Moonglow>| h.get_by_label("Light Shadows").accesskit_node().is_disabled();
+        |h: &Harness<'_, Moonglow>| h.get_by_label("Light shadows").accesskit_node().is_disabled();
     settle(&mut h);
-    area_tool(&h, "Shadows").click_secondary();
+    area_tool(&mut h, "Light shadows");
     settle(&mut h);
-    assert!(!disabled(&h), "with Creature Shadows");
-    h.get_by_label("Creature Shadows").click();
+    assert!(!disabled(&h), "with Creature shadows");
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
-    assert_eq!(kinds(&h), [true, false, true], "Light Shadows kept");
-    assert!(disabled(&h), "grayed out without Creature Shadows");
+    assert_eq!(kinds(&h), [true, false, true], "Light shadows kept");
+    assert!(disabled(&h), "grayed out without Creature shadows");
     assert!(!h.state().settings.no_light_shadows, "and kept in the settings");
-    h.get_by_label("Light Shadows").hover();
+    h.get_by_label("Light shadows").hover();
     settle(&mut h);
-    let why = "Tick Creature Shadows first: creatures cast these";
+    let why = "Tick Creature shadows first: creatures cast these";
     let started = std::time::Instant::now();
     while h.query_by_label(why).is_none() {
         assert!(started.elapsed() < std::time::Duration::from_secs(10), "the tooltip says why");
@@ -6834,34 +6874,35 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     // (A click on it changes nothing.)
-    h.get_by_label("Light Shadows").click();
+    h.get_by_label("Light shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [true, false, true]);
-    h.get_by_label("Creature Shadows").click();
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [true; 3], "back as it was");
     assert!(!disabled(&h));
-    // Light Shadows alone draw nothing: the button is up, and a click
-    // turns every kind on.
-    h.get_by_label("Sun and Moon Shadows").click();
+    // Light shadows alone draw nothing: the wide header's Shadows toggle
+    // is off, and a click turns every kind on.
+    h.get_by_label("Sun and moon shadows").click();
     settle(&mut h);
-    h.get_by_label("Creature Shadows").click();
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [false, false, true]);
-    h.key_press(egui::Key::Escape);
-    settle(&mut h);
-    assert!(!area_tool(&h, "Shadows").accesskit_node().is_selected().unwrap_or(false));
-    area_tool(&h, "Shadows").click();
+    close_area_popover(&mut h);
+    unfolded_header(&mut h);
+    let shadows = area_tool(&mut h, "Shadows").accesskit_node();
+    assert_eq!(shadows.toggled(), Some(egui::accesskit::Toggled::False));
+    area_click(&mut h, "Shadows");
     settle(&mut h);
     assert_eq!(kinds(&h), [true; 3]);
 }
 
 /// The shadows' quality: Fast (the shadow map) unless chosen; High in the
-/// Shadows button's menu (as in Options › Area) is kept in the settings,
-/// and the view is drawn again with the stencil volumes; Fast again, with
+/// Lighting popover (as in Options › Area) is kept in the settings, and
+/// the view is drawn again with the stencil volumes; Fast again, with
 /// the map.
 #[test]
-fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
+fn the_shadows_quality_is_chosen_in_the_lighting_popover() {
     use mg_ui::settings::ShadowQuality;
     let Some((mut h, _area)) = area_harness("shadow-quality") else { return };
     let volumes = |h: &Harness<'_, Moonglow>| {
@@ -6870,13 +6911,11 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
     h.run_steps(2);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
     assert_eq!(volumes(&h), Some(false), "the map by default");
-    area_tool(&h, "Shadows").click_secondary();
-    h.run();
-    h.get_by_label("High").click();
+    area_tool(&mut h, "High").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::High);
     assert_eq!(volumes(&h), Some(true), "drawn again with the volumes");
-    h.get_by_label("Fast").click();
+    area_tool(&mut h, "Fast").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
     assert_eq!(volumes(&h), Some(false));
@@ -6900,7 +6939,7 @@ fn what_follows_the_pointer_stops_under_a_window() {
     own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
@@ -8136,7 +8175,7 @@ fn alt_and_a_drag_moves_the_view_in_every_mode() {
         app.palette.selected = None;
     }
     // Select Tiles.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     assert!(h.state().area_views[&area].tile_mode);
     let moved = drag(&mut h);

@@ -676,13 +676,13 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     assert!(h.state().settings.game_shaders());
     let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
     until_the_game_draws(&mut h);
-    area_tool(&h, "Shaders").click();
+    area_click(&mut h, "Shaders");
     h.run_steps(3);
     assert_eq!(h.state().settings.game_shaders, Some(false));
     let pictures = h.state().area_views[&area].pictures;
     assert!(pictures > 0);
     assert_eq!(drawn(&h).game, 0);
-    area_tool(&h, "Shaders").click();
+    area_click(&mut h, "Shaders");
     h.run_steps(1);
     // (Its programs made while the view goes on: Moonglow's shader first.)
     assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
@@ -697,7 +697,7 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let saved = serde_json::to_string(&h.state().settings).unwrap();
     let read: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
     assert!(read.game_shaders());
-    area_tool(&h, "Shaders").click();
+    area_click(&mut h, "Shaders");
     h.run_steps(3);
     assert_eq!(h.state().settings.game_shaders, Some(false));
     assert_eq!(drawn(&h).game, 0);
@@ -1039,7 +1039,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
         h.run_steps(30);
         shot(&mut h, "off_b")
     }];
-    area_tool(&h, "Shaders").click();
+    area_click(&mut h, "Shaders");
     until_the_game_draws(&mut h);
     let on_a = shot(&mut h, "on_a");
     h.run_steps(30);
@@ -1483,7 +1483,7 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     assert_eq!(grown(&h), [(GRASS_MATERIAL, "grass".to_string())]);
     // In the picture, and gone with the toolbar's switch.
     let with = h.render().expect("render");
-    area_tool(&h, "Grass").click();
+    area_click(&mut h, "Grass");
     h.run_steps(3);
     assert!(h.state().settings.no_grass);
     let without = h.render().expect("render");
@@ -1493,7 +1493,7 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
         .filter(|(a, b)| (0..3).any(|c| a[c].abs_diff(b[c]) > 24))
         .count();
     assert!(changed > 20_000, "the grass changed {changed} pixels");
-    area_tool(&h, "Grass").click();
+    area_click(&mut h, "Grass");
     h.run_steps(3);
     assert!(!h.state().settings.no_grass);
 
@@ -2109,7 +2109,10 @@ fn the_sky_under_a_camera_higher_than_the_game_s() {
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     let area = ResRef::from_str("map_m1q1a").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = area_gpu_harness(app, rs, 2559.0, 800.0);
+    // (The view 1951 by 460, as the game's picture it was held against
+    // was taken: the area's header row, M4's U3, is 18 points lower than
+    // the two rows of toolbar it replaced at this width.)
+    let mut h = area_gpu_harness(app, rs, 2559.0, 782.0);
     let dir = mg_testkit::scratch_dir("ui-sky-high");
     // (The area's sun fog color, as the view draws the fade in it.)
     let fog = [152.0, 145.0, 103.0];
