@@ -550,6 +550,9 @@ pub struct AreaView {
     /// top right corner, `tools::corner`), which the view's input leaves
     /// to them.
     pub corner_rect: Option<Rect>,
+    /// Where the coordinates' line at the view's bottom left was drawn
+    /// last (cut short before the map).
+    pub readout_rect: Option<Rect>,
     pub grid: bool,
     /// The header's Overlays switch is off: the grid, the minimap, the
     /// walkmeshes and the sound ranges are not drawn, each kept as it was
@@ -1147,6 +1150,7 @@ impl AreaView {
             map: None,
             map_rect: None,
             corner_rect: None,
+            readout_rect: None,
             grid: true,
             hide_overlays: false,
             show: [true; 9],
@@ -3024,6 +3028,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.redraw = None;
         view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. }));
     }
+    let top = ui.cursor().top();
     header::header(app, ui, &mut view);
     // Whose the area is, where it isn't the builder's (the claims table).
     crate::claims::banner(app, ui, area);
@@ -3064,6 +3069,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         }
     });
     ui.advance_cursor_after_rect(body);
+    // F10, as in Aurora (the shelf's Select Tiles): select tiles or
+    // objects, the other tools put down (`tools::toggle`), with the
+    // pointer anywhere over the editor (its header, its shelf, its view),
+    // not the menu bar's then (`commands::menu_keys`).
+    let editor = Rect::from_min_max(egui::pos2(body.left(), top), body.max);
+    let over = ui.rect_contains_pointer(editor);
+    app.area_hovered |= over;
+    if over
+        && !ui.ctx().memory(|m| m.focused().is_some())
+        && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles))
+    {
+        tools::toggle(app, &mut view, tools::AreaTool::Tiles);
+    }
     set_window(app, ui, &mut view);
     // Its sounds are heard from where the view looks (Options › Sounds).
     if let Some(o) = &view.orbit {
@@ -3501,6 +3519,7 @@ fn viewport(
     view.posed = copy;
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
+    view.readout_rect = None;
     if let Some(p) = view.pointer {
         let painter = ui.painter_at(view.rect);
         let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
@@ -3517,12 +3536,18 @@ fn viewport(
         }
         let font = egui::FontId::monospace(12.0);
         let at = view.rect.left_bottom() + egui::vec2(8.0, -8.0);
-        let galley = painter.layout_no_wrap(text, font, Color32::WHITE);
+        // (Cut short before the map at the bottom right, where the view is
+        // too narrow for both: as the map was drawn last frame.)
+        let room = view.map_rect.map_or(f32::INFINITY, |m| m.left() - READOUT_GAP - at.x);
+        let mut job = egui::text::LayoutJob::simple_singleline(text, font, Color32::WHITE);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room.max(0.0));
+        let galley = painter.layout_job(job);
         let bg = Rect::from_min_size(
             at - egui::vec2(3.0, galley.size().y + 2.0),
             galley.size() + egui::vec2(6.0, 4.0),
         );
         painter.rect_filled(bg, 3.0, Color32::from_black_alpha(140));
+        view.readout_rect = Some(bg);
         painter.galley(at - egui::vec2(0.0, galley.size().y), galley, Color32::WHITE);
     }
     walkmesh_overlay(app, ui, view);
@@ -3635,8 +3660,10 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     view.map_rect = Some(rect);
 }
 
-/// The longest side of the view's map, points.
-const MINIMAP_SIDE: f32 = 240.0;
+/// The longest side of the view's map, points (the Main board's 132).
+const MINIMAP_SIDE: f32 = 132.0;
+/// The room between the coordinates' line and the map, points.
+const READOUT_GAP: f32 = 8.0;
 /// The least room the map is drawn in, points (under the compass).
 const MINIMAP_LEAST: f32 = 40.0;
 /// How far the map is from the view's edges (its frame 2 more out).
@@ -4710,14 +4737,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         || crate::terrain_mode::active(app, view).is_some();
     let camera = (middle_moves, alt_pans);
     camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling);
-    // F10, as in Aurora (the shelf's Select Tiles): select tiles or
-    // objects, the other tools put down (`tools::toggle`).
-    if !ui.ctx().memory(|m| m.focused().is_some())
-        && response.hovered()
-        && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles))
-    {
-        tools::toggle(app, view, tools::AreaTool::Tiles);
-    }
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;

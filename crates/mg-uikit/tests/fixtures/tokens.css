@@ -74,6 +74,8 @@
   --slider-thumb: #aab0ba;
   --slider-thumb-ring: transparent;
   --select-ring: transparent;
+  --compass-north: #e5484d;
+  --compass-south: #aab0ba;
 }
 
 .mg.light {
@@ -143,4 +145,6 @@
   --slider-thumb: #ffffff;
   --slider-thumb-ring: #8d949e;
   --select-ring: #a35c00;
+  --compass-north: #b4232b;
+  --compass-south: #4c535b;
 }

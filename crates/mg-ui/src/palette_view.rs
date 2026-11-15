@@ -1599,35 +1599,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     });
     ui.separator();
-    // While Paint is on, the Brush section under the list (the AreaPaint
-    // board): what the brush paints with, each to take out of it.
-    if app.paint && kind == BlueprintKind::Placeable {
-        let keys = crate::paint_mode::chosen_keys(view.selected, &view.chosen);
-        let names: HashMap<ResRef, String> = if keys.is_empty() {
-            HashMap::new()
-        } else {
-            let game = app.game.as_deref().expect("checked");
-            (palette.blueprints().into_iter())
-                .filter(|(_, b)| keys.iter().any(|k| k.resref == b.resref))
-                .map(|(_, b)| (b.resref, shown_name(&b.name, game)))
-                .collect()
-        };
-        let section = egui::Panel::bottom(egui::Id::new("palette-brush")).resizable(false).frame(
-            egui::Frame::NONE.inner_margin(egui::Margin {
-                top: 6,
-                bottom: 4,
-                ..Default::default()
-            }),
-        );
-        let out = section
-            .show(ui, |ui| {
-                crate::paint_mode::brush_section(ui, &keys, &|k| names.get(&k.resref).cloned())
-            })
-            .inner;
-        if let Some(key) = out {
-            crate::paint_mode::take_out(&mut view.selected, &mut view.chosen, key);
-        }
-    }
+    // While Paint is on (in an area that is not read-only, where Paint's
+    // header shows), the Brush section right under the list (the
+    // AreaPaint board): the list as tall as its rows, but for the room
+    // the section took last frame.
+    let brush = app.paint
+        && kind == BlueprintKind::Placeable
+        && view.area.is_none_or(|a| crate::claims::read_only(app, a).is_none());
+    let brush_id = egui::Id::new("palette-brush-height");
+    let brush_room = brush.then(|| ui.data(|d| d.get_temp::<f32>(brush_id)).unwrap_or(120.0));
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
@@ -1722,7 +1702,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     // (A scroll place of its own: not the tiles palette's, nor another
     // panel's.)
-    let scroll = egui::ScrollArea::vertical().id_salt("palette-list").auto_shrink([false, false]);
+    let mut scroll =
+        egui::ScrollArea::vertical().id_salt("palette-list").auto_shrink([false, brush]);
+    if let Some(room) = brush_room {
+        scroll = scroll.max_height((ui.available_height() - room).max(66.0));
+    }
     let mut list = scroll.show(ui, |ui| {
         // A row is one line: a name too long for the pane is cut short
         // (the pointer over it shows it whole, and its ResRef, tag and
@@ -1743,7 +1727,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             tree.node(ui, node, &[i], None);
         }
         // The room under the list has the menu too.
-        let rest = egui::vec2(ui.available_width(), ui.available_height().max(24.0));
+        let below = if brush { 24.0 } else { ui.available_height().max(24.0) };
+        let rest = egui::vec2(ui.available_width(), below);
         let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
         if let Some(label) = tree.new {
             mg_uikit::context_menu(&below, |ui| {
@@ -1756,6 +1741,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     });
     crate::widgets::home_and_end(ui, &mut list);
     keys_outline(ui, list.inner_rect, Keys::Palette);
+    if brush {
+        let keys = crate::paint_mode::chosen_keys(tree.sel.selected, &tree.sel.chosen);
+        let names: HashMap<ResRef, String> = if keys.is_empty() {
+            HashMap::new()
+        } else {
+            (palette.blueprints().into_iter())
+                .filter(|(_, b)| keys.iter().any(|k| k.resref == b.resref))
+                .map(|(_, b)| (b.resref, shown_name(&b.name, game)))
+                .collect()
+        };
+        ui.add_space(6.0);
+        let shown = ui.scope(|ui| {
+            crate::paint_mode::brush_section(ui, &keys, &|k| names.get(&k.resref).cloned())
+        });
+        let room = shown.response.rect.height() + 6.0 + ui.spacing().item_spacing.y;
+        ui.data_mut(|d| d.insert_temp(brush_id, room));
+        if let Some(key) = shown.inner {
+            crate::paint_mode::take_out(&mut tree.sel.selected, &mut tree.sel.chosen, key);
+        }
+    }
     if tree.open_changed {
         app.settings.palette_open = std::mem::take(&mut tree.open);
     }

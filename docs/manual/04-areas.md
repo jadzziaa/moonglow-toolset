@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T09:27:55Z }
 ---
 
 # Areas
@@ -373,8 +373,10 @@ Tools** (`⋮`) at the shelf's foot.
 
 - **Select Objects**: select, move and place objects (no other tool in
   hand).
-- **Select Tiles** (F10): select tiles rather than objects (Aurora's
-  Select Terrain); the Tiles palette has it too, at the top of its tools.
+- **Select Tiles** (F10, with the pointer anywhere over the area's
+  editor: its view, its shelf, its header): select tiles rather than
+  objects (Aurora's Select Terrain); the Tiles palette has it too, at the
+  top of its tools.
   A double click on the ground selects its tile (Select Tiles comes on),
   and a click on an object while tiles are selected selects it (Select
   Tiles goes off). Taking it puts down the terrain brush and Paint, and
@@ -389,7 +391,9 @@ Tools** (`⋮`) at the shelf's foot.
   while it is lit, a click puts the brush down.
 
 In a read-only area (another builder's), Select Tiles, Paint and Terrain
-are grayed. The header's right-click list hides Select Tiles and Paint
+are grayed, and F10 does nothing (there is no tile mode there); Paint
+taken in another area shows neither its settings, its hints nor the
+palette's Brush section there. The header's right-click list hides Select Tiles and Paint
 from the shelf, and Reorient Camera and Go to Start Location from under
 the compass, as it hid them from the toolbar before (their keys and View
 › Go to Start Location still work).
@@ -403,8 +407,10 @@ needle turning with the camera. Under it:
 - **Go to Start Location**: look at the module's start location, or open
   the area it is in at it (View › Go to Start Location does the same).
 
-The [minimap](#overlays) stands at the view's bottom right (in a view
-too short for it under the compass, it is left out).
+The [minimap](#overlays) stands at the view's bottom right, 132 points
+at most (in a view too short for it under the compass, it is left out);
+where the view is too narrow for it and the coordinates' line at the
+bottom left side by side, the line is cut short before it.
 
 ## Minimaps
 
@@ -458,7 +464,7 @@ Options › Keyboard):
 | Z, C | move the camera up, down |
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
-| F10 | select tiles or objects (Aurora's) |
+| F10 | select tiles or objects (Aurora's; with the pointer over the area's view, shelf or header) |
 | B | Paint on or off |
 | Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
 | X, T, N, Shift+N, R, Shift+R | the tile tools: the Eraser, Refine Tile, Next and Previous Tile Appearance, Rotate Tile and clockwise ([Painting terrain](#painting-terrain)) |

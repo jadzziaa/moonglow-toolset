@@ -185,7 +185,17 @@ fn paint_s_options_are_held_at_every_width_in_each_mode() {
         (
             "Scatter",
             PaintSettings::default(),
-            &["Count all", "Spacing", "By size", "Flow", "Turn spread", "Scale", "Scale to"],
+            &[
+                "Count all",
+                "Spacing",
+                "By size",
+                "Flow",
+                "Turn spread",
+                "Scale",
+                "Scale to",
+                "Height",
+                "Lock",
+            ],
         ),
         ("Row", PaintSettings { row: true, ..Default::default() }, &["Gap", "Height", "Lock"]),
         ("Fill", PaintSettings { fill: true, ..Default::default() }, &["Gap", "Height", "Lock"]),
@@ -217,6 +227,49 @@ fn paint_s_options_are_held_at_every_width_in_each_mode() {
                 }
             }
             assert_eq!(h.state().settings.paint, *settings, "{mode:?} {name}: as it was");
+        }
+    }
+}
+
+/// The same in the area's own floating window (its tab dragged out of the
+/// editor area): the header yields by the window's width, every 40 from
+/// 420 to 1600, in Scatter and Row, Paint's options and the Select tool's
+/// each held.
+#[test]
+fn the_header_holds_its_controls_in_a_floating_area() {
+    use mg_ui::settings::PaintSettings;
+    let Some((mut h, area)) = area_harness("header-floating") else { return };
+    h.set_size(egui::vec2(1700.0, 900.0));
+    settle(&mut h);
+    let tab = mg_ui::Tab::Area(area);
+    let mut moved = false;
+    for paint in [
+        None,
+        Some(PaintSettings::default()),
+        Some(PaintSettings { row: true, ..Default::default() }),
+    ] {
+        h.state_mut().paint = paint.is_some();
+        if let Some(p) = paint {
+            h.state_mut().settings.paint = p;
+        }
+        for width in (420..=1600).step_by(40) {
+            let size = egui::vec2(width as f32, 700.0);
+            if moved {
+                let dock = &mut h.state_mut().dock;
+                let surface = dock.find_tab(&tab).expect("the area's tab").surface;
+                dock.get_window_state_mut(surface).unwrap().set_size(size);
+                h.run_steps(4);
+            } else {
+                own_window(&mut h, &tab, egui::pos2(20.0, 40.0), size);
+                moved = true;
+            }
+            settle(&mut h);
+            h.run_steps(1);
+            let row = header::records(&h.ctx, AREA_HEADER)[0].row;
+            assert!(row.width() < width as f32, "{width}: the window's header: {row:?}");
+            let names = held_names(&h);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            header_holds(&mut h, AREA_HEADER, &names);
         }
     }
 }

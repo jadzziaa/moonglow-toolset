@@ -170,6 +170,13 @@ tokens! {
     /// The ring that carries the modified dot ([`Tokens::select`]) on a
     /// light bar (none in the dark theme).
     select_ring: "select-ring" = Color32::TRANSPARENT, hex(0xa35c00);
+    /// The compass's north half over a 3D view (the Main board's `#e5484d`;
+    /// light: the light board's `cp-n`, [`Tokens::error`]).
+    compass_north: "compass-north" = hex(0xe5484d), hex(0xb4232b);
+    /// The compass's south half (the Main board's `#aab0ba`, dark
+    /// [`Tokens::text_2`]; light: the light board's `cp-s`,
+    /// [`Tokens::text_3`]).
+    compass_south: "compass-south" = hex(0xaab0ba), hex(0x4c535b);
 
     // --- the script editor's present colors (Options › Script Editor)
     /// Script text.

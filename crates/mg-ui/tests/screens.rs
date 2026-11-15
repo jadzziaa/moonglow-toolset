@@ -12325,6 +12325,32 @@ fn area_compass() {
     shoot(&mut h, &dir, "area-compass-reoriented");
 }
 
+/// The coordinates' line at the view's bottom left beside the minimap at
+/// its bottom right, in a view too narrow for both side by side (a window
+/// of 1000 with the docks beside the area, a tile selected): the line cut
+/// short before the
+/// map (`area-minimap-narrow`; before U4's review the map covered it).
+#[test]
+#[ignore]
+fn area_minimap_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1000.0, 700.0));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().settings.area_minimap = true;
+    // (A tile selected too: the line names it after the one under the
+    // pointer, its longest.)
+    let v = h.state_mut().area_views.get_mut(&area).unwrap();
+    v.minimap = true;
+    v.tile_selection = vec![(3, 3)];
+    h.run_steps(4);
+    let rect = h.state().area_views[&area].rect;
+    h.event(egui::Event::PointerMoved(rect.left_bottom() + egui::vec2(60.0, -60.0)));
+    h.run_steps(6);
+    shoot(&mut h, &dir, "area-minimap-narrow");
+}
+
 /// Tile Properties where the AreaTiles board has it: Select Tiles on, six
 /// tiles (three by two) selected, the tiles palette shown. Today Tile
 /// Properties is a window of its own whatever Open editors says (placed

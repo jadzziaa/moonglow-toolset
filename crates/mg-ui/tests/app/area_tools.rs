@@ -38,12 +38,18 @@ fn raise_lower() -> mg_ui::terrain_mode::TileBrush {
 /// One tool on at a time, by the shelf, by the keys and by a tile brush
 /// chosen: Select Objects at first; Select Tiles, Paint and Terrain each
 /// putting the others down; a tool clicked again back to Select Objects.
-/// Docked and floating (the area is docked in both).
+/// Docked (both modes of Open editors) and in a floating window of its
+/// own (the area's tab dragged out).
 #[test]
 fn one_tool_is_on_at_a_time() {
-    for mode in MODES {
-        let Some((mut h, area)) = area_harness(&mode.dir("tools-one")) else { return };
+    for (mode, floats) in [(Mode::Floating, false), (Mode::Tabs, false), (Mode::Floating, true)] {
+        let Some((mut h, area)) = area_harness(&mode.dir(&format!("tools-one-{floats}"))) else {
+            return;
+        };
         h.state_mut().settings.open_editors = mode.settings().open_editors;
+        if floats {
+            float_area(&mut h, area);
+        }
         settle(&mut h);
         assert_eq!(on(&h), ["Select Objects"], "{mode:?}: at first");
         shelf_click(&mut h, "Select Tiles");
@@ -52,6 +58,11 @@ fn one_tool_is_on_at_a_time() {
         shelf_click(&mut h, "Paint");
         assert_eq!(on(&h), ["Paint"], "{mode:?}");
         assert!(h.state().paint && !h.state().area_views[&area].tile_mode, "{mode:?}");
+        // Select Tiles puts Paint down.
+        shelf_click(&mut h, "Select Tiles");
+        assert_eq!(on(&h), ["Select Tiles"], "{mode:?}: Paint put down");
+        assert!(!h.state().paint, "{mode:?}: Paint put down");
+        shelf_click(&mut h, "Paint");
         // A tile brush chosen (the tiles palette's): Terrain, Paint put
         // down.
         shelf_click(&mut h, "Terrain");
@@ -131,9 +142,34 @@ fn the_shelf_and_the_compass_are_reached_by_tab() {
     h.key_press(egui::Key::Tab);
     h.run_steps(2);
     assert_eq!(focused(&h).as_deref(), Some("Go to Start Location"));
-    // Enter on it does what a click does.
+    // Enter on it does what a click does: the camera off the start, back.
+    let start = start_of(&mut h);
+    let area = *h.state().area_views.keys().next().expect("the area");
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
+        glam::Vec3::new(start.x + 9.0, start.y + 9.0, 0.0);
+    h.run_steps(2);
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
+    let after = h.state().area_views[&area].orbit.unwrap().target;
+    assert!((after.truncate() - start).length() < 0.5, "Enter: at the start {start}: {after}");
+}
+
+/// Where the module's start location is (its area is the harness's).
+fn start_of(h: &mut Harness<'_, Moonglow>) -> glam::Vec2 {
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let r = ws.doc(&ifo).unwrap().root.clone();
+    glam::Vec2::new(r.float("Mod_Entry_X").unwrap(), r.float("Mod_Entry_Y").unwrap())
+}
+
+/// The area's tab dragged out of the editor area into a window of its
+/// own (as egui_dock lets a builder), wide enough for the header.
+fn float_area(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    let size = h.ctx.content_rect().size();
+    own_window(h, &Tab::Area(area), egui::pos2(40.0, 40.0), size - egui::vec2(80.0, 80.0));
+    settle(h);
+    let in_window = h.state().area_views[&area].rect;
+    assert!(in_window.width() > 100.0, "the area drawn in its window: {in_window:?}");
 }
 
 /// Terrain (Part 2, decision 8): a click shows the Palette on its Tiles
@@ -161,6 +197,13 @@ fn terrain_is_on_with_a_tile_brush_in_hand() {
     h.run_steps(3);
     assert_eq!(on(&h), ["Terrain"]);
     assert!(!h.state().area_views[&area].tile_mode);
+    // Paint taken from the shelf puts the brush down; the brush again.
+    shelf_click(&mut h, "Paint");
+    assert!(h.state().palette.tile_brush.is_none(), "Paint puts the brush down");
+    assert_eq!(on(&h), ["Paint"]);
+    h.state_mut().palette.tile_brush = Some(raise_lower());
+    h.state_mut().paint = false;
+    h.run_steps(3);
     shelf_click(&mut h, "Terrain");
     assert!(h.state().palette.tile_brush.is_none(), "put down");
     assert_eq!(on(&h), ["Select Objects"]);
@@ -305,7 +348,8 @@ fn reorient_by_its_key_and_quick_open() {
 }
 
 /// The minimap stands at the view's bottom right, under the compass's
-/// column and clear of it; in a view too short for both it is left out.
+/// column and clear of it (in a view too short for both it is left out),
+/// and the coordinates' line at the bottom left is cut short before it.
 #[test]
 fn the_minimap_stands_at_the_bottom_right() {
     let Some((mut h, area)) = area_harness("tools-minimap") else { return };
@@ -323,9 +367,23 @@ fn the_minimap_stands_at_the_bottom_right() {
     h.set_size(egui::vec2(size.x, 300.0));
     settle(&mut h);
     let v = &h.state().area_views[&area];
+    assert!(v.corner_rect.is_some(), "short: the compass drawn");
     if let (Some(map), Some(corner)) = (v.map_rect, v.corner_rect) {
         assert!(!map.intersects(corner), "short: clear of the compass: {map:?} {corner:?}");
     }
+    // A narrow view, a tile selected (the coordinates' line names it too,
+    // its longest), the pointer at the bottom left: the line is cut short
+    // before the map.
+    h.set_size(egui::vec2(520.0, 700.0));
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_selection = vec![(1, 1)];
+    settle(&mut h);
+    let rect = h.state().area_views[&area].rect;
+    h.hover_at(rect.left_bottom() + egui::vec2(40.0, -40.0));
+    h.run_steps(3);
+    let v = &h.state().area_views[&area];
+    let (map, line) = (v.map_rect.expect("the map"), v.readout_rect.expect("the line"));
+    assert!(line.right() < map.left(), "the line clear of the map: {line:?} {map:?} in {rect:?}");
+    assert!(map.left() - line.right() < 16.0, "cut short just before it: {line:?} {map:?}");
 }
 
 /// `hidden_area_tools` keeps its names: Select Tiles and Paint leave the
@@ -368,4 +426,80 @@ fn hidden_names_leave_the_shelf_and_the_compass() {
     for name in names {
         area_tool(&mut h, name);
     }
+}
+
+/// F10 takes Select Tiles with the pointer anywhere over the area editor:
+/// its view, its shelf and its header (not the menu bar's then: its menus
+/// stay closed).
+#[test]
+fn f10_takes_select_tiles_over_the_whole_editor() {
+    let Some((mut h, area)) = area_harness("tools-f10-editor") else { return };
+    settle(&mut h);
+    let shelf =
+        h.get_by_label(AREA_TOOLS).get_by_label("Terrain").rect().center() + egui::vec2(0.0, 80.0);
+    let header = mg_uikit::header::records(&h.ctx, AREA_HEADER)[0].row.center();
+    for (at, what) in [(shelf, "the shelf"), (header, "the header")] {
+        h.hover_at(at);
+        h.run_steps(2);
+        h.key_press(egui::Key::F10);
+        h.run_steps(3);
+        assert!(h.state().area_views[&area].tile_mode, "F10 over {what}");
+        assert!(!egui::Popup::is_any_open(&h.ctx), "F10 over {what}: no menu");
+        h.key_press(egui::Key::F10);
+        h.run_steps(3);
+        assert!(!h.state().area_views[&area].tile_mode, "F10 again over {what}");
+    }
+}
+
+/// In a read-only area (another builder's), F10 leaves tile mode off as
+/// before (the area keeps none: what changes its tiles is off), and a
+/// tile mode set before it became read-only is off; Paint on elsewhere
+/// shows neither its header group, its hints nor the palette's Brush
+/// section there.
+#[test]
+fn a_read_only_area_takes_no_tool_but_select() {
+    let Some((mut h, area)) = read_only_area_harness("tools-read-only") else { return };
+    settle(&mut h);
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode, "tile mode off in a read-only area");
+    let middle = h.state().area_views[&area].rect.center();
+    h.hover_at(middle);
+    h.run_steps(2);
+    h.key_press(egui::Key::F10);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].tile_mode, "F10: still off");
+    assert_eq!(on(&h), ["Select Objects"]);
+    // Paint on (taken in another area), placeables chosen: none of it here.
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.selected = ResKey::parse("plc_statue1", ResType::UTP);
+        app.paint = true;
+    }
+    show_palette(h.state_mut());
+    settle(&mut h);
+    assert!(h.query_by_label("Brush blueprints").is_none(), "no Brush section");
+    assert!(h.get_by_label(AREA_HEADER).query_by_label("How the brush paints").is_none());
+    let status = h.get_by_label("Status Bar");
+    assert!(status.query_by_label_contains("Painting").is_none(), "no Paint hints");
+}
+
+/// The Tile window's Paint with It takes Terrain as the shelf does: Paint
+/// and Select Tiles put down, the tile in hand, Terrain lit.
+#[test]
+fn paint_with_it_takes_terrain() {
+    let Some((mut h, area)) = area_harness("tools-paint-with-it") else { return };
+    settle(&mut h);
+    shelf_click(&mut h, "Paint");
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Tile { tileset, tile: 10 }));
+    settle(&mut h);
+    h.get_by_label("Paint with It").click();
+    h.run_steps(3);
+    assert!(!h.state().paint, "Paint put down");
+    assert!(h.state().palette.tile_brush.is_some(), "the tile in hand");
+    assert!(!h.state().area_views[&area].tile_mode);
+    assert_eq!(on(&h), ["Terrain"]);
 }

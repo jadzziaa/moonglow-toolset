@@ -1428,8 +1428,9 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     } else if other || ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift) {
         app.menu_alt_spoiled = true;
     }
-    // F10 with the pointer over an area's view is that view's while it is
-    // Select Tiles' key there (Aurora's), unless a menu is open to close.
+    // F10 with the pointer over an area editor (its header, shelf or view)
+    // is that editor's while it is Select Tiles' key there (Aurora's),
+    // unless a menu is open to close.
     let areas = std::mem::take(&mut app.area_hovered)
         && app.menu_open.is_none()
         && ctx.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles));

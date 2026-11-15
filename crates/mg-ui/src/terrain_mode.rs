@@ -1771,28 +1771,28 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         app.actions.push(crate::Action::OpenTab(crate::Tab::Tile { tileset, tile }));
     }
     app.palette.tile_choice = choice;
+    use crate::area_view::tools::{AreaTool, choose_in};
+    let mut taken = false;
     if chosen != app.palette.tile_brush {
-        if chosen.is_some() {
+        taken = chosen.is_some();
+        app.palette.tile_brush = chosen;
+        if taken {
             app.palette.selected = None;
             // (A brush chosen: the tool in hand is Terrain, out of Paint
-            // and of tile mode, which it would sit on top of.)
+            // and of tile mode, which it would sit on top of: one path,
+            // the shelf's.)
+            choose_in(app, area, AreaTool::Terrain);
             tile_mode = false;
-            app.paint = false;
         }
-        app.palette.tile_brush = chosen;
     }
-    if tile_mode != was_tile_mode
-        && let Some(view) = app.area_views.get_mut(&area)
-    {
-        // As the view's own Select Tiles: what was selected lets go.
-        view.tile_mode = tile_mode;
-        view.selection.clear();
-        view.tile_selection.clear();
+    // (Put off by a brush just taken: done, the brush kept.)
+    if tile_mode != was_tile_mode && !(taken && !tile_mode) {
+        // As the view's own Select Tiles (the shelf's): what was selected
+        // lets go, the brush and Paint are put down.
         if tile_mode {
-            app.palette.tile_brush = None;
             app.palette.selected = None;
-            app.paint = false;
         }
+        choose_in(app, area, if tile_mode { AreaTool::Tiles } else { AreaTool::Select });
     }
 }
 

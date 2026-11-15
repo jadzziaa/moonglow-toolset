@@ -3,8 +3,10 @@
 //! right, the view's corner buttons under it (Reorient Camera, Go to
 //! Start Location), each drawn from the tokens, so that the light theme
 //! has them as the Light Theme board does (section 4.2: the compass ring
-//! `overlay` with a `line-soft` edge, its ticks `text-3`, north `error`,
-//! south `text-3`, the N `text`).
+//! `overlay` with a `line-soft` edge, its ticks `text-3`, its halves
+//! `compass-north` and `compass-south`, the Main board's colors in the
+//! dark theme and the light board's `error` and `text-3` in the light,
+//! the N `text`).
 //!
 //! The corner holds its parts in a column 8 px in from the view's top
 //! right, 4 px apart, centered on the compass ([`corner_column`] places
@@ -60,13 +62,14 @@ pub fn paint_compass(painter: &Painter, t: &Tokens, center: Pos2, north: f32) {
     };
     let north_half = vec![turn(0.0, -16.0), turn(4.0, 0.0), turn(-4.0, 0.0)];
     let south_half = vec![turn(0.0, 16.0), turn(4.0, 0.0), turn(-4.0, 0.0)];
-    painter.add(Shape::convex_polygon(north_half, t.error, Stroke::NONE));
-    painter.add(Shape::convex_polygon(south_half, t.text_3, Stroke::NONE));
-    // The N, turned with the needle, over its north half (the mock's
-    // `y="22" dy="-4"`: 10 above the middle).
+    painter.add(Shape::convex_polygon(north_half, t.compass_north, Stroke::NONE));
+    painter.add(Shape::convex_polygon(south_half, t.compass_south, Stroke::NONE));
+    // The N, turned with the needle, at its north tip (the mock's
+    // `y="22" dy="-4"`: its baseline 10 above the middle, its middle some
+    // 13).
     let font = FontId::proportional(9.0 * scale);
     let galley = painter.layout_no_wrap("N".to_string(), font, t.text);
-    let at = turn(0.0, -10.0);
+    let at = turn(0.0, -13.5);
     let half = galley.size() / 2.0;
     let (s, c) = north.sin_cos();
     // (A text shape turns about its top left: placed so its middle is

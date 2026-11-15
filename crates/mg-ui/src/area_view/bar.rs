@@ -56,7 +56,10 @@ fn hints(
     let ctrl = k.ctrl();
     let turn = || k.either(Cmd::TurnLeft, Cmd::TurnRight, "Turn");
     let mut out = Vec::new();
-    if let Some(paint) = crate::paint_mode::hints(app, k) {
+    // (Paint's, where it is the tool in hand: not in a read-only area,
+    // whose header shows the Select tool's.)
+    let paint = view.read_only.is_none().then(|| crate::paint_mode::hints(app, k)).flatten();
+    if let Some(paint) = paint {
         let more = match view.paint.more {
             0 => None,
             more => Some(Hint::note(format!("{more} more are laid than are drawn"))),

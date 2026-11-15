@@ -1084,6 +1084,10 @@ const HEADER_GAP: f32 = 6.0;
 const BRUSH_WIDTH: f32 = 286.0;
 const BRUSH_LABEL: f32 = 64.0;
 const BRUSH_FIELD: f32 = 76.0;
+/// The Brush popover's Spacing field (the board's, wider than the rest).
+const BRUSH_SPACING: f32 = 120.0;
+/// A Brush popover row's height inside its 1 point margins.
+const BRUSH_ROW: f32 = 26.0;
 
 /// Paint's options in the area header's left group while Paint is the
 /// tool in hand (the AreaPaint board; the proposal's section 6.1): the
@@ -1160,6 +1164,9 @@ pub(crate) fn header_items<'a>(
     let text = t.text;
     let row = move |ui: &mut egui::Ui, label: &str| {
         ui.spacing_mut().item_spacing.x = 8.0;
+        // (Rows 28 apart, the board's: 26 and the popover's 1 at each
+        // side.)
+        ui.set_min_height(BRUSH_ROW);
         words(ui, label, BRUSH_LABEL, text);
     };
     let mut pop = mg_uikit::popover::Popover::new(BRUSH)
@@ -1180,7 +1187,7 @@ pub(crate) fn header_items<'a>(
                 row(ui, "Spacing");
                 let mut p = s.get();
                 let mut cm = i32::from(p.spacing_cm);
-                meters(ui, &mut cm, (0.0, 20.0), ("Spacing", BRUSH_FIELD)).on_hover_text(
+                meters(ui, &mut cm, (0.0, 20.0), ("Spacing", BRUSH_SPACING)).on_hover_text(
                     "The least distance between placeables, middle to middle (side to side with \
                      By size)",
                 );
@@ -1257,7 +1264,7 @@ pub(crate) fn header_items<'a>(
         let width = ui.available_width();
         ui.vertical(|ui| {
             ui.set_width(width);
-            let words = "Row and Fill take Gap and Height, Erase the radius alone.";
+            let words = "Row and Fill take Gap, Height and Lock, Erase the radius alone.";
             ui.add(egui::Label::new(egui::RichText::new(words).color(note)).wrap());
         });
     });
@@ -1265,8 +1272,7 @@ pub(crate) fn header_items<'a>(
     if let Some(placing) = placing {
         pop = pop.separator().heading("Placing, as with the Select tool").custom(placing);
     }
-    let tip = "The brush's other settings: spacing, flow, turn, scale, height, lock, and Snap and \
-               Turn";
+    let tip = "The brush's other settings, and Snap and Turn";
     h.left(Item::popover(Some(mg_uikit::Icon::Brush), pop).words_icon(false).tip(tip))
 }
 
@@ -1313,6 +1319,8 @@ pub(crate) fn brush_section(
             );
             let name = names(*key).unwrap_or_else(|| key.resref.to_string());
             ui.label(egui::RichText::new(name).color(t.text));
+            // (The board's room between the name and the ResRef.)
+            ui.add_space(8.0);
             ui.label(egui::RichText::new(key.resref.to_string()).monospace().color(t.text_3));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let x = mg_uikit::icon_button(ui, mg_uikit::Icon::Close, &take_out_name(*key));

@@ -102,8 +102,26 @@ pub(crate) fn choose(app: &mut Moonglow, view: &mut AreaView, tool: AreaTool) {
         AreaTool::Terrain => {
             app.paint = false;
             set_tile_mode(view, false);
-            show_tiles_palette(app);
+            // (A brush already chosen, in the palette: it stays shown.)
+            if app.palette.tile_brush.is_none() {
+                show_tiles_palette(app);
+            }
         }
+    }
+}
+
+/// [`choose`] in `area`'s view, where one is open (the tiles palette's
+/// brushes and its Select Tiles, the Tile window's Paint with It: they
+/// run while no view is drawn). Without a view, Paint is put down where a
+/// brush or Select Tiles is taken.
+pub(crate) fn choose_in(app: &mut Moonglow, area: mg_core::ResRef, tool: AreaTool) {
+    match app.area_views.remove(&area) {
+        Some(mut view) => {
+            choose(app, &mut view, tool);
+            app.area_views.insert(area, view);
+        }
+        None if tool != AreaTool::Paint => app.paint = false,
+        None => {}
     }
 }
 
@@ -139,9 +157,7 @@ pub(super) fn shelf(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let keyed = |words: &str, cmd: Cmd| app.keymap.titled(words, cmd, &ctx);
     let mut tools = vec![AreaTool::Select];
     let mut shelf = ToolShelf::new().name(AREA_TOOLS).tool(
-        Tool::new(Icon::Select, SELECT_OBJECTS)
-            .on(now == AreaTool::Select)
-            .tip("Select, move and place objects"),
+        Tool::new(Icon::Select, SELECT_OBJECTS).on(now == AreaTool::Select).tip("Select objects"),
     );
     if shown(SELECT_TILES) {
         let tip = keyed("Select tiles rather than objects", Cmd::SelectTiles);
@@ -151,7 +167,7 @@ pub(super) fn shelf(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     }
     if shown(PAINT) {
         let tip = keyed(
-            "Paint the placeables chosen in the palette onto the ground, scattered or in a row",
+            "Paint the placeables chosen in the palette onto the ground",
             Cmd::PaintPlaceables,
         );
         let tool = Tool::new(crate::icons::PAINT, PAINT).on(now == AreaTool::Paint);
@@ -219,11 +235,10 @@ pub(super) fn corner(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         for (name, rect) in buttons.iter().zip(&rects) {
             let button =
                 match *name {
-                    REORIENT => ViewButton::new(crate::icons::CAMERA, REORIENT).tip(
-                        app.keymap.titled("Reorient camera: north up", Cmd::ReorientCamera, &ctx),
-                    ),
+                    REORIENT => ViewButton::new(crate::icons::CAMERA, REORIENT)
+                        .tip(app.keymap.titled("Reorient Camera", Cmd::ReorientCamera, &ctx)),
                     _ => {
-                        let words = "Go to the start location";
+                        let words = "Go to Start Location";
                         let tip = match start_key.as_str() {
                             "" => words.to_string(),
                             k => format!("{words} ({k})"),

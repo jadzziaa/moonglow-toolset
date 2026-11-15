@@ -1,6 +1,10 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U4's review ([04](manual/04-areas.md#the-tool-shelf-and-the-compass)).
+  * F10 takes Select Tiles anywhere over the area editor; the tiles palette and the Tile window take their tools the shelf's way; a read-only area shows nothing of Paint.
+  * The coordinates' line is cut short before the minimap in a narrow view; the minimap is the board's 132 points.
+  * As the boards draw them: the Brush popover's rows and Spacing field, the Brush section under the list, the compass's colors and N, shorter tips.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U4, the tool shelf, the compass and Paint**, as the Main and AreaPaint boards draw them ([04](manual/04-areas.md#the-tool-shelf-and-the-compass), [02](manual/02-main-window.md#the-palette)).
   * **The tool shelf** at the area view's left: Select Objects, Select Tiles (F10), Paint (B) and Terrain, one tool on at a time however it is taken; Terrain shows the tiles palette and is on while one of its brushes is in hand.
   * **The compass** at the view's top right, with **Reorient Camera** (a command now: Ctrl+Alt+R and Quick Open) and **Go to Start Location** under it; the minimap at the bottom right.
