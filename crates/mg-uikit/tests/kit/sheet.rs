@@ -723,7 +723,7 @@ fn top_bar(ui: &mut Ui) {
 /// words gone and things in More), the kit button in its states, a
 /// popover drawn in place (Foundations' Lighting) and a tool shelf.
 fn header_parts(ui: &mut Ui, s: &mut State) {
-    use mg_uikit::header::{EditorHeader, Item};
+    use mg_uikit::header::{EditorHeader, Item, Joined};
     use mg_uikit::popover::{PopAction, PopCheck, Popover};
     use mg_uikit::shelf::{Tool, ToolShelf};
     use mg_uikit::{ButtonLook, KitButton};
@@ -741,8 +741,16 @@ fn header_parts(ui: &mut Ui, s: &mut State) {
                 .separator()
                 .check(PopCheck::new(&mut walk, "Ground walkmesh").icon(Icon::Walkmesh));
             let mut day = s.day;
+            let (mut c, mut d, mut e) = (true, true, false);
+            let kinds = vec![
+                Joined::toggle(Icon::Creature, "Show Creatures", &mut c),
+                Joined::toggle(Icon::Door, "Show Doors", &mut d),
+                Joined::toggle(Icon::Encounter, "Show Encounters", &mut e),
+            ];
             EditorHeader::new(format!("Sheet header {width}"))
-                .left(Item::button(Icon::Save, "Save").enabled(false))
+                .left(Item::joined("Show", kinds))
+                .left(Item::separator())
+                .left(Item::button(Icon::Save, "Save").primary().enabled(false))
                 .left(Item::button(Icon::Compile, "Compile"))
                 .left(Item::separator())
                 .left(Item::icon(Icon::Open, "Open…"))
@@ -776,11 +784,16 @@ fn header_parts(ui: &mut Ui, s: &mut State) {
         let _ = ui.add(KitButton::new(Some(Icon::Fog), "Fog").toggle(true).enabled(false));
         let _ = ui.add(KitButton::new(Some(Icon::Grass), "Grass").toggle(false).icon_only(true));
         let _ = ui.add(KitButton::new(Some(Icon::Grass), "Grass").toggle(true).icon_only(true));
-        let _ = ui.add(KitButton::new(Some(Icon::Cut), "Cut").icon_only(true));
-        let _ = ui.add(
-            KitButton::new(Some(Icon::Cut), "Cut").icon_only(true).drawn_as(ButtonState::Hovered),
-        );
-        let _ = ui.add(KitButton::new(Some(Icon::Cut), "Cut").icon_only(true).enabled(false));
+        let cut = KitButton::new(Some(Icon::Cut), "Cut").icon_only(true).look(ButtonLook::Flat);
+        let _ = ui.add(cut.clone());
+        let _ = ui.add(cut.clone().drawn_as(ButtonState::Hovered));
+        let _ = ui.add(cut.enabled(false));
+        // (A word button's icon alone, framed: the narrow board's Area
+        // Properties; a disabled primary as a word button.)
+        let props = KitButton::new(Some(Icon::AreaProperties), "Area Properties");
+        let _ = ui.add(props.icon_only(true));
+        let primary = KitButton::new(Some(Icon::Compile), "Build & Compile");
+        let _ = ui.add(primary.look(ButtonLook::Primary).enabled(false));
         let _ = ui.add(KitButton::new(None, "Inventory…").enabled(false));
         // (In a disabled `Ui`: the same tokens, not faded.)
         ui.add_enabled_ui(false, |ui| ui.add(KitButton::new(Some(Icon::Save), "Save")));

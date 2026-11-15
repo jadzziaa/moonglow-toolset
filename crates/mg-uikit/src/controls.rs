@@ -98,7 +98,10 @@ impl Look {
 /// with any opacity a parent gave (a fading window's).
 pub(crate) fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
     let mut painter = ui.painter().clone();
-    if !enabled {
+    // (Only where egui faded it: a `Ui` disabled. A widget disabled in an
+    // enabled `Ui` was never faded, and dividing would lift a parent's
+    // opacity, a fading window's, to full.)
+    if !enabled && !ui.is_enabled() {
         // (egui multiplies the disabled fade into the parent's opacity:
         // taken out again, the parent's is left.)
         let fade = ui.visuals().disabled_alpha();
@@ -1286,6 +1289,10 @@ mod tests {
                 assert!((painter.opacity() - 0.5).abs() < 1e-4, "{}", painter.opacity());
             });
             assert!((box_painter(ui, true).opacity() - 0.5).abs() < 1e-4);
+            // (A widget disabled in an enabled `Ui`, never faded by egui:
+            // the parent's opacity as it is, not lifted.)
+            let painter = box_painter(ui, false);
+            assert!((painter.opacity() - 0.5).abs() < 1e-4, "{}", painter.opacity());
         });
     }
 }

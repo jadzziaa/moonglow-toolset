@@ -39,7 +39,7 @@ fn test_header(ui: &mut egui::Ui, v: &mut Values) -> header::HeaderOutput<()> {
         .check(PopCheck::new(&mut v.grid, "Grid").icon(Icon::Grid).unfolded_words(true))
         .check(PopCheck::new(&mut v.minimap, "Minimap").icon(Icon::Minimap));
     EditorHeader::new(HEADER)
-        .left(Item::button(Icon::Save, "Save"))
+        .left(Item::button(Icon::Save, "Save").primary())
         .left(Item::button(Icon::Compile, "Compile"))
         .left(Item::separator())
         .left(Item::icon(Icon::Open, "Open…"))
@@ -215,6 +215,30 @@ fn the_header_yields_words_then_icons_then_more() {
         let moved = ["Save", "Compile", "Open…", "Print…", "Find…", "Replace…", "Bookmark", "Day"];
         if moved.iter().any(|n| in_more(n)) {
             assert!(gone.iter().all(|g| *g), "into More before the words were gone at {w}");
+        }
+        // An unfolded popover folds before anything loses its words.
+        if gone.iter().any(|g| *g) {
+            assert_ne!(p("Lighting"), Place::Unfolded, "words went before the fold at {w}");
+        }
+        // Into More: the left group from its end (each one in More has
+        // every later one of the left group in More), then the right
+        // group, and Save, the first command, last of everything.
+        let gone_far = |n: &str| matches!(p(n), Place::More | Place::Cut);
+        let left = ["Compile", "Open…", "Print…", "Find…", "Replace…", "Bookmark"];
+        for i in 0..left.len() {
+            if gone_far(left[i]) {
+                for later in &left[i + 1..] {
+                    assert!(gone_far(later), "{} into More before {later} at {w}", left[i]);
+                }
+            }
+        }
+        if gone_far("Day") || gone_far("Lighting") {
+            assert!(left.iter().all(|n| gone_far(n)), "the right group before the left at {w}");
+        }
+        if gone_far("Save") {
+            for n in left.iter().chain(&["Day", "Lighting"]) {
+                assert!(gone_far(n), "Save into More before {n} at {w}");
+            }
         }
         let row = r.row.width();
         assert!(in_more("To Scratch") || (row < MORE_ROOM && p("To Scratch") == Place::Cut));

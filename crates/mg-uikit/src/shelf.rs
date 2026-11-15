@@ -10,6 +10,12 @@
 //! button named by its name, said on (selected) or not, with its tooltip
 //! (its name where none is given; the keys that choose it, say).
 //!
+//! Where the shelf is too short for its tools (a short window), those
+//! that do not fit go into a **More** tool at its foot (`more-vertical`,
+//! named "More Tools", on while a tool in it is on), whose popover, hung
+//! above it, lists them as rows: chosen, a tool there is reported clicked
+//! as on the shelf.
+//!
 //! ```
 //! # egui::__run_test_ui(|ui| {
 //! use mg_uikit::shelf::{Tool, ToolShelf};
@@ -38,6 +44,9 @@ pub const TOOLS: &str = "Tools";
 pub const SHELF_PADDING: f32 = 4.0;
 /// The gap between the shelf's tools (`.shelf`: `gap: 2px`).
 pub const SHELF_GAP: f32 = 2.0;
+/// The More tool's accessible name ([`ToolShelf`] too short for its
+/// tools).
+pub const MORE_TOOLS: &str = "More Tools";
 /// A separator's line (`.shelf .sep`: 20 by 1).
 pub const SHELF_SEP: f32 = 20.0;
 /// The room above and below a separator's line (`margin: 3px 0`).
@@ -165,10 +174,35 @@ impl ToolShelf {
         let builder = egui::UiBuilder::new()
             .max_rect(inner.shrink2(vec2(0.0, SHELF_PADDING)))
             .layout(egui::Layout::top_down(egui::Align::Center));
+        // (What fits: the tools in order, and where they do not all fit,
+        // as many as leave room for the More tool at the foot.)
+        let room = inner.height() - 2.0 * SHELF_PADDING;
+        let height = |e: &Entry| match e {
+            Entry::Tool(_) => metrics::TOOL_BUTTON + SHELF_GAP,
+            Entry::Separator => 1.0 + 2.0 * SHELF_SEP_MARGIN + SHELF_GAP,
+        };
+        let all: f32 = self.entries.iter().map(height).sum::<f32>() - SHELF_GAP;
+        let mut shown = self.entries.len();
+        if all > room {
+            let mut used = metrics::TOOL_BUTTON;
+            shown = 0;
+            for e in &self.entries {
+                if used + height(e) > room {
+                    break;
+                }
+                used += height(e);
+                shown += 1;
+            }
+        }
+        let name = self.name.clone();
+        let mut entries = self.entries;
+        let hidden: Vec<Entry> = entries.split_off(shown);
+        let first_hidden = entries.iter().filter(|e| matches!(e, Entry::Tool(_))).count();
+        let mut more_response = None;
         ui.scope_builder(builder, |ui| {
-            crate::icons::name_group(ui, &self.name);
+            crate::icons::name_group(ui, &name);
             ui.spacing_mut().item_spacing.y = SHELF_GAP;
-            for entry in self.entries {
+            for entry in entries {
                 match entry {
                     Entry::Separator => {
                         let h = 1.0 + 2.0 * SHELF_SEP_MARGIN;
@@ -185,7 +219,39 @@ impl ToolShelf {
                     }
                 }
             }
+            if hidden.iter().any(|e| matches!(e, Entry::Tool(_))) {
+                let on = hidden.iter().any(|e| matches!(e, Entry::Tool(t) if t.on));
+                let more = Tool::new(Icon::MoreVertical, MORE_TOOLS).on(on);
+                more_response = Some(tool_ui(ui, &more));
+            }
         });
+        if let Some(button) = more_response {
+            let mut popover =
+                crate::popover::Popover::new(MORE_TOOLS).hang(crate::popover::Hang::Above);
+            let mut index = Vec::new();
+            for entry in &hidden {
+                match entry {
+                    Entry::Separator => popover = popover.separator(),
+                    Entry::Tool(tool) => {
+                        let mut row = crate::popover::PopAction::new(tool.name.as_str())
+                            .icon(tool.icon)
+                            .enabled(tool.enabled);
+                        if tool.on {
+                            row = row.end("On");
+                        }
+                        if let Some(tip) = &tool.tip {
+                            row = row.tip(tip.as_str());
+                        }
+                        index.push(tool.name.clone());
+                        popover = popover.action(row);
+                    }
+                }
+            }
+            let out = popover.show(ui, &button);
+            if let Some(k) = index.iter().position(|n| out.clicked(n)) {
+                clicked = Some(first_hidden + k);
+            }
+        }
         ui.advance_cursor_after_rect(rect);
         ShelfOutput { response, clicked, tools }
     }

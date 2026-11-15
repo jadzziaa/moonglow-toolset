@@ -978,3 +978,25 @@ fn a_header_holds_its_controls_down_to_its_least_width() {
     }
     assert!(seen_more, "the sweep never reached Save in More");
 }
+
+/// Two headers of one name (two docked script editors) are each found
+/// by `common::header_holds_nth`, by where they are.
+#[test]
+fn two_headers_of_one_name_are_each_held() {
+    use mg_uikit::Icon;
+    use mg_uikit::header::{EditorHeader, Item};
+    let mut h = Harness::builder().with_size(egui::vec2(900.0, 300.0)).build_ui(|ui| {
+        mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        for salt in ["first", "second"] {
+            ui.push_id(salt, |ui| {
+                let _ = EditorHeader::new("Twin header")
+                    .left(Item::button(Icon::Save, format!("Save the {salt}")))
+                    .left(Item::icon(Icon::ToScratch, format!("To Scratch, {salt}")).in_more())
+                    .show(ui);
+            });
+        }
+    });
+    h.run();
+    header_holds_nth(&mut h, "Twin header", 0, &["Save the first", "To Scratch, first"]);
+    header_holds_nth(&mut h, "Twin header", 1, &["Save the second", "To Scratch, second"]);
+}

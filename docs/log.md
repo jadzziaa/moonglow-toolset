@@ -1,5 +1,28 @@
 # Update log
 
+## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U1's review, of the kit's editor header, popover and tool shelf (none used by the application yet).
+  * **Disabled items** stay disabled everywhere they are drawn: in More, unfolded into the row, and as a part of the caller's.
+  * **`header_holds`** checks that each control is drawn inside the header's row, or inside More's popover.
+  * **Popovers:**
+    * More is measured again after any close, and a popover no longer reopens by itself when its tab returns.
+    * The keyboard goes into a popover it opened.
+    * A menu closes only on an enabled row.
+    * A tall popover scrolls under its button.
+    * The master switch is a switch to a screen reader.
+  * **The row:**
+    * Under its least width the end slot is clipped to the row.
+    * A right click anywhere on the row opens the header's menu.
+    * Two headers of one name keep a record each.
+    * Save (`Item::primary`) moves into More last, by the owner's ruling.
+  * **The tool shelf** puts what does not fit into a More Tools tool.
+  * **Kit button** (as the boards draw it):
+    * a word button's icon form is framed;
+    * a disabled primary is `raised` and `text-off`;
+    * a disabled kit button keeps a parent's opacity (`box_painter`, which divided the fade out in an enabled `Ui`).
+  * **Added:** joined groups, compact forms for parts of the caller's, opening a header popover from code, popovers hung above, per-item responses, and the header keeping the kit's text size.
+  * The plan's Review paragraph lists each fault with its test and failure text.
+
 ## 2026-11-14
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U1, the kit's header, popover and tool shelf**. `mg-uikit` gains four modules, none used by the application yet. `EditorHeader` lays out an editor's 30-point header row against the width it has: an unfolded popover folds back first, then the left group's words go from its end, then its items move into More. The end slot (OK and Cancel) is never covered, and where each item went is recorded for tests. `Popover` hangs below or below-right of its button and has a title with a master switch, headings, check, action and custom rows. It is the kit's own layer, so a combo box inside it leaves it open, and it unfolds into the header as toggles. `ToolShelf` has 28-point tools in a 36-point strip. `KitButton` is drawn disabled in `text-off` and its tokens, not faded. The kit sheet shows them in both themes. `common::header_holds` finds a header's controls on its row or in More. The plan's Done paragraph says how U3, U12, U14 and U16 onward write their headers with it.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U0, the editors' pictures and the baseline**. `screens.rs` gains a `board_*` family: 27 cases, one per board M4 builds, which write 37 pictures. They run As Tabs on Chapter1 with the boards' resources, at the boards' sizes, in both themes. Each case says what today's app shows in place of its board's state. `shell_main` stays as M3 left it. The baseline frame times were measured twice on the shared machine at loads under 3 (`target/ui-mock/perf-m4/u0/`). The median view moved 0.01 to 0.04 ms against T15, and nothing is newly over the budget. The plan's Done paragraph has the figures and the states not yet showable.

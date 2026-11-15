@@ -79,6 +79,9 @@ pub enum Hang {
     /// Below it, their right edges aligned, opening leftward
     /// (`.popover.below-right`): it never reaches right of its button.
     BelowRight,
+    /// Above it, their left edges aligned (`.popover.above`: a button at
+    /// a window's foot).
+    Above,
     /// Below where the button is left of the middle of what holds it (the
     /// header, or the window), below-right where it is right of it.
     #[default]
@@ -100,6 +103,7 @@ impl Hang {
     fn pin(self, anchor: Rect) -> (Align2, egui::Pos2) {
         match self {
             Hang::BelowRight => (Align2::RIGHT_TOP, anchor.right_bottom() + vec2(0.0, POPOVER_GAP)),
+            Hang::Above => (Align2::LEFT_BOTTOM, anchor.left_top() - vec2(0.0, POPOVER_GAP)),
             _ => (Align2::LEFT_TOP, anchor.left_bottom() + vec2(0.0, POPOVER_GAP)),
         }
     }
@@ -253,6 +257,7 @@ enum Row<'a> {
     Action(PopAction),
     Separator,
     Custom {
+        name: Option<String>,
         add: AddUi<'a>,
         unfolded: Option<(f32, AddUi<'a>)>,
     },
@@ -326,6 +331,7 @@ pub struct Popover<'a> {
     rows_follow_switch: bool,
     rows: Vec<Row<'a>>,
     hang: Hang,
+    enabled: bool,
 }
 
 impl<'a> Popover<'a> {
@@ -338,6 +344,7 @@ impl<'a> Popover<'a> {
             rows_follow_switch: true,
             rows: Vec::new(),
             hang: Hang::Auto,
+            enabled: true,
         }
     }
 
@@ -404,20 +411,31 @@ impl<'a> Popover<'a> {
     /// a control high): a popover with one does not unfold
     /// ([`Popover::custom_unfolded`] gives it a form for the row).
     pub fn custom(mut self, add: impl FnOnce(&mut Ui) + 'a) -> Self {
-        self.rows.push(Row::Custom { add: Box::new(add), unfolded: None });
+        self.rows.push(Row::Custom { name: None, add: Box::new(add), unfolded: None });
         self
     }
 
-    /// A row of the caller's, `add` in the popover and `unfolded`, exactly
-    /// `width` wide and a control high, in a header's row.
+    /// A row of the caller's named `name` (in the header's record where
+    /// it is unfolded, [`Popover::check_names`]), `add` in the popover and
+    /// `unfolded`, exactly `width` wide and a control high, in a header's
+    /// row (Fade Geometry's combo box).
     pub fn custom_unfolded(
         mut self,
+        name: impl Into<String>,
         add: impl FnOnce(&mut Ui) + 'a,
         width: f32,
         unfolded: impl FnOnce(&mut Ui) + 'a,
     ) -> Self {
         let unfolded: AddUi<'a> = Box::new(unfolded);
-        self.rows.push(Row::Custom { add: Box::new(add), unfolded: Some((width, unfolded)) });
+        let name = Some(name.into());
+        self.rows.push(Row::Custom { name, add: Box::new(add), unfolded: Some((width, unfolded)) });
+        self
+    }
+
+    /// Enabled (`true`, the default) or, with its switch and every row,
+    /// drawn and said disabled (an editor header's item disabled).
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
         self
     }
 
@@ -435,7 +453,7 @@ impl<'a> Popover<'a> {
         let enabled = other.rows_enabled();
         self.rows.push(Row::Heading(heading.to_string()));
         if let Some((on, name)) = other.switch {
-            self.rows.push(Row::Check(PopCheck::new(on, name)));
+            self.rows.push(Row::Check(PopCheck::new(on, name).enabled(other.enabled)));
         }
         for row in other.rows {
             self.rows.push(match row {
@@ -447,7 +465,8 @@ impl<'a> Popover<'a> {
                     let e = a.enabled && enabled;
                     Row::Action(a.enabled(e))
                 }
-                Row::Custom { add, .. } if !enabled => Row::Custom {
+                Row::Custom { name, add, .. } if !enabled => Row::Custom {
+                    name,
                     add: Box::new(move |ui: &mut Ui| {
                         ui.disable();
                         add(ui)
@@ -465,12 +484,14 @@ impl<'a> Popover<'a> {
         self.rows.is_empty() && self.title.is_none()
     }
 
-    /// The words of its check rows (in order): the names its unfolded
-    /// form and the popover give their toggles and boxes.
+    /// The names of its switch, check and action rows and named rows of
+    /// the caller's (in order): what its unfolded form shows on the row,
+    /// by these names.
     pub fn check_names(&self) -> Vec<String> {
         let rows = self.rows.iter().filter_map(|r| match r {
             Row::Check(c) => Some(c.words.clone()),
             Row::Action(a) => Some(a.words.clone()),
+            Row::Custom { name: Some(name), unfolded: Some(_), .. } => Some(name.clone()),
             _ => None,
         });
         self.switch.iter().map(|(_, n)| n.clone()).chain(rows).collect()
@@ -483,10 +504,11 @@ impl<'a> Popover<'a> {
     }
 
     fn rows_enabled(&self) -> bool {
-        match &self.switch {
-            Some((on, _)) => **on || !self.rows_follow_switch,
-            None => true,
-        }
+        self.enabled
+            && match &self.switch {
+                Some((on, _)) => **on || !self.rows_follow_switch,
+                None => true,
+            }
     }
 
     /// The parts of its unfolded form, in order, each with its width; a
@@ -496,7 +518,7 @@ impl<'a> Popover<'a> {
         let mut parts = Vec::new();
         if let (Some((on, name)), Some((icon, _))) = (&self.switch, &self.title) {
             let b = KitButton::new(Some(icon.unwrap_or(Icon::Eye)), name.as_str()).toggle(**on);
-            parts.push((usize::MAX, b.icon_only(true).width(ui)));
+            parts.push((usize::MAX, b.icon_only(true).enabled(self.enabled).width(ui)));
         }
         let enabled = self.rows_enabled();
         let mut pending_sep = false;
@@ -533,6 +555,7 @@ impl<'a> Popover<'a> {
     pub fn show_unfolded(self, ui: &mut Ui) -> PopoverOutput {
         let parts = self.unfolded_parts(ui);
         let enabled = self.rows_enabled();
+        let whole = self.enabled;
         let mut out = PopoverOutput::default();
         let start = ui.cursor().min;
         let Popover { title, switch, rows, .. } = self;
@@ -545,7 +568,7 @@ impl<'a> Popover<'a> {
                     if let Some((on, name)) = switch.take() {
                         let icon = title.as_ref().and_then(|(i, _)| *i).unwrap_or(Icon::Eye);
                         let b = KitButton::new(Some(icon), name.as_str()).toggle(*on);
-                        if ui.add(b.icon_only(true)).clicked() {
+                        if ui.add(b.icon_only(true).enabled(whole)).clicked() {
                             *on = !*on;
                             out.changed = true;
                         }
@@ -601,6 +624,9 @@ impl<'a> Popover<'a> {
         let mut open = Self::is_open(ui.ctx(), button.id);
         if button.clicked() {
             open = !open;
+            if open && opened_by_keyboard(ui.ctx()) {
+                Self::focus_in(ui.ctx(), id);
+            }
         }
         let frame = ui.ctx().content_rect();
         let out = self.show_hung(ui.ctx(), id, button.rect, frame, &mut open);
@@ -645,7 +671,7 @@ impl<'a> Popover<'a> {
     ) -> PopoverOutput {
         let shown_id = id.with("shown");
         if !*open {
-            ctx.data_mut(|d| d.remove::<bool>(shown_id));
+            Self::forget(ctx, id);
             return PopoverOutput::default();
         }
         // (A popup of egui's open over it, a combo box's list opened from
@@ -653,10 +679,22 @@ impl<'a> Popover<'a> {
         // frame began, before the rows ran.)
         let popup_over = egui::Popup::is_any_open(ctx);
         let first = !ctx.data(|d| d.get_temp::<bool>(shown_id)).unwrap_or(false);
+        let focus_id = id.with("focus-in");
+        let focus_in = ctx.data(|d| d.get_temp::<bool>(focus_id)).unwrap_or(false);
         let pass = ctx.cumulative_pass_nr();
         ctx.data_mut(|d| d.insert_temp(any_open_id(), pass));
         ctx.data_mut(|d| d.insert_temp(shown_id, true));
-        let (pivot, pin) = self.hang.resolved(anchor, frame).pin(anchor);
+        let hang = self.hang.resolved(anchor, frame);
+        let (pivot, pin) = hang.pin(anchor);
+        // (No taller than the room under its button, or over it where it
+        // hangs above, so that it never climbs over its button: what does
+        // not fit scrolls.)
+        let window = ctx.content_rect();
+        let room = match hang {
+            Hang::Above => pin.y - window.top(),
+            _ => window.bottom() - pin.y,
+        };
+        let max_height = (room - POPOVER_GAP - 2.0).max(3.0 * metrics::MENU_ROW);
         let name = self.name.clone();
         let area = egui::Area::new(id)
             .kind(egui::UiKind::Popup)
@@ -666,18 +704,30 @@ impl<'a> Popover<'a> {
             // (Kept inside the window: in a narrow one, a popover hung
             // below-right of a button near its left edge is moved right,
             // never flipped.)
-            .constrain_to(ctx.content_rect())
+            .constrain_to(window)
             .sizing_pass(first);
         let shown = area.show(ctx, |ui| {
             let frame = egui::Frame::menu(ui.style()).inner_margin(crate::menu::MENU_MARGIN);
             frame
                 .show(ui, |ui| {
                     crate::icons::name_group(ui, &name);
-                    let scope = ui.scope_builder(UiBuilder::new().closable(), |ui| self.body(ui));
-                    (scope.inner, scope.response.should_close())
+                    let scroll = egui::ScrollArea::vertical()
+                        .id_salt("mg-uikit-popover-scroll")
+                        .max_height(max_height - 8.0);
+                    scroll
+                        .show(ui, |ui| {
+                            let scope = ui.scope_builder(UiBuilder::new().closable(), |ui| {
+                                self.body(ui, focus_in)
+                            });
+                            (scope.inner, scope.response.should_close())
+                        })
+                        .inner
                 })
                 .inner
         });
+        if focus_in && !first {
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
+        }
         let (mut out, asked_to_close) = shown.inner;
         let rect = shown.response.rect;
         let outside = ctx.input(|i| {
@@ -689,11 +739,28 @@ impl<'a> Popover<'a> {
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
         if (asked_to_close && !first) || (!popup_over && !first && (outside || escape)) {
             *open = false;
-            ctx.data_mut(|d| d.remove::<bool>(shown_id));
+            Self::forget(ctx, id);
         }
         out.open = *open;
         out.rect = Some(rect);
         out
+    }
+
+    /// Forgets what the popover shown as the layer `id` kept while open
+    /// (that it was shown, so that it is measured again when it opens
+    /// next; a keyboard focus asked for): every way it closes calls it.
+    pub fn forget(ctx: &egui::Context, id: Id) {
+        ctx.data_mut(|d| {
+            d.remove::<bool>(id.with("shown"));
+            d.remove::<bool>(id.with("focus-in"));
+        });
+    }
+
+    /// Has the popover shown as the layer `id` give the keyboard's focus
+    /// to its first row that takes it when it is next shown (opened by
+    /// the keyboard: Tab then goes on through its rows).
+    pub fn focus_in(ctx: &egui::Context, id: Id) {
+        ctx.data_mut(|d| d.insert_temp(id.with("focus-in"), true));
     }
 
     /// Drawn in place in `ui` (`.popover.static`: a catalog's), its frame
@@ -705,7 +772,9 @@ impl<'a> Popover<'a> {
         let shown = frame.show(ui, |ui| {
             crate::icons::name_group(ui, &name);
             ui.set_max_width(needed);
-            self.body(ui)
+            // (Its own closable scope: an action row closes the popover,
+            // not a closable parent of the catalog's.)
+            ui.scope_builder(UiBuilder::new().closable(), |ui| self.body(ui, false)).inner
         });
         let mut out = shown.inner;
         out.open = true;
@@ -715,18 +784,31 @@ impl<'a> Popover<'a> {
 
     /// The popover's body: the title, then the rows, each the popover's
     /// width (its widest row, at least 220).
-    fn body(self, ui: &mut Ui) -> PopoverOutput {
+    fn body(self, ui: &mut Ui, focus_first: bool) -> PopoverOutput {
         let mut out = PopoverOutput::default();
+        crate::theme::kit_sizes(ui.style_mut());
+        // (Opened by the keyboard: the focus goes to its first row that
+        // takes it, after its button, as Tab would go.)
+        let mut focus_first = focus_first && !ui.is_sizing_pass();
         let needed = self.needed_width(ui);
         ui.set_min_width(needed);
         let width = if ui.is_sizing_pass() { needed } else { ui.available_width().max(needed) };
         ui.spacing_mut().item_spacing.y = 0.0;
         let enabled = self.rows_enabled();
+        let whole_enabled = self.enabled;
         let Popover { title, switch, rows, .. } = self;
         let layout = egui::Layout::top_down(egui::Align::Min);
         ui.with_layout(layout, |ui| {
             if let Some((icon, words)) = &title {
-                title_row(ui, width, *icon, words, switch, &mut out);
+                title_row(
+                    ui,
+                    width,
+                    (*icon, words),
+                    switch,
+                    whole_enabled,
+                    &mut focus_first,
+                    &mut out,
+                );
             }
             for row in rows {
                 match row {
@@ -737,13 +819,17 @@ impl<'a> Popover<'a> {
                         crate::menu::menu_separator(ui);
                     }
                     Row::Check(c) => {
-                        if check_row(ui, width, &c, enabled && c.enabled).clicked() {
+                        let r = check_row(ui, width, &c, enabled && c.enabled);
+                        take_focus(&r, &mut focus_first);
+                        if r.clicked() {
                             *c.value = !*c.value;
                             out.changed = true;
                         }
                     }
                     Row::Action(a) => {
-                        if action_row(ui, width, &a, enabled && a.enabled).clicked() {
+                        let r = action_row(ui, width, &a, enabled && a.enabled);
+                        take_focus(&r, &mut focus_first);
+                        if r.clicked() {
                             out.clicked.push(a.words.clone());
                             out.changed = true;
                             ui.close();
@@ -807,6 +893,12 @@ impl<'a> Popover<'a> {
     }
 }
 
+/// Whether this pass's click was the keyboard's (Enter or Space on a
+/// focused button), not the pointer's.
+pub(crate) fn opened_by_keyboard(ctx: &egui::Context) -> bool {
+    !ctx.input(|i| i.pointer.any_click())
+}
+
 /// The id under which the pass a kit popover was last shown open in is
 /// kept ([`Popover::any_open`]).
 fn any_open_id() -> Id {
@@ -834,9 +926,10 @@ fn paint_words(painter: &egui::Painter, x: f32, y: f32, words: &str, color: Colo
 fn title_row(
     ui: &mut Ui,
     width: f32,
-    icon: Option<Icon>,
-    words: &str,
+    (icon, words): (Option<Icon>, &str),
     switch: Option<(&mut bool, String)>,
+    enabled: bool,
+    focus_first: &mut bool,
     out: &mut PopoverOutput,
 ) {
     let t = ui.tokens();
@@ -856,14 +949,23 @@ fn title_row(
         let at = pos2(rect.right() - ROW_PADDING - SWITCH.x, y - SWITCH.y / 2.0);
         let switch_rect = Rect::from_min_size(at, SWITCH);
         let id = ui.id().with(("mg-uikit-switch", &name));
-        let response = ui.interact(switch_rect, id, Sense::click());
-        let enabled = ui.is_enabled();
+        let sense = if enabled { Sense::click() } else { Sense::hover() };
+        let response = ui.interact(switch_rect, id, sense);
+        let enabled = enabled && ui.is_enabled();
         response.widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, *on, &name));
+        // (A switch, as accesskit has the role: egui's widget types have
+        // none, so the check box's role is replaced; its toggled state and
+        // name stay.)
+        ui.ctx().accesskit_node_builder(response.id, |node| {
+            node.set_role(egui::accesskit::Role::Switch);
+        });
+        take_focus(&response, focus_first);
         if response.clicked() {
             *on = !*on;
             out.changed = true;
         }
-        paint_switch(ui, switch_rect, *on, &response);
+        let painter = controls::box_painter(ui, enabled);
+        paint_switch_with(&painter, &ui.tokens(), switch_rect, *on, enabled, &response);
         let _ = response.on_hover_text(name.as_str());
     }
     ui.add_space(TITLE_MARGIN);
@@ -874,13 +976,34 @@ fn title_row(
 /// while off, `on-fill` at the right while on; an `accent` ring while it
 /// has the keyboard's focus.
 pub fn paint_switch(ui: &Ui, rect: Rect, on: bool, response: &Response) {
-    let t = ui.tokens();
-    let painter = ui.painter();
-    let track = if on { t.accent_fill } else { t.raised_hover };
+    paint_switch_with(ui.painter(), &ui.tokens(), rect, on, true, response);
+}
+
+/// [`paint_switch`] with `painter`, disabled (`accent-fill-off` or
+/// `raised`, its knob `on-fill-off` or `text-off`) where not `enabled`.
+fn paint_switch_with(
+    painter: &egui::Painter,
+    t: &crate::tokens::Tokens,
+    rect: Rect,
+    on: bool,
+    enabled: bool,
+    response: &Response,
+) {
+    let track = match (on, enabled) {
+        (true, true) => t.accent_fill,
+        (true, false) => t.accent_fill_off,
+        (false, true) => t.raised_hover,
+        (false, false) => t.raised,
+    };
     painter.rect_filled(rect, rect.height() / 2.0, track);
     let r = 5.0;
     let cx = if on { rect.right() - 2.0 - r } else { rect.left() + 2.0 + r };
-    let knob = if on { t.on_fill } else { t.text_2 };
+    let knob = match (on, enabled) {
+        (true, true) => t.on_fill,
+        (true, false) => t.on_fill_off,
+        (false, true) => t.text_2,
+        (false, false) => t.text_off,
+    };
     painter.circle_filled(pos2(cx, rect.center().y), r, knob);
     if response.has_focus() {
         let ring = Stroke::new(1.0, t.accent);
@@ -890,6 +1013,15 @@ pub fn paint_switch(ui: &Ui, rect: Rect, on: bool, response: &Response) {
             ring,
             egui::StrokeKind::Inside,
         );
+    }
+}
+
+/// Gives `response` the keyboard's focus where `first` asks for it (the
+/// first row that takes it, in a popover opened by the keyboard).
+fn take_focus(response: &Response, first: &mut bool) {
+    if *first && response.sense.is_focusable() && response.enabled() {
+        response.request_focus();
+        *first = false;
     }
 }
 

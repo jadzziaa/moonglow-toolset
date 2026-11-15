@@ -638,34 +638,76 @@ pub(crate) fn apart<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kit
 
 /// That the editor header named `group` (`mg_uikit::header`) holds each
 /// of `names`, wherever it put them at this width: on the row (with its
-/// words, as an icon, or a popover's rows unfolded into it), found there
-/// by its name within the header's group, or in More, found in its
-/// popover once More is opened (and More closed again with Escape).
-/// What the header cut (a row too narrow even with everything yielded)
-/// or never had fails, naming it. Each editor's narrowing test runs it
-/// at its least width (proposal section 6.1, M4's U1).
+/// words, as an icon, a joined group's button, or a popover's rows
+/// unfolded into it), found there by its name within the header's group
+/// and drawn inside the row, clear of the end slot and More; or in More,
+/// found in its popover once More is opened and drawn inside it (More
+/// closed again with Escape). What the header cut (a row too narrow even
+/// with everything yielded) or never had fails, naming it. Each editor's
+/// narrowing test runs it at its least width (proposal section 6.1, M4's
+/// U1). Where two headers of the name are drawn, the first
+/// ([`header_holds_nth`]).
 #[track_caller]
 pub(crate) fn header_holds<S>(h: &mut Harness<'_, S>, group: &str, names: &[&str]) {
+    header_holds_nth(h, group, 0, names);
+}
+
+/// [`header_holds`] for the `nth` header named `group` (by where it is:
+/// top to bottom, then left to right; `mg_uikit::header::records`).
+#[track_caller]
+pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usize, names: &[&str]) {
     use mg_uikit::header::{self, Place};
-    let places = header::places(&h.ctx, group);
+    let record = |h: &Harness<'_, S>| {
+        let records = header::records(&h.ctx, group);
+        let count = records.len();
+        records.into_iter().nth(nth).unwrap_or_else(|| panic!("{count} headers named {group}"))
+    };
+    let rec = record(h);
+    let rect_of = |n: &egui_kittest::Node<'_>| -> egui::Rect {
+        let b = n.accesskit_node().bounding_box().expect("drawn");
+        egui::Rect::from_min_max(
+            egui::pos2(b.x0 as f32, b.y0 as f32),
+            egui::pos2(b.x1 as f32, b.y1 as f32),
+        )
+    };
     let mut in_more = Vec::new();
     for name in names {
-        let place = places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+        let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
         match place {
-            None => panic!("{name} is not in {group} ({places:?})"),
+            None => panic!("{name} is not in {group} ({:?})", rec.places),
             Some(Place::Cut) => panic!("{name} is cut from {group}: the row is too narrow"),
             Some(Place::More) => in_more.push(*name),
             Some(Place::Row | Place::Icon | Place::Unfolded) => {
-                let shown = h.get_by_label(group).query_by_label(name).is_some();
                 // (A popover unfolded into the row shows its rows, not its
-                // button: one of them, at least.)
-                let unfolded = place == Some(Place::Unfolded) && {
-                    let rows = places.iter().skip_while(|(n, _)| n != name).skip(1);
-                    let rows: Vec<_> =
-                        rows.take_while(|(_, p)| *p == Place::Unfolded).map(|(n, _)| n).collect();
-                    rows.iter().any(|r| h.get_by_label(group).query_by_label(r).is_some())
+                // button: its rows are checked by their own names.)
+                let rows = h.query_all_by_label(group).nth(nth);
+                let Some(row) = rows else { panic!("no group {group}") };
+                let node = row.query_by_label(name);
+                if node.is_none() && place == Some(Place::Unfolded) {
+                    let after = rec.places.iter().skip_while(|(n, _)| n != name).skip(1);
+                    let shown = after
+                        .take_while(|(_, p)| *p == Place::Unfolded)
+                        .any(|(n, _)| row.query_by_label(n).is_some());
+                    assert!(shown, "none of {name}'s rows is shown on {group}'s row");
+                    continue;
+                }
+                let Some(node) = node else {
+                    panic!("{name} is not shown on {group}'s row ({place:?})")
                 };
-                assert!(shown || unfolded, "{name} is not shown on {group}'s row ({place:?})");
+                let r = rect_of(&node);
+                assert!(
+                    rec.row.expand(0.5).contains_rect(r),
+                    "{name} is drawn outside {group}'s row: {r:?} in {:?}",
+                    rec.row
+                );
+                for (what, other) in [("the end slot", rec.end), ("More", rec.more)] {
+                    if let Some(other) = other {
+                        assert!(
+                            !other.shrink(0.5).intersects(r),
+                            "{name} is drawn over {what} of {group}: {r:?} {other:?}"
+                        );
+                    }
+                }
             }
         }
     }
@@ -673,14 +715,20 @@ pub(crate) fn header_holds<S>(h: &mut Harness<'_, S>, group: &str, names: &[&str
         return;
     }
     let more = header::more_name(group);
-    if h.query_by_label(&more).is_none() {
-        h.get_by_label(group).get_by_label(header::MORE).click();
+    if record(h).open.as_deref() != Some(header::MORE) {
+        let rows = h.query_all_by_label(group).nth(nth).expect("its group");
+        rows.get_by_label(header::MORE).click();
         h.run();
     }
+    let popover = record(h).popover.expect("More's popover drawn");
     for name in &in_more {
+        let Some(node) = h.get_by_label(&more).query_by_label(name) else {
+            panic!("{name} is not in {group}'s More")
+        };
+        let r = rect_of(&node);
         assert!(
-            h.get_by_label(&more).query_by_label(name).is_some(),
-            "{name} is not in {group}'s More"
+            popover.expand(0.5).contains_rect(r),
+            "{name} is drawn outside {group}'s More: {r:?} in {popover:?}"
         );
     }
     h.key_press(egui::Key::Escape);

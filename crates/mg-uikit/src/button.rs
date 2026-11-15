@@ -36,7 +36,8 @@ pub const ICON_CHEVRON_GAP: f32 = 2.0;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ButtonLook {
     /// A word button (`.btn`): `raised`, `raised-hover` under the pointer;
-    /// an icon alone is drawn [`ButtonLook::Flat`].
+    /// an icon alone so is framed as the words were (the narrow board's
+    /// compact Lighting and Area Properties), the icon in `text`.
     #[default]
     Raised,
     /// Frameless until hovered (`.btn.flat`, `.btn-icon`): an icon alone
@@ -45,7 +46,9 @@ pub enum ButtonLook {
     /// A toggle (`.toggle`): `raised` while off, `accent-fill` while on
     /// ([`KitButton::on`]).
     Toggle,
-    /// The main action (`.btn.primary`): `accent-fill` and `on-fill`.
+    /// The main action (`.btn.primary`): `accent-fill` and `on-fill`;
+    /// disabled, a word button's (`.btn:disabled` wins: `raised` and
+    /// `text-off`).
     Primary,
 }
 
@@ -77,6 +80,7 @@ pub struct KitButton {
     open: Option<bool>,
     enabled: bool,
     drawn_as: Option<ButtonState>,
+    corners: Option<egui::CornerRadius>,
 }
 
 impl KitButton {
@@ -94,6 +98,7 @@ impl KitButton {
             open: None,
             enabled: true,
             drawn_as: None,
+            corners: None,
         }
     }
 
@@ -150,6 +155,16 @@ impl KitButton {
     /// Its tooltip (also shown while disabled).
     pub fn tip(mut self, tip: impl Into<String>) -> Self {
         self.tip = Some(tip.into());
+        self
+    }
+
+    /// One of a joined group's buttons (`.join`: 1 px seams, the outer
+    /// corners round): its left corners round where it is the `first`,
+    /// its right corners where it is the `last`, square elsewhere.
+    pub fn joined(mut self, first: bool, last: bool) -> Self {
+        let r = |round: bool| if round { metrics::RADIUS } else { 0 };
+        self.corners =
+            Some(egui::CornerRadius { nw: r(first), sw: r(first), ne: r(last), se: r(last) });
         self
     }
 
@@ -211,12 +226,10 @@ impl KitButton {
         let open = self.open == Some(true);
         let lit = state != ButtonState::Rest;
         let none = Color32::TRANSPARENT;
-        let flat =
-            self.look == ButtonLook::Flat || (self.icon_only && self.look == ButtonLook::Raised);
+        let flat = self.look == ButtonLook::Flat;
         let (fill, text) = if !self.enabled {
             match self.look {
                 ButtonLook::Toggle if self.on => (t.accent_fill_off, t.on_fill_off),
-                ButtonLook::Primary => (t.accent_fill_off, t.on_fill_off),
                 _ if flat => (none, t.text_off),
                 _ => (t.raised, t.text_off),
             }
@@ -286,7 +299,8 @@ impl egui::Widget for KitButton {
             look.enabled = enabled;
             let (fill, text, chevron, ring) = look.colors(&t, state);
             let painter = crate::controls::box_painter(ui, enabled);
-            painter.rect(rect, metrics::RADIUS, fill, ring, egui::StrokeKind::Inside);
+            let corners = self.corners.unwrap_or(metrics::RADIUS.into());
+            painter.rect(rect, corners, fill, ring, egui::StrokeKind::Inside);
             let y = rect.center().y;
             if self.icon_only {
                 let icon = self.icon.unwrap_or(Icon::Help);
@@ -355,10 +369,12 @@ mod tests {
             let words = KitButton::new(Some(Icon::Save), "Save");
             assert_eq!(off(words.clone()), (t.raised, t.text_off), "{theme:?}");
             assert_eq!(off(words.clone().look(ButtonLook::Flat)), (none, t.text_off));
-            assert_eq!(off(words.clone().icon_only(true)), (none, t.text_off));
+            assert_eq!(off(words.clone().icon_only(true)), (t.raised, t.text_off));
+            let flat_icon = words.clone().icon_only(true).look(ButtonLook::Flat);
+            assert_eq!(off(flat_icon), (none, t.text_off));
             assert_eq!(off(words.clone().toggle(false)), (t.raised, t.text_off));
             assert_eq!(off(words.clone().toggle(true)), (t.accent_fill_off, t.on_fill_off));
-            assert_eq!(off(words.look(ButtonLook::Primary)), (t.accent_fill_off, t.on_fill_off));
+            assert_eq!(off(words.look(ButtonLook::Primary)), (t.raised, t.text_off));
         }
     }
 
@@ -372,9 +388,13 @@ mod tests {
         let words = KitButton::new(Some(Icon::Save), "Save");
         assert_eq!(colors(words.clone(), Theme::Dark, rest), (t.raised, t.text));
         assert_eq!(colors(words.clone(), Theme::Dark, hover), (t.raised_hover, t.text));
-        let icon = words.clone().icon_only(true);
+        let icon = words.clone().icon_only(true).look(ButtonLook::Flat);
         assert_eq!(colors(icon.clone(), Theme::Dark, rest), (Color32::TRANSPARENT, t.text_2));
         assert_eq!(colors(icon, Theme::Dark, hover), (t.raised, t.text));
+        // (A word button's icon alone stays framed, as the narrow board's
+        // compact buttons are.)
+        let framed = words.clone().icon_only(true);
+        assert_eq!(colors(framed, Theme::Dark, rest), (t.raised, t.text));
         let on = words.clone().toggle(true);
         assert_eq!(colors(on, Theme::Dark, rest), (t.accent_fill, t.on_fill));
         let off = words.toggle(false).icon_only(true);
