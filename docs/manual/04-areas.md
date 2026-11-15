@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T06:46:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
 ---
 
 # Areas
@@ -22,9 +22,12 @@ as in the game.
 ## The header
 
 The row over the view is the area's **header**: on the left what you do
-(which objects show, how they are placed), on the right how the view
-looks (day or night, and the **Lighting**, **Overlays** and **Audio**
-popovers), then **Area Properties** and **⋯** (More). It never wraps:
+(which objects show, how they are placed; while Paint is the tool in
+hand, the brush's settings: [Painting placeables](#painting-placeables)),
+on the right how the view looks (day or night, and the **Lighting**,
+**Overlays** and **Audio** popovers), then **Area Properties** and **⋯**
+(More). The tools are on the [tool shelf](#the-tool-shelf-and-the-compass)
+at the view's left, the compass at its top right. It never wraps:
 where the editor is narrow it gives way, a step at a time, and every
 control stays on the row, as an icon (its name in its tip) or in More:
 
@@ -309,7 +312,7 @@ Transform** turns it on, to show the walkmeshes before and after.
   look along the ground from the area's edge it turns Aurora's red, to
   count tiles by and line areas up, and under raised ground it is drawn
   at the area's foot as well.
-- **Minimap**: the area's map in the view's top right corner, as the
+- **Minimap**: the area's map in the view's bottom right corner, as the
   game's map draws it ([Minimaps](#minimaps)), with where the camera
   looks (a white dot, and a wedge the way it faces) and the selected
   objects (yellow dots). Click or drag on it to look there: the
@@ -346,30 +349,62 @@ Transform** turns it on, to show the walkmeshes before and after.
 
 - **Area Properties**: the area's properties ([Area
   Properties](#area-properties)).
-- **⋯** (More): **To Scratch**, **Save N as Prefab…** (several objects
-  selected; see [Prefabs](#placing-objects)), and, until they move to
-  the view's tool shelf and compass, **Select Tiles**, **Paint**,
-  **Reorient Camera** (north up again) and **Go to Start Location**.
-  More holds what the row has no room for, too, in the row's order.
+- **⋯** (More): **To Scratch** and **Save N as Prefab…** (several
+  objects selected; see [Prefabs](#placing-objects)). More holds what
+  the row has no room for, too, in the row's order.
 - A **warning** sign with a count, at the right group's end, when
   something could not be read for the view: its tip lists what (the
   area's own problems, and the models not found).
-- **Select Tiles** (F10): select tiles rather than objects (Aurora's
-  Select Terrain), in More; the Tiles palette has it too, at the top of its
-  tools. Without the header: a double click on the ground selects its tile
-  (Select Tiles comes on), and a click on an object while tiles are
-  selected selects it (Select Tiles goes off). Turning it on puts down
-  the terrain brush, and choosing a brush turns it off, but for Next
-  and Previous Tile Appearance and Rotate Tile with tiles selected,
-  which step those tiles and leave Select Tiles on (see [Painting
-  terrain](#painting-terrain)).
-- **Paint** (B), in More: paint the placeables chosen in the palette onto the
-  ground (see [Painting placeables](#painting-placeables)).
 - **To Scratch**: copy the area as it is now (its `.are`, `.git` and
   `.gic`) into the scratch folder (chosen the first time; Tools › Options
   › Folders changes it), with the module's own blueprints, scripts
   (compiled first where they changed) and conversations it uses, as
   Export's **Include the resources they use** takes them.
+
+## The tool shelf and the compass
+
+The strip at the view's left is its **tool shelf**: one tool is in hand
+at a time, its button lit, however it was taken (its button, its key, a
+brush chosen in the palette), and taking one puts the others down. A
+tool's button clicked again puts it down too (Select Objects is in hand
+again). The buttons are reached with Tab, and their tips name their
+keys. In a view too short for them, those that don't fit go into **More
+Tools** (`⋮`) at the shelf's foot.
+
+- **Select Objects**: select, move and place objects (no other tool in
+  hand).
+- **Select Tiles** (F10): select tiles rather than objects (Aurora's
+  Select Terrain); the Tiles palette has it too, at the top of its tools.
+  A double click on the ground selects its tile (Select Tiles comes on),
+  and a click on an object while tiles are selected selects it (Select
+  Tiles goes off). Taking it puts down the terrain brush and Paint, and
+  choosing a brush puts it down, but for Next and Previous Tile
+  Appearance and Rotate Tile with tiles selected, which step those tiles
+  and leave Select Tiles on (see [Painting terrain](#painting-terrain)).
+- **Paint** (B): paint the placeables chosen in the palette onto the
+  ground (see [Painting placeables](#painting-placeables)).
+- **Terrain**: paint terrain with the tiles palette's brushes. It is lit
+  while one of them is in hand (choosing one in the palette lights it);
+  a click shows the Palette on its Tiles type to choose one from, and
+  while it is lit, a click puts the brush down.
+
+In a read-only area (another builder's), Select Tiles, Paint and Terrain
+are grayed. The header's right-click list hides Select Tiles and Paint
+from the shelf, and Reorient Camera and Go to Start Location from under
+the compass, as it hid them from the toolbar before (their keys and View
+› Go to Start Location still work).
+
+The **compass** at the view's top right shows where north is, its red
+needle turning with the camera. Under it:
+
+- **Reorient Camera** (Ctrl+Alt+R): turn the camera to face north again,
+  as the area first opened. It is a command, in Quick Open too (Ctrl+P,
+  then `>`), and acts on the area shown last wherever the pointer is.
+- **Go to Start Location**: look at the module's start location, or open
+  the area it is in at it (View › Go to Start Location does the same).
+
+The [minimap](#overlays) stands at the view's bottom right (in a view
+too short for it under the compass, it is left out).
 
 ## Minimaps
 
@@ -424,6 +459,8 @@ Options › Keyboard):
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
 | F10 | select tiles or objects (Aurora's) |
+| B | Paint on or off |
+| Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
 | X, T, N, Shift+N, R, Shift+R | the tile tools: the Eraser, Refine Tile, Next and Previous Tile Appearance, Rotate Tile and clockwise ([Painting terrain](#painting-terrain)) |
 | Double-click an object in Find Instance | go to it |
 
@@ -1063,14 +1100,28 @@ warns of one that is twice in one area.
 
 ## Painting placeables
 
-Trees, rocks, bushes, rubble: **Paint** in the area header's More (or **B**
-with the pointer over the area) turns the placeable brush on, and the
-placeables chosen in the palette are painted onto the ground rather than
-placed one a click. Choose them in the **Placeables** palette, the
-game's or the module's: a click on one, **Ctrl + click** on more (Ctrl +
-click again takes one out). The brush picks among them at random. A strip
-of its settings shows above the view while it is on; they are kept for
-the next time.
+Trees, rocks, bushes, rubble: **Paint** on the [tool
+shelf](#the-tool-shelf-and-the-compass) (or **B** with the pointer over
+the area) turns the placeable brush on, and the placeables chosen in the
+palette are painted onto the ground rather than placed one a click.
+Choose them in the **Placeables** palette, the game's or the module's: a
+click on one, **Ctrl + click** on more (Ctrl + click again takes one
+out). The brush picks among them at random. While Paint is on, the
+palette's **Brush** section under its list names them ("2 chosen"), a
+row each with **×** to take it out of the brush.
+
+Its settings take the header's left group while it is on (the Show
+toggles, Snap, Turn, Together and Onto Objects come back with Select
+Objects; the Show popover, with Start, All and None, is in More
+meanwhile, and the Outliner's eyes show and hide the kinds too):
+**Scatter**, **Row**, **Fill** and **Erase** side by side, **Radius** and
+**Density** where the mode takes them (Scatter both, Erase the radius
+alone), and the **Brush** popover with the rest: **Count all**,
+**Spacing** and **By size**, **Flow**, **Turn** and **Scale** in
+Scatter, **Gap** in Row and Fill, **Height** and **Lock** in all but
+Erase, and under "Placing, as with the Select tool" the header's **Snap**
+and **Turn**. Its title says the mode. Where the header has no room,
+they go into More with the rest. They are kept for the next time.
 
 - **Scatter** paints in a green circle on the ground. Press to lay a dab,
   drag to go on laying them. Hold the button still and it keeps laying
@@ -1079,12 +1130,12 @@ the next time.
 - **Density** is how many placeables a tile's ground (10 by 10 m) holds
   once painted. The brush adds placeables until the circle has its share,
   counting those of the chosen blueprints already there (with **Count
-  All**, every placeable there: trees painted among rocks, the rocks
+  all**, every placeable there: trees painted among rocks, the rocks
   counted). So going over a painted place again fills its gaps and adds
   no more.
 - **Spacing** is the least distance between two placeables: those the
   brush puts down, and any placeable already in the area. Between their
-  middles; with **By Size**, between their sides, each by its model's box
+  middles; with **By size**, between their sides, each by its model's box
   (as scaled): a large tree keeps further from the next than a shrub.
 - **Flow** is how much of what the circle lacks each dab adds: at 100% a
   click fills the circle at once; lower, it fills as you go over it.

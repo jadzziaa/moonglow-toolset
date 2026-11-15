@@ -356,6 +356,8 @@ impl PopoverOutput {
 pub struct Popover<'a> {
     name: String,
     title: Option<(Option<Icon>, String)>,
+    title_note: Option<String>,
+    min_width: f32,
     switch: Option<(&'a mut bool, String)>,
     switch_words: Option<String>,
     rows_follow_switch: bool,
@@ -372,6 +374,8 @@ impl<'a> Popover<'a> {
         Popover {
             name: name.into(),
             title: None,
+            title_note: None,
+            min_width: POPOVER_MIN_WIDTH,
             switch: None,
             switch_words: None,
             rows_follow_switch: true,
@@ -390,6 +394,21 @@ impl<'a> Popover<'a> {
     /// With a title (`.pop-title`): `icon` (where given) and `words`.
     pub fn title(mut self, icon: Option<Icon>, words: impl Into<String>) -> Self {
         self.title = Some((icon, words.into()));
+        self
+    }
+
+    /// A weak note at its title's right end (`.pop-title .t3.small`: the
+    /// Brush popover's mode, "Scatter"), in `text-3` at the small size;
+    /// not beside a switch.
+    pub fn title_note(mut self, words: impl Into<String>) -> Self {
+        self.title_note = Some(words.into());
+        self
+    }
+
+    /// At least `width` wide (a popover of the caller's rows, whose width
+    /// it cannot measure: the Brush popover's 286), never less than 220.
+    pub fn min_width(mut self, width: f32) -> Self {
+        self.min_width = width.max(POPOVER_MIN_WIDTH);
         self
     }
 
@@ -880,14 +899,14 @@ impl<'a> Popover<'a> {
         ui.spacing_mut().item_spacing.y = 0.0;
         let enabled = self.rows_enabled();
         let whole_enabled = self.enabled;
-        let Popover { title, switch, rows, .. } = self;
+        let Popover { title, title_note, switch, rows, .. } = self;
         let layout = egui::Layout::top_down(egui::Align::Min);
         ui.with_layout(layout, |ui| {
             if let Some((icon, words)) = &title {
                 title_row(
                     ui,
                     width,
-                    (*icon, words),
+                    (*icon, words, title_note.as_deref()),
                     switch,
                     whole_enabled,
                     &mut focus_first,
@@ -944,11 +963,14 @@ impl<'a> Popover<'a> {
     /// The width its title and rows need side by side (at least 220).
     fn needed_width(&self, ui: &Ui) -> f32 {
         let text = |s: &str| words_width(ui, s);
-        let mut width = POPOVER_MIN_WIDTH;
+        let mut width = self.min_width;
         if let Some((icon, words)) = &self.title {
             let mut w = 2.0 * ROW_PADDING + text(words);
             if icon.is_some() {
                 w += metrics::ICON + ROW_GAP;
+            }
+            if let Some(note) = &self.title_note {
+                w += END_GAP + note_width(ui, note);
             }
             if self.switch.is_some() {
                 w += END_GAP + SWITCH.x;
@@ -996,6 +1018,12 @@ fn words_width(ui: &Ui, words: &str) -> f32 {
     ui.painter().layout_no_wrap(words.to_string(), font, Color32::WHITE).size().x
 }
 
+/// The width of a title's note (`.small`).
+fn note_width(ui: &Ui, words: &str) -> f32 {
+    let font = FontId::proportional(metrics::SMALL_SIZE);
+    ui.painter().layout_no_wrap(words.to_string(), font, Color32::WHITE).size().x
+}
+
 /// Paints `words` at `x`, centered on `y`, in `color`; returns where they
 /// end.
 fn paint_words(painter: &egui::Painter, x: f32, y: f32, words: &str, color: Color32) -> f32 {
@@ -1011,7 +1039,7 @@ fn paint_words(painter: &egui::Painter, x: f32, y: f32, words: &str, color: Colo
 fn title_row(
     ui: &mut Ui,
     width: f32,
-    (icon, words): (Option<Icon>, &str),
+    (icon, words, note): (Option<Icon>, &str, Option<&str>),
     switch: Option<(&mut bool, String)>,
     enabled: bool,
     focus_first: &mut bool,
@@ -1028,6 +1056,11 @@ fn title_row(
         x += metrics::ICON + ROW_GAP;
     }
     paint_words(ui.painter(), x, y, words, t.text);
+    if let Some(note) = note.filter(|_| switch.is_none()) {
+        let font = FontId::proportional(metrics::SMALL_SIZE);
+        let at = pos2(rect.right() - ROW_PADDING, y);
+        ui.painter().text(at, Align2::RIGHT_CENTER, note, font, t.text_3);
+    }
     let line_y = rect.bottom() - 0.5;
     ui.painter().hline(rect.x_range(), line_y, Stroke::new(1.0, t.line_soft));
     if let Some((on, name)) = switch {

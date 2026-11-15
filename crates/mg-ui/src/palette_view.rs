@@ -1599,6 +1599,35 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     });
     ui.separator();
+    // While Paint is on, the Brush section under the list (the AreaPaint
+    // board): what the brush paints with, each to take out of it.
+    if app.paint && kind == BlueprintKind::Placeable {
+        let keys = crate::paint_mode::chosen_keys(view.selected, &view.chosen);
+        let names: HashMap<ResRef, String> = if keys.is_empty() {
+            HashMap::new()
+        } else {
+            let game = app.game.as_deref().expect("checked");
+            (palette.blueprints().into_iter())
+                .filter(|(_, b)| keys.iter().any(|k| k.resref == b.resref))
+                .map(|(_, b)| (b.resref, shown_name(&b.name, game)))
+                .collect()
+        };
+        let section = egui::Panel::bottom(egui::Id::new("palette-brush")).resizable(false).frame(
+            egui::Frame::NONE.inner_margin(egui::Margin {
+                top: 6,
+                bottom: 4,
+                ..Default::default()
+            }),
+        );
+        let out = section
+            .show(ui, |ui| {
+                crate::paint_mode::brush_section(ui, &keys, &|k| names.get(&k.resref).cloned())
+            })
+            .inner;
+        if let Some(key) = out {
+            crate::paint_mode::take_out(&mut view.selected, &mut view.chosen, key);
+        }
+    }
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);

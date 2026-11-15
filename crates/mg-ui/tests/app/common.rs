@@ -612,7 +612,8 @@ pub(crate) fn in_group(n: &egui_kittest::Node<'_>, group: &str) -> bool {
 
 /// Whether `n` is on the Top Bar, a dock's tab bar (the Left Dock's, with
 /// the Module panel's header buttons; the Right Dock's Palette and Preview
-/// tabs) or the area view's header, or in one of its popovers.
+/// tabs) or the area view's header, or in one of its popovers, or on the
+/// area view's tool shelf or by its compass.
 pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
@@ -624,6 +625,10 @@ pub(crate) fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
             "Lighting",
             "Overlays",
             "Audio",
+            "Brush",
+            AREA_TOOLS,
+            "More Tools",
+            "Compass",
             mg_ui::RIGHT_DOCK,
         ];
         if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
@@ -760,6 +765,23 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
             node.scroll_to_me();
             h.run();
         }
+        // (A group, a segmented control's, is scrolled to by its first
+        // part: egui scrolls to widgets, not to a scope.)
+        let scrolled = {
+            let node = h.get_by_label(&more).get_by_label(name);
+            let outside = !popover.expand(0.5).contains_rect(rect_of(&node));
+            let first = node.query_all_by(|n| n.bounding_box().is_some()).next();
+            match (outside, first) {
+                (true, Some(first)) => {
+                    first.scroll_to_me();
+                    true
+                }
+                _ => false,
+            }
+        };
+        if scrolled {
+            h.run();
+        }
         let node = h.get_by_label(&more).get_by_label(name);
         let r = rect_of(&node);
         assert!(
@@ -774,13 +796,16 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
 
 /// The area editor's header (`mg_uikit::header`, M4's U3): its group.
 pub(crate) const AREA_HEADER: &str = "Area header";
+/// The area view's tool shelf (M4's U4): its group (the board's "Tools",
+/// named apart from the Top Bar's Tools menu).
+pub(crate) const AREA_TOOLS: &str = "Area tools";
 
 /// The area header's popovers and menus by their names, each with the
 /// controls it holds (by their accessible names): the compact header's
 /// Show popover, the full header's All or None menu, Lighting, Overlays,
 /// Audio; and the unfolded row's Shadows and Walkmesh toggles, whose
 /// held menus hold the rows their popovers had.
-const AREA_HOLDERS: [(&str, &[&str]); 7] = [
+const AREA_HOLDERS: [(&str, &[&str]); 8] = [
     (
         "Show",
         &[
@@ -830,10 +855,30 @@ const AREA_HOLDERS: [(&str, &[&str]); 7] = [
     ("Audio", &["Play Sounds", "Ambient", "Music"]),
     ("Shadows", &["Sun and moon shadows", "Creature shadows", "Light shadows", "Fast", "High"]),
     ("Walkmesh", &["Ground walkmesh", "Object walkmeshes"]),
+    // (Paint's, while it is the tool in hand: the header's Snap and Turn
+    // stand in it then.)
+    (
+        "Brush",
+        &[
+            "Count all",
+            "Spacing",
+            "By size",
+            "Flow",
+            "Turn spread",
+            "Scale",
+            "Scale to",
+            "Gap",
+            "Height",
+            "Lock",
+            "Snap",
+            "Turn",
+        ],
+    ),
 ];
 
 /// The node named `name` among the area header's controls: on its row,
-/// or in the popover or menu open from it (none opened for it).
+/// or in the popover or menu open from it (none opened for it); or on the
+/// view's tool shelf (or in its More Tools), or by its compass.
 pub(crate) fn area_tool_shown<'t>(
     h: &'t Harness<'_, Moonglow>,
     name: &'t str,
@@ -841,7 +886,17 @@ pub(crate) fn area_tool_shown<'t>(
     if let Some(n) = h.query_by_label(AREA_HEADER).and_then(|g| g.query_by_label(name)) {
         return Some(n);
     }
-    let holders = ["More in Area header", "Lighting", "Overlays", "Audio", "Show"];
+    let holders = [
+        "More in Area header",
+        "Lighting",
+        "Overlays",
+        "Audio",
+        "Show",
+        "Brush",
+        AREA_TOOLS,
+        "More Tools",
+        "Compass",
+    ];
     for holder in holders {
         for group in h.query_all_by_label(holder) {
             if let Some(n) = group.query_by_label(name) {
@@ -866,6 +921,17 @@ pub(crate) fn area_tool_shown<'t>(
 fn open_area_tool(h: &mut Harness<'_, Moonglow>, name: &str) {
     use mg_uikit::header::{self, Place};
     if area_tool_shown(h, name).is_some() {
+        return;
+    }
+    // (The shelf's tools that its More Tools holds, in a short view.)
+    let shelf = ["Select Objects", "Select Tiles", "Paint", "Terrain"];
+    if shelf.contains(&name) {
+        if let Some(more) =
+            h.query_by_label(AREA_TOOLS).and_then(|g| g.query_by_label("More Tools"))
+        {
+            more.click();
+            h.run_steps(3);
+        }
         return;
     }
     let rec = header::records(&h.ctx, AREA_HEADER).into_iter().next().expect("the area header");

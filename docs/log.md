@@ -1,6 +1,10 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U4, the tool shelf, the compass and Paint**, as the Main and AreaPaint boards draw them ([04](manual/04-areas.md#the-tool-shelf-and-the-compass), [02](manual/02-main-window.md#the-palette)).
+  * **The tool shelf** at the area view's left: Select Objects, Select Tiles (F10), Paint (B) and Terrain, one tool on at a time however it is taken; Terrain shows the tiles palette and is on while one of its brushes is in hand.
+  * **The compass** at the view's top right, with **Reorient Camera** (a command now: Ctrl+Alt+R and Quick Open) and **Go to Start Location** under it; the minimap at the bottom right.
+  * **Paint's settings take the header's left group**: Scatter, Row, Fill and Erase, Radius and Density, and a **Brush** popover with the rest and Snap and Turn; the strip above the view is gone. The palette's **Brush** section names the blueprints the brush paints with, × to take one out.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U3's review ([04](manual/04-areas.md#the-header)).
   * A header popover is not modal: the view's keys and their hints stay while one is open.
   * The Overlays switch is kept for the areas opened after, and stays on the header while off; Bake Walkmesh to Transform turns it on (and Object walkmeshes, which it had stopped turning on).

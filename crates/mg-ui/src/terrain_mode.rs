@@ -1730,7 +1730,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         selected,
         stepped: None,
         keys: tool_key_names(app, ui.ctx()),
-        // (Its key in its tip, as the area toolbar's has it: its words and
+        // (Its key in its tip, as the tool shelf's has it: its words and
         // its name are "Select Tiles".)
         select_tiles: app.keymap.titled(
             "Select tiles rather than objects",
@@ -1774,9 +1774,10 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if chosen != app.palette.tile_brush {
         if chosen.is_some() {
             app.palette.selected = None;
-            // (A brush chosen: out of tile mode, which it would sit on
-            // top of.)
+            // (A brush chosen: the tool in hand is Terrain, out of Paint
+            // and of tile mode, which it would sit on top of.)
             tile_mode = false;
+            app.paint = false;
         }
         app.palette.tile_brush = chosen;
     }
@@ -1796,7 +1797,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 }
 
 /// The tiles palette's Select Tiles: the area view's tile mode (its
-/// toolbar's Select Tiles, F10), on or off, beside the tools.
+/// tool shelf's Select Tiles, F10), on or off, beside the tools.
 fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
     let button = mg_uikit::IconButton::new(crate::icons::SELECT_TILES, SELECT_TILES);
     let tip = format!("{}. Right-click a tile for its menu.", at.select_tiles);

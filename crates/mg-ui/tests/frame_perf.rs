@@ -989,6 +989,27 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // Paint on with two placeables chosen and the palette shown (M4's
+    // U4: its settings in the header's left group and the Brush popover,
+    // the palette's Brush section; before it, the strip over the view):
+    // the brush's circle and its next dab follow the pointer.
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = BlueprintKind::Placeable;
+        app.palette.selected = ResKey::parse("plc_chest1", ResType::UTP);
+        app.palette.chosen = ResKey::parse("plc_tree", ResType::UTP).into_iter().collect();
+        app.paint = true;
+    }
+    show_palette(h);
+    view(h, r, &format!("{name}, Paint on, two placeables chosen"), Some(&tab));
+    {
+        let app = h.state_mut();
+        app.paint = false;
+        app.palette.selected = None;
+        app.palette.chosen.clear();
+    }
+    fold_palette(h);
     // The Outliner (M3's T13) with a kind of 200 objects or more opened
     // (one of them selected: the Outliner opens its kind and brings it
     // into sight), against its kinds closed, the same one selected.

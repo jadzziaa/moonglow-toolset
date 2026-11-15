@@ -1158,6 +1158,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::FindReferences
         | Id::AdvancedSearch
         | Id::GoToStart
+        | Id::ReorientCamera
         | Id::Factions
         | Id::Journal
         | Id::TalkTable

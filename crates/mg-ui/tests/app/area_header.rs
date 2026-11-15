@@ -72,8 +72,24 @@ fn row_at(h: &mut Harness<'_, Moonglow>, width: f32) {
 /// What the header holds, by the names its record gives them at this
 /// width: the full header's Show toggles one by one (a joined group has
 /// no node of its own) and its arrow, or the compact header's Show
-/// popover; the rest by their items' names.
+/// popover; the rest by their items' names. While Paint is on, its
+/// options in place of the Select tool's, as its mode has them (Radius
+/// in Scatter and Erase, Density in Scatter), the Show popover in More.
 fn held_names(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    let right = ["Night", "Lighting", "Overlays", "Audio", "Area Properties", "To Scratch"]
+        .map(String::from);
+    if h.state().paint {
+        let p = h.state().settings.paint;
+        let mut names = vec!["How the brush paints".to_string()];
+        if !p.by_drag() {
+            names.push("Radius".into());
+        }
+        if !p.by_drag() && !p.erase {
+            names.push("Density".into());
+        }
+        names.extend(["Brush", "Show"].map(String::from));
+        return names.into_iter().chain(right).collect();
+    }
     let full = place(h, "Show All or None").is_some();
     let kinds: Vec<String> = mg_area::ObjectKind::ALL
         .iter()
@@ -81,23 +97,8 @@ fn held_names(h: &Harness<'_, Moonglow>) -> Vec<String> {
         .chain(["Show Start".to_string(), "Show All or None".to_string()])
         .collect();
     let show = if full { kinds } else { vec!["Show".to_string()] };
-    let rest = [
-        "Snap",
-        "Turn",
-        "Together",
-        "Onto Objects",
-        "Select Tiles",
-        "Paint",
-        "Night",
-        "Lighting",
-        "Overlays",
-        "Audio",
-        "Area Properties",
-        "Reorient Camera",
-        "Go to Start Location",
-        "To Scratch",
-    ];
-    show.into_iter().chain(rest.iter().map(|n| n.to_string())).collect()
+    let rest = ["Snap", "Turn", "Together", "Onto Objects"];
+    show.into_iter().chain(rest.iter().map(|n| n.to_string())).chain(right).collect()
 }
 
 /// The controls inside the popovers, menus and held menus: each found by
@@ -166,6 +167,57 @@ fn the_area_header_holds_every_control_from_420_to_1600() {
         let names = held_names(&h);
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         header_holds(&mut h, AREA_HEADER, &names);
+    }
+}
+
+/// Paint's options in the header's left group (the AreaPaint board),
+/// each mode's (Scatter: the mode, Radius, Density, Brush; Row and Fill:
+/// the mode and Brush; Erase: Radius too) on the row, as an icon or in
+/// More at every window width from 420 to 1600 (and 989, 990) and every
+/// 40 to 3000, in both
+/// modes; the Show popover in More (Start, All and None kept); and the
+/// Brush popover's controls, each mode's, found where they are at the
+/// widest and the narrowest. No control of today's strip is lost.
+#[test]
+fn paint_s_options_are_held_at_every_width_in_each_mode() {
+    use mg_ui::settings::PaintSettings;
+    let modes: [(&str, PaintSettings, &[&str]); 4] = [
+        (
+            "Scatter",
+            PaintSettings::default(),
+            &["Count all", "Spacing", "By size", "Flow", "Turn spread", "Scale", "Scale to"],
+        ),
+        ("Row", PaintSettings { row: true, ..Default::default() }, &["Gap", "Height", "Lock"]),
+        ("Fill", PaintSettings { fill: true, ..Default::default() }, &["Gap", "Height", "Lock"]),
+        ("Erase", PaintSettings { erase: true, ..Default::default() }, &["Snap", "Turn"]),
+    ];
+    for mode in MODES {
+        let Some((mut h, _)) = area_harness(&mode.dir("header-paint")) else { return };
+        h.state_mut().settings.open_editors = mode.settings().open_editors;
+        h.state_mut().paint = true;
+        for (name, settings, rows) in &modes {
+            h.state_mut().settings.paint = *settings;
+            // (And on to 3000, every 40, where the right group unfolds.)
+            let widths =
+                (420..=1600).step_by(20).chain([989, 990]).chain((1640..=3000).step_by(40));
+            for width in widths {
+                h.set_size(egui::vec2(width as f32, 800.0));
+                settle(&mut h);
+                // (A segmented control come onto the row this frame has
+                // its group's place said the frame after: egui's scope.)
+                h.run_steps(1);
+                let names = held_names(&h);
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                header_holds(&mut h, AREA_HEADER, &names);
+                if [420, 1600, 3000].contains(&width) {
+                    for row in rows.iter().chain(&["Show Start", "All", "None"]) {
+                        area_tool(&mut h, row);
+                        close_area_popover(&mut h);
+                    }
+                }
+            }
+            assert_eq!(h.state().settings.paint, *settings, "{mode:?} {name}: as it was");
+        }
     }
 }
 

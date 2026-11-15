@@ -41,6 +41,7 @@ use crate::{Action, Moonglow};
 
 mod bar;
 mod header;
+pub(crate) mod tools;
 pub(crate) use bar::status;
 
 /// How far from a door hook a click places a door on it, metres.
@@ -545,6 +546,10 @@ pub struct AreaView {
     /// on the screen while it is shown.
     map: Option<crate::minimap::Map>,
     pub map_rect: Option<Rect>,
+    /// Where the compass and its buttons are on the screen (the view's
+    /// top right corner, `tools::corner`), which the view's input leaves
+    /// to them.
+    pub corner_rect: Option<Rect>,
     pub grid: bool,
     /// The header's Overlays switch is off: the grid, the minimap, the
     /// walkmeshes and the sound ranges are not drawn, each kept as it was
@@ -1141,6 +1146,7 @@ impl AreaView {
             minimap: false,
             map: None,
             map_rect: None,
+            corner_rect: None,
             grid: true,
             hide_overlays: false,
             show: [true; 9],
@@ -2072,6 +2078,7 @@ impl AreaView {
         let layer = ui.ctx().layer_id_at(pos);
         self.rect.contains(pos)
             && !self.map_rect.is_some_and(|r| r.expand(2.0).contains(pos))
+            && !self.corner_rect.is_some_and(|r| r.expand(2.0).contains(pos))
             && !layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
     }
 
@@ -3018,28 +3025,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.drag = view.drag.filter(|d| matches!(d, Drag::Box { .. }));
     }
     header::header(app, ui, &mut view);
-    // The placeable brush's settings, while Paint is on (until they take
-    // the header's left group, U4).
-    if app.paint {
-        crate::paint_mode::strip(app, ui);
-    }
     // Whose the area is, where it isn't the builder's (the claims table).
     crate::claims::banner(app, ui, area);
-    let start = start_on_ground(app, &view);
-    if let Some(e) = &view.error {
-        ui.colored_label(ui.visuals().error_fg_color, e);
-    } else if app.game.is_none() {
-        ui.label("No game data: the area viewer needs the game's tilesets and models.");
-    } else if app.viewport.is_none() {
-        ui.label("No GPU: the area viewer needs one.");
-    } else if view.reading.is_some() {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(format!("Reading area {}…", view.area));
-        });
-    } else {
-        viewport(app, ui, &mut view, start);
-    }
+    // The tool shelf at the left of what is under them (the view, or what
+    // says why there is none), the whole height left.
+    let body = ui.available_rect_before_wrap();
+    let shelf_rect =
+        Rect::from_min_size(body.min, egui::vec2(mg_uikit::metrics::TOOL_SHELF, body.height()));
+    ui.scope_builder(egui::UiBuilder::new().max_rect(shelf_rect), |ui| {
+        tools::shelf(app, ui, &mut view);
+    });
+    let rest = Rect::from_min_max(egui::pos2(shelf_rect.right(), body.top()), body.max);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rest), |ui| {
+        let start = start_on_ground(app, &view);
+        // (The compass's place is kept from the frame before, as the
+        // map's: what follows the pointer is worked out before they are
+        // drawn. Without the view, none.)
+        let drawn = view.error.is_none()
+            && app.game.is_some()
+            && app.viewport.is_some()
+            && view.reading.is_none();
+        if !drawn {
+            view.corner_rect = None;
+        }
+        if let Some(e) = &view.error {
+            ui.colored_label(ui.visuals().error_fg_color, e);
+        } else if app.game.is_none() {
+            ui.label("No game data: the area viewer needs the game's tilesets and models.");
+        } else if app.viewport.is_none() {
+            ui.label("No GPU: the area viewer needs one.");
+        } else if view.reading.is_some() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(format!("Reading area {}…", view.area));
+            });
+        } else {
+            viewport(app, ui, &mut view, start);
+        }
+    });
+    ui.advance_cursor_after_rect(body);
     set_window(app, ui, &mut view);
     // Its sounds are heard from where the view looks (Options › Sounds).
     if let Some(o) = &view.orbit {
@@ -3522,7 +3546,9 @@ fn viewport(
             None => ui.ctx().request_repaint(),
         }
     }
-    // (The map last: over the rest, and the pointer's there.)
+    // The compass and its buttons at the top right; the map last, over
+    // the rest, and the pointer's there.
+    tools::corner(app, ui, view);
     minimap_overlay(app, ui, view);
     input(app, ui, view, &response);
 }
@@ -3536,8 +3562,8 @@ pub(crate) fn animates_now(ui: &egui::Ui, always: bool, drawn: bool, pending: bo
     !drawn || pending || always || ui.input(|i| i.focused)
 }
 
-/// The area's map in the view's top right corner (the toolbar's
-/// Minimap), as the game's map draws it: where the camera looks (its
+/// The area's map in the view's bottom right corner (the Overlays
+/// popover's Minimap), as the game's map draws it: where the camera looks (its
 /// target, and the way it faces), and the objects selected. A click or a
 /// drag on it moves the camera's target there.
 fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
@@ -3549,8 +3575,19 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let map = crate::minimap::of(app, ui.ctx(), view.area, &mut kept).cloned();
     view.map = kept;
     let Some(map) = map else { return };
-    let side = (view.rect.width().min(view.rect.height()) * 0.3).clamp(80.0, MINIMAP_SIDE);
-    let rect = map.placed(view.rect.right_top() + egui::vec2(-10.0, 10.0), side);
+    let mut side = (view.rect.width().min(view.rect.height()) * 0.3).clamp(80.0, MINIMAP_SIDE);
+    // (At the bottom right, the Main board's place, under the compass and
+    // its buttons: in a view too short for both, smaller, or not at all.)
+    if let Some(corner) = view.corner_rect {
+        let room = view.rect.bottom() - MINIMAP_INSET - (corner.bottom() + MINIMAP_INSET);
+        if room < MINIMAP_LEAST {
+            return;
+        }
+        side = side.min(room);
+    }
+    let corner = view.rect.right_bottom() - egui::vec2(MINIMAP_INSET, MINIMAP_INSET);
+    let rect = map.placed(corner, side);
+    let rect = rect.translate(egui::vec2(0.0, -rect.height()));
     let painter = ui.painter_at(view.rect);
     map.draw(&painter, rect);
     let map_painter = painter.with_clip_rect(rect);
@@ -3600,6 +3637,10 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 
 /// The longest side of the view's map, points.
 const MINIMAP_SIDE: f32 = 240.0;
+/// The least room the map is drawn in, points (under the compass).
+const MINIMAP_LEAST: f32 = 40.0;
+/// How far the map is from the view's edges (its frame 2 more out).
+const MINIMAP_INSET: f32 = 10.0;
 
 /// Puts points on screen as [`AreaView::screen_pos`] does
 /// ([`AreaView::projector`]).
@@ -4669,6 +4710,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         || crate::terrain_mode::active(app, view).is_some();
     let camera = (middle_moves, alt_pans);
     camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling);
+    // F10, as in Aurora (the shelf's Select Tiles): select tiles or
+    // objects, the other tools put down (`tools::toggle`).
+    if !ui.ctx().memory(|m| m.focused().is_some())
+        && response.hovered()
+        && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles))
+    {
+        tools::toggle(app, view, tools::AreaTool::Tiles);
+    }
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
@@ -4745,18 +4794,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             step_ghost(app, view, at, up);
         }
     }
-    // B, the toolbar's Paint: the placeable brush on or off.
+    // B, the shelf's Paint: the placeable brush on or off.
     let typing = ui.ctx().memory(|m| m.focused().is_some());
     if !typing
         && !read_only
         && response.hovered()
         && ui.input(|i| app.keymap.pressed(i, crate::keys::Cmd::PaintPlaceables))
     {
-        app.paint = !app.paint;
-        if app.paint {
-            view.tile_mode = false;
-            app.palette.tile_brush = None;
-        }
+        tools::toggle(app, view, tools::AreaTool::Paint);
     }
     // The tile tools' keys: on the tiles selected, or the tool chosen.
     // (Not while a tree goes to its lines by letters, as the camera's.)
@@ -5628,12 +5673,6 @@ fn camera_input(
     }
     if travel != Vec2::ZERO || turn != Vec2::ZERO || rise != 0.0 {
         ui.ctx().request_repaint();
-    }
-    // F10, as in Aurora: select tiles or objects.
-    if !typing && response.hovered() && ui.input(|i| keys.pressed(i, Cmd::SelectTiles)) {
-        view.tile_mode = !view.tile_mode;
-        view.selection.clear();
-        view.tile_selection.clear();
     }
     if !typing
         && ui.input(|i| keys.pressed(i, Cmd::Overview))

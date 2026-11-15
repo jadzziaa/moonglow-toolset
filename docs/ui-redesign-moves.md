@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -40,7 +40,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | New, Open, Save, Undo, Redo | Top Bar, icon buttons after the menus | ✓ M3 T2 |
 | Properties | Module panel header button (Module Properties) | ✓ M3 T2 (named Module Properties in M3 T3) |
 | New Area | Module panel header button | ✓ M3 T2 |
-| Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the compass button is M4's |
+| Start | Area view, camera button under the compass; also in the View menu | View menu ✓ M3 T2; the button under the compass ✓ M4 U4 (Go to Start Location) |
 | Resources | Left Dock tab beside Module | ✓ M3 T4 (Tools › Resource Browser shows it) |
 | Palettes | Right Dock, Palette panel | ✓ M3 T5 (also Tools › Palettes, which shows the dock on it) |
 | Preview | Right Dock, Preview panel | ✓ M3 T6 (the tab beside the Palette's; Tools › Preview brings it to the front, by the Preview Window command's id) |
@@ -72,10 +72,10 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges | Overlays popover, with a master switch ✓ M4 U3 (Walkmesh… folded into its two rows; one Walkmesh toggle in the wide row) |
 | Sounds, Ambient, Music | Audio popover ✓ M4 U3 |
 | Area Properties | Header, right end ✓ M4 U3 |
-| To Scratch, Save as Prefab… | Header, More button ✓ M4 U3 (Select Tiles, Paint, Reorient Camera and Go to Start Location there too until U4's shelf and compass) |
-| Select Tiles (F10), Paint (B) | Tool shelf at the left of the 3D view |
-| Paint's second strip (Scatter, Row, Fill, Erase, Radius, Density and the rest) | Takes the header's left group while Paint is the active tool (not drawn) |
-| Reorient Camera, Go to Start Location | Buttons under the compass |
+| To Scratch, Save as Prefab… | Header, More button ✓ M4 U3 (Select Tiles, Paint, Reorient Camera and Go to Start Location were there too until U4's shelf and compass) |
+| Select Tiles (F10), Paint (B) | Tool shelf at the left of the 3D view ✓ M4 U4 (with Select Objects and Terrain; one tool on at a time, by the shelf, F10, B or a tile brush chosen) |
+| Paint's second strip (Scatter, Row, Fill, Erase, Radius, Density and the rest) | Takes the header's left group while Paint is the active tool (not drawn) ✓ M4 U4 (the strip is gone; the Show popover in More meanwhile) |
+| Reorient Camera, Go to Start Location | Buttons under the compass ✓ M4 U4 (Reorient Camera a command too: Ctrl+Alt+R, Quick Open) |
 | "11 by 11 tiles, 192 objects" | Status Bar, right ✓ M3 T12 (two counts, "11 by 11 tiles" and "192 objects", after what is selected; they follow the active editor); "problems" and "N missing" a warning sign with its count at the header's right group's end ✓ M4 U3 (Part 2, decision 8) |
 | Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
 | The strip's right-click menu (which buttons to show) | The header's right-click menu ✓ M4 U3 (anywhere on the row; a hidden control gone from the row, its popover and the wide row) |
@@ -337,23 +337,23 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Paint toggle (B) | Tool shelf, on |
-| Scatter, Row, Fill, Erase | Header, segmented control |
-| Radius, Density | Header number fields |
-| Count All, Spacing, By Size, Flow, Turn, Scale, Height, Lock | Brush popover |
-| Gap (Row and Fill only) | Brush popover in those modes, with a note |
-| "N chosen" and its tip | Palette's Brush section, "2 chosen" and the tip as a note |
-| Show toggles while Paint is on | The Outliner's eyes ✓ M3 T13 (they work with Paint on; the toolbar's toggles stay beside them until M4) |
-| Snap, Turn | Brush popover, under "Placing, as with the Select tool" |
-| Together, Onto Objects | Back in the header when Select is the active tool |
+| Paint toggle (B) | Tool shelf, on ✓ M4 U4 |
+| Scatter, Row, Fill, Erase | Header, segmented control ✓ M4 U4 |
+| Radius, Density | Header number fields ✓ M4 U4 (each where its mode takes it) |
+| Count All, Spacing, By Size, Flow, Turn, Scale, Height, Lock | Brush popover ✓ M4 U4 (Count all and By size in sentence case, the board's) |
+| Gap (Row and Fill only) | Brush popover in those modes, with a note ✓ M4 U4 |
+| "N chosen" and its tip | Palette's Brush section, "2 chosen" and the tip as a note ✓ M4 U4 |
+| Show toggles while Paint is on | The Outliner's eyes ✓ M3 T13 (they work with Paint on); the header's toggles leave the row with Paint on ✓ M4 U4 (the Show popover in More meanwhile, for Start, All and None, which have no eye) |
+| Snap, Turn | Brush popover, under "Placing, as with the Select tool" ✓ M4 U4 |
+| Together, Onto Objects | Back in the header when Select is the active tool ✓ M4 U4 |
 | Paint hints | Status Bar: Drag Paint, Shift + Wheel Brush size, Q / E Turn, Right Click / Esc Stop ✓ M3 T12 (after "Painting 2 placeables", the board's lead; Erase, Fill and Row their own) |
 
 
 #### New
 
-- The palette's Brush section, with × to take a blueprint out of the brush (today only Ctrl+click).
-- The Snap and Turn copies in the Brush popover.
-- A note in the popover on which options each mode has.
+- The palette's Brush section, with × to take a blueprint out of the brush (today only Ctrl+click). ✓ M4 U4
+- The Snap and Turn copies in the Brush popover. ✓ M4 U4
+- A note in the popover on which options each mode has. ✓ M4 U4
 
 ### Area Editor, Tiles
 
@@ -403,7 +403,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; Properties is M4's (S2) |
 | Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4 |
 | Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
-| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn and More ✓ M4 U3; the shelf and the compass are U4's |
+| Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn and More ✓ M4 U3; the shelf and the compass ✓ M4 U4 (the shelf's tools that a short view has no room for in its More Tools) |
 
 
 #### How the Shell Yields

@@ -85,6 +85,9 @@ pub enum Id {
     RoundTrip,
     /// The area the module starts in, opened at the start location.
     GoToStart,
+    /// The camera of the area shown turned to face north again (the
+    /// compass's Reorient Camera).
+    ReorientCamera,
     TestModule,
     TestChoose,
     PackTarget,
@@ -382,6 +385,8 @@ impl Id {
         }
         out.push(Id::FullScreen);
         out.push(Id::QuickOpen);
+        // (The compass's button's: no menu has it.)
+        out.push(Id::ReorientCamera);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
         out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
@@ -548,6 +553,11 @@ impl Id {
                 "Round-Trip Check",
                 "Write each GFF and 2DA of a copy anew and log what changes. The module is \
                  untouched.",
+            ),
+            Id::ReorientCamera => (
+                "reorient-camera",
+                "Reorient Camera",
+                "Turn the camera of the area shown to face north again",
             ),
             Id::GoToStart => (
                 "go-to-start",
@@ -786,9 +796,11 @@ impl Id {
             Id::Redo => app
                 .local_can_undo(true)
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
-            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics => {
-                shown_area(app).is_some()
-            }
+            Id::ResizeArea
+            | Id::RotateArea
+            | Id::ChangeTileset
+            | Id::AreaStatistics
+            | Id::ReorientCamera => shown_area(app).is_some(),
             Id::IndentToTabs | Id::IndentToSpaces => script_in_front(app).is_some(),
             Id::PackTarget => self.shown(app),
             // (A project's or a module folder's: a .mod's folder holds
@@ -845,7 +857,13 @@ impl Id {
             Id::Undo => "Nothing to undo",
             Id::Redo => "Nothing to redo",
             Id::CopyLog | Id::SaveLog | Id::ClearLog => "The log is empty",
-            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics if open => {
+            Id::ResizeArea
+            | Id::RotateArea
+            | Id::ChangeTileset
+            | Id::AreaStatistics
+            | Id::ReorientCamera
+                if open =>
+            {
                 "It acts on the area shown last, and no area's view is open"
             }
             Id::IndentToTabs | Id::IndentToSpaces => {
@@ -1012,6 +1030,12 @@ impl Id {
             Id::CheckUpdates => return crate::updates::check_now(app),
             Id::GoToStart => {
                 crate::area_view::go_to_start(app);
+                return;
+            }
+            Id::ReorientCamera => {
+                if let Some(view) = shown_area(app).and_then(|a| app.area_views.get_mut(&a)) {
+                    crate::area_view::tools::reorient(view);
+                }
                 return;
             }
             Id::FullScreen => {

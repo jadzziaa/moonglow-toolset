@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
 ---
 
 # Options
@@ -192,7 +192,9 @@ the module is opened again from its file.
 Which controls the area's header shows, on its row, in its popovers and
 in the wide row where they unfold: a tick for each (the objects'
 filters as **Show Creatures**…, the switch that plays placed sounds as
-**Play Sounds**, both walkmeshes as **Walkmesh…**), all of them shown at
+**Play Sounds**, both walkmeshes as **Walkmesh…**; **Select Tiles** and
+**Paint** are the view's tool shelf's, **Reorient Camera** and **Go to
+Start Location** the buttons under its compass), all of them shown at
 first; **Show All** puts back every one. A right click anywhere on the
 header opens the same list. Moonglow's own (a builder's ask: a toolbar of
 what is used; see [Areas](04-areas.md#the-header)).

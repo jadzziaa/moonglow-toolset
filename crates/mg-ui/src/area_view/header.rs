@@ -6,15 +6,18 @@
 //! of icons with All and None on the menu beside it (under an editor 990
 //! wide, one Show popover whose button carries the count, "Show 5 of
 //! 10"), Snap and Turn (their value text gone under 550), Together and
-//! Onto Objects (into More under 490), and, until the tool shelf (U4),
-//! Select Tiles and Paint. The right group is how the view looks: Day |
-//! Night (one moon toggle under 990), the Lighting, Overlays and Audio
-//! popovers (icons under 990; unfolded into the row where it has room,
-//! section 5.3), Area Properties (its icon under 990) and the warning
-//! for what could not be read. More holds To Scratch and Save as
-//! Prefab…, and, until the compass (U4), Reorient Camera and Go to Start
-//! Location. A right click on the row is the menu of which controls to
-//! show (`Settings::hidden_area_tools`, by the names it has always kept).
+//! Onto Objects (into More under 490). While Paint is the tool in hand
+//! (the shelf's, `tools`), Paint's options take the group instead
+//! (`paint_mode::header_items`: the mode, Radius, Density, the Brush
+//! popover with Snap and Turn), the Show popover in More. The right group
+//! is how the view looks: Day | Night (one moon toggle under 990), the
+//! Lighting, Overlays and Audio popovers (icons under 990; unfolded into
+//! the row where it has room, section 5.3), Area Properties (its icon
+//! under 990) and the warning for what could not be read. More holds To
+//! Scratch and Save as Prefab…. A right click on the row is the menu of
+//! which controls to show (`Settings::hidden_area_tools`, by the names it
+//! has always kept; Select Tiles and Paint are the shelf's, Reorient
+//! Camera and Go to Start Location the compass's).
 //!
 //! The header reads none of Options' "Editors' toolbar buttons": it
 //! yields by the editor's width instead (`mg_uikit::shell::Yields`).
@@ -29,7 +32,7 @@ use mg_uikit::header::{EditorHeader, Item, Joined};
 use mg_uikit::popover::{PopAction, PopCheck, Popover};
 use mg_uikit::{Controls as _, Icon, KitButton, metrics};
 
-use super::{AreaView, Fade, copy_selection, go_to_start, held_menu, look_at_start, share_shown};
+use super::{AreaView, Fade, copy_selection, held_menu, share_shown};
 use crate::{Action, Moonglow};
 
 /// The header's accessible name (its group), which tests find its
@@ -236,21 +239,10 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let turn = Cell::new(app.settings.snap_angle);
     let mut together = app.settings.turn_together;
     let mut onto = app.settings.place_onto_objects;
-    let tiles_were = view.tile_mode;
-    let mut tile_mode = view.tile_mode && editable;
-    let painting_was = app.paint && editable;
-    let mut painting = painting_was;
-
-    let tiles_tip = app.keymap.titled(
-        "Select tiles rather than objects (Aurora's Select Terrain)",
-        crate::keys::Cmd::SelectTiles,
-        ui.ctx(),
-    );
-    let paint_tip = app.keymap.titled(
-        "Paint the placeables chosen in the palette onto the ground, scattered or in a row",
-        crate::keys::Cmd::PaintPlaceables,
-        ui.ctx(),
-    );
+    // (Paint's options take the left group while it is the tool in hand:
+    // the AreaPaint board.)
+    let painting = app.paint && editable;
+    let paint = Cell::new(app.settings.paint);
     let scratch_tip = crate::transfer::scratch_tip(
         app.settings.scratch_dir.as_deref(),
         "the area and the blueprints, scripts and conversations it uses",
@@ -280,7 +272,8 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
 
     // The left group: what is shown, and how objects are placed.
     let kind_names = ObjectKind::ALL.map(|k| crate::icons::area_tool_kind(k.label()));
-    if compact {
+    let mut show_in_more = None;
+    if compact || painting {
         let count = show.iter().filter(|s| **s).count() + usize::from(show_start);
         let mut pop = Popover::new(SHOW).title(Some(Icon::Eye), "Show");
         let mut any = false;
@@ -311,7 +304,14 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             let tip =
                 format!("Show: which kinds of placed objects the view draws, {count} of 10 shown");
             let item = Item::popover(Some(Icon::Eye), pop).words_icon(true);
-            h = h.left(item.count(format!("{count} of 10")).tip(tip));
+            let item = item.count(format!("{count} of 10")).tip(tip);
+            // (While Paint is on, in More after its options: the
+            // Outliner's eyes are the board's, but for Start, All and
+            // None, kept here.)
+            match painting {
+                true => show_in_more = Some(item.in_more()),
+                false => h = h.left(item),
+            }
         }
     } else {
         let mut parts = Vec::new();
@@ -338,8 +338,24 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             h = h.left(item);
         }
     }
+    if painting {
+        let (snap, turn) = (&snap, &turn);
+        let (show_snap, show_turn) = (shown("Snap"), shown("Turn"));
+        let placing = move |ui: &mut Ui| {
+            if show_snap {
+                snap_combo(ui, snap, snap_width, true);
+                ui.add_space(LEAD_GAP);
+            }
+            if show_turn {
+                turn_combo(ui, turn, turn_width, true);
+            }
+        };
+        let placing = (show_snap || show_turn).then_some(placing);
+        h = crate::paint_mode::header_items(h, ui, &paint, placing);
+    }
+    h = show_in_more.into_iter().fold(h, EditorHeader::left);
     h = h.left(Item::separator());
-    if shown("Snap") {
+    if shown("Snap") && !painting {
         let value = &snap;
         let full = lead + snap_width;
         let mut item =
@@ -362,7 +378,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         }
         h = h.left(item);
     }
-    if shown("Turn") {
+    if shown("Turn") && !painting {
         let value = &turn;
         let full = lead + turn_width;
         let mut item =
@@ -396,20 +412,9 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         let part = Joined::toggle(crate::icons::ONTO_OBJECTS, "Onto Objects", &mut onto);
         placing.push(part.tip(tip));
     }
-    if !placing.is_empty() {
+    if !placing.is_empty() && !painting {
         let item = Item::joined(PLACING, placing);
         h = h.left(if yields.into_more { item.in_more() } else { item });
-    }
-    // (In More until the tool shelf at the view's left, U4, which the
-    // boards draw them on: the header's row as the boards draw it. Off on
-    // a read-only area, whose tiles and placeables are not changed.)
-    if shown("Select Tiles") {
-        let item = Item::toggle(Some(crate::icons::SELECT_TILES), "Select Tiles", &mut tile_mode);
-        h = h.left(item.in_more().enabled(editable).tip(tiles_tip.as_str()));
-    }
-    if shown("Paint") {
-        let item = Item::toggle(Some(crate::icons::PAINT), "Paint", &mut painting);
-        h = h.left(item.in_more().enabled(editable).tip(paint_tip.as_str()));
     }
 
     // The right group: how the view looks.
@@ -605,13 +610,6 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             });
         h = h.right(item);
     }
-    // (Until the compass, U4.)
-    if shown("Reorient Camera") {
-        h = h.right(Item::button(crate::icons::CAMERA, "Reorient Camera").in_more());
-    }
-    if shown("Go to Start Location") {
-        h = h.right(Item::button(crate::icons::START, "Go to Start Location").in_more());
-    }
     if shown("To Scratch") {
         let item = Item::button(crate::icons::TO_SCRATCH, "To Scratch").tip(scratch_tip.as_str());
         h = h.right(item.in_more());
@@ -703,35 +701,11 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     s.snap_angle = turn.get();
     s.turn_together = together;
     s.place_onto_objects = onto;
-    if editable && tile_mode != tiles_were {
-        view.tile_mode = tile_mode;
-        view.selection.clear();
-        view.tile_selection.clear();
-        // (A tile brush would sit on top of tile mode.)
-        if view.tile_mode {
-            app.palette.tile_brush = None;
-        }
-    }
-    if editable && painting != painting_was {
-        app.paint = painting;
-        if painting {
-            view.tile_mode = false;
-            app.palette.tile_brush = None;
-        }
+    if painting {
+        app.settings.paint = paint.get();
     }
     if out.clicked("Area Properties") {
         app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
-    }
-    if out.clicked("Reorient Camera")
-        && let Some(o) = &mut view.orbit
-    {
-        o.yaw = -std::f32::consts::FRAC_PI_2;
-    }
-    if out.clicked("Go to Start Location") {
-        // In another area: that area's view is opened at it, as Aurora does.
-        if !look_at_start(app, view) {
-            go_to_start(app);
-        }
     }
     if out.clicked("To Scratch") {
         app.actions.push(Action::ExportFiles {

@@ -85,8 +85,11 @@ pub enum Cmd {
     /// Quick Open: the Top Bar's field (Ctrl+P, where no command the user
     /// gave keys has it: [`Keymap::give_way`]).
     QuickOpen,
+    /// The area view's camera turned to face north again (the compass's
+    /// Reorient Camera; a command of Quick Open too).
+    ReorientCamera,
     SelectTiles,
-    /// The area view's placeable brush, on or off (its toolbar's Paint).
+    /// The area view's placeable brush, on or off (its tool shelf's Paint).
     PaintPlaceables,
     /// The tiles palette's tile tools: chosen as brushes, or with tiles
     /// selected in Select Tiles, at once on them
@@ -167,7 +170,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 83] = [
+    pub const ALL: [Cmd; 84] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -188,6 +191,7 @@ impl Cmd {
         Cmd::FullScreen,
         Cmd::CommandPalette,
         Cmd::QuickOpen,
+        Cmd::ReorientCamera,
         Cmd::SelectTiles,
         Cmd::PaintPlaceables,
         Cmd::Eraser,
@@ -281,6 +285,7 @@ impl Cmd {
             Cmd::FullScreen => ("full-screen", None, General),
             Cmd::CommandPalette => ("command-palette", None, General),
             Cmd::QuickOpen => ("quick-open", None, General),
+            Cmd::ReorientCamera => ("reorient-camera", None, General),
             Cmd::SelectTiles => ("select-tiles", Some("Select Tiles or Objects"), Area),
             Cmd::PaintPlaceables => ("paint-placeables", Some("Paint Placeables"), Area),
             Cmd::Eraser => ("tile-eraser", Some("Eraser (Tiles)"), Area),
@@ -391,6 +396,9 @@ impl Cmd {
             // (Given its key after builders had given keys of their own:
             // it gives way to one given another command, `Keymap::give_way`.)
             Cmd::QuickOpen => vec![k(CTRL, Key::P)],
+            // (Moonglow's: Aurora's toolbar button has no key. Given after
+            // builders had given keys of their own, it gives way too.)
+            Cmd::ReorientCamera => vec![k(CTRL | Modifiers::ALT, Key::R)],
             Cmd::SelectTiles => vec![k(NONE, Key::F10)],
             Cmd::PaintPlaceables => vec![k(NONE, Key::B)],
             // (Moonglow's tools: Aurora has none of them but the Eraser,
@@ -617,7 +625,7 @@ impl Eq for Keymap {}
 /// was given one of them (by the user, a plugin's manifest or a project's
 /// file), the key stays that command's and this one goes without it
 /// ([`Keymap::give_way`]). Quick Open's Ctrl+P.
-const GIVES_WAY: [Cmd; 1] = [Cmd::QuickOpen];
+const GIVES_WAY: [Cmd; 2] = [Cmd::QuickOpen, Cmd::ReorientCamera];
 
 impl Default for Keymap {
     fn default() -> Keymap {

@@ -12235,6 +12235,96 @@ fn board_area_paint() {
     shoot(&mut h, &board_dir(), "board_area_paint");
 }
 
+/// Paint's Brush popover open in each mode, as the AreaPaint board draws
+/// it in Scatter (its title's note the mode; Row and Fill with Gap,
+/// Erase with Snap and Turn alone), the palette's Brush section under
+/// the list (two chosen, then none); and the header narrowed until
+/// Paint's options are in More, More open (`area-paint-*`).
+#[test]
+#[ignore]
+fn area_paint_brush() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    {
+        let app = h.state_mut();
+        app.palette.selected = Some(ResKey::parse("x3_plc_bush001", ResType::UTP).unwrap());
+        app.palette.chosen = vec![ResKey::parse("x3_plc_bush002", ResType::UTP).unwrap()];
+        app.paint = true;
+    }
+    h.run_steps(6);
+    let header = |h: &Harness<'_, Moonglow>, name: &str| {
+        h.get_by_label("Area header").get_by_label(name).click();
+    };
+    for (mode, name) in [
+        ("Scatter", "area-paint-brush-scatter"),
+        ("Row", "area-paint-brush-row"),
+        ("Erase", "area-paint-brush-erase"),
+    ] {
+        header(&h, mode);
+        h.run_steps(3);
+        header(&h, "Brush");
+        h.run_steps(4);
+        shoot(&mut h, &dir, name);
+        header(&h, "Brush");
+        h.run_steps(3);
+    }
+    header(&h, "Scatter");
+    h.run_steps(3);
+    // A Snap combo box open from inside the popover: the popover stays.
+    header(&h, "Brush");
+    h.run_steps(4);
+    let pop = h.query_all_by_label("Brush").find(|n| n.query_by_label("Snap").is_some());
+    pop.expect("the Brush popover").get_by_label("Snap").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-paint-brush-snap-open");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    header(&h, "Brush");
+    h.run_steps(3);
+    // None chosen: the section says how to choose them.
+    {
+        let app = h.state_mut();
+        app.palette.selected = None;
+        app.palette.chosen.clear();
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-paint-none-chosen");
+    // Narrow: Paint's options in More.
+    h.set_size(egui::vec2(900.0, 700.0));
+    h.run_steps(8);
+    header(&h, mg_uikit::header::MORE);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-paint-narrow-more");
+}
+
+/// The compass at the view's top right with Reorient Camera and Go to
+/// Start Location under it, the minimap at the bottom right: the boards'
+/// camera, then turned a quarter and an eighth more, then reoriented
+/// (north up again; `area-compass-*`).
+#[test]
+#[ignore]
+fn area_compass() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().settings.area_minimap = true;
+    h.state_mut().area_views.get_mut(&area).unwrap().minimap = true;
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-compass-board");
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.yaw += std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_4;
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-compass-turned");
+    h.get_by_label("Compass").get_by_label("Reorient Camera").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-compass-reoriented");
+}
+
 /// Tile Properties where the AreaTiles board has it: Select Tiles on, six
 /// tiles (three by two) selected, the tiles palette shown. Today Tile
 /// Properties is a window of its own whatever Open editors says (placed

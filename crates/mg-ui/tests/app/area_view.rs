@@ -697,7 +697,9 @@ fn area_viewer_lays_a_row_of_placeables() {
     }
     h.run_steps(2);
     h.get_by_label_contains("Laying a row of plc_statue1");
-    h.get_by_label("Gap");
+    // (Gap in the header's Brush popover, in Row.)
+    area_tool(&mut h, "Gap");
+    close_area_popover(&mut h);
     let from = screen(&h, area, Vec3::new(8.0, 15.0, 0.0));
     let to = screen(&h, area, Vec3::new(32.0, 15.0, 0.0));
     h.hover_at(from);
@@ -750,8 +752,8 @@ fn area_viewer_fills_a_rectangle_with_placeables() {
         app.paint = true;
     }
     h.run_steps(2);
-    // Fill, from the strip above the view.
-    h.get_by_label("Fill").click();
+    // Fill, from the header's left group (Paint's options).
+    area_click(&mut h, "Fill");
     h.run_steps(2);
     assert!(h.state().settings.paint.fill && !h.state().settings.paint.row);
     h.get_by_label_contains("Filling with plc_statue1");
@@ -821,8 +823,7 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
         flow: 100,
         ..Default::default()
     };
-    // (Where on the screen as the view is now: the strip above it is as
-    // tall as the brush's settings make it.)
+    // (Where on the screen as the view is now.)
     let spot = Vec3::new(20.0, 20.0, 0.0);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -839,7 +840,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
 
     // Shrubs, locked; then trees, not.
     choose(&mut h, shrub, mg_ui::settings::PaintSettings { lock: true, ..scatter });
-    h.get_by_label("Lock");
+    let lock = area_tool(&mut h, "Lock");
+    assert_eq!(lock.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True), "Lock");
+    close_area_popover(&mut h);
     click(&mut h, spot);
     let shrubs = placeables(&mut h);
     assert!(!shrubs.is_empty() && shrubs.iter().all(locked), "painted locked");
@@ -849,9 +852,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
     let trees = of(&both, tree);
     assert!(trees > 0 && both.iter().filter(|p| !locked(p)).count() == trees);
 
-    // Erase, from the strip: the trees in the circle go, as one step; the
-    // shrubs (locked, and of another blueprint) stay.
-    h.get_by_label("Erase").click();
+    // Erase, from the header: the trees in the circle go, as one step;
+    // the shrubs (locked, and of another blueprint) stay.
+    area_click(&mut h, "Erase");
     h.run_steps(2);
     assert!(h.state().settings.paint.erase);
     h.get_by_label_contains("Erasing plc_tree");
@@ -6930,6 +6933,10 @@ fn the_shadows_quality_is_chosen_in_the_lighting_popover() {
 fn what_follows_the_pointer_stops_under_a_window() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
+    // Select Tiles first (the shelf's, which the window below may cover:
+    // a window held to the screen's height is moved up over it).
+    area_click(&mut h, "Select Tiles");
+    assert!(h.state().area_views[&area].tile_mode, "Select Tiles");
     // A window of its own (the Faction Editor's: the palettes, the window
     // of before, are the Right Dock's panel and have none), out of the way
     // for now (the view as wide as it will be).
@@ -6939,8 +6946,6 @@ fn what_follows_the_pointer_stops_under_a_window() {
     own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
-    area_click(&mut h, "Select Tiles");
-    h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
     h.run_steps(2);

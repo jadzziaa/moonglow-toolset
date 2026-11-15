@@ -14,6 +14,7 @@ mod header_fixes;
 #[cfg(unix)]
 mod licenses;
 mod menus;
+mod overlay;
 mod sheet;
 mod shell;
 mod theme;

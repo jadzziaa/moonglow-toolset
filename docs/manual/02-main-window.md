@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T07:49:40Z }
 ---
 
 # The main window
@@ -64,8 +64,8 @@ toolbar's other buttons of earlier versions have homes of their own:
 **Module Properties** (a box) and **New Area** (the Area Wizard, a
 plus) are icons on the Module panel's tab bar, beside **Expand All** and
 **Collapse All**; **Start** is **View ›
-Go to Start Location** (the area view's Go to Start Location and its
-Start filter show its circled arrow); **Resources** is the Left Dock's
+Go to Start Location** and the button under the area view's compass
+(it and the Start filter show its circled arrow); **Resources** is the Left Dock's
 Resources tab (also Tools › Resource Browser); **Palettes** is the
 Right Dock's Palette panel (also Tools › Palettes); **Preview** is the
 Right Dock's Preview panel, on the tab beside the palette's (also
@@ -288,6 +288,7 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+S | New Script |
 | Ctrl+Alt+C | Creature Wizard |
 | Ctrl+Alt+I | Item Wizard |
+| Ctrl+Alt+R | Reorient Camera: the camera of the area shown last faces north again (the button under its compass) |
 | F11 | Full screen |
 | Alt+X | Exit (File › Exit, Aurora's key) |
 | Ctrl+W, Ctrl+F4 | Close the tab in front (of the editor group with the focus) |
@@ -1081,8 +1082,11 @@ blueprint type (the row of icons at its top, in two rows where the dock
 is narrow),
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
 blueprint from the categories. Click in an area to place the chosen
-blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
-palette shows the tileset's brushes instead. The row's last three are
+blueprint (see [Areas](04-areas.md)). On its **Tiles** type (the area
+view's **Terrain** tool shows it), the palette shows the tileset's
+brushes instead. While the area view's **Paint** is on, a **Brush**
+section under the placeables' list names the blueprints the brush
+paints with, a row each with **×** to take it out of the brush. The row's last three are
 **Prefabs**, **Lights** (the game's invisible lights, one chosen and
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts

@@ -969,7 +969,7 @@ pub struct Moonglow {
     pub after_new_area: (bool, bool),
     /// Tiles copied in an area viewer.
     pub tile_clip: Option<tile_select::TileClip>,
-    /// The area views' placeable brush is on (their toolbar's Paint): the
+    /// The area views' placeable brush is on (their tool shelf's Paint): the
     /// placeables chosen in the palette are painted, not placed one a click.
     pub paint: bool,
     /// Objects copied in an area viewer.

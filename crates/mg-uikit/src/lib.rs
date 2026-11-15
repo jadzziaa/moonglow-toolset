@@ -10,7 +10,8 @@
 //! its [header] row (which yields against its width and keeps a More
 //! popover), the [popover] hung from a button (or unfolded into the
 //! header), the tool [shelf], and the kit's own [button], drawn disabled
-//! in its own tokens rather than faded.
+//! in its own tokens rather than faded; and what stands over a 3D view
+//! (the compass and the view's corner buttons, [overlay]).
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -35,6 +36,7 @@ pub mod icons;
 pub mod marks;
 pub mod menu;
 pub mod metrics;
+pub mod overlay;
 pub mod popover;
 pub mod shelf;
 pub mod shell;
