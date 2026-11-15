@@ -51,11 +51,13 @@ fn optional_price(
 ) {
     let current = f.root.integer(label).unwrap_or(default);
     let mut enabled = current != -1;
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         f.mark_mixed_inline(ui, &[label]);
         if ui.check_box(&mut enabled, check).changed() {
             f.set_int(check, label, if enabled { on } else { -1 }, FieldType::Int);
         }
+        // (The amount under the box where the row has no room beside it.)
+        crate::widgets::wrap_for(ui, 64.0);
         ui.add_enabled_ui(current != -1, |ui| {
             if let Some(v) = commit_number(ui, current.max(0), 0..=999_999_999) {
                 f.set_int(what, label, v, FieldType::Int);
@@ -65,7 +67,7 @@ fn optional_price(
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    egui::Grid::new(("utm-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utm-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocName");
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Store);
@@ -78,40 +80,40 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     });
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Pricing");
-    egui::Grid::new(("utm-pricing", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Sell Mark Up (%)");
+    super::form_grid(ui, ("utm-pricing", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Sell mark up (%)");
         f.spin(ui, "Sell mark up", "MarkUp", 1..=1000);
         ui.end_row();
-        crate::widgets::field_label(ui, "Buy Mark Down (%)");
+        crate::widgets::field_label(ui, "Buy mark down (%)");
         f.spin(ui, "Buy mark down", "MarkDown", 0..=100);
         ui.end_row();
-        crate::widgets::field_label(ui, "Identify Price");
-        optional_price(f, ui, "Will Identify Items", "IdentifyPrice", "Identify price", 100, 100);
+        crate::widgets::field_label(ui, "Identify price");
+        optional_price(f, ui, "Will identify items", "IdentifyPrice", "Identify price", 100, 100);
         ui.end_row();
     });
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Stolen Goods");
-    let black_market = f.check(ui, "Buy Stolen Goods", "BlackMarket");
-    ui.horizontal(|ui| {
+    let black_market = f.check(ui, "Buy stolen goods", "BlackMarket");
+    super::row(ui, |ui| {
         ui.add_enabled_ui(black_market, |ui| {
-            crate::widgets::field_label(ui, "Buy Mark Down (%)");
+            crate::widgets::field_label(ui, "Buy mark down (%)");
             f.spin(ui, "Stolen goods mark down", "BM_MarkDown", 0..=100);
         });
     });
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Restrictions");
-    egui::Grid::new(("utm-limits", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Max Buy Price");
-        optional_price(f, ui, "Has Maximum Buy Price", "MaxBuyPrice", "Max buy price", -1, 100);
+    super::form_grid(ui, ("utm-limits", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Max buy price");
+        optional_price(f, ui, "Has maximum buy price", "MaxBuyPrice", "Max buy price", -1, 100);
         ui.end_row();
-        crate::widgets::field_label(ui, "Gold Amount");
-        optional_price(f, ui, "Has Limited Gold", "StoreGold", "Store gold", -1, 1000);
+        crate::widgets::field_label(ui, "Gold amount");
+        optional_price(f, ui, "Has limited gold", "StoreGold", "Store gold", -1, 1000);
         ui.end_row();
     });
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
-    egui::Grid::new(("utm-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utm-advanced", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
@@ -328,10 +330,13 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let mut add = None;
     let mut remove = None;
-    ui.horizontal_top(|ui| {
+    // (Side by side; in a narrow room, the Properties panel's, one over
+    // the other, the buttons in a row between.)
+    let narrow = super::narrow(ui);
+    super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(240.0);
-            ui.label("Base Items");
+            ui.set_width(super::part_width(narrow, ui, 240.0));
+            ui.label("Base items");
             crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
                 .hint("Find")
                 .show(ui);
@@ -356,8 +361,10 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
                 },
             );
         });
-        ui.vertical(|ui| {
-            ui.add_space(48.0);
+        super::down_or_row(narrow, ui, |ui| {
+            if !narrow {
+                ui.add_space(48.0);
+            }
             let button = |text| egui::Button::new(text).min_size(egui::vec2(90.0, 0.0));
             if ui.add_enabled(left.is_some(), button("Add")).clicked() {
                 add = left;
@@ -370,8 +377,8 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
         ui.vertical(|ui| {
-            ui.set_width(240.0);
-            ui.label("Restricted Items");
+            ui.set_width(super::part_width(narrow, ui, 240.0));
+            ui.label("Restricted items");
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
@@ -455,7 +462,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     let label = if only { "WillOnlyBuy" } else { "WillNotBuy" };
     let merged = lists::merged(&targets, label, base_item);
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         if mixed {
             ui.colored_label(ui.visuals().warn_fg_color, super::MIXED).on_hover_text(
                 "The stores differ here: this shows the first one's. A mode clicked applies to \
@@ -500,10 +507,13 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let (mut add, mut remove, mut give) = (None, None, None);
     let mut clear = false;
-    ui.horizontal_top(|ui| {
+    // (Side by side; in a narrow room, the Properties panel's, one over
+    // the other, the buttons in a row between.)
+    let narrow = super::narrow(ui);
+    super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(240.0);
-            ui.label("Base Items");
+            ui.set_width(super::part_width(narrow, ui, 240.0));
+            ui.label("Base items");
             crate::widgets::SearchField::new(state_id.with("bases-find"), &mut filter)
                 .hint("Find")
                 .show(ui);
@@ -529,8 +539,10 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                 },
             );
         });
-        ui.vertical(|ui| {
-            ui.add_space(48.0);
+        super::down_or_row(narrow, ui, |ui| {
+            if !narrow {
+                ui.add_space(48.0);
+            }
             let button = |text| egui::Button::new(text).min_size(egui::vec2(90.0, 0.0));
             if ui.add_enabled(left.is_some(), button("Add")).clicked() {
                 add = left;
@@ -551,14 +563,14 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
         ui.vertical(|ui| {
-            ui.set_width(260.0);
-            ui.label("Restricted Items");
+            ui.set_width(super::part_width(narrow, ui, 260.0));
+            ui.label("Restricted items");
             egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
                 ui,
                 |ui| {
                     mg_uikit::list_rows(ui);
                     for m in &merged {
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             let r = ui.selectable_label(right == Some(m.key), name(m.key));
                             if r.clicked() {
                                 right = Some(m.key);

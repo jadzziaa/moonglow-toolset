@@ -191,7 +191,7 @@ fn link(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize, to: &str, ret
     }
     h.get_all_by_label("Area Transition").next().unwrap().click();
     h.run_steps(3);
-    type_beside(h, "Destination Tag", to);
+    type_beside(h, "Destination tag", to);
     let radio = h
         .get_all_by_label("Waypoint")
         .find(|n| n.accesskit_node().role() == Role::RadioButton)

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:34:06Z }
 ---
 
 # The main window
@@ -598,11 +598,16 @@ on, **Tile Properties** in its place (and nothing there while its
 header toggle hides it), what it shows ("6 tiles";
 [Areas](04-areas.md#tile-properties)). In a window under 1400 points
 the second is a tab of the one tab bar: Palette, Properties, Preview
-(Palette, Preview, Tile Properties in Select Tiles). They stay there: they can no longer be dragged into the
+(Palette, Preview, Tile Properties in Select Tiles). An area dragged
+out into a window of its own has Properties (or Tile Properties) in its
+window's right pane, the palettes staying in the Right Dock; in a window
+too narrow for the pane and a view of 400 points beside it, the pane is
+not drawn, and comes back as the window is widened (or dock the area
+again). They stay there: they can no longer be dragged into the
 middle, to the left or into a window of their own. The tab you choose
 in front is remembered, also when the module is opened again and the
 next time Moonglow starts (with nothing chosen, the palette is in
-front). Each kind of editor remembers its own docks' tabs and the
+front; under 1400, the one tab bar remembers its own). Each kind of editor remembers its own docks' tabs and the
 shares of panels stacked in them. The
 Right Dock is there only
 beside an area (see the start of this chapter): with another tab in

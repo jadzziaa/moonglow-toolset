@@ -199,7 +199,7 @@ fn placeable_editor_fills_its_inventory() {
     h.get_by_label("Static").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Static"), Some(1));
-    assert!(h.get_by_label("Has Inventory").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Has inventory").accesskit_node().is_disabled());
 }
 
 #[test]
@@ -829,7 +829,7 @@ fn a_held_item_s_properties_follow_the_item() {
     open(&mut h, 1);
     assert_eq!(held_window(&h, area, "ITEM_B"), at(1));
     // Changed in its window (for its Cancel, below).
-    h.get_by_label("Plot Item").click();
+    h.get_by_label("Plot item").click();
     h.run_steps(3);
     assert_eq!(held(&mut h)[1].integer("Plot"), Some(1));
     // The one before it removed: the window follows it up the list.
@@ -889,7 +889,7 @@ fn a_placed_object_s_properties_closed_cancel_when_asked() {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
         h.run_steps(4);
         held_window(h, area, "ITEM_B");
-        h.get_by_label("Plot Item").click();
+        h.get_by_label("Plot item").click();
         h.run_steps(3);
         click_tab_close(h, &tab);
         h.run_steps(4);

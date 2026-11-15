@@ -1086,7 +1086,8 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     h.run_steps(6);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 36)]);
     assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
-    // A double click there: its Properties.
+    // A double click there: its Properties, in the Right Dock's panel
+    // (the coordinator's ruling at U6's review, as the view's: no window).
     h.run_steps(30);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -1095,9 +1096,10 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
         h.step();
     }
     h.run_steps(4);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "its Properties");
     let path = mg_edit::GffPath::root().item("WaypointList", 36);
-    let tab = h.state().dock.find_tab(&Tab::Instance { area, path });
-    h.state_mut().dock.remove_tab(tab.expect("its Properties"));
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
+    assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
     h.run_steps(3);
     // Another selected in the area, its row in view: the tree stays still.
     let row = h.get_by_label("WP_01").rect();

@@ -349,7 +349,7 @@ pub(crate) fn ok_cancel_saying(
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
         .show_separator_line(true)
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            row(ui, |ui| {
                 if viewed {
                     if ui.button("Close").clicked() {
                         pressed = Some(Pressed::Ok);
@@ -732,12 +732,15 @@ pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
 /// of one area's objects share none. A placed object's window keeps its
 /// ids as it follows its object ([`Moonglow::window_ids`]).
 fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> egui::Id {
+    // (The Properties panel's apart from a window's: its own, though both
+    // follow the object.)
+    let host = if app.panel_form { "panel" } else { "window" };
     if key.restype == ResType::GIT
         && let Some(id) = app.window_ids.get(&(key.resref, path.clone()))
     {
-        return id.with(("blueprint", name));
+        return id.with(("blueprint", name, host));
     }
-    egui::Id::new(("blueprint", key, path, name))
+    egui::Id::new(("blueprint", key, path, name, host))
 }
 
 /// After a frame: what the pages keep while they are drawn, let go of
@@ -1011,7 +1014,7 @@ impl Form<'_> {
             return;
         }
         let color = ui.visuals().warn_fg_color;
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             ui.colored_label(color, MIXED);
             ui.colored_label(
                 color,
@@ -1210,7 +1213,8 @@ impl Form<'_> {
         let id = self.id(label);
         let (shown, _) = crate::text::to_editor(&current);
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
-        let r = ui.add(mg_uikit::text_field(buf).id(id).char_limit(max).desired_width(240.0));
+        let r =
+            ui.add(mg_uikit::text_field(buf).id(id).char_limit(max).desired_width(fit(ui, 240.0)));
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
@@ -1255,7 +1259,7 @@ impl Form<'_> {
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
         self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
                 self.set_typed(
                     what,
@@ -1277,7 +1281,7 @@ impl Form<'_> {
     /// A localized multi-line text (descriptions).
     pub(crate) fn locstring_memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             let language = crate::text::edit_language().name().unwrap_or("?");
             crate::widgets::field_label(ui, format!("{what} ({language})"));
             if crate::widgets::languages_button(ui) {
@@ -1333,6 +1337,12 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.int(label);
         let mut v = current;
+        // (Its rail shorter where the room is: its value's box beside it.)
+        if narrow(ui) {
+            let value = 48.0 + ui.spacing().item_spacing.x;
+            let rail = ui.spacing().slider_width.min(ui.available_width() - value).max(40.0);
+            ui.spacing_mut().slider_width = rail;
+        }
         let r = mg_uikit::slider(
             ui,
             egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits),
@@ -1641,7 +1651,7 @@ impl Form<'_> {
         let id = self.id(label);
         let app = &mut *self.app;
         let mut shown = about.map(|about| move |ui: &mut Ui, row| about(app, ui, row));
-        let mut list = crate::widgets::row_choice(id, choices, current).width(220.0);
+        let mut list = crate::widgets::row_choice(id, choices, current).width(fit(ui, 220.0));
         if let Some(shown) = shown.as_mut() {
             list = list.about(shown);
         }
@@ -1656,7 +1666,7 @@ impl Form<'_> {
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, &what, &types) {
                 self.set(&what, label, Value::resref(v));
             }
@@ -1681,7 +1691,7 @@ impl Form<'_> {
             return;
         }
         let (mut load, mut save) = (false, false);
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             load = ui
                 .button("Load Script Set")
                 .on_hover_text("Set the scripts from a script set file (.ini)")
@@ -1757,7 +1767,7 @@ impl Form<'_> {
     ) {
         self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
                 self.set(what, label, Value::resref(v));
             }
@@ -1860,7 +1870,7 @@ impl Form<'_> {
         let buf = self.app.buffers.entry(id).or_insert_with(|| current.to_string());
         let mut text = crate::widgets::ResRefText(&mut *buf);
         let r = ui
-            .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(160.0))
+            .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(fit(ui, 160.0)))
             .on_hover_text("Edit the blueprint ResRef");
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
@@ -1997,6 +2007,129 @@ fn held_item_at(path: &GffPath) -> Option<usize> {
 /// blueprint's comments.
 pub fn instance_pages(t: ResType) -> Vec<&'static str> {
     pages(t).iter().copied().filter(|p| *p != "Comments").collect()
+}
+
+/// The width under which a Properties form is laid out narrow (the
+/// Properties panel, at the Right Dock's 280 to 460 or so): its scroll
+/// vertical alone, text wrapping, a form's two columns sharing the width
+/// ([`form_grid`]), rows of several controls wrapping, so that nothing
+/// runs past the panel's edge. A window keeps its look above it.
+pub(crate) const NARROW_FORM: f32 = 400.0;
+
+/// Whether the form being drawn is laid out narrow: as [`form_ui`] found
+/// its room ([`NARROW_FORM`]), whatever cell or column of it `ui` is (a
+/// window's grid cell is narrower than that, and keeps its look); outside
+/// a form (Area and Module Properties' pages, a wizard's), never.
+pub(crate) fn narrow(ui: &Ui) -> bool {
+    ui.data(|d| d.get_temp::<bool>(egui::Id::new(NARROW_ID))).unwrap_or(false)
+}
+
+/// Where [`form_ui`] keeps whether the form it draws is narrow.
+const NARROW_ID: &str = "blueprint-form-narrow";
+
+/// A form's grid of labels and values, two columns (the pages' `Grid`s):
+/// in a narrow room ([`narrow`]) each column at most half the width, its labels wrapping there, the value column taking the
+/// rest (its fields fill what they are given).
+pub(crate) fn form_grid(ui: &Ui, id: impl egui::AsIdSalt) -> FormGrid {
+    let narrow = narrow(ui);
+    let grid = egui::Grid::new(id).num_columns(2);
+    let grid = match narrow {
+        true => grid.max_col_width((ui.available_width() * 0.5).floor()),
+        false => grid,
+    };
+    FormGrid { grid, narrow }
+}
+
+/// A form's grid ([`form_grid`]): egui's, its text wrapping within its
+/// columns in a narrow room (with the columns held to their widths, a
+/// label wraps at half the width, never at a column's first, unknown
+/// width).
+pub(crate) struct FormGrid {
+    grid: egui::Grid,
+    narrow: bool,
+}
+
+impl FormGrid {
+    pub(crate) fn spacing(mut self, spacing: impl Into<egui::Vec2>) -> Self {
+        self.grid = self.grid.spacing(spacing);
+        self
+    }
+
+    pub(crate) fn striped(mut self, striped: bool) -> Self {
+        self.grid = self.grid.striped(striped);
+        self
+    }
+
+    pub(crate) fn show<R>(
+        self,
+        ui: &mut Ui,
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<R> {
+        match self.narrow {
+            true => ui.scope(|ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                self.grid.show(ui, add).inner
+            }),
+            false => self.grid.show(ui, add),
+        }
+    }
+}
+
+/// A row of controls: in a narrow room ([`narrow`]) wrapping onto the
+/// next line where the panel's width ends, else one line as a window has
+/// it. (Held in a column of its own: a grid's row grows with what is
+/// wrapped in a column, not with a wrapping row placed in it alone, whose
+/// lines past the first the grid's next row was drawn over.)
+pub(crate) fn row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    match narrow(ui) {
+        true => {
+            let shown = ui.vertical(|ui| ui.horizontal_wrapped(add));
+            egui::InnerResponse::new(shown.inner.inner, shown.response)
+        }
+        false => ui.horizontal(add),
+    }
+}
+
+/// Two parts side by side, top aligned (a page's palette and its list):
+/// in a narrow room ([`narrow`]) the first over the second.
+pub(crate) fn beside_or_over<R>(
+    ui: &mut Ui,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let layout = match narrow(ui) {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, add)
+}
+
+/// A part's width beside another, `want`; in a narrow room, where the
+/// parts stand one over the other ([`beside_or_over`]), the whole width.
+/// (`narrow`: [`narrow`] of the room both parts share, asked before them.)
+pub(crate) fn part_width(narrow: bool, ui: &Ui, want: f32) -> f32 {
+    if narrow { ui.available_width() } else { want }
+}
+
+/// A column of controls between two parts side by side (a list's Add and
+/// Remove); in a narrow room, a row of them wrapping.
+pub(crate) fn down_or_row<R>(
+    narrow: bool,
+    ui: &mut Ui,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    match narrow {
+        true => ui.horizontal_wrapped(add),
+        false => ui.vertical(add),
+    }
+}
+
+/// The width a control asks for, `want`, held to the room `ui` has (in
+/// the narrow panel: a field fills its column, never past its edge).
+pub(crate) fn fit(ui: &Ui, want: f32) -> f32 {
+    match narrow(ui) {
+        true => want.min(ui.available_width()).max(0.0),
+        false => want,
+    }
 }
 
 /// The Properties of the object at `path` in the document `key` (a
@@ -2180,8 +2313,18 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
         typing_kept_out(ui, ui.available_rect_before_wrap());
     }
     let mut form = Form { app, key, path, also, root, together: Default::default() };
-    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
-    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`;
+    // in a narrow room, the panel's, down alone, its rows fitting it.)
+    // (The Properties panel's always: it has no sideways scroll, at any
+    // width the dock or its column is given.)
+    let narrow = ui.available_width() < NARROW_FORM || form.app.panel_form;
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), narrow));
+    let scroll = match narrow {
+        true => egui::ScrollArea::vertical(),
+        false => egui::ScrollArea::both(),
+    };
+    // (Each page its own scroll: another page opens at its top.)
+    scroll.id_salt(("form-page", page)).auto_shrink([false, false]).show(ui, |ui| {
         if let Some((title, readout)) = &heading {
             mg_uikit::section_heading(ui, *title);
             if let Some(readout) = readout {
@@ -2203,6 +2346,8 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
             _ => {}
         })
     });
+    // (The form drawn: what is drawn after it judges its own room.)
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
     if viewed && look_only(form.app, pending, &|k| *k == key) {

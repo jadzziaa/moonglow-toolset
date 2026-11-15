@@ -15,8 +15,8 @@ use mg_area::ObjectKind;
 use mg_ui::properties_panel::{NOTHING_SELECTED, OPEN_IN_TAB};
 
 /// An area as `area_harness` makes it (two waypoints, at 20 and 30 by 20)
-/// with two chests at 12 and 14 by 20, a bandit, a store and an
-/// encounter, in `mode`, in a window `width` by 900 (1600: the Right
+/// with two chests at 12 and 14 by 20, and two of each other kind (a
+/// bandit, a store, an encounter, a door, a trigger, a sound, an item), in `mode`, in a window `width` by 900 (1600: the Right
 /// Dock's sections stacked, the palettes over Properties).
 fn props_area(name: &str, mode: Mode, width: f32) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let chests = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
@@ -39,12 +39,19 @@ fn props_area(name: &str, mode: Mode, width: f32) -> Option<(Harness<'static, Mo
         let mut git = m.gff(&git_key).unwrap().unwrap();
         git.root.set("Placeable List", mg_gff::Value::List(list.to_vec()));
         let others = [
-            ("Creature List", ResType::UTC, "nw_bandit001"),
-            ("StoreList", ResType::UTM, "x2_storethief001"),
-            ("Encounter List", ResType::UTE, "nw_giantevil"),
+            (ObjectKind::Creature.list(), ResType::UTC, "nw_bandit001"),
+            (ObjectKind::Store.list(), ResType::UTM, "x2_storethief001"),
+            (ObjectKind::Encounter.list(), ResType::UTE, "nw_giantevil"),
+            (ObjectKind::Door.list(), ResType::UTD, "nw_door_normal"),
+            (ObjectKind::Trigger.list(), ResType::UTT, "newgeneric"),
+            (ObjectKind::Sound.list(), ResType::UTS, "animalcriesday"),
+            (ObjectKind::Item.list(), ResType::UTI, "nw_wswls001"),
         ];
+        // (Two of each: edited together, as two chests are.)
         for (i, (list, t, resref)) in others.into_iter().enumerate() {
-            git.root.set(list, mg_gff::Value::List(vec![one(t, resref, 12.0 + 4.0 * i as f32)]));
+            let x = 12.0 + 4.0 * i as f32;
+            let two = vec![one(t, resref, x), one(t, resref, x + 1.5)];
+            git.root.set(list, mg_gff::Value::List(two));
         }
         m.set_gff(git_key, &git).unwrap();
     };
@@ -87,6 +94,35 @@ fn is_input(n: &egui_kittest::Node<'_>) -> bool {
 /// centered in its 31 points).
 fn rail_left(h: &Harness<'_, Moonglow>) -> f32 {
     h.get_by_label("Pages").get_by_label("Basic").rect().left() - 3.5
+}
+
+/// How many named controls the page `page` draws in the Right Dock under
+/// its heading, in sight or scrolled out of it (0: no heading, the page
+/// not drawn).
+fn page_controls(h: &Harness<'_, Moonglow>, page: &str) -> usize {
+    let dock = right_dock_rect(h);
+    let rect = |n: &egui_kittest::Node<'_>| {
+        let b = n.accesskit_node().bounding_box()?;
+        Some(egui::Rect::from_min_max(
+            egui::pos2(b.x0 as f32, b.y0 as f32),
+            egui::pos2(b.x1 as f32, b.y1 as f32),
+        ))
+    };
+    let wide =
+        |r: &egui::Rect| dock.contains(r.center()) && r.width() > mg_uikit::pages::PAGE_BUTTON;
+    let Some(heading) = h.query_all_by_label(page).filter_map(|n| rect(&n)).find(wide) else {
+        return 0;
+    };
+    let under = |n: &egui_kittest::Node<'_>| {
+        let node = n.accesskit_node();
+        let named = node.label().or_else(|| node.value()).is_some_and(|l| !l.trim().is_empty());
+        let leaf = node.children().next().is_none();
+        named
+            && leaf
+            && rect(n)
+                .is_some_and(|r| r.top() > heading.bottom() && dock.x_range().contains(r.left()))
+    };
+    h.query_all(egui_kittest::kittest::by()).filter(under).count()
 }
 
 /// Types `text` over the text field showing `value`, and leaves it (Tab).
@@ -477,6 +513,7 @@ fn the_rail_reaches_every_page_in_a_low_section() {
     settle(&mut h);
     let shown = h.get_by_label("Pages").get_by_label("Description").accesskit_node().toggled();
     assert_eq!(shown, Some(egui::accesskit::Toggled::True), "chosen");
+    assert!(page_controls(&h, "Description") >= 2, "the Description page drawn");
 }
 
 /// The panel's controls draw nothing over each other in the Right Dock at
@@ -496,6 +533,9 @@ fn the_panel_draws_nothing_over_anything_else_at_280() {
         for page in ["Basic", "Inventory", "Lock", "Trap", "Scripts", "Advanced", "Visuals"] {
             h.get_by_label("Pages").get_by_label(page).click();
             settle(&mut h);
+            if page_controls(&h, page) < 2 {
+                found.push(format!("{page} at {width}: the page not drawn"));
+            }
             // (Of the Right Dock's widgets: both of a pair named there.)
             let dock = right_dock_rect(&h);
             let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
@@ -574,8 +614,13 @@ fn every_kind_s_pages_write_nothing_and_fit() {
         ] {
             select(&mut h, area, &[(kind, 0)]);
             for page in mg_ui::blueprint::instance_pages(t) {
+                h.get_by_label("Pages").get_by_label(page).scroll_to_me();
+                settle(&mut h);
                 h.get_by_label("Pages").get_by_label(page).click();
                 settle(&mut h);
+                if page_controls(&h, page) < 2 {
+                    found.push(format!("{kind:?} {page} at {width}: the page not drawn"));
+                }
                 let dock = right_dock_rect(&h);
                 let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
                     .filter(|n| {
@@ -645,4 +690,325 @@ fn a_dragged_out_area_has_properties_in_its_window() {
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_some(), "the window");
     h.get_by_label_contains("open in a tab or window of their own");
+}
+
+/// Every kind of placed object, each of its pages in the panel, at the
+/// Right Dock's 280, 320 and 400 (a window under 1400, Properties chosen;
+/// then stacked from 1600): no control reaches past the dock's right
+/// edge (the review of U6 found the window's form, its fields 240 wide,
+/// run past it at every width the panel has), none lies over another, and
+/// each page draws its fields (a page's own named controls under its
+/// heading).
+#[test]
+fn every_page_of_every_kind_fits_the_panel() {
+    let Some((mut h, area)) = props_area("props-fit", Mode::Floating, 1280.0) else { return };
+    // (The pictures in the light theme too, with `MG_LIGHT`.)
+    if std::env::var_os("MG_LIGHT").is_some() {
+        h.state_mut().settings.light_theme = true;
+        settle(&mut h);
+    }
+    h.get_by_label("Right Dock").get_by_label("Properties").click();
+    settle(&mut h);
+    let mut found = Vec::new();
+    // (One of each kind at every width; two edited together at the narrow
+    // ones, where the pages of lists edited together are drawn.)
+    let sizes = [
+        (1280.0, 280.0, false),
+        (1600.0, 320.0, false),
+        (1600.0, 400.0, false),
+        (1600.0, 480.0, false),
+        (1600.0, 560.0, false),
+        (1600.0, 640.0, false),
+        (1280.0, 280.0, true),
+        (1600.0, 400.0, true),
+    ];
+    for (width, dock, two) in sizes {
+        h.set_size(egui::vec2(width, 900.0));
+        right_dock_width(&mut h, dock);
+        settle(&mut h);
+        for kind in mg_area::ObjectKind::ALL {
+            let pages = mg_ui::blueprint::instance_pages(kind.restype());
+            let objects: &[(ObjectKind, usize)] =
+                if two { &[(kind, 0), (kind, 1)] } else { &[(kind, 0)] };
+            select(&mut h, area, objects);
+            for page in pages {
+                // (The rail scrolls where its pages are more than it holds.)
+                h.get_by_label("Pages").get_by_label(page).scroll_to_me();
+                settle(&mut h);
+                h.get_by_label("Pages").get_by_label(page).click();
+                settle(&mut h);
+                let dock = right_dock_rect(&h);
+                // (Each page's picture, the dock alone: `props-fit/`.)
+                if std::env::var_os("MG_PAGE_SHOTS").is_some() {
+                    let theme =
+                        if std::env::var_os("MG_LIGHT").is_some() { "light" } else { "dark" };
+                    let dir = mg_testkit::test_output().join("props-fit").join(theme);
+                    let _ = std::fs::create_dir_all(&dir);
+                    let img = h.render().unwrap();
+                    let ppp = h.ctx.pixels_per_point();
+                    let x = (dock.left() * ppp) as u32;
+                    let w = ((dock.width() * ppp) as u32).min(img.width() - x);
+                    let cut = image::imageops::crop_imm(&img, x, 0, w, img.height()).to_image();
+                    let several = if two { "x2" } else { "" };
+                    let page_name = page.replace(' ', "_");
+                    let name = format!("{:.0}{several}-{kind:?}-{page_name}.png", dock.width());
+                    cut.save(dir.join(name)).unwrap();
+                }
+                let heading = h.get_all_by_label(page).map(|n| n.rect()).find(|r| {
+                    dock.contains(r.center()) && r.width() > mg_uikit::pages::PAGE_BUTTON
+                });
+                let Some(heading) = heading else {
+                    found.push(format!(
+                        "{kind:?} {page} at {dock_w}: no heading",
+                        dock_w = dock.width()
+                    ));
+                    continue;
+                };
+                // (Named controls of the page, under its heading.)
+                let mut drawn = 0;
+                for n in h.query_all(egui_kittest::kittest::by()) {
+                    let node = n.accesskit_node();
+                    let Some(b) = node.bounding_box() else { continue };
+                    let r = egui::Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    );
+                    if r.top() <= heading.bottom()
+                        || r.left() < dock.left()
+                        || r.top() > dock.bottom()
+                    {
+                        continue;
+                    }
+                    let name = node.label().or_else(|| node.value()).unwrap_or_default();
+                    // (A field counts empty too: by its role.)
+                    use egui::accesskit::Role;
+                    let field =
+                        matches!(node.role(), Role::TextInput | Role::ComboBox | Role::SpinButton);
+                    if (name.trim().is_empty() && !field) || node.children().next().is_some() {
+                        continue;
+                    }
+                    drawn += 1;
+                    if r.right() > dock.right() + 0.5 {
+                        found.push(format!(
+                            "{kind:?} {page} at {:.0}: {:?} {name:?} ({:.0}..{:.0}) past {:.0}",
+                            dock.width(),
+                            node.role(),
+                            r.left(),
+                            r.right(),
+                            dock.right()
+                        ));
+                    }
+                }
+                if drawn < 2 {
+                    found.push(format!("{kind:?} {page} at {:.0}: nothing drawn", dock.width()));
+                }
+                // (Nor over each other: a row wrapped in a cell of a form's
+                // grid ran into the row under it.)
+                let named: Vec<String> = (h.query_all(egui_kittest::kittest::by()))
+                    .filter(|n| {
+                        let b = n.accesskit_node().bounding_box();
+                        b.is_some_and(|b| dock.contains(egui::pos2(b.x0 as f32, b.y0 as f32)))
+                    })
+                    .filter_map(|n| n.accesskit_node().label())
+                    .collect();
+                let ours = |o: &String| {
+                    let quoted: Vec<&str> = o.split('"').skip(1).step_by(2).collect();
+                    quoted.iter().all(|q| named.iter().any(|n| n == q))
+                };
+                let over = overlapping(&h).into_iter().filter(ours);
+                found.extend(over.map(|o| format!("{kind:?} {page} at {:.0}: {o}", dock.width())));
+            }
+        }
+    }
+    assert!(found.is_empty(), "{} found:\n{}", found.len(), found.join("\n"));
+}
+
+/// A dragged out area's window too narrow for its view and the panel's
+/// pane (the review of U6: views of 120 and 32 points in windows 450 and
+/// 360 wide) keeps its view: the pane goes under the view's least (400
+/// beside the pane's 280), and comes back as the window is widened.
+#[test]
+fn a_small_area_window_keeps_its_view() {
+    let Some((mut h, area)) = props_area("props-small", Mode::Floating, 1700.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    own_window(&mut h, &Tab::Area(area), egui::pos2(20.0, 40.0), egui::vec2(1200.0, 700.0));
+    settle(&mut h);
+    let rail = |h: &Harness<'_, Moonglow>| {
+        (h.query_all_by_label("Basic")).any(|n| n.rect().width() == mg_uikit::pages::PAGE_BUTTON)
+    };
+    let mut seen = Vec::new();
+    for width in [1200.0, 700.0, 450.0, 360.0, 1200.0] {
+        let found = h.state().dock.find_tab(&Tab::Area(area)).unwrap();
+        let surface = found.surface;
+        let state = h.state_mut().dock.get_window_state_mut(surface).unwrap();
+        state.set_size(egui::vec2(width, 700.0));
+        settle(&mut h);
+        let view = h.state().area_views[&area].rect.width();
+        seen.push((width, view.round(), rail(&h)));
+    }
+    for &(width, view, pane) in &seen {
+        // (The window's frame and the tool shelf aside: the view as wide as
+        // a small window has it, and at least 400 where the pane is beside.)
+        assert!(view >= 400.0f32.min(width - 60.0), "{width}: the view {view}: {seen:?}");
+        assert!(!pane || view >= 400.0, "{width}: the pane over the view's least: {seen:?}");
+    }
+    assert!(seen[0].2 && seen[4].2, "the pane in a wide window, and back: {seen:?}");
+    assert!(!seen[2].2 && !seen[3].2, "no pane in the narrow ones: {seen:?}");
+    // A double click there, with no panel to show it: the window.
+    let found = h.state().dock.find_tab(&Tab::Area(area)).unwrap();
+    let state = h.state_mut().dock.get_window_state_mut(found.surface).unwrap();
+    state.set_size(egui::vec2(450.0, 700.0));
+    settle(&mut h);
+    h.run_steps(40);
+    let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+    }
+    settle(&mut h);
+    let path = mg_edit::GffPath::root().item("WaypointList", 1);
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_some(), "the window");
+}
+
+/// A double click with Ctrl held (the first click selects, the second,
+/// with Ctrl, would take it out again) keeps the object selected and
+/// shows it in the panel (ruling Q1: a double click shows its
+/// Properties, whatever the modifier).
+#[test]
+fn a_ctrl_double_click_keeps_the_object_in_the_panel() {
+    let Some((mut h, area)) = props_area("props-ctrl-double", Mode::Floating, 1600.0) else {
+        return;
+    };
+    h.run_steps(40);
+    let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::COMMAND);
+        press(&h, at, false, egui::Modifiers::COMMAND);
+    }
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)], "selected");
+    h.get_by_label("Properties, Waypoint");
+}
+
+/// Text typed in the panel's field and an earlier object of its kind
+/// deleted meanwhile (its objects renumbered): what was typed stays with
+/// its object, now one place up its list, and is set on it when the field
+/// is left; the panel's fields follow their object as a window's do.
+#[test]
+fn typed_text_follows_its_object_through_a_renumbering() {
+    let Some((mut h, area)) = props_area("props-renumber", Mode::Floating, 1600.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 1)]);
+    let before = placeables(&mut h, area);
+    let old = tag(&before[1]);
+    h.get_all_by_value(&old).find(is_input).expect("the field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&old).find(is_input).unwrap().type_text("CHEST_SECOND");
+    h.run_steps(2);
+    // The first chest taken out, by another hand (a command of its own).
+    let git = ResKey::new(area, ResType::GIT);
+    let delete = mg_edit::Edit::remove_item(git, mg_edit::GffPath::root(), "Placeable List", 0);
+    let command = mg_edit::Command::new("Delete", vec![delete]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(command));
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)], "followed");
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    let now = placeables(&mut h, area);
+    assert_eq!(now.len(), 1, "one chest left");
+    assert_eq!(tag(&now[0]), "CHEST_SECOND", "set on the chest it was typed for");
+}
+
+/// After F6 gives the panel the keys, Up and Down on its rail show the
+/// page before or after, the keyboard going with them (the review of U6:
+/// they left the panel, the next Tab on Module Properties' tab).
+#[test]
+fn the_rail_s_pages_by_up_and_down() {
+    let Some((mut h, area)) = props_area("props-rail-keys", Mode::Floating, 1600.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    for _ in 0..8 {
+        if mg_ui::palette_view::arrow_keys_are(&h.ctx) == "Properties" {
+            break;
+        }
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+    }
+    let focused = |h: &Harness<'_, Moonglow>, page: &str| {
+        h.get_by_label("Pages").get_by_label(page).accesskit_node().is_focused()
+    };
+    let on = |h: &Harness<'_, Moonglow>, page: &str| {
+        let node = h.get_by_label("Pages").get_by_label(page);
+        node.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+    };
+    assert!(focused(&h, "Basic"), "F6: Basic has the keyboard");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert!(on(&h, "Inventory") && focused(&h, "Inventory"), "Down: the next page");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert!(on(&h, "Lock") && focused(&h, "Lock"), "Down again");
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    assert!(on(&h, "Inventory") && focused(&h, "Inventory"), "Up: back");
+}
+
+/// A double click on an object's row in the Outliner (as on the object in
+/// the view, the coordinator's ruling at U6's review) selects it and
+/// shows the Properties panel in front, the Right Dock unfolded; no
+/// window opens.
+#[test]
+fn a_double_click_on_an_outliner_row_shows_the_panel() {
+    let Some((mut h, area)) = props_area("props-outliner", Mode::Floating, 1600.0) else {
+        return;
+    };
+    // (The row in sight: its kind opened as the Outliner follows a
+    // selection, then nothing selected, the Right Dock folded.)
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let chest = tag(&placeables(&mut h, area)[0]);
+    select(&mut h, area, &[]);
+    h.state_mut().settings.hide_palettes = true;
+    settle(&mut h);
+    let row = (h.get_by_label(mg_ui::OUTLINER).query_all_by_label_contains(chest.as_str()))
+        .next()
+        .expect("the chest's row")
+        .rect();
+    double_click_now(&mut h, row.center());
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)], "selected");
+    assert!(!h.state().settings.hide_palettes, "the Right Dock unfolded");
+    h.get_by_label("Properties, Placeable");
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
+}
+
+/// A double click on an object's row in the module tree while another tab
+/// is in front (As Tabs: Module Properties) brings its area to the front,
+/// selects the object and shows it in the Properties panel (the
+/// coordinator's ruling at U6's review).
+#[test]
+fn a_double_click_on_a_tree_row_brings_the_area_and_the_panel() {
+    let Some((mut h, area)) = props_area("props-tree-row", Mode::Tabs, 1600.0) else { return };
+    tall_tree(&mut h);
+    h.get_by_label_contains("Placed Objects in ").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (2)").click();
+    settle(&mut h);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let tag = tag(&git.root.list("WaypointList").unwrap()[1]);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::ModuleProperties), "another tab in front");
+    let rows = h.get_by_label("Module Tree Rows");
+    let row = rows.query_all_by_label_contains(tag.as_str()).last().expect("its row").rect();
+    double_click_now(&mut h, row.center());
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "the area in front");
+    let selection = &h.state().area_views[&area].selection;
+    assert!(selection.len() == 1 && selection[0].0 == ObjectKind::Waypoint, "{selection:?}");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "the panel");
 }

@@ -545,6 +545,12 @@ pub(crate) enum Asked {
     /// on the Outliner's row: its area is the one in front).
     Select,
     Properties,
+    /// Gone to (from the module tree) or selected (from the Outliner) and
+    /// shown in the Properties panel in front, the Right Dock unfolded (a
+    /// double click on its row, as on the object in the view: ruling Q1
+    /// and the coordinator's of U6's review); its menu's Properties opens
+    /// the window.
+    ShowProperties,
     /// Its variables, in the Variables window (as Aurora's list offers).
     Variables,
     /// In the model viewer, as it is placed.
@@ -780,7 +786,7 @@ pub(crate) fn contents_ui(
                         // out: `tree_rows`).
                         *picked = Some((TreeAt::Object(area, *kind, index), command, shift));
                     } else if r.double_clicked() {
-                        *go = Some((area, *kind, index, Asked::Properties));
+                        *go = Some((area, *kind, index, Asked::ShowProperties));
                     } else if r.clicked() {
                         // (The Outliner's area is the one in front: its
                         // click selects there, the camera where it is.)
@@ -2731,6 +2737,11 @@ pub(crate) fn act_on_object(
         Asked::Properties => {
             let path = path((kind, index));
             app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+        }
+        Asked::ShowProperties => {
+            let then = if in_tree { Asked::Go } else { Asked::Select };
+            act_on_object(app, ui, (area, kind, index, then), together, menu_commands, in_tree);
+            app.actions.push(Action::ShowProperties(area));
         }
         Asked::Variables => crate::widgets::open_variables(app, git, path((kind, index))),
         Asked::Preview => {

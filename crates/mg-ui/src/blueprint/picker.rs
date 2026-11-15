@@ -166,7 +166,7 @@ pub(crate) fn palette_picker(
             _ => reveal = None,
         }
     }
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         ui.selectable_value(&mut custom, false, "Standard Palette");
         ui.selectable_value(&mut custom, true, "Custom Palette");
     });

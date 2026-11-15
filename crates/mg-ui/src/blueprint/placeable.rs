@@ -73,10 +73,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.choices("placeables", Some("StrRef"), Some("Label"));
     let appearances = f.appearance_rows(mg_rules::ObjectKind::Placeable, &appearances);
-    egui::Grid::new(("utp-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utp-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocName");
-        crate::widgets::field_label(ui, "Appearance Type");
-        ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Appearance type");
+        super::row(ui, |ui| {
             f.appearance_choice(ui, "Appearance", &appearances, FieldType::Dword, false);
             f.gallery_button(ui, crate::appearance_gallery::Kind::Placeable);
         });
@@ -96,9 +96,12 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Useable", "Useable"));
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        ui.horizontal(|ui| {
-            let has =
-                ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has Inventory", "HasInventory")).inner;
+        let has =
+            ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has inventory", "HasInventory")).inner;
+        ui.end_row();
+        // (Inventory… on a row of its own, as the boards draw it.)
+        crate::widgets::field_label(ui, "");
+        ui.vertical(|ui| {
             let button = ui
                 .add_enabled(has, egui::Button::new("Inventory…"))
                 .on_hover_text("Edit inventory contents");
@@ -124,7 +127,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let bags = f.choices("bodybag", Some("Name"), Some("LABEL"));
     let has = f.int("HasInventory") != 0;
-    ui.add_enabled_ui(has, |ui| ui.label("Treasure Model"));
+    ui.add_enabled_ui(has, |ui| ui.label("Treasure model"));
     ui.add_enabled_ui(has, |ui| f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte));
     ui.end_row();
     illumination(f, ui);

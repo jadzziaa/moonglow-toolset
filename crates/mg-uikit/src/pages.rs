@@ -10,6 +10,8 @@
 //! button named by its page's name, said selected or not, its tooltip the
 //! name. Where the rail is shorter than its pages (a section dragged
 //! low), it scrolls under the wheel, and the page shown is kept in sight.
+//! With the keyboard on a page, Up and Down show the page before or after
+//! and take the keyboard there.
 //!
 //! ```
 //! # egui::__run_test_ui(|ui| {
@@ -145,6 +147,27 @@ impl PageRail {
         if in_sight {
             child.ctx().data_mut(|d| d.insert_temp(self.id.with("shown"), shown));
         }
+        // (Up and Down on the page that has the keyboard: the page before or
+        // after, the keyboard going with it; not egui's move to the widget
+        // above or below, which left the panel.)
+        if let Some(k) = pages.iter().position(Response::has_focus) {
+            let filter = egui::EventFilter { vertical_arrows: true, ..Default::default() };
+            ui.memory_mut(|m| m.set_focus_lock_filter(pages[k].id, filter));
+            let none = egui::Modifiers::NONE;
+            let down = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowDown));
+            let up = ui.input_mut(|i| i.consume_key(none, egui::Key::ArrowUp));
+            let to = match (up, down) {
+                (true, false) => k.checked_sub(1),
+                (false, true) => (k + 1 < pages.len()).then_some(k + 1),
+                _ => None,
+            };
+            if let Some(to) = to {
+                *page = to;
+                changed = true;
+                pages[to].request_focus();
+                pages[to].scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
+            }
+        }
         ui.advance_cursor_after_rect(rect);
         RailOutput { response, changed, pages }
     }
@@ -238,5 +261,33 @@ mod tests {
         assert!(room.contains_rect(scripts), "in sight: {scripts:?}");
         let basic = h.get_by_label("Basic").rect();
         assert!(!room.intersects(basic), "the first scrolled out: {basic:?}");
+    }
+
+    #[test]
+    fn up_and_down_take_the_page_and_the_keyboard_along_the_rail() {
+        let mut page = 0;
+        let mut h = Harness::builder().with_size(vec2(200.0, 300.0)).build_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let _ = PageRail::new("keys")
+                .page(Icon::Info, "Basic")
+                .page(Icon::Inventory, "Inventory")
+                .page(Icon::Lock, "Lock")
+                .show(ui, &mut page);
+        });
+        h.run();
+        h.get_by_label("Basic").focus();
+        h.run();
+        h.key_press(egui::Key::ArrowDown);
+        h.run();
+        assert!(h.get_by_label("Inventory").accesskit_node().is_focused(), "the keyboard along");
+        h.key_press(egui::Key::ArrowDown);
+        h.run();
+        h.key_press(egui::Key::ArrowDown);
+        h.run();
+        assert!(h.get_by_label("Lock").accesskit_node().is_focused(), "held at the last");
+        h.key_press(egui::Key::ArrowUp);
+        h.run();
+        drop(h);
+        assert_eq!(page, 1, "Down, Down (held), Up: the second");
     }
 }

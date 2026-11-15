@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:34:06Z }
 ---
 
 # Areas
@@ -498,7 +498,7 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another): the copies follow the pointer, each outlined by its model's box, and Q and E turn them together before the click puts them down |
-| Double-click | the object's Properties, in the Right Dock's Properties panel, in front ([Blueprints](05-blueprints.md#instances)) |
+| Double-click (with Ctrl too) | the object's Properties, in the Right Dock's Properties panel, in front, the object selected ([Blueprints](05-blueprints.md#instances)); its row's double click in the module tree or the Outliner the same |
 | A row of the Outliner (the Left Dock, under its tabs) | select its object, with Ctrl and Shift as in the view; while it shows, it follows the selection, and the module tree stays where you left it: see [The Outliner](02-main-window.md#the-outliner) |
 
 Every move, turn and deletion is one undoable step. The view's corner

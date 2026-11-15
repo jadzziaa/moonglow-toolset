@@ -962,6 +962,13 @@ pub struct Moonglow {
     /// F6 has just given the Properties panel the keys: its page shown
     /// takes the keyboard's focus as it is drawn (`properties_panel`).
     pub(crate) props_focus: bool,
+    /// A Properties form is being drawn in the Properties panel: its ids
+    /// are the panel's own (`blueprint::window_state_id`).
+    pub(crate) panel_form: bool,
+    /// The areas dragged out into windows too narrow for their right pane
+    /// (`shell::window_panes`, the last frame's): a double click there opens
+    /// the Properties window, there being no panel to show.
+    pub(crate) panes_dropped: std::collections::HashSet<mg_core::ResRef>,
     /// The Properties panel's page shown for each type of object (kept
     /// as another object of that type is selected; the windows keep
     /// theirs by object, `blueprint_pages`).
@@ -1611,6 +1618,8 @@ impl Moonglow {
             tile_props_aside: Default::default(),
             tile_props_focus: false,
             props_focus: false,
+            panel_form: false,
+            panes_dropped: Default::default(),
             panel_pages: HashMap::new(),
             area_stats: None,
             build: None,
@@ -4475,6 +4484,10 @@ impl Moonglow {
             Action::ShowProperties(area) => {
                 if self.active_editor() == Some(&Tab::Area(area)) {
                     self.show_dock_panel(Panel::Properties);
+                } else if self.panes_dropped.contains(&area) {
+                    // (Dragged out into a window too narrow for its pane:
+                    // the Properties window, as before the panel.)
+                    properties_panel::open_in_tab(self, Some(&Tab::Area(area)));
                 }
             }
             Action::PackTarget => _ = self.pack_target(),

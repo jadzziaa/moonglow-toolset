@@ -469,7 +469,7 @@ fn a_placeable_s_numbers_have_arrows() {
     h.get_by_label("Lock").click();
     h.run();
     // (Each of the lock's DCs, on its row: Open and Close.)
-    for dc in ["Open Lock DC", "Close Lock DC"] {
+    for dc in ["Open lock DC", "Close lock DC"] {
         let row = h.get_by_label(dc).rect();
         let on_row =
             |n: &egui_kittest::Node<'_>| (n.rect().center().y - row.center().y).abs() < 4.0;

@@ -82,11 +82,11 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let types = door_types(f, ui);
     let types = f.appearance_rows(mg_rules::ObjectKind::Door, &types);
     let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
-    egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utd-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocName");
         // (Each door's picture beside the row the pointer rests on; the
         // generic door's, the generic appearance chosen below.)
-        crate::widgets::field_label(ui, "Appearance Type");
+        crate::widgets::field_label(ui, "Appearance type");
         let current = f.int(mg_rules::rows::generic_door_field(&f.root));
         let mut shown =
             |app: &mut _, ui: &mut Ui, row| super::door_type_picture(app, ui, row, current);
@@ -94,7 +94,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         // The generic door's model (EE: GenericType_New; the old byte field
         // follows it where the blueprint has one).
-        crate::widgets::field_label(ui, "Generic Appearance");
+        crate::widgets::field_label(ui, "Generic appearance");
         f.mark_mixed(ui, mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
             let picks = f.picks();
@@ -109,6 +109,12 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                 f.set_many("Generic appearance", &fields);
             }
         });
+        // (Under the list in a narrow room: beside it, it was past the
+        // Properties panel's edge.)
+        if super::narrow(ui) {
+            ui.end_row();
+            ui.label("");
+        }
         f.gallery_button(ui, crate::appearance_gallery::Kind::Door);
         ui.end_row();
         f.model_warning(ui, mg_rules::ObjectKind::Door);

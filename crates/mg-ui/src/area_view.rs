@@ -5164,9 +5164,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // triple).
     if (response.double_clicked() || response.triple_clicked())
         && let Some(pos) = response.interact_pointer_pos()
-        && view.pick(pos).is_some()
+        && let Some(i) = view.pick(pos)
+        && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
-        show_properties(app, view);
+        let (kind, index) = (o.kind, o.index);
+        show_properties(app, view, kind, index);
     } else if response.double_clicked()
         && !read_only
         && view.drag.is_none()
@@ -6252,21 +6254,34 @@ fn visuals_command(
     (!edits.is_empty()).then(|| Command::new(what, edits))
 }
 
-/// Opens (or shows) the Properties of the placed object `index` of `kind`.
 /// A double click on a placed object (ruling Q1, in either mode of the
 /// Open editors switch): the Properties panel shown in front, the Right
-/// Dock unfolded on it, showing the selection as the clicks left it (the
-/// first click selected the object; with Ctrl the second takes it out
-/// again, and the panel says so); in a dragged out area's window its own
-/// pane shows it. Open in Tab and the context menu's Properties open the
-/// window of today ([`open_properties`]).
-fn show_properties(app: &mut Moonglow, view: &AreaView) {
+/// Dock unfolded on it, the object selected whatever key was held (a
+/// second click with Ctrl took it out of the selection: it is put back,
+/// with the others), so that the panel shows it; in a dragged out area's
+/// window its own pane shows it, and where that window is too narrow for
+/// the pane, the Properties window opens. With Select Tiles in hand, the
+/// window. Open in Tab and the context menu's Properties open the window
+/// of today ([`open_properties`]).
+fn show_properties(app: &mut Moonglow, view: &mut AreaView, kind: ObjectKind, index: usize) {
+    // (With Select Tiles in hand the lower section is Tile Properties and
+    // the objects are not selected: the window, as before the panel. Its
+    // clicks are Select Tiles' own, which takes them before this, today.)
+    if view.tile_mode {
+        open_properties(app, view, kind, index);
+        return;
+    }
+    if !view.selection.contains(&(kind, index)) {
+        view.selection.push((kind, index));
+        view.start_selected = false;
+    }
     // (Asked for once the frame is drawn: while the editor area is drawn
     // the dock is out of `app`, and which editor is docked in front not
     // known.)
     app.actions.push(Action::ShowProperties(view.area));
 }
 
+/// Opens (or shows) the Properties of the placed object `index` of `kind`.
 fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
     let path = mg_edit::GffPath::root().item(kind.list(), index);
     app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));

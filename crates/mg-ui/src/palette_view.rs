@@ -23,10 +23,12 @@ use crate::{Action, Moonglow, Tab};
 /// A collapsing header's words (`text`), cut short with an ellipsis
 /// where they are wider than the room beside its arrow in `ui` (egui lays
 /// a header's words out on one line, as wide as they are). Its name for a
-/// screen reader is the whole of them.
-fn fitted(ui: &egui::Ui, text: String) -> egui::WidgetText {
+/// screen reader is the whole of them. `reserve`: the points left at the
+/// row's end (a category's count, drawn there).
+fn fitted_beside(ui: &egui::Ui, text: String, reserve: f32) -> egui::WidgetText {
     let spacing = ui.spacing();
     let room = ui.available_width()
+        - reserve
         - spacing.icon_width
         - spacing.icon_spacing
         - 2.0 * spacing.button_padding.x;
@@ -2322,14 +2324,21 @@ impl Tree<'_> {
             true => count_under(node),
             false => node.blueprints.len(),
         };
-        let title = if count > 0 {
-            format!("{} ({count})", shown_name(&node.name, game))
-        } else {
-            shown_name(&node.name, game)
-        };
+        // (Its count at the row's end, as the Main board draws it; named
+        // with it for a screen reader, "Battlefield (31)", as before.)
+        let name = shown_name(&node.name, game);
+        let said = if count > 0 { format!("{name} ({count})") } else { name.clone() };
+        let count_text = (count > 0).then(|| count.to_string());
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let count_width = count_text.as_ref().map_or(0.0, |c| {
+            let galley = ui.fonts_mut(|f| {
+                f.layout_no_wrap(c.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+            });
+            galley.size().x + 12.0
+        });
         // (Cut short with an ellipsis where the panel is too narrow for it:
         // a header's words never wrap, and would widen the dock.)
-        let title = fitted(ui, title);
+        let title = fitted_beside(ui, name, count_width);
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
         // (Open as it was left at the last start, until it is opened or
@@ -2354,6 +2363,15 @@ impl Tree<'_> {
                     node.blueprints.iter().filter(|b| self.shown(b)).collect();
                 self.rows(ui, &rows, (&branch, listing, within));
             });
+        let row = shown.header_response.rect;
+        if let Some(c) = count_text {
+            let t = mg_uikit::tokens(ui.ctx());
+            let at = egui::pos2(ui.max_rect().right() - 4.0, row.center().y);
+            ui.painter().text(at, egui::Align2::RIGHT_CENTER, c, font, t.text_3);
+        }
+        shown.header_response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, &said)
+        });
         self.header(ui, &branch, listing, &shown.header_response, behind);
         self.remember(remembered, shown.openness > 0.5);
         // The plugins' commands for its kind, run on every blueprint of

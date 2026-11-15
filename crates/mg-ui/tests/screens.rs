@@ -2971,7 +2971,7 @@ fn armor_part_pictures() {
     });
     settle(&mut h);
     shoot(&mut h, &dir, "armor-parts-torso");
-    h.get_all_by_label("Right Shoulder").last().unwrap().click();
+    h.get_all_by_label("Right shoulder").last().unwrap().click();
     settle(&mut h);
     shoot(&mut h, &dir, "armor-parts-shoulder");
 }
@@ -8549,7 +8549,7 @@ fn armor_part_none() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
     shoot(&mut h, &dir, &format!("{shot}-appearance"));
-    let label = h.get_by_label("Left Bicep").rect();
+    let label = h.get_by_label("Left bicep").rect();
     h.get_all_by_role(egui::accesskit::Role::ComboBox)
         .find(|n| {
             let r = n.rect();
@@ -11189,7 +11189,7 @@ fn shell_open_editors() {
             frames_until(&mut h, "the windows placed", |h| at(h).is_some_and(|x| x > 700.0));
         }
         // (The Properties' first page laid out, its portrait among it.)
-        frames_until(&mut h, "the Properties drawn", |h| h.query_by_label("First Name").is_some());
+        frames_until(&mut h, "the Properties drawn", |h| h.query_by_label("First name").is_some());
         shoot(&mut h, &dir, name);
     }
 }

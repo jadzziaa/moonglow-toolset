@@ -1498,7 +1498,13 @@ pub(crate) fn resref_field(
         // (A name typed is set when a click takes the field away, another
         // page's tab or its window's close button: it was lost.)
         let shown = current.to_string();
-        let typed = commit_resref_in(&mut app.buffers, ui, id, &shown, 160.0);
+        // (Never past its room, its button kept beside it.)
+        let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.x + 8.0;
+        let width = match crate::blueprint::narrow(ui) {
+            true => 160f32.min(ui.available_width() - button).max(60.0),
+            false => 160.0,
+        };
+        let typed = commit_resref_in(&mut app.buffers, ui, id, &shown, width);
         if let Some(text) = typed {
             match ResRef::from_str(text.trim()) {
                 Ok(v) => out = Some(v),
@@ -1695,7 +1701,12 @@ fn var_body(
     });
     let mut add_file = false;
     let mut save_file = false;
-    ui.horizontal(|ui| {
+    // (Wrapping where the page is narrow: the Properties panel's.)
+    let buttons = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| match fit {
+        true => ui.horizontal_wrapped(|ui| add(ui)),
+        false => ui.horizontal(|ui| add(ui)),
+    };
+    buttons(ui, &mut |ui: &mut Ui| {
         if ui.button("Add").clicked() {
             edit.rows.push(VarRow::new("", 1, "0"));
         }
@@ -2755,7 +2766,12 @@ impl<'a> SearchField<'a> {
                 let button_id = id.with("clear-width");
                 let button = ui.data(|d| d.get_temp::<f32>(button_id)).unwrap_or(26.0);
                 let button = if clear { button } else { 0.0 };
-                let room = width.unwrap_or(ui.available_width() - button).max(60.0);
+                let held = crate::blueprint::narrow(ui);
+                let room = width.map_or(ui.available_width() - button, |w| match held {
+                    true => w.min(ui.available_width() - button),
+                    false => w,
+                });
+                let room = room.max(60.0);
                 // (Every search field as the palette's and the module
                 // tree's: the glass before what it looks in, an owner's
                 // ask; drawn in the field, its words after it.)
@@ -4054,7 +4070,10 @@ impl<'a> RowChoice<'a> {
             .icon(mg_uikit::combo_icon)
             .selected_text(shown)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        // (Never wider than its room: a narrow form's, the Properties panel.)
         if let Some(width) = width {
+            let width = held_width(ui, width);
+            wrap_for(ui, width);
             combo = combo.width(width);
         }
         if long {
@@ -4430,6 +4449,29 @@ pub(crate) struct Dropdown {
     stays_open: bool,
     /// [`Dropdown::show_menu`]'s list has a Filter field above its rows.
     filtered: bool,
+    /// The box's width as asked (held to its room as it is shown).
+    width: Option<f32>,
+}
+
+/// A box's width as asked, `want`, held to `ui`'s room where it is wider
+/// in a narrow form (the Properties panel's), never under 40 there; as
+/// asked elsewhere (a grid sizes its columns by the frame before: held to
+/// a column's first width, a box would keep it).
+pub(crate) fn held_width(ui: &Ui, want: f32) -> f32 {
+    let room = ui.available_width();
+    if want > room && crate::blueprint::narrow(ui) { room.max(40.0) } else { want }
+}
+
+/// In a row that wraps in a narrow form (the Properties panel's), onto
+/// the next line where what is left of this one is narrower than `width`:
+/// a combo box is laid out whole where its row puts it, never wrapped by
+/// the row itself.
+pub(crate) fn wrap_for(ui: &mut Ui, width: f32) {
+    let left = ui.available_size_before_wrap().x;
+    let wraps = ui.layout().main_wrap() && ui.layout().is_horizontal();
+    if wraps && crate::blueprint::narrow(ui) && left < width {
+        ui.end_row();
+    }
 }
 
 /// A [`Dropdown`] with the id `id_salt`.
@@ -4440,6 +4482,7 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
         salt,
         stays_open: false,
         filtered: false,
+        width: None,
     }
 }
 
@@ -4454,10 +4497,24 @@ pub(crate) fn dropdown_labelled(
         salt,
         stays_open: false,
         filtered: false,
+        width: None,
     }
 }
 
 impl Dropdown {
+    /// The box, its width as asked held to `ui`'s room (a narrow form's,
+    /// the Properties panel: never past its edge).
+    fn held(combo: egui::ComboBox, width: Option<f32>, ui: &mut Ui) -> egui::ComboBox {
+        match width {
+            Some(w) => {
+                let w = held_width(ui, w);
+                wrap_for(ui, w);
+                combo.width(w)
+            }
+            None => combo,
+        }
+    }
+
     /// What the box shows.
     pub(crate) fn selected_text(mut self, text: impl Into<egui::WidgetText>) -> Self {
         self.combo = self.combo.selected_text(text);
@@ -4466,7 +4523,7 @@ impl Dropdown {
 
     /// The box's width.
     pub(crate) fn width(mut self, width: f32) -> Self {
-        self.combo = self.combo.width(width);
+        self.width = Some(width);
         self
     }
 
@@ -4546,7 +4603,7 @@ impl Dropdown {
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
         let r = combo_looks(ui, |ui| {
-            (self.combo).show_ui(ui, |ui| {
+            (Self::held(self.combo, self.width, ui)).show_ui(ui, |ui| {
                 mg_uikit::list_rows(ui);
                 rows(ui, current)
             })
@@ -4656,7 +4713,7 @@ impl Dropdown {
         };
         let (filtered, button) = (self.filtered, state.button);
         let width_id = filter_id.with("width");
-        let mut combo = self.combo;
+        let mut combo = Self::held(self.combo, self.width, ui);
         if filtered {
             // (Room for the Filter field over the rows' own scroll area.)
             let line = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().interact_size.y;
@@ -4755,7 +4812,8 @@ impl Dropdown {
         ui: &mut Ui,
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
-        combo_looks(ui, |ui| self.combo.show_ui(ui, contents))
+        let combo = Self::held(self.combo, self.width, ui);
+        combo_looks(ui, |ui| combo.show_ui(ui, contents))
     }
 }
 
@@ -4763,6 +4821,15 @@ impl Dropdown {
 /// ([`mg_uikit::combo_style`]: `raised-hover`, not the theme's `bar`), the
 /// look `ui` had kept for what follows it.
 fn combo_looks<R>(ui: &mut Ui, show: impl FnOnce(&mut Ui) -> R) -> R {
+    // (In a narrow form, the Properties panel's, whose grid wraps its
+    // text: the box's words cut short with an ellipsis, on one line.)
+    if crate::blueprint::narrow(ui) && ui.style().wrap_mode != Some(egui::TextWrapMode::Truncate) {
+        let was = ui.style().wrap_mode;
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        let r = combo_looks(ui, show);
+        ui.style_mut().wrap_mode = was;
+        return r;
+    }
     // (Only while a popup is open, which an open combo box's list is: a
     // `Ui`'s visuals changed are its style copied, kept from every frame
     // of every list.)

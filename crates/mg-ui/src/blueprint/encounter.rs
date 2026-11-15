@@ -44,9 +44,9 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         .unwrap_or_default();
     let spawn = [
         Choice { row: 0, text: "Continuous".into() },
-        Choice { row: 1, text: "Single Shot".into() },
+        Choice { row: 1, text: "Single shot".into() },
     ];
-    egui::Grid::new(("ute-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("ute-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocalizedName");
         crate::widgets::field_label(ui, "Difficulty");
         // The index, and the difficulty value it stands for.
@@ -64,13 +64,13 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             );
         }
         ui.end_row();
-        crate::widgets::field_label(ui, "Spawn Option");
+        crate::widgets::field_label(ui, "Spawn option");
         f.choice(ui, "Spawn option", "SpawnOption", &spawn, FieldType::Int);
         ui.end_row();
-        crate::widgets::field_label(ui, "Minimum Creatures");
+        crate::widgets::field_label(ui, "Minimum creatures");
         minimum_creatures(f, ui);
         ui.end_row();
-        crate::widgets::field_label(ui, "Maximum Creatures");
+        crate::widgets::field_label(ui, "Maximum creatures");
         f.spin(ui, "Maximum creatures", "MaxCreatures", 1..=8);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
@@ -148,9 +148,12 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     let mut remove = None;
     let mut unique = None;
     let selected_id = f.id("ute-selected");
-    ui.horizontal_top(|ui| {
+    // (The palette beside the list; in a narrow room, the Properties
+    // panel's, over it, and the list without its Tag and ResRef.)
+    let narrow = super::narrow(ui);
+    super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(280.0);
+            ui.set_width(if narrow { ui.available_width() } else { 280.0 });
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
@@ -160,9 +163,13 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             {
                 mg_uikit::with_rows(ui, |ui| {
-                    egui::Grid::new(("ute-list", key)).num_columns(5).striped(true).show(ui, |ui| {
+                    let columns = if narrow { 3 } else { 5 };
+                    let grid = egui::Grid::new(("ute-list", key)).num_columns(columns);
+                    grid.striped(true).show(ui, |ui| {
                         for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
-                            ui.strong(h);
+                            if !(narrow && matches!(h, "Tag" | "Blueprint ResRef")) {
+                                ui.strong(h);
+                            }
                         }
                         ui.end_row();
                         for (i, c) in list.iter().enumerate() {
@@ -170,11 +177,15 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
                             let name =
                                 names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
                             ui.label(format!("{}", c.float("CR").unwrap_or(0.0)));
-                            if ui.selectable_label(selected == Some(i), name).clicked() {
+                            let tag = tags.get(i).cloned().unwrap_or_default();
+                            let row = ui.selectable_label(selected == Some(i), name);
+                            if row.on_hover_text(format!("{tag} ({resref})")).clicked() {
                                 selected = Some(i);
                             }
-                            ui.label(tags.get(i).cloned().unwrap_or_default());
-                            ui.label(resref.to_string());
+                            if !narrow {
+                                ui.label(tag);
+                                ui.label(resref.to_string());
+                            }
                             let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
                             if ui.check_box(&mut single, "").changed() {
                                 unique = Some((i, single));
@@ -247,9 +258,12 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
         .collect();
     let mut add = None;
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
-    ui.horizontal_top(|ui| {
+    // (The palette beside the list; in a narrow room, the Properties
+    // panel's, over it, and the list without its Tag and ResRef.)
+    let narrow = super::narrow(ui);
+    super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(280.0);
+            ui.set_width(if narrow { ui.available_width() } else { 280.0 });
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
@@ -258,9 +272,13 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
             ui.data(|d| d.get_temp(sel_id)).filter(|r: &ResRef| merged.iter().any(|m| m.key == *r));
         ui.vertical(|ui| {
             mg_uikit::with_rows(ui, |ui| {
-                egui::Grid::new(("ute-list", key)).num_columns(5).striped(true).show(ui, |ui| {
+                let columns = if narrow { 3 } else { 5 };
+                let grid = egui::Grid::new(("ute-list", key)).num_columns(columns);
+                grid.striped(true).show(ui, |ui| {
                     for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
-                        ui.strong(h);
+                        if !(narrow && matches!(h, "Tag" | "Blueprint ResRef")) {
+                            ui.strong(h);
+                        }
                     }
                     ui.end_row();
                     for (m, tag) in merged.iter().zip(&tags) {
@@ -269,14 +287,16 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
                         let name =
                             names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
                         ui.label(format!("{}", m.entry.float("CR").unwrap_or(0.0)));
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             if ui.selectable_label(selected == Some(resref), name).clicked() {
                                 selected = Some(resref);
                             }
                             super::entry_mark(ui, m.having.len(), total);
                         });
-                        ui.label(tag);
-                        ui.label(resref.to_string());
+                        if !narrow {
+                            ui.label(tag);
+                            ui.label(resref.to_string());
+                        }
                         let single = |e: &Struct| e.integer("SingleSpawn").unwrap_or(0) != 0;
                         let differs = lists::differs(&targets, "CreatureList", is, single);
                         f.mark_if(ui, &format!("SingleSpawn#{resref}"), differs);
@@ -298,7 +318,7 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
             // (Under the list, for the creature chosen: beside each row,
             // they left a narrow window's edge.)
             let chosen = selected.and_then(|r| merged.iter().find(|m| m.key == r));
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 if ui.add_enabled(chosen.is_some(), egui::Button::new("Remove Creature")).clicked()
                     && let Some(r) = selected.take()
                 {
@@ -341,7 +361,7 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
-    egui::Grid::new(("ute-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("ute-advanced", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
@@ -349,25 +369,25 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         f.check(ui, "Active", "Active");
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        f.check(ui, "Player Triggered Only", "PlayerOnly");
+        f.check(ui, "Player triggered only", "PlayerOnly");
         ui.end_row();
         crate::widgets::field_label(ui, "Faction");
         situated::faction(f, ui, "Faction", "Faction");
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        let respawns = f.check(ui, "Encounter Respawns", "Reset");
+        let respawns = f.check(ui, "Encounter respawns", "Reset");
         ui.end_row();
-        ui.add_enabled_ui(respawns, |ui| ui.label("Respawn Time (seconds)"));
+        ui.add_enabled_ui(respawns, |ui| ui.label("Respawn time (seconds)"));
         ui.add_enabled_ui(respawns, |ui| f.spin(ui, "Respawn time", "ResetTime", 1..=32_000));
         ui.end_row();
         let count = f.int("Respawns");
         let infinite = count == -1;
         ui.add_enabled_ui(respawns, |ui| ui.label("Number of times to respawn"));
         ui.add_enabled_ui(respawns, |ui| {
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 ui.add_enabled_ui(!infinite, |ui| f.spin(ui, "Respawns", "Respawns", 0..=32_000));
                 let mut inf = infinite;
-                if ui.check_box(&mut inf, "Infinite Respawn").changed() {
+                if ui.check_box(&mut inf, "Infinite respawn").changed() {
                     f.set_int(
                         "Infinite respawn",
                         "Respawns",

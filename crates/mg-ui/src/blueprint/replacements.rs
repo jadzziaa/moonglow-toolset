@@ -261,12 +261,15 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
     let mut changed: Option<Vec<Struct>> = None;
     let mut pick: Option<(Option<usize>, String, String)> = None;
     let mut set_new: Option<(Option<usize>, String, ResRef)> = None;
+    // (In a narrow room, the Properties panel's: each texture on a line,
+    // what draws it on the line under.)
+    let narrow = super::narrow(ui);
     mg_uikit::with_table_rows(ui, |ui| {
-        egui::Grid::new(f.id(p.field))
-            .num_columns(5)
+        egui::Grid::new(f.id(p.field).with(narrow))
+            .num_columns(if narrow { 2 } else { 5 })
             .spacing([10.0, mg_uikit::metrics::TABLE_RULE])
             .show(ui, |ui| {
-                if !rows.is_empty() {
+                if !rows.is_empty() && !narrow {
                     ui.label("");
                     crate::widgets::field_label(ui, p.titles.0);
                     ui.label("");
@@ -278,7 +281,7 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                     small_picture(f, ui, &row.name, plt, ROW_PICTURE);
                     // (A name the replacement's field can't hold: said, not offered.)
                     let long = row.name.len() > ResRef::MAX_LEN;
-                    ui.horizontal(|ui| {
+                    super::row(ui, |ui| {
                         let name = ui.label(&row.name);
                         if let Some(t) = row.of_model {
                             name.on_hover_text(format!("On {}", t.models.join(", ")));
@@ -313,6 +316,9 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                             ui.weak("(name too long)").on_hover_text(TOO_LONG);
                         }
                     });
+                    if narrow {
+                        ui.end_row();
+                    }
                     let new = row.entry.map(|i| resref_text(&items[i], p.new)).unwrap_or_default();
                     if new.is_empty() {
                         ui.allocate_exact_size(
@@ -322,18 +328,19 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                     } else {
                         small_picture(f, ui, &new, None, ROW_PICTURE);
                     }
-                    ui.horizontal(|ui| {
+                    super::row(ui, |ui| {
                         let id = f.id(&format!("{}#{}#{:?}#new", p.field, row.name, row.entry));
                         if long {
                             ui.add_enabled(false, egui::Button::new("Select Texture…"))
                                 .on_disabled_hover_text(TOO_LONG);
                         } else {
+                            let width = super::fit(ui, 140.0);
                             if let Some(v) = crate::widgets::commit_resref_in(
                                 &mut f.app.buffers,
                                 ui,
                                 id,
                                 &new,
-                                140.0,
+                                width,
                             ) && let Ok(r) = ResRef::from_str(v.trim())
                             {
                                 set_new = Some((row.entry, row.name.clone(), r));
@@ -375,11 +382,12 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
 /// The row to add an entry of any names, typed.
 fn add_row(f: &mut Form<'_>, ui: &mut Ui, p: &Pairs, items: &[Struct]) {
     let ids = [p.old, p.new].map(|l| f.id(&format!("{}#new#{l}", p.field)));
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         ui.weak("Any name:");
         for (id, hint) in ids.into_iter().zip([p.titles.0, p.titles.1]) {
             let mut text = crate::widgets::ResRefText(f.app.buffers.entry(id).or_default());
-            ui.add(crate::widgets::resref_edit(&mut text).desired_width(140.0).hint_text(hint));
+            let width = super::fit(ui, 140.0);
+            ui.add(crate::widgets::resref_edit(&mut text).desired_width(width).hint_text(hint));
         }
         let text = |f: &Form<'_>, id| {
             f.app.buffers.get(&id).map(|s| s.trim().to_string()).unwrap_or_default()
@@ -579,7 +587,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     window.show(ui.ctx(), |ui| {
         ui.set_width(wide);
         ui.label(format!("To draw {} with", state.old));
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             let field = id.with("filter");
             crate::widgets::SearchField::new(field, &mut state.filter)
                 .hint("Find")
@@ -630,7 +638,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                 area.show_rows(ui, height, shown.len().div_ceil(per_row), |ui, lines| {
                     ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
                     for line in lines {
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             for &i in shown.iter().skip(line * per_row).take(per_row) {
                                 let name = name_at(i);
                                 let made = picture_made(f, name);
@@ -672,7 +680,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                 }
             });
         });
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             let any = state.chosen.is_some();
             ok |= ui
                 .add_enabled(any, egui::Button::new("OK"))
@@ -813,16 +821,23 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
     let pending_id = f.id("AnimationReplace#pending");
     let mut pending: (Option<i64>, Option<i64>) =
         ui.data(|d| d.get_temp(pending_id)).unwrap_or_default();
+    // (In a narrow room: each of a pair on a line of its own.)
+    let narrow = super::narrow(ui);
     mg_uikit::with_table_rows(ui, |ui| {
-        egui::Grid::new(f.id(p.field))
-            .num_columns(3)
+        egui::Grid::new(f.id(p.field).with(narrow))
+            .num_columns(if narrow { 1 } else { 3 })
             .spacing([12.0, mg_uikit::metrics::TABLE_RULE])
             .show(ui, |ui| {
-                crate::widgets::field_label(ui, p.titles.0);
-                crate::widgets::field_label(ui, p.titles.1);
-                ui.end_row();
+                if !narrow {
+                    crate::widgets::field_label(ui, p.titles.0);
+                    crate::widgets::field_label(ui, p.titles.1);
+                    ui.end_row();
+                }
                 for (i, e) in items.iter().enumerate() {
                     for label in [p.old, p.new] {
+                        if narrow && label == p.new {
+                            ui.end_row();
+                        }
                         let now = resref_text(e, label);
                         let id = f.id(&format!("{}#{i}#{label}", p.field));
                         let list =
@@ -849,6 +864,9 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 // A new one, picked.
                 for (k, slot) in [&mut pending.0, &mut pending.1].into_iter().enumerate() {
+                    if narrow && k == 1 {
+                        ui.end_row();
+                    }
                     let id = f.id(&format!("{}#pick#{k}", p.field));
                     let unset =
                         if k == 0 { "Choose an animation" } else { "Choose the one to play" };

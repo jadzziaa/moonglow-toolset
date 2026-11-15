@@ -69,11 +69,22 @@ fn area_of(editor: Option<&Tab>) -> Option<ResRef> {
 }
 
 /// A kind's name, as the header says it: "Placeable", or for several
-/// "placeables".
+/// "3 placeables" (a name of each kind's own, not its type's spelling).
 fn kind_name(kind: ObjectKind, count: usize) -> String {
+    let (one, many) = match kind {
+        ObjectKind::Creature => ("Creature", "creatures"),
+        ObjectKind::Door => ("Door", "doors"),
+        ObjectKind::Encounter => ("Encounter", "encounters"),
+        ObjectKind::Item => ("Item", "items"),
+        ObjectKind::Placeable => ("Placeable", "placeables"),
+        ObjectKind::Sound => ("Sound", "sounds"),
+        ObjectKind::Store => ("Store", "stores"),
+        ObjectKind::Trigger => ("Trigger", "triggers"),
+        ObjectKind::Waypoint => ("Waypoint", "waypoints"),
+    };
     match count {
-        1 => format!("{kind:?}"),
-        n => format!("{n} {}s", format!("{kind:?}").to_lowercase()),
+        1 => one.to_string(),
+        n => format!("{n} {many}"),
     }
 }
 
@@ -289,7 +300,14 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
         is_viewed,
         heading: Some((page, readout)),
     };
+    // (Its fields' ids follow their objects as a window's do, should an
+    // edit renumber them while one is typed in: `follow::window_id`.)
+    for p in &paths {
+        crate::blueprint::follow::window_id(app, area, p);
+    }
+    app.panel_form = true;
     crate::blueprint::form_ui(app, &mut body, shown);
+    app.panel_form = false;
     // (A field typed in here is the panel's: no window drawn after it
     // this frame claims it for its Cancel.)
     let pass = ui.ctx().cumulative_pass_nr();

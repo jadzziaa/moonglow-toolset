@@ -5461,6 +5461,13 @@ fn camera_right_click_and_escape(hand: Hand) {
     }
     click_with(&mut h, on_chest, egui::Modifiers::COMMAND);
     assert_eq!(h.state().area_views[&area].selection, [(Placeable, 0)], "{hand:?}: Ctrl + click");
+    // (Past a double click's time: a double click keeps the object
+    // selected, to show it in the Properties panel, ruling Q1.)
+    let apart = h.ctx.options(|o| o.input_options.max_double_click_delay);
+    let clicked = h.ctx.input(|i| i.time);
+    while h.ctx.input(|i| i.time) - clicked <= apart {
+        h.step();
+    }
     click_with(&mut h, on_chest, egui::Modifiers::COMMAND);
     assert!(h.state().area_views[&area].selection.is_empty(), "{hand:?}: Ctrl + click again");
     assert_eq!(tile_list(&mut h, area), list);

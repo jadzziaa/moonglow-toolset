@@ -560,7 +560,7 @@ fn an_item_property_is_matched_by_type_subtype_and_value() {
     assert!(h.query_by_label_contains("mg_c: its base item doesn't take it").is_some());
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add property"));
     // Its chance of appearing, set on the two that have it.
-    let chance = number_beside(&h, "Chance of Appearing (%)", 0);
+    let chance = number_beside(&h, "Chance of appearing (%)", 0);
     set_number(&h, &chance, 50.0);
     h.run();
     let set = each(&mut h, &keys, props);

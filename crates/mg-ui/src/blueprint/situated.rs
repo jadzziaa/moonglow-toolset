@@ -26,7 +26,7 @@ pub(super) const BYTE_MAX: i64 = 250;
 /// trapped): type (traps.2da, with its rogue modifiers shown), disarmable,
 /// detectable, one shot, the DCs and the trap scripts.
 pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
-    let trapped = f.check(ui, "Is Trapped", "TrapFlag");
+    let trapped = f.check(ui, "Is trapped", "TrapFlag");
     ui.separator();
     let traps = f.choices("traps", Some("TrapName"), Some("Label"));
     let row = f.int("TrapType");
@@ -40,26 +40,40 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
             .to_string()
     };
     ui.add_enabled_ui(trapped, |ui| {
-        egui::Grid::new(("trap", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            crate::widgets::field_label(ui, "Trap Type");
+        super::form_grid(ui, ("trap", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+            crate::widgets::field_label(ui, "Trap type");
             f.choice(ui, "Trap type", "TrapType", &traps, FieldType::Byte);
             ui.end_row();
-            crate::widgets::field_label(ui, "Detect DC Mod. when set by Rogue");
+            crate::widgets::field_label(ui, "Detect DC mod. when set by Rogue");
             ui.label(cell("DetectDCMod"));
             ui.end_row();
-            crate::widgets::field_label(ui, "Disarm DC Mod. when set by Rogue");
+            crate::widgets::field_label(ui, "Disarm DC mod. when set by Rogue");
             ui.label(cell("DisarmDCMod"));
             ui.end_row();
             crate::widgets::field_label(ui, "Set DC");
             ui.label(cell("SetDC"));
             ui.end_row();
-            crate::widgets::field_label(ui, "");
-            ui.horizontal(|ui| {
-                f.check(ui, "Disarmable", "TrapDisarmable");
-                f.check(ui, "Detectable", "TrapDetectable");
-                f.check(ui, "One Shot", "TrapOneShot");
-            });
-            ui.end_row();
+            // (One under another in a narrow room, the Properties panel's.)
+            let checks = [
+                ("Disarmable", "TrapDisarmable"),
+                ("Detectable", "TrapDetectable"),
+                ("One shot", "TrapOneShot"),
+            ];
+            if super::narrow(ui) {
+                for (text, label) in checks {
+                    crate::widgets::field_label(ui, "");
+                    f.check(ui, text, label);
+                    ui.end_row();
+                }
+            } else {
+                crate::widgets::field_label(ui, "");
+                super::row(ui, |ui| {
+                    for (text, label) in checks {
+                        f.check(ui, text, label);
+                    }
+                });
+                ui.end_row();
+            }
             crate::widgets::field_label(ui, "Disarm DC");
             f.spin(ui, "Disarm DC", "DisarmDC", 0..=BYTE_MAX);
             ui.end_row();
@@ -78,7 +92,7 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// Event scripts: (label, field) rows.
 pub(super) fn scripts(f: &mut Form<'_>, ui: &mut Ui, events: &[(&str, &str)]) {
-    egui::Grid::new(("scripts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+    super::form_grid(ui, ("scripts", f.key)).spacing([12.0, 4.0]).show(ui, |ui| {
         for (label, field) in events {
             crate::widgets::field_label(ui, *label);
             f.script(ui, label, field);
@@ -208,7 +222,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     let mut pick = None;
     // A little room below, so the picture doesn't sit on the next row.
     ui.vertical(|ui| {
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             if let Some(b) = current.and_then(base) {
                 portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
             }
@@ -282,16 +296,16 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             .close_as_cancel();
         window.show(ui.ctx(), |ui| {
             ui.set_width(wide);
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 for (m, text) in [
-                    (0, "Characters and Creatures"),
-                    (1, "Placeable Objects and Doors"),
-                    (2, "Plot Characters"),
+                    (0, "Characters and creatures"),
+                    (1, "Placeable objects and doors"),
+                    (2, "Plot characters"),
                 ] {
                     ui.radio_choice(&mut state.mode, m, text);
                 }
             });
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 let combo =
                     |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
                         let text = value
@@ -334,7 +348,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                         .id_salt(pick_id.with("grid"))
                         .show_rows(ui, row_height, rows.len().div_ceil(per_row), |ui, range| {
                             for line in range {
-                                ui.horizontal(|ui| {
+                                super::row(ui, |ui| {
                                     for &r in rows.iter().skip(line * per_row).take(per_row) {
                                         let b = base(r).unwrap_or_default().to_lowercase();
                                         let resp = portrait_image(
@@ -383,7 +397,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                 });
             });
             ui.label(format!("{} portraits", rows.len()));
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 ok |= ui
                     .add_enabled(state.chosen.is_some(), egui::Button::new("OK"))
                     .on_hover_text("Accept changes")
@@ -779,7 +793,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             let can = worked.is_some_and(|w| {
                 w.plan.is_some() && !w.said.iter().any(|s| matches!(s, Said::Refuses(_)))
             });
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 ok |= ui
                     .add_enabled(can, egui::Button::new("OK"))
                     .on_hover_text("Set up the transition, one step to undo")
@@ -791,8 +805,8 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
         if areas.is_empty() {
             ui.weak("No doors, triggers or waypoints with tags in the module's areas");
         }
-        ui.horizontal(|ui| {
-            crate::widgets::field_label(ui, "Target Area");
+        super::row(ui, |ui| {
+            crate::widgets::field_label(ui, "Target area");
             let options: Vec<Option<mg_core::ResRef>> = areas.iter().copied().map(Some).collect();
             crate::widgets::dropdown(pick_id.with("area"))
                 .selected_text(name(&state.area))
@@ -802,7 +816,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             // Doors, triggers, waypoints, or all, on the map and in the
             // lists (a group named for them: the area toolbar's and the
             // palette's Doors are others).
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 mg_uikit::name_group(ui, "Destinations Shown");
                 ui.selectable_value(&mut state.showing, None, "All");
                 for (kind, .., label) in [LEADS_TO[0], LEADS_TO[2], LEADS_TO[1]] {
@@ -811,9 +825,9 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             });
         });
         // Aurora's Connection Type: which ends are linked.
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             mg_uikit::name_group(ui, "Connection Type");
-            crate::widgets::field_label(ui, "Connection Type");
+            crate::widgets::field_label(ui, "Connection type");
             for c in Connection::ALL {
                 let why = refusal(c);
                 let r = ui
@@ -1011,14 +1025,14 @@ fn apply_transition(f: &mut Form<'_>, plan: mg_edit::transition::Plan) {
 /// destination's tag and type, Setup Area Transition, the loading screen.
 pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
     let loadscreens = f.choices("loadscreens", Some("StrRef"), Some("Label"));
-    egui::Grid::new(("utt-transition", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Destination Tag");
+    super::form_grid(ui, ("utt-transition", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Destination tag");
         f.text(ui, "Destination tag", "LinkedTo", 32);
         ui.end_row();
         crate::widgets::field_label(ui, "Destination is a");
         let flags = f.int("LinkedToFlags");
         f.mark_mixed(ui, "LinkedToFlags");
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             for (text, v) in [("Door", 1), ("Waypoint", 2), ("None", 0)] {
                 if ui.radio_button(flags == v, text).clicked() && flags != v {
                     f.set_int("Destination type", "LinkedToFlags", v, FieldType::Byte);
@@ -1052,7 +1066,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         }
         setup_transition(f, ui, pick_id);
         ui.end_row();
-        crate::widgets::field_label(ui, "Loading Screen");
+        crate::widgets::field_label(ui, "Loading screen");
         f.load_screen(ui, &loadscreens);
         ui.end_row();
     });
@@ -1092,14 +1106,14 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
     f.check(ui, "Key required to unlock or lock", "KeyRequired");
     f.check(ui, "Automatically remove key after use", "AutoRemoveKey");
     ui.separator();
-    egui::Grid::new(("lock", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Open Lock DC");
+    super::form_grid(ui, ("lock", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Open lock DC");
         f.spin(ui, "Open lock DC", "OpenLockDC", 0..=BYTE_MAX);
         ui.end_row();
-        crate::widgets::field_label(ui, "Close Lock DC");
+        crate::widgets::field_label(ui, "Close lock DC");
         f.spin(ui, "Close lock DC", "CloseLockDC", 0..=BYTE_MAX);
         ui.end_row();
-        crate::widgets::field_label(ui, "Key Tag");
+        crate::widgets::field_label(ui, "Key tag");
         f.text(ui, "Key tag", "KeyName", 32);
         ui.end_row();
     });
@@ -1107,7 +1121,7 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// Hit points, hardness, saves and plot (`TfraSituatedBasic`), as grid rows.
 pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
-    crate::widgets::field_label(ui, "Hit Points");
+    crate::widgets::field_label(ui, "Hit points");
     // The blueprint's current hit points follow its maximum.
     f.mark_mixed(ui, "HP");
     if let Some(v) = spin_number(ui, f.int("HP"), 1..=10_000) {
@@ -1120,13 +1134,13 @@ pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "Hardness");
     f.spin(ui, "Hardness", "Hardness", 0..=BYTE_MAX);
     ui.end_row();
-    crate::widgets::field_label(ui, "Fortitude Save");
+    crate::widgets::field_label(ui, "Fortitude save");
     f.spin(ui, "Fortitude save", "Fort", 0..=BYTE_MAX);
     ui.end_row();
-    crate::widgets::field_label(ui, "Reflex Save");
+    crate::widgets::field_label(ui, "Reflex save");
     f.spin(ui, "Reflex save", "Ref", 0..=BYTE_MAX);
     ui.end_row();
-    crate::widgets::field_label(ui, "Will Save");
+    crate::widgets::field_label(ui, "Will save");
     f.spin(ui, "Will save", "Will", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "");
@@ -1147,46 +1161,38 @@ pub(super) fn advanced(
         .iter()
         .map(|(row, text)| Choice { row: *row as usize, text: (*text).into() })
         .collect();
-    egui::Grid::new(("situated-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
-        ui,
-        |ui| {
-            crate::widgets::field_label(ui, "Blueprint ResRef");
-            f.blueprint_resref(ui);
-            ui.end_row();
-            crate::widgets::field_label(ui, "Belongs to Faction");
-            faction(f, ui, "Faction", "Faction");
-            ui.end_row();
-            crate::widgets::field_label(ui, "Conversation");
-            f.conversation(ui);
-            ui.end_row();
-            crate::widgets::field_label(ui, "Portrait");
-            portrait(f, ui);
-            ui.end_row();
-            crate::widgets::field_label(ui, "Initial State");
-            f.choice(ui, "Initial state", "AnimationState", &states, FieldType::Byte);
-            ui.end_row();
-            crate::widgets::field_label(ui, "");
-            // Aurora's No Interrupt is the inverse of Interruptable.
-            f.mark_mixed(ui, "Interruptable");
-            let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
-            if ui.check_box(&mut no_interrupt, "No Interrupt").changed() {
-                f.set_int(
-                    "No interrupt",
-                    "Interruptable",
-                    i64::from(!no_interrupt),
-                    FieldType::Byte,
-                );
-            }
-            ui.end_row();
-            extra(f, ui);
-            crate::widgets::field_label(ui, "Variables");
-            f.variables(ui);
-            ui.end_row();
-            crate::widgets::field_label(ui, "");
-            f.update_instances(ui);
-            ui.end_row();
-        },
-    );
+    super::form_grid(ui, ("situated-advanced", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Blueprint ResRef");
+        f.blueprint_resref(ui);
+        ui.end_row();
+        crate::widgets::field_label(ui, "Belongs to faction");
+        faction(f, ui, "Faction", "Faction");
+        ui.end_row();
+        crate::widgets::field_label(ui, "Conversation");
+        f.conversation(ui);
+        ui.end_row();
+        crate::widgets::field_label(ui, "Portrait");
+        portrait(f, ui);
+        ui.end_row();
+        crate::widgets::field_label(ui, "Initial state");
+        f.choice(ui, "Initial state", "AnimationState", &states, FieldType::Byte);
+        ui.end_row();
+        crate::widgets::field_label(ui, "");
+        // Aurora's No Interrupt is the inverse of Interruptable.
+        f.mark_mixed(ui, "Interruptable");
+        let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
+        if ui.check_box(&mut no_interrupt, "No interrupt").changed() {
+            f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
+        }
+        ui.end_row();
+        extra(f, ui);
+        crate::widgets::field_label(ui, "Variables");
+        f.variables(ui);
+        ui.end_row();
+        crate::widgets::field_label(ui, "");
+        f.update_instances(ui);
+        ui.end_row();
+    });
 }
 
 /// A choice among `choices` by row, outside a field (`current` is the

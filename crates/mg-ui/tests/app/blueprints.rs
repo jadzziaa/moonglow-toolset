@@ -169,7 +169,7 @@ fn waypoint_editor_edits_and_renames() {
     h.get_by_label("Advanced").click();
     h.run();
     // A map note.
-    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.get_by_label("Waypoint contains a map note").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("HasMapNote"), Some(1));
     // Rename: the tab follows.
@@ -212,7 +212,7 @@ fn sound_editor_lists_positions_and_times() {
     // Specific hours.
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("Specific Hours").click();
+    h.get_by_label("Specific hours").click();
     h.run();
     h.get_by_label("3 PM").click();
     h.run();
@@ -426,7 +426,7 @@ fn trigger_editor_sets_the_type_and_trap() {
     h.get_all_by_label("Trap").next().unwrap().click();
     h.run();
     let trapped = field(&mut h, &key).integer("TrapFlag").unwrap_or(0);
-    h.get_by_label("Is Trapped").click();
+    h.get_by_label("Is trapped").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("TrapFlag"), Some(1 - trapped));
 }
@@ -513,12 +513,12 @@ fn encounter_editor_lists_creatures_and_respawns() {
     assert_eq!(field(&mut h, &key).integer("Respawns"), respawns);
     assert_ne!(h.state().ws.as_ref().unwrap().can_undo(), Some("Respawns"));
     if field(&mut h, &key).integer("Reset") != Some(1) {
-        h.get_by_label("Encounter Respawns").click();
+        h.get_by_label("Encounter respawns").click();
         h.run();
     }
     // Infinite is −1; turning it off leaves one respawn.
     let infinite = field(&mut h, &key).integer("Respawns") == Some(-1);
-    h.get_by_label("Infinite Respawn").click();
+    h.get_by_label("Infinite respawn").click();
     h.run();
     let expected = if infinite { 1 } else { -1 };
     assert_eq!(field(&mut h, &key).integer("Respawns"), Some(expected));
@@ -532,7 +532,7 @@ fn store_editor_stocks_prices_and_restricts() {
     h.run();
     // Limited gold (a store without the field has unlimited gold).
     assert!(matches!(field(&mut h, &key).integer("StoreGold"), None | Some(-1)));
-    h.get_by_label("Has Limited Gold").click();
+    h.get_by_label("Has limited gold").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("StoreGold"), Some(1000));
     // A longsword goes on the weapons page, at the first free place.
@@ -742,7 +742,7 @@ fn door_editor_sets_appearance_lock_and_transition() {
     // No Interrupt is Interruptable 0.
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("No Interrupt").click();
+    h.get_by_label("No interrupt").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Interruptable"), Some(0));
 }
@@ -3736,12 +3736,12 @@ fn portraits_are_chosen_from_their_pictures() {
     h.get_by_label("po_dw_f_01_").click();
     h.run();
     // Placeables and doors have their own.
-    h.get_by_label("Placeable Objects and Doors").click();
+    h.get_by_label("Placeable objects and doors").click();
     h.run();
     let things = count(&h);
     assert!(creatures > 100 && things > 100 && creatures != things, "{creatures} {things}");
     assert!(h.query_by_label("po_dw_f_02_").is_none());
-    h.get_by_label("Characters and Creatures").click();
+    h.get_by_label("Characters and creatures").click();
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
     h.run();
@@ -3895,7 +3895,7 @@ fn an_armor_s_part_can_be_none() {
     h.run();
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
-    let label = (h.get_all_by_label("Left Bicep"))
+    let label = (h.get_all_by_label("Left bicep"))
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
         .unwrap()
         .rect();
@@ -3956,7 +3956,7 @@ fn an_armor_whose_torso_is_0_is_clothing() {
     };
     stat(&h, "Base Weight", "1.0 lbs");
     stat(&h, "Armor Class", "0");
-    stat(&h, "Total Cost", "1");
+    stat(&h, "Total cost", "1");
 }
 
 #[test]

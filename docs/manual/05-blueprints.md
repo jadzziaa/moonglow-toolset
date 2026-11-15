@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T15:02:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:57:22Z }
 ---
 
 # Blueprints
@@ -298,7 +298,7 @@ The palette's buttons:
   the arrow keys once clicked or reached with Tab: Up and Down choose
   the one before and after, Page Up and Page Down ten away, Home and End
   the first and last. Every other dropdown takes them the same way: a
-  creature's Alignment, the Mouse Cursor and Text Bubble, and those of
+  creature's Alignment, the Mouse cursor and Text bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search, and a
   described variable's dropdown of its values. Open, or with its box clicked,
@@ -312,8 +312,8 @@ The palette's buttons:
   Space does what a click there does (a command closes the list; a tick
   leaves it open for the next). Escape closes a list and gives up the
   keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
-  door's Appearance Type and Generic Appearance, show each appearance's
-  picture beside the row the pointer rests on (Appearance Type's **Use
+  door's Appearance type and Generic appearance, show each appearance's
+  picture beside the row the pointer rests on (Appearance type's **Use
   Generic Appearance**: the generic door chosen), and the chosen one's with
   the pointer resting on the list's box: leave it there and the picture
   follows the arrow keys. An item's lists of its model and parts (a
@@ -356,8 +356,8 @@ The palette's buttons:
   451, ModelName) isn't in the module, its haks or the game". The game
   draws nothing for such an object, and Aurora's area view often crashes
   on one: choose another appearance, or add the model to a hak. An
-  item's Base Type Name says so when it isn't a `baseitems.2da` row, and
-  a waypoint's Appearance Type when its `waypoint.2da` row has no flag
+  item's Base type name says so when it isn't a `baseitems.2da` row, and
+  a waypoint's Appearance type when its `waypoint.2da` row has no flag
   to draw (the game draws no waypoint: the area view shows none for it).
   A creature that is a body of parts (Human, Elf…) has no model when
   its skeleton isn't there (`pmh0`: its gender, race letter and
@@ -524,7 +524,7 @@ one step that Undo takes back. What was changed somewhere else meanwhile
 (the same object moved in its area, another field set by a script or a
 plugin) stays. So you can try things and take them back: add, change or
 remove an item's properties to see what it would cost and the level it
-would ask for (its Total Cost and Required Level show each change), then
+would ask for (its Total cost and Required level show each change), then
 press **Cancel** or Escape, and the item, its cost and level are as they
 were. (Aurora's window drops its changes when closed by its close button too.
 Moonglow's tab close button keeps them, as OK does, unless **Closing a window
@@ -791,7 +791,7 @@ one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't
 A domain or school left **Not set** is the game's to choose.
 
 - **Spells** is laid out as the Feats page. **Class** chooses which of
-  the creature's spellcasting classes, and **Spell Level** narrows the
+  the creature's spellcasting classes, and **Spell level** narrows the
   class's spells (its column of `spells.2da`) to one level; **Find** and
   the category narrow them too. To the right are the spells the class
   knows (**Known**) or has prepared (**Prepared**, for a class that
@@ -962,7 +962,7 @@ way, on its Appearance page. An armor whose torso has no `ACBONUS` (a
 torso of 0) is clothing, as the game has it: armor class 0, 1 lb, and
 priced as armor class 0.
 
-An armor's **Part Colors** (under its colors on the Appearance page) give
+An armor's **Part colors** (under its colors on the Appearance page) give
 one part a color of its own: choose the part, then a color for any of its
 six channels. A channel left at **Default** takes the armor's color;
 **Reset** returns one to it. Parts with colors of their own are marked
@@ -983,7 +983,7 @@ can't open it, but scripts can reach what it holds.
 
 **Setup Area Transition…**, on a door's or an area transition trigger's
 Area Transition page, sets up where it leads, as Aurora's does: choose
-the **Target Area**, then click a door (a blue square), an area
+the **Target area**, then click a door (a blue square), an area
 transition trigger (an orange diamond, at the middle of its outline) or a
 waypoint (a green dot) on its map ([Minimaps](04-areas.md#minimaps); the
 one under the pointer named beside it), or in the lists of its doors,
@@ -997,7 +997,7 @@ and the lists show; the window's edges are dragged to size it, the lists
 taking the room. It opens on the destination set, where there is one
 (for a trigger, the one whose waypoint it names).
 
-**Connection Type** chooses which ends are linked:
+**Connection type** chooses which ends are linked:
 
 - **Both Ways** (the default): each leads to the other.
 - **Current To Target**: this door or trigger leads there; the target is
@@ -1128,11 +1128,19 @@ several types says so and shows no fields. In an area another builder
 holds, in a project that keeps those read-only, the fields are only
 looked at.
 
-A double click on an object shows the panel in front, the Right Dock
+A double click on an object, in the area's view or on its row in the
+module tree or the Outliner, shows the panel in front, the Right Dock
 unfolded on it (in a window under 1400 points wide, its Properties tab
-between Palette and Preview). **Open in Tab**, at the panel's header's
-end (under 1400, at its top), and right-click › **Properties** open the
-Properties window as before, a tab or a window as Options › General ›
+between Palette and Preview); the object is selected, whatever key is
+held (a second click with Ctrl would take it out of the selection: a
+double click keeps it, with the others). In the panel's narrow room the
+pages fit its width: the fields fill it, the rows of several controls
+wrap, and a page's tables stand their columns under one another (a
+creature's ability scores show each total and bonus as "12 (+1)", the
+racial modifier in its tip). With the keyboard on the pages' icons (F6),
+Up and Down show the page before or after. **Open in Tab**, at the
+panel's header's end (under 1400, at its top), and right-click ›
+**Properties** open the Properties window as before, a tab or a window as Options › General ›
 Open editors says, with **OK** and **Cancel**; while it is open, the
 panel leaves those objects' fields to it. Changing an instance changes
 neither its blueprint nor other instances. **Reuse › Add to

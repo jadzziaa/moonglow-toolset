@@ -48,9 +48,9 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         .iter()
         .map(|(row, text)| Choice { row: *row as usize, text: (*text).into() })
         .collect();
-    egui::Grid::new(("utt-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utt-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocalizedName");
-        crate::widgets::field_label(ui, "Trigger Type");
+        crate::widgets::field_label(ui, "Trigger type");
         trigger_type(f, ui, &types);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
@@ -110,18 +110,18 @@ fn transition(f: &mut Form<'_>, ui: &mut Ui) {
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let cursors = f.choices("cursors", None, Some("Label"));
-    egui::Grid::new(("utt-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+    super::form_grid(ui, ("utt-advanced", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
         crate::widgets::field_label(ui, "Faction");
         situated::faction(f, ui, "Faction", "Faction");
         ui.end_row();
-        crate::widgets::field_label(ui, "Key Tag");
+        crate::widgets::field_label(ui, "Key tag");
         f.text(ui, "Key tag", "KeyName", 32);
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        f.check(ui, "Auto Remove Key", "AutoRemoveKey");
+        f.check(ui, "Auto remove key", "AutoRemoveKey");
         ui.end_row();
         crate::widgets::field_label(ui, "Cursor");
         f.choice(ui, "Cursor", "Cursor", &cursors, FieldType::Byte);
@@ -129,7 +129,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Portrait");
         situated::portrait(f, ui);
         ui.end_row();
-        crate::widgets::field_label(ui, "Highlight Height");
+        crate::widgets::field_label(ui, "Highlight height");
         f.spin_float(ui, "Highlight height", "HighlightHeight", 0.0..=10.0, 0.1, 1.0);
         ui.end_row();
         crate::widgets::field_label(ui, "Variables");

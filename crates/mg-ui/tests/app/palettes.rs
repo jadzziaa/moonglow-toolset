@@ -1326,13 +1326,14 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     // Its outline and place are kept.
     assert_eq!(after[0].get("Geometry"), before[0].get("Geometry"));
     assert_eq!(after[0].float("XPosition"), Some(10.0));
-    // The whole category, from its menu.
+    // The whole category, from its menu. (Waited for: the pointer, where
+    // the menu was, rests on a blueprint's row, whose picture is made.)
     h.get_by_label(&title).click_secondary();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Update Instances").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Update 2").click();
-    h.run();
+    settle(&mut h);
     let after = triggers(&mut h);
     assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), "NEW_1".to_string()));
     // One undo step.
@@ -2887,8 +2888,15 @@ fn the_palette_groups_blueprints_by_the_project_s_groupings() {
     // the waypoints are by Category until asked.
     h.state_mut().palette.kind = BlueprintKind::Door;
     settle(&mut h);
-    let grouped = h.query_all_by_value("Category").any(|n| !n.accesskit_node().is_disabled());
-    assert!(!grouped, "no grouping among the doors");
+    // (Narrow, the row is there, its one choice grayed; wide, no row.)
+    let rows: Vec<bool> =
+        h.query_all_by_value("Category").map(|n| n.accesskit_node().is_disabled()).collect();
+    match palette_types(&h)
+        .is_some_and(|n| n.accesskit_node().role() == egui::accesskit::Role::ComboBox)
+    {
+        true => assert_eq!(rows, [true], "no grouping among the doors: Category alone, grayed"),
+        false => assert!(rows.is_empty(), "no grouping among the doors: no Group by"),
+    }
     h.state_mut().palette.kind = BlueprintKind::Waypoint;
     h.state_mut().palette.custom = true;
     settle(&mut h);

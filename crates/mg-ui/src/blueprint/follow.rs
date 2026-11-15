@@ -529,8 +529,15 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         }
     }
     app.window_ids.extend(taken);
-    // (Those of windows closed since, forgotten.)
+    // (Those of windows closed since, forgotten; those of objects selected
+    // in an area, the Properties panel's, kept: its fields follow their
+    // object as a window's do.)
     let mut open = std::collections::HashSet::new();
+    for (&area, view) in &app.area_views {
+        for &(kind, index) in &view.selection {
+            open.insert((area, GffPath::root().item(kind.list(), index)));
+        }
+    }
     for (_, tab) in app.dock.iter_all_tabs() {
         match tab {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {

@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U6's review ([05](manual/05-blueprints.md#instances), [04](manual/04-areas.md), [02](manual/02-main-window.md)).
+  * Every page of every kind of object fits the Properties panel from 280 points: fields fill its width, rows wrap, tables stand their columns under one another; the window (Open in Tab) keeps its look. The forms' labels in sentence case ("Hit points").
+  * A double click on an object's row in the module tree or the Outliner shows the panel too; with Ctrl, a double click keeps the object selected. Up and Down move along the panel's pages.
+  * A small dragged out area keeps its view (the panel's pane goes under 440 points of room); the panel's fields follow their object through a renumbering.
+  * Inventory… on its own row; the palette's category counts at the row's end.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U6, the Properties panel and the Right Dock as drawn** (scope move S2), as the Main, Narrow, WideArea and Floating boards draw them ([05](manual/05-blueprints.md#instances), [04](manual/04-areas.md), [02](manual/02-main-window.md); [parity](parity/checklists.md), [moves](ui-redesign-moves.md)).
   * **Properties is the area's Right Dock's lower section** with every tool but Select Tiles: what is selected, one object or several of one type edited together, its pages as icons down its left edge; no OK or Cancel, each change one step to undo. A mixed selection says so.
   * **A double click on an object shows it in front** (ruling Q1); **Open in Tab** at its header's end and the object's menu's Properties open the Properties window with OK and Cancel as before. The module tree's area rows keep their arrows (ruling Q2).

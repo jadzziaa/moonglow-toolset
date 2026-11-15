@@ -857,8 +857,18 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect)
     };
     // (The right pane first, the whole height; the bottom pane under the
-    // editor alone, as Floating.png draws them.)
-    if !right.is_empty() {
+    // editor alone, as Floating.png draws them. Not in a window too narrow
+    // for it and the editor's least beside it: the editor keeps its room,
+    // and its panels come back as the window is widened.)
+    let room = ui.available_width();
+    let fits = room - RIGHT_DOCK_LEAST - 1.0 >= WINDOW_EDITOR_LEAST;
+    if let crate::Tab::Area(area) = owner_of(app, tab) {
+        match fits || right.is_empty() {
+            true => app.panes_dropped.remove(area),
+            false => app.panes_dropped.insert(*area),
+        };
+    }
+    if !right.is_empty() && fits {
         let most = (ui.available_width() * 0.6).max(RIGHT_DOCK_LEAST);
         let shown = egui::Panel::right(pane.with("window-right"))
             .resizable(true)
@@ -943,6 +953,12 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         }
     }
 }
+
+/// The least room an editor keeps in a window of its own beside its
+/// window's right pane ([`window_panes`]): under it the pane is not drawn.
+/// An area's view of 400 points (its header compact there, its tools in
+/// More) and its tool shelf, 36, with their lines.
+pub(crate) const WINDOW_EDITOR_LEAST: f32 = 440.0;
 
 /// The name of an editor's window's right pane's tab bar (its first
 /// section's; [`window_panes`]).

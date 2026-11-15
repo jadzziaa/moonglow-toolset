@@ -1709,14 +1709,14 @@ fn several_objects_edited_together() {
     h.get_by_label_contains("what you change is set on each");
     h.get_by_label("Advanced").click();
     h.run_steps(2);
-    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.get_by_label("Waypoint contains a map note").click();
     h.run_steps(3);
     let ws = h.state_mut().ws.as_mut().unwrap();
     let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().root.clone();
     let notes: Vec<_> =
         git.list("WaypointList").unwrap().iter().map(|w| w.integer("HasMapNote")).collect();
     assert_eq!(notes, [Some(1), Some(1)], "both");
-    assert_eq!(ws.can_undo(), Some("Waypoint Contains a Map Note"));
+    assert_eq!(ws.can_undo(), Some("Waypoint contains a map note"));
 }
 
 #[test]
