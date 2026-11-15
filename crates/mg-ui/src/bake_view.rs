@@ -166,7 +166,7 @@ fn menu_says(app: &mut Moonglow, area: ResRef, selected: &[usize]) -> MenuSays {
 /// Transform… (offered with the project's `[bake]` and a visual
 /// transform, a tip saying why not otherwise) and Unbake Walkmesh (on
 /// those baked).
-pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, ui: &mut Ui) {
+pub(crate) fn menu_items(app: &mut Moonglow, view: &mut crate::area_view::AreaView, ui: &mut Ui) {
     let selected: Vec<usize> = view
         .selection
         .iter()
@@ -198,6 +198,10 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
         .on_disabled_hover_text(why_not.as_ref().err().map_or(tip, String::as_str));
     if r.clicked() {
         open(app, view.area, selected.clone());
+        // (The view is out of `app.area_views` while it is drawn, as
+        // this menu is: `open` sets what it shows on it here.)
+        view.object_walkmesh = true;
+        view.hide_overlays = false;
         ui.close();
     }
     if !baked.is_empty()
@@ -214,12 +218,15 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &crate::area_view::AreaView, 
 }
 
 /// Opens the window on placeables `objects` of `area`, with its plan, and
-/// the area view's Object Walkmeshes on (to see before and after).
+/// the area view's Object Walkmeshes on (to see before and after), and
+/// its overlays shown (the header's Overlays switch on, kept so).
 pub(crate) fn open(app: &mut Moonglow, area: ResRef, objects: Vec<usize>) {
     let plan = plan_for(app, area, &objects);
     if let Some(v) = app.area_views.get_mut(&area) {
         v.object_walkmesh = true;
+        v.hide_overlays = false;
     }
+    app.settings.hide_overlays = false;
     let planned_at = changed_at(app, area);
     app.bake.draft = Some(BakeDraft { area, objects, plan, planned_at });
 }

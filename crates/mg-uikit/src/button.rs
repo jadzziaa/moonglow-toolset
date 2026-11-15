@@ -31,6 +31,9 @@ pub const BUTTON_INSET: f32 = 2.0;
 pub const ICON_CHEVRON_PADDING: f32 = 4.0;
 /// The room between an icon alone and its chevron.
 pub const ICON_CHEVRON_GAP: f32 = 2.0;
+/// The room between a button's words and its weak count (`.count-w`:
+/// the button's gap, `margin-left: -2px`).
+pub const COUNT_GAP: f32 = BUTTON_GAP - 2.0;
 
 /// How a [`KitButton`] looks at rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -81,6 +84,7 @@ pub struct KitButton {
     enabled: bool,
     drawn_as: Option<ButtonState>,
     corners: Option<egui::CornerRadius>,
+    count: Option<String>,
 }
 
 impl KitButton {
@@ -99,7 +103,16 @@ impl KitButton {
             enabled: true,
             drawn_as: None,
             corners: None,
+            count: None,
         }
+    }
+
+    /// With a weak count after its words (`.count-w`: `text-3`, 11 px;
+    /// the compact area header's Show, "5 of 10"), not part of its name.
+    /// Not shown with its icon alone.
+    pub fn count(mut self, count: impl Into<String>) -> Self {
+        self.count = Some(count.into());
+        self
     }
 
     /// Showing its icon alone where `only` (it has one): its words are
@@ -211,6 +224,11 @@ impl KitButton {
             };
         }
         let mut width = 2.0 * metrics::CONTROL_PADDING_X + self.words_width(ui);
+        if let Some(count) = &self.count {
+            let font = FontId::proportional(metrics::SMALL_SIZE);
+            let galley = ui.painter().layout_no_wrap(count.clone(), font, Color32::WHITE);
+            width += COUNT_GAP + galley.size().x;
+        }
         if self.icon.is_some() {
             width += metrics::ICON - BUTTON_INSET + BUTTON_GAP;
         }
@@ -329,6 +347,15 @@ impl egui::Widget for KitButton {
                 let at = pos2(x, y - galley.size().y / 2.0);
                 x += galley.size().x;
                 painter.galley(at, galley, text);
+                if let Some(count) = &self.count {
+                    let t = ui.tokens();
+                    let weak = if enabled { t.text_3 } else { t.text_off };
+                    let font = FontId::proportional(metrics::SMALL_SIZE);
+                    let galley = painter.layout_no_wrap(count.clone(), font, weak);
+                    let at = pos2(x + COUNT_GAP, y - galley.size().y / 2.0);
+                    x += COUNT_GAP + galley.size().x;
+                    painter.galley(at, galley, weak);
+                }
                 if self.chevron {
                     let cx = x + BUTTON_GAP + metrics::ICON_SMALL / 2.0;
                     crate::controls::paint_chevron(&painter, pos2(cx, y), 1.0, chevron);

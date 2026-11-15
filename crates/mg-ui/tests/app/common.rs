@@ -680,6 +680,7 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
         )
     };
     let mut in_more = Vec::new();
+    let mut drawn: Vec<(String, egui::Rect)> = Vec::new();
     for name in names {
         let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
         match place {
@@ -687,37 +688,56 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
             Some(Place::Cut) => panic!("{name} is cut from {group}: the row is too narrow"),
             Some(Place::More) => in_more.push(*name),
             Some(Place::Row | Place::Icon | Place::Unfolded) => {
-                // (A popover unfolded into the row shows its rows, not its
-                // button: its rows are checked by their own names.)
+                // (A popover unfolded into the row shows its rows and parts,
+                // not its button: each is checked by its own name.)
                 let rows = h.query_all_by_label(group).nth(nth);
                 let Some(row) = rows else { panic!("no group {group}") };
-                let node = row.query_by_label(name);
-                if node.is_none() && place == Some(Place::Unfolded) {
+                let mut shown: Vec<String> = Vec::new();
+                if row.query_by_label(name).is_some() {
+                    shown.push(name.to_string());
+                } else if place == Some(Place::Unfolded) {
                     let after = rec.places.iter().skip_while(|(n, _)| n != name).skip(1);
-                    let shown = after
+                    // (Up to the next item that is not a row: another
+                    // popover unfolded beside it has no node of its own.)
+                    let parts = after
                         .take_while(|(_, p)| *p == Place::Unfolded)
-                        .any(|(n, _)| row.query_by_label(n).is_some());
-                    assert!(shown, "none of {name}'s rows is shown on {group}'s row");
-                    continue;
-                }
-                let Some(node) = node else {
+                        .filter(|(n, _)| row.query_by_label(n).is_some())
+                        .map(|(n, _)| n.clone());
+                    shown.extend(parts);
+                    assert!(!shown.is_empty(), "none of {name}'s rows is shown on {group}'s row");
+                } else {
                     panic!("{name} is not shown on {group}'s row ({place:?})")
-                };
-                let r = rect_of(&node);
-                assert!(
-                    rec.row.expand(0.5).contains_rect(r),
-                    "{name} is drawn outside {group}'s row: {r:?} in {:?}",
-                    rec.row
-                );
-                for (what, other) in [("the end slot", rec.end), ("More", rec.more)] {
-                    if let Some(other) = other {
-                        assert!(
-                            !other.shrink(0.5).intersects(r),
-                            "{name} is drawn over {what} of {group}: {r:?} {other:?}"
-                        );
+                }
+                for part in shown {
+                    let r = rect_of(&row.get_by_label(&part));
+                    assert!(
+                        rec.row.expand(0.5).contains_rect(r),
+                        "{part} is drawn outside {group}'s row: {r:?} in {:?}",
+                        rec.row
+                    );
+                    for (what, other) in [("the end slot", rec.end), ("More", rec.more)] {
+                        if let Some(other) = other {
+                            assert!(
+                                !other.shrink(0.5).intersects(r),
+                                "{part} is drawn over {what} of {group}: {r:?} {other:?}"
+                            );
+                        }
+                    }
+                    if !drawn.iter().any(|(n, _)| *n == part) {
+                        drawn.push((part, r));
                     }
                 }
             }
+        }
+    }
+    // (Each drawn clear of the others: a part measured short overlaps the
+    // part after it, inside the row.)
+    for (i, (a, ra)) in drawn.iter().enumerate() {
+        for (b, rb) in &drawn[i + 1..] {
+            assert!(
+                !ra.shrink(0.5).intersects(rb.shrink(0.5)),
+                "{a} and {b} are drawn over each other on {group}'s row: {ra:?} {rb:?}"
+            );
         }
     }
     if in_more.is_empty() {

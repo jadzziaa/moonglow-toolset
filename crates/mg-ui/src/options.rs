@@ -1398,8 +1398,7 @@ fn toolbar_buttons(ui: &mut Ui, draft: &mut OptionsDraft) {
             .selected_text(name(&draft.toolbar_icons_only))
             .show(ui, &mut draft.toolbar_icons_only, &[false, true], name)
             .on_hover_text(
-                "The editors' toolbar buttons with their names, or icons alone. The area's header \
-                 no longer follows it: it yields to its width.",
+                "The editors' toolbar buttons with words or as icons alone, not the area's header",
             );
     });
 }

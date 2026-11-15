@@ -144,10 +144,16 @@ fn bake_walkmesh_is_offered_with_bake_rules_and_a_transform() {
     h.run_steps(12);
     assert_eq!(h.state().bake.menus_worked, worked, "not worked out again while it is open");
     assert!(!h.get_by_label("Bake Walkmesh to Transform…").accesskit_node().is_disabled());
+    // (With the header's Overlays switch off: the window shows the
+    // walkmeshes before and after all the same, the switch turned on.)
+    h.state_mut().area_views.get_mut(&area).unwrap().hide_overlays = true;
     h.get_by_label("Bake Walkmesh to Transform…").click();
     h.run_steps(3);
     let d = h.state().bake.draft.as_ref().expect("the window");
     assert_eq!(d.objects, [0]);
+    let view = &h.state().area_views[&area];
+    assert!(view.overlay(view.object_walkmesh), "the objects' walkmeshes drawn");
+    assert!(!h.state().settings.hide_overlays, "the switch kept on");
     h.get_by_label_contains("plc_a01 is copied as mgbk_0001");
 }
 

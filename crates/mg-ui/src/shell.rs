@@ -1920,13 +1920,13 @@ pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// Whether something in front takes the keys and presses the views'
 /// would: an `egui::Modal` (a job's window, a plugin's question), a
-/// dialog, a menu or popup, or a kit popover (an editor header's, which
-/// egui's popups do not count).
+/// dialog, a menu or popup. Not a kit popover (an editor header's): it is
+/// not modal, and the view's keys go on acting while one is open (the
+/// coordinator's decision in U3's review), so its hints stay.
 pub(crate) fn keys_blocked(ctx: &egui::Context) -> bool {
     ctx.memory(|m| m.top_modal_layer()).is_some()
         || crate::widgets::dialog_open(ctx)
         || egui::Popup::is_any_open(ctx)
-        || mg_uikit::popover::Popover::any_open(ctx)
 }
 
 /// What the Status Bar shows for the active docked editor
@@ -1965,7 +1965,8 @@ pub(crate) fn shown(
                 .unwrap_or_default();
             // (A modal, a dialog or a menu in front: the view's keys and
             // presses do nothing, `response.hovered()` false. The counts
-            // stay.)
+            // stay. A header's popover is not modal: the keys act and the
+            // hints stay.)
             if keys_blocked(ctx) {
                 shown.hints.clear();
             }

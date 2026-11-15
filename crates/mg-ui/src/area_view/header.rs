@@ -46,6 +46,8 @@ pub(crate) const USE_LIGHTING: &str = "Use the area's lighting";
 pub(crate) const SHOW_OVERLAYS: &str = "Show overlays";
 /// The warning of what could not be read.
 pub(crate) const WARNINGS: &str = "Warnings";
+/// Together and Onto Objects, one joined group.
+pub(crate) const PLACING: &str = "Placing";
 
 /// The width of the arrow at the end of the Show toggles (`.join.kinds`'
 /// last button: 16 px).
@@ -185,6 +187,11 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let window = ui.ctx().content_rect().width();
     let yields = mg_uikit::shell::Yields::of(window, ui.available_width());
     let compact = yields.header_compact;
+    let form = match (compact, yields.wide) {
+        (true, _) => PopForm::Compact,
+        (false, false) => PopForm::Words,
+        (false, true) => PopForm::Unfolds,
+    };
     let editable = view.read_only.is_none();
 
     // (What its items change, as locals: several are kept inverted or
@@ -212,6 +219,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let shaders_were = app.game_shaders();
     let mut shaders = shaders_were;
     let mut overlays = !view.hide_overlays;
+    let overlays_were = overlays;
     let mut grid = view.grid;
     let mut minimap = view.minimap;
     let walks_were = (view.walkmesh, view.object_walkmesh);
@@ -303,7 +311,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             let tip =
                 format!("Show: which kinds of placed objects the view draws, {count} of 10 shown");
             let item = Item::popover(Some(Icon::Eye), pop).words_icon(true);
-            h = h.left(item.shown_words(format!("Show {count} of 10")).tip(tip));
+            h = h.left(item.count(format!("{count} of 10")).tip(tip));
         }
     } else {
         let mut parts = Vec::new();
@@ -375,18 +383,21 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         }
         h = h.left(item);
     }
+    // (One joined group, as the boards draw them.)
+    let mut placing = Vec::new();
     if shown("Together") {
-        let item = Item::toggle(Some(crate::icons::TOGETHER), "Together", &mut together)
-            .icon_only()
-            .tip("Together: turn several selected objects about their middle as one. Off, each turns in place.");
-        h = h.left(if yields.into_more { item.in_more() } else { item });
+        let tip = "Together: turn several selected objects about their middle as one. Off, each \
+                   turns in place.";
+        placing.push(Joined::toggle(crate::icons::TOGETHER, "Together", &mut together).tip(tip));
     }
     if shown("Onto Objects") {
-        let item = Item::toggle(Some(crate::icons::ONTO_OBJECTS), "Onto Objects", &mut onto)
-            .icon_only()
-            .tip(
-                "Onto objects: place onto the placeable or door under the pointer, not the ground",
-            );
+        let tip =
+            "Onto objects: place onto the placeable or door under the pointer, not the ground";
+        let part = Joined::toggle(crate::icons::ONTO_OBJECTS, "Onto Objects", &mut onto);
+        placing.push(part.tip(tip));
+    }
+    if !placing.is_empty() {
+        let item = Item::joined(PLACING, placing);
         h = h.left(if yields.into_more { item.in_more() } else { item });
     }
     // (In More until the tool shelf at the view's left, U4, which the
@@ -419,7 +430,6 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             let item = Item::custom("Night", day_night_width, seg).more(day_night_width, seg);
             h = h.right(item);
         }
-        h = h.right(Item::separator());
     }
     let mut lighting = Popover::new("Lighting")
         .title(Some(crate::icons::LIGHTING), "Lighting")
@@ -459,6 +469,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     if shown("Fog") {
         lighting = lighting
             .separator()
+            .folded_only()
             .check(PopCheck::new(&mut fog, "Fog").icon(crate::icons::FOG).unfolded_words(true));
         lighting_rows += 1;
     }
@@ -488,7 +499,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             continue;
         }
         if first {
-            lighting = lighting.separator();
+            lighting = lighting.separator().folded_only();
             first = false;
         }
         // (In sentence case in the popover, as its rows are: Tile border.)
@@ -498,7 +509,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     }
     if lighting_rows > 0 {
         let tip = "Lighting, shadows, fog and how the scene is drawn";
-        h = h.right(pop_item(compact, Icon::Light, lighting, tip));
+        h = h.right(pop_item(form, Icon::Light, lighting, tip));
     } else {
         drop(lighting);
     }
@@ -523,6 +534,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         let (unfolded, own) = (&unfolded_walks, &own_menu);
         overlays_pop = overlays_pop
             .separator()
+            .folded_only()
             .check(PopCheck::new(&mut ground_walk, "Ground walkmesh").tip(GROUND_TIP))
             .folded_only()
             .check(PopCheck::new(&mut object_walk, "Object walkmeshes").tip(OBJECTS_TIP))
@@ -534,12 +546,15 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     }
     if shown("Sound Ranges") {
         let row = PopCheck::new(&mut sound_ranges, "Sound ranges").icon(crate::icons::SOUND_RANGES);
-        overlays_pop = overlays_pop.separator().check(row.unfolded_words(true).tip(RANGES_TIP));
+        overlays_pop =
+            overlays_pop.separator().folded_only().check(row.unfolded_words(true).tip(RANGES_TIP));
         overlay_rows += 1;
     }
-    if overlay_rows > 0 {
-        let tip = "Overlays: grid, minimap, walkmeshes and sound ranges";
-        h = h.right(pop_item(compact, Icon::Overlays, overlays_pop, tip));
+    // (While the switch is off, the item stays whatever its rows hidden:
+    // it is the one way to turn the overlays back on.)
+    if overlay_rows > 0 || !overlays_were {
+        let tip = "Grid, minimap, walkmeshes and sound ranges";
+        h = h.right(pop_item(form, Icon::Overlays, overlays_pop, tip));
     } else {
         drop(overlays_pop);
     }
@@ -562,12 +577,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         audio_rows += 1;
     }
     if audio_rows > 0 {
-        h = h.right(pop_item(
-            compact,
-            Icon::Speaker,
-            audio,
-            "Audio: placed sounds, ambient sound and music",
-        ));
+        h = h.right(pop_item(form, Icon::Speaker, audio, "Placed sounds, ambient sound and music"));
     } else {
         drop(audio);
     }
@@ -667,7 +677,10 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     if shaders != shaders_were {
         app.set_game_shaders(shaders);
     }
-    view.hide_overlays = !overlays;
+    if view.hide_overlays == overlays {
+        view.hide_overlays = !overlays;
+        app.settings.hide_overlays = !overlays;
+    }
     view.grid = grid;
     if view.minimap != minimap {
         view.minimap = minimap;
@@ -756,11 +769,26 @@ const OBJECTS_TIP: &str =
 const RANGES_TIP: &str = "Show each placed sound's circles: full volume inside, silent outside";
 
 /// A popover's item: its icon and chevron in the compact header, its
-/// words, and its rows unfolded into the row where it has room, in the
-/// full one.
-fn pop_item<'a>(compact: bool, icon: Icon, pop: Popover<'a>, tip: &str) -> Item<'a> {
+/// words in the full one, and its rows unfolded into the row where it has
+/// room in the wide layout.
+fn pop_item<'a>(form: PopForm, icon: Icon, pop: Popover<'a>, tip: &str) -> Item<'a> {
     let item = Item::popover(Some(icon), pop).tip(tip);
-    if compact { item.icon_only() } else { item.unfolds() }
+    match form {
+        PopForm::Compact => item.icon_only(),
+        PopForm::Words => item,
+        PopForm::Unfolds => item.unfolds(),
+    }
+}
+
+/// How the header's popovers stand: icons (compact), their words, or
+/// unfolded into the row where it has room (the wide layout, a window
+/// from 2560: section 5.3; the Main board's row at 1600 keeps them as
+/// buttons whatever room it has).
+#[derive(Clone, Copy)]
+enum PopForm {
+    Compact,
+    Words,
+    Unfolds,
 }
 
 /// A title-case name in sentence case: "Tile Border" is "Tile border".

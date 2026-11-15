@@ -130,8 +130,10 @@ const IN_POPOVERS: [&str; 22] = [
 /// Every control that was on the area's toolbar is the header's, on its
 /// row, as an icon or in More (`header_holds`: drawn inside the row,
 /// clear of More, or inside More's popover, scrolled to) at every window
-/// width from 420 to 1600, and at 420 with the Left Dock unfolded beside
-/// it, in both modes (the area is docked in both); and the
+/// width from 420 to 1600 and every 40 to 3000 (an unfolded popover's
+/// parts each, Shadows, Fade Geometry, Walkmesh and every row, inside the
+/// row and clear of each other), and at 420 with the Left Dock unfolded
+/// beside it, in both modes (the area is docked in both); and the
 /// controls of its popovers are found in what holds them at the widths
 /// where the header changes its form, and the widest.
 #[test]
@@ -139,7 +141,10 @@ fn the_area_header_holds_every_control_from_420_to_1600() {
     for mode in MODES {
         let Some((mut h, _)) = area_harness(&mode.dir("header-holds")) else { return };
         h.state_mut().settings.open_editors = mode.settings().open_editors;
-        let widths = (420..=1600).step_by(20).chain([989, 990, 1294, 1295, 3000]);
+        // (And on to 3000, every 40, where Lighting, Overlays and Audio
+        // unfold into the row and fold back: their parts each checked.)
+        let widths = (420..=1600).step_by(20).chain([989, 990, 1294, 1295]);
+        let widths = widths.chain((1640..=3000).step_by(40));
         for width in widths {
             h.set_size(egui::vec2(width as f32, 800.0));
             settle(&mut h);
@@ -178,7 +183,12 @@ fn the_area_header_yields_at_990_550_and_490() {
     assert!(place(&h, "Show Creatures").is_some(), "990: the toggles on the row");
     assert!(h.get_by_label(AREA_HEADER).query_by_label("Day").is_some(), "990: Day | Night");
     for name in ["Lighting", "Overlays", "Audio"] {
-        assert_eq!(place(&h, name), Some(Place::Row), "990: {name} with its words");
+        // (With its words, or unfolded where the row has room: Audio.)
+        let p = place(&h, name);
+        assert!(
+            matches!(p, Some(Place::Row | Place::Unfolded)),
+            "990: {name} with its words: {p:?}"
+        );
     }
     row_at(&mut h, 989.0);
     assert_eq!(place(&h, "Show All or None"), None, "989: {:?}", places(&h));
@@ -213,7 +223,7 @@ fn the_area_header_yields_at_990_550_and_490() {
     h.state_mut().settings.hidden_area_tools = but(&["Together", "Onto Objects"]);
     row_at(&mut h, 490.0);
     for name in ["Together", "Onto Objects"] {
-        assert_eq!(place(&h, name), Some(Place::Icon), "490: {name} on the row");
+        assert_eq!(place(&h, name), Some(Place::Row), "490: {name} on the row (the joined group)");
     }
     row_at(&mut h, 489.0);
     for name in ["Together", "Onto Objects"] {
@@ -421,26 +431,67 @@ fn the_warning_says_what_could_not_be_read() {
     assert!(in_more, "never in More: {:?} at {}", places(&h), row_width(&h));
 }
 
-/// A popover of the header's in front takes the view's keys and presses
-/// as a menu does (`shell::keys_blocked`): the Status Bar shows none of
-/// the view's hints while it is open (the counts stay), and they are back
-/// once it is closed.
+/// A popover of the header's is not modal (U3's review, the coordinator's
+/// decision): the view's keys go on acting while it is open, so the
+/// Status Bar keeps the view's hints (`shell::keys_blocked` counts no
+/// popover), and Delete over the view deletes what is selected.
 #[test]
-fn a_header_popover_in_front_hides_the_view_s_hints() {
+fn a_header_popover_in_front_keeps_the_view_s_hints_and_keys() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("header-hints") else { return };
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     settle(&mut h);
-    let hinted =
-        |h: &Harness<'_, Moonglow>| h.state().status_said().iter().any(|s| s == "Drag: Move");
-    let counted =
-        |h: &Harness<'_, Moonglow>| h.state().status_said().iter().any(|s| s == "1 selected");
-    assert!(hinted(&h) && counted(&h), "{:?}", h.state().status_said());
+    let said = |h: &Harness<'_, Moonglow>, w: &str| h.state().status_said().iter().any(|s| s == w);
+    assert!(said(&h, "Drag: Move") && said(&h, "1 selected"), "{:?}", h.state().status_said());
+    let waypoints = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").map_or(0, |l| l.len())
+    };
+    let before = waypoints(&mut h);
     area_tool(&mut h, "Fog");
+    let view = h.state().area_views[&area].rect;
+    h.hover_at(egui::pos2(view.left() + 40.0, view.center().y));
     h.run_steps(3);
-    assert!(!hinted(&h), "no hints under the popover: {:?}", h.state().status_said());
-    assert!(counted(&h), "the counts stay");
-    close_area_popover(&mut h);
+    assert!(header_open(&h).is_some(), "the popover open");
+    assert!(said(&h, "Drag: Move"), "the hints under the popover: {:?}", h.state().status_said());
+    h.key_press(egui::Key::Delete);
     h.run_steps(3);
-    assert!(hinted(&h), "the hints back: {:?}", h.state().status_said());
+    assert_eq!(waypoints(&mut h), before - 1, "Delete deleted the waypoint");
+}
+
+/// The area header's open popover (or More), where one is.
+fn header_open(h: &Harness<'_, Moonglow>) -> Option<String> {
+    header::records(&h.ctx, AREA_HEADER)[0].open.clone()
+}
+
+/// The Overlays switch is kept as Grid's neighbours Minimap and Sound
+/// ranges are (U3's review): off, it is off in the views opened after,
+/// saved with the settings, and a settings file from before it reads it
+/// on; and while it is off, the Overlays button stays on the header with
+/// all four of its rows hidden, the one way to turn it on again.
+#[test]
+fn the_overlays_switch_is_kept_and_stays_reachable() {
+    let Some((mut h, area)) = area_harness("header-overlays-kept") else { return };
+    settle(&mut h);
+    area_click(&mut h, "Show overlays");
+    assert!(h.state().settings.hide_overlays, "kept in the settings");
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert!(back.hide_overlays, "saved");
+    let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
+    assert!(!old.hide_overlays, "on in settings from before");
+    // (A view opened after: off.)
+    h.state_mut().area_views.remove(&area);
+    settle(&mut h);
+    assert!(h.state().area_views[&area].hide_overlays, "off in a view opened after");
+    // Its four rows hidden: the button stays while the switch is off.
+    h.state_mut().settings.hidden_area_tools =
+        ["Grid", "Minimap", "Walkmesh…", "Sound Ranges"].map(String::from).to_vec();
+    settle(&mut h);
+    assert!(place(&h, "Overlays").is_some(), "Overlays kept while off: {:?}", places(&h));
+    area_click(&mut h, "Show overlays");
+    settle(&mut h);
+    assert!(!h.state().area_views[&area].hide_overlays, "on again");
+    assert_eq!(place(&h, "Overlays"), None, "and, nothing in it, gone");
 }

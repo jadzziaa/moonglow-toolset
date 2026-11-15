@@ -5269,7 +5269,12 @@ fn area_header_narrow() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     h.run_steps(15);
     // (A popover opened by its button, shot, and closed by it.)
+    // (One unfolded into the row at this width has no button: its
+    // picture is the compact header's.)
     let popover = |h: &mut Harness<'_, Moonglow>, button: &str, name: &str| {
+        if h.get_by_label("Area header").query_by_label(button).is_none() {
+            return;
+        }
         h.get_by_label("Area header").get_by_label(button).click();
         h.run_steps(4);
         shoot(h, &dir, name);
@@ -5292,6 +5297,8 @@ fn area_header_narrow() {
     shoot(&mut h, &dir, "area-header-compact");
     popover(&mut h, "Show", "area-header-show");
     popover(&mut h, "Lighting", "area-header-compact-lighting");
+    popover(&mut h, "Overlays", "area-header-compact-overlays");
+    popover(&mut h, "Audio", "area-header-compact-audio");
     for width in [600.0, 520.0] {
         h.set_size(egui::vec2(width, 700.0));
         h.run_steps(6);
@@ -9225,7 +9232,7 @@ fn area_shadows_menu() {
     app.palette_dock = false;
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
     let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 700.0))
+        .with_size(egui::vec2(1200.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     themed(&mut h);
@@ -12154,8 +12161,8 @@ fn board_narrow() {
 /// WideArea.png at 3440 by 1440: the script in a second editor group at
 /// the area's right (Split Editor), the focus back on the area. Today the
 /// wide layout's second column holds the Preview, not the board's
-/// Properties column; the header unfolds what fits of its popovers into
-/// its row (M4's U3: Audio, at this editor's width).
+/// Properties column; the area's group as wide as the board's (the
+/// split's share set), its header's popovers unfolded into its row.
 #[test]
 #[ignore]
 fn board_wide() {
@@ -12167,6 +12174,15 @@ fn board_wide() {
     frames_until(&mut h, "two editor groups", |h| {
         h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
     });
+    // (The two groups as WideArea draws them: the area's 1729 points of
+    // the 2370 the two take, the script's the rest; Split Editor halves
+    // them.)
+    for node in h.state_mut().dock.main_surface_mut().iter_mut() {
+        if let egui_dock::Node::Horizontal(split) = node {
+            split.fraction = 1729.0 / 2370.0;
+        }
+    }
+    h.run_steps(4);
     board_front(&mut h, &board_area_tab());
     shoot(&mut h, &board_dir(), "board_wide");
 }

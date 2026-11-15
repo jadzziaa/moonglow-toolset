@@ -327,3 +327,29 @@ fn no_popover_unfolds_again_once_words_went() {
         assert!(!(yielded && unfolded), "at {px}: {mine:?}");
     }
 }
+
+/// A weak count after an item's words (the compact area header's Show
+/// "5 of 10", `.count-w`): the button wider by the count and its gap, its
+/// name its words alone; with its icon alone, no count.
+#[test]
+fn an_item_s_count_follows_its_words() {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let out = seen.clone();
+    let mut on = false;
+    let mut h = harness(vec2(900.0, 300.0), move |ui| {
+        let plain = KitButton::new(Some(Icon::Eye), "Show").opens(false).width(ui);
+        let font = egui::FontId::proportional(mg_uikit::metrics::SMALL_SIZE);
+        let galley = ui.painter().layout_no_wrap("5 of 10".into(), font, egui::Color32::WHITE);
+        let pop = Popover::new("Show").check(PopCheck::new(&mut on, "Creatures"));
+        let r = EditorHeader::new(H)
+            .left(Item::popover(Some(Icon::Eye), pop).words_icon(true).count("5 of 10"))
+            .show(ui);
+        let w = r.response("Show").map(|r| r.rect.width()).unwrap_or_default();
+        *out.borrow_mut() = vec![w, plain + mg_uikit::button::COUNT_GAP + galley.size().x];
+    });
+    h.run();
+    h.get_by_label(H).get_by_label("Show");
+    assert!(h.query_by_label_contains("5 of 10").is_none(), "not in its name");
+    let w = seen.borrow().clone();
+    assert!((w[0] - w[1].ceil()).abs() <= 1.0, "wider by the count: {w:?}");
+}

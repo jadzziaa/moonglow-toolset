@@ -586,6 +586,10 @@ pub struct Settings {
     pub sound_ranges: bool,
     /// The area view's Minimap switch is on, in views opened from now on.
     pub area_minimap: bool,
+    /// The area header's Overlays switch is off (the grid, the minimap,
+    /// the walkmeshes and the sound ranges not drawn, each kept as
+    /// ticked), in views opened from now on. An older Moonglow ignores it.
+    pub hide_overlays: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,

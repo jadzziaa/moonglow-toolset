@@ -229,6 +229,7 @@ pub struct Item<'a> {
     words_icon: bool,
     force_icon: bool,
     shown_words: Option<String>,
+    count: Option<String>,
 }
 
 impl std::fmt::Debug for Item<'_> {
@@ -264,6 +265,7 @@ impl<'a> Item<'a> {
             words_icon: true,
             force_icon: false,
             shown_words: None,
+            count: None,
         }
     }
 
@@ -491,6 +493,14 @@ impl<'a> Item<'a> {
         self
     }
 
+    /// A weak count after its button's words (`.count-w`, the compact
+    /// area header's Show "5 of 10"; [`KitButton::count`]): a button's,
+    /// popover's or menu's, not shown with its icon alone.
+    pub fn count(mut self, count: impl Into<String>) -> Self {
+        self.count = Some(count.into());
+        self
+    }
+
     /// Its name (its accessible name and its name in the record).
     pub fn name(&self) -> &str {
         &self.name
@@ -532,6 +542,9 @@ impl<'a> Item<'a> {
         b = b.enabled(self.enabled);
         if self.shown_words.is_some() {
             b = b.name(self.name.as_str());
+        }
+        if let Some(count) = self.count.as_ref().filter(|_| !b.is_icon_only()) {
+            b = b.count(count.as_str());
         }
         if let Some(tip) = &self.tip {
             b = b.tip(tip.as_str());

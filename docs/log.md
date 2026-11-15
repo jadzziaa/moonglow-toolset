@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U3's review ([04](manual/04-areas.md#the-header)).
+  * A header popover is not modal: the view's keys and their hints stay while one is open.
+  * The Overlays switch is kept for the areas opened after, and stays on the header while off; Bake Walkmesh to Transform turns it on (and Object walkmeshes, which it had stopped turning on).
+  * As the boards draw it: no line after Day | Night, Together and Onto Objects one group, the Show count in gray, the popovers unfolded only on a wide screen, Main's tips.
+  * The narrowing test checks every unfolded part and sweeps the wide widths.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U3, the area header and its popovers**: the area's toolbar is one header row, as the Main, Narrow and WideArea boards draw it ([04](manual/04-areas.md#the-header), [02](manual/02-main-window.md), [10](manual/10-options.md)).
   * **The row**: the Show toggles with All and None on their arrow, Snap and Turn, Together and Onto Objects; Day | Night; the **Lighting**, **Overlays** (its switch hides the five overlays and gives them back as they were) and **Audio** popovers; Area Properties; a warning sign for what could not be read; More with To Scratch and Save as Prefab… (and Select Tiles, Paint, Reorient Camera and Go to Start Location until the tool shelf and the compass).
   * **The yields**: compact under an editor 990 wide (Show "5 of 10", the moon, icons), Snap and Turn without their values under 550, Together and Onto Objects into More under 490; on wide screens the popovers unfold into the row where they fit.

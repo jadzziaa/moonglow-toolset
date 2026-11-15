@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:49:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T06:46:42Z }
 ---
 
 # Areas
@@ -30,14 +30,15 @@ control stays on the row, as an icon (its name in its tip) or in More:
 
 - Under 990 points of editor (a window about 1300 wide), it goes
   compact: the ten Show toggles become one **Show** popover whose button
-  says how many kinds are shown ("Show 5 of 10"), Day and Night one moon
+  says how many kinds are shown ("Show 5 of 10", the count in gray), Day and Night one moon
   toggle (**Night**), and Lighting, Overlays, Audio and Area Properties
   icons.
 - Under 550, **Snap** and **Turn** show their icon alone, their value in
   their list.
 - Under 490, **Together** and **Onto Objects** move into More.
-- Where it has room (a wide screen, the editor some 2000 points wide),
-  the popovers unfold into the row, from the left, those that fit:
+- On a wide screen (a window from 2560 points wide), the popovers unfold
+  into the row where it has room, from the left, those that fit (the
+  area some 1700 points wide holds all three):
   **Day** and **Night** side by side, **Lighting**, **Shadows**, **Fog**,
   **Grid**, **Minimap**, **Walkmesh** and **Sound ranges** with their
   words, **Fade Geometry** a list, and Animations, Grass, Tile border,
@@ -108,7 +109,7 @@ has its height now.
 - **Snap** and **Turn** (a magnet and a turning arrow, each with its
   value): the grid moved and placed objects snap to and the angle they
   turn by (see [Snapping](#selecting-and-arranging-objects)).
-- **Together** and **Onto Objects**: turn several selected objects about
+- **Together** and **Onto Objects** (one group of two toggles): turn several selected objects about
   their middle as one, and place onto the placeable or door under the
   pointer.
 
@@ -298,7 +299,11 @@ then the shadows, the fog and how the scene is drawn.
 
 The **Overlays** popover: what is drawn over the area. Its switch at the
 top (**Show overlays**) hides all five at once, each kept as you ticked
-it (its row grayed), and shows them again as they were.
+it (its row grayed), and shows them again as they were. It stays as you
+leave it, for the areas opened after, and while it is off the Overlays
+button stays on the header even with all its rows hidden (the header's
+right-click menu), so that it can be turned back on. **Bake Walkmesh to
+Transform** turns it on, to show the walkmeshes before and after.
 
 - **Grid**: the tile grid. The grid is faint from above; as the view comes down to
   look along the ground from the area's edge it turns Aurora's red, to
@@ -320,7 +325,7 @@ it (its row grayed), and shows them again as they were.
   object stands, turned by its Bearing, and not by its visual
   transform: the game doesn't scale, turn, tilt or move a walkmesh with
   its model (see Adjust Location below).
-- **Sound Ranges**: two spheres of dots around each placed sound that
+- **Sound ranges**: two spheres of dots around each placed sound that
   is heard from where it stands, as Aurora draws them: at full volume
   inside the inner one (its minimum distance), not at all outside the
   outer one (its maximum), with a circle at the sound's height where the
