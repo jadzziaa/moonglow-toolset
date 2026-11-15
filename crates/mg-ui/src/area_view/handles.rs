@@ -335,7 +335,8 @@ pub(super) struct Colors {
     pub(super) axes: [(Color32, Color32); 3],
     pub(super) turn: (Color32, Color32),
     pub(super) scale: (Color32, Color32),
-    pub(super) start: (Color32, Color32),
+    /// The start location's ring and arrow, each idle and lit.
+    pub(super) start: [(Color32, Color32); 2],
     /// The dark edge, black at [`EDGE`].
     pub(super) edge: Color32,
 }
@@ -350,7 +351,10 @@ impl Colors {
             ],
             turn: (t.handle_turn, t.handle_turn_lit),
             scale: (t.handle_scale, t.handle_scale_lit),
-            start: (t.handle_start_ring, t.handle_start_arrow),
+            start: [
+                (t.handle_start_ring, t.handle_start_ring_lit),
+                (t.handle_start_arrow, t.handle_start_arrow_lit),
+            ],
             edge: t.handle_edge,
         }
     }
@@ -360,7 +364,7 @@ impl Colors {
         let pair = match h {
             Handle::Arrow(a) => self.axes[a.axis],
             Handle::Tilt(r) => self.axes[r.axis],
-            Handle::Scale(_) => self.scale,
+            Handle::Scale(..) => self.scale,
             _ => self.turn,
         };
         if lit { pair.1 } else { pair.0 }
@@ -402,14 +406,21 @@ impl Lit {
             (Some(Lit::Turning), Handle::Ring(_)) => true,
             (Some(Lit::Tilting(axis)), Handle::Tilt(r)) => r.axis == axis,
             (Some(Lit::Sliding(axis)), Handle::Arrow(a)) => a.axis == axis,
-            (Some(Lit::Scaling), Handle::Scale(_)) => true,
+            (Some(Lit::Scaling), Handle::Scale(..)) => true,
             _ => false,
         }
     }
 
-    /// The strength `h` draws at: whole, or half while another is lit.
+    /// The strength `h` draws at: whole, or half while another of its set
+    /// is lit (section 11.3: the hovered object's own set; a drag dims
+    /// every set, as it leads them all). A spawn point or the start
+    /// location under the pointer dims no set.
     pub(super) fn strength(lit: Option<Lit>, h: &Handle) -> f32 {
-        if lit.is_none() || Lit::lights(lit, h) { 1.0 } else { DIMMED }
+        let other_set = match (lit, h.object()) {
+            (Some(Lit::One(one)), Some(of)) => one.object() != Some(of),
+            _ => false,
+        };
+        if lit.is_none() || Lit::lights(lit, h) || other_set { 1.0 } else { DIMMED }
     }
 }
 
@@ -441,7 +452,7 @@ pub(super) fn selection(
     if scaling || (tilting && view.drag.is_none()) {
         let pointer = ui.ctx().pointer_latest_pos();
         for (of, pivot, handle) in view.scale_handles_of(shown) {
-            let h = Handle::Scale(of);
+            let h = Handle::Scale(of, pivot);
             let on = Lit::lights(lit, &h);
             let strength = Lit::strength(lit, &h);
             let color = colors.of_handle(&h, on);
@@ -474,7 +485,12 @@ pub(super) fn selection(
             canvas.chip(painter, t, c + SCALE_CHIP, text, colors.scale.0);
         }
     }
-    let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
+    let mut rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
+    // (Tilted, the dragged ring alone, as the board draws it: the other
+    // axis' rings go.)
+    if let Some(Drag::Tilt { ring, .. }) = view.drag {
+        rings.retain(|r| r.axis == ring.axis);
+    }
     let eye = view.camera().map(|c| c.eye);
     for ring in &rings {
         let h = Handle::Tilt(*ring);
@@ -502,7 +518,9 @@ pub(super) fn selection(
         let h = Handle::Tilt(ring);
         let was = view.model.as_ref().and_then(|m| m.objects.get(i)).and_then(|o| o.visual);
         let field = ring.field();
-        let by = (visual.rotate[field] - was.unwrap_or_default().rotate[field]).to_radians();
+        // (The short way round: from 170 by 30 the field reads -160.)
+        let by =
+            wrapped((visual.rotate[field] - was.unwrap_or_default().rotate[field]).to_radians());
         let (idle, bright) = (colors.of_handle(&h, false), colors.of_handle(&h, true));
         wedge(canvas, &at, ring.pivot, |a| ring.point(a), (grip, grip + by), idle);
         if let Some(c) = at(ring.point(grip)) {
@@ -584,10 +602,15 @@ pub(super) fn selection(
             Some(Drag::Spin { angle, .. }) => Some(angle),
             _ => None,
         };
-        // (Turned: each ring as it was, for where the turn began.)
+        // (Turned: each ring as it was, for where the turn began; and the
+        // turns a snapped drag lands on.)
         let was = match (spinning, view.model.as_ref()) {
             (Some(_), Some(m)) => view.turn_rings(m),
             _ => Vec::new(),
+        };
+        let landings = match spinning {
+            Some(_) => view.snap_landings(),
+            None => Vec::new(),
         };
         for (k, ring) in view.turn_rings(shown).into_iter().enumerate() {
             let h = Handle::Ring(ring);
@@ -620,16 +643,11 @@ pub(super) fn selection(
                 if let Some((c, out)) = mark(from) {
                     canvas.facing(c, out, FACING.0, idle, START, true, Lay::Top);
                 }
-                if let Some(step) = view.snap_angle().filter(|s| *s >= 1.0) {
-                    let steps = (360.0 / step).round() as usize;
-                    for n in 0..steps {
-                        // (At the facings a snapped turn lands on: the
-                        // rotation's multiples, a quarter turn from the
-                        // facing's.)
-                        let a = std::f32::consts::FRAC_PI_2 + (n as f32 * step).to_radians();
-                        if let Some((c, out)) = mark(a) {
-                            canvas.path(vec![c, c + out * TICK], false, 1.0, idle, 1.0, Lay::Front);
-                        }
+                for delta in &landings {
+                    // (Each ring's own facing at the press, turned by
+                    // as much as the first object's snapped turns are.)
+                    if let Some((c, out)) = mark(before.facing + delta) {
+                        canvas.path(vec![c, c + out * TICK], false, 1.0, idle, 1.0, Lay::Front);
                     }
                 }
             }
@@ -649,9 +667,8 @@ pub(super) fn selection(
             }
         }
     }
-    let dot = if lit.is_some() { 0.7 } else { 1.0 };
     for c in pivots {
-        canvas.dot(c, PIVOT, colors.scale.0, dot, Lay::Top);
+        canvas.dot(c, PIVOT, colors.scale.0, 1.0, Lay::Top);
     }
 }
 
@@ -799,10 +816,9 @@ pub(super) fn name_chip(
     h: &Handle,
     at: Pos2,
 ) {
-    let strip = match h {
-        Handle::StartTip | Handle::StartBody => colors.start.0,
-        _ => colors.of_handle(h, false),
-    };
+    // (The start location's in the turning ring's amber, as its readout:
+    // its round handle's color.)
+    let strip = colors.of_handle(h, false);
     canvas.chip(painter, t, at + NAME_CHIP_OFFSET, h.name().to_owned(), strip);
 }
 

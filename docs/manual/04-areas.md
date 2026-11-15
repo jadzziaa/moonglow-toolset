@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T21:05:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T22:13:47Z }
 ---
 
 # Areas
@@ -513,31 +513,44 @@ alike, and over the object too (the handles are drawn over everything,
 whatever stands in front). A white dot marks the object's place, the
 point the handles are about; the selected object's box is a thin amber
 line under them. The handle under the pointer is lit, brighter and
-thicker, the rest of its set fades to half, and a small chip beside the
+thicker, the rest of that object's handles fade to half (with several
+selected, the others' stay as they are), and a small chip beside the
 pointer names what a drag on it does: **Turn**, **Move East or West**,
 **Move North or South**, **Raise or Lower**, **Tilt (Y Rotation)**,
 **Tilt (Z Rotation)**, **Scale** (on an encounter's spawn point, **Turn
 Spawn Point** and **Move Spawn Point**; on the start location's marker,
-**Turn Start Location** and **Move Start Location**). The pointer becomes
-an open hand over any handle and a closed one while you hold it. With
-Ctrl held (the camera's) or Alt (which raises or turns the selection by
-the drag), a handle is not lit, named or taken.
+**Turn Start Location** and **Move Start Location**, its ring and arrow
+lit and thicker). The pointer becomes an open hand over any handle and
+a closed one while you hold it. A handle is lit, named and given the
+hand only where a press would take it: not with Ctrl held (the
+camera's) or Alt (which raises or turns the selection by the drag), nor
+with Shift over a spawn point (Shift takes the other handles), nor while
+a blueprint, an appearance, a light, the start location or a paste is
+being placed, an outline drawn anew, Select Tiles, Paint's brush or a
+terrain brush is in hand (a tile or group brush leaves a press on a
+handle to it).
 
 While a handle is dragged, a chip beside it says the value it sets,
 with a strip in the handle's color at its left: the facing in degrees by
 the turning ring's triangle (`182°`), the angle by a tilt ring's grip
 (`Y Rotation 12°` for the red one, `Z Rotation 12°` for the green: the
 game's own field names, as Adjust Location has them, though the red ring
-turns the model about its X axis), the coordinate by an arrow's tip
-(`X 28.00 m`), and the size beside the pointer (`Scale 1.25`). What the
-drag has done shows too: a turn fills a faint wedge from where the
-object faced to where it faces now, with a hollow triangle where it
-began, and with **Turn** set, small ticks on the ring at the angles it
-snaps to; a tilt the same wedge in its ring, with a hollow dot where it
-was taken; an arrow a faint line along its axis across the view and a
-hollow dot where the object stood; the scale handle a hollow square
-where it began. The chips follow the light or dark theme; the handles
-look the same in both, over the same picture.
+turns the model about its X axis; within half a turn either way, as the
+field holds it, so that from 170 a turn of 30 reads `-160°`), the
+coordinate by an arrow's tip (`X 28.00 m`), and the size beside the
+pointer (`Scale 1.25`). What the drag has done shows too: a turn fills a
+faint wedge from where the object faced to where it faces now, with a
+hollow triangle where it began, and with **Turn** set, small ticks on
+each object's ring at the facings a snapped turn brings it to (the first
+selected object snaps to the angle, the others turn by as much); a tilt
+the same wedge in its ring, the other ring hidden while it is led, with
+a hollow dot where it was taken; an arrow a faint line along its axis
+across the view and a hollow dot where the object stood; the scale
+handle a hollow square where it began. The Status Bar says the snap
+where the drag snaps: the Turn snap for a turn, a tilt and the start
+location's turn; the grid for a move and for a scale, in steps of 0.05.
+The chips follow the light or dark theme; the handles look the same in
+both, over the same picture.
 
 **The turning ring**: an amber ring lies around the
 selected object, with a small triangle on it the way the object faces. Take the

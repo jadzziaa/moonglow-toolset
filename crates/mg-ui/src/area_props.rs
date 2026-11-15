@@ -26,6 +26,9 @@ const NATURAL: u32 = 0x4;
 
 /// The pages for several areas edited together: what is an area's own
 /// (its name, tag and comments) is edited one area at a time.
+/// The name of the row of Area Properties' pages.
+pub(crate) const PAGES_ROW: &str = "Area Properties pages";
+
 const SHARED_PAGES: [&str; 6] = ["Visual", "Grass", "Audio", "Events", "Advanced", "Variables"];
 
 /// Area Properties of `area`; with `others`, of them all (Edit Areas
@@ -130,6 +133,9 @@ fn pages(
         page = pages[0];
     }
     ui.horizontal_wrapped(|ui| {
+        // (Named, for a screen reader and the tests: "Audio" is also the
+        // area header's popover.)
+        mg_uikit::name_group(ui, PAGES_ROW);
         for p in pages {
             ui.selectable_value(&mut page, *p, *p);
         }

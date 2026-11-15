@@ -333,8 +333,8 @@ enum Handle {
     SpawnTip(usize, usize),
     /// A spawn point's post's foot: moves it.
     SpawnFoot(usize, usize),
-    /// A scale handle (its object).
-    Scale((ObjectKind, usize)),
+    /// A scale handle: its object, and its object's place.
+    Scale((ObjectKind, usize), Vec3),
     Arrow(AxisArrow),
     Tilt(TiltRing),
     Ring(TurnRing),
@@ -354,7 +354,19 @@ impl Handle {
             (Handle::Ring(a), Handle::Ring(b)) => a.of == b.of,
             (Handle::Tilt(a), Handle::Tilt(b)) => a.of == b.of && a.axis == b.axis,
             (Handle::Arrow(a), Handle::Arrow(b)) => a.of == b.of && a.axis == b.axis,
+            (Handle::Scale(a, _), Handle::Scale(b, _)) => a == b,
             (a, b) => a == b,
+        }
+    }
+
+    /// Its object (kind and index), for a handle of an object's set.
+    fn object(&self) -> Option<(ObjectKind, usize)> {
+        match self {
+            Handle::Ring(r) => Some(r.of),
+            Handle::Tilt(r) => Some(r.of),
+            Handle::Arrow(a) => Some(a.of),
+            Handle::Scale(of, _) => Some(*of),
+            _ => None,
         }
     }
 
@@ -365,7 +377,7 @@ impl Handle {
         match self {
             Handle::SpawnTip(..) => "Turn Spawn Point",
             Handle::SpawnFoot(..) => "Move Spawn Point",
-            Handle::Scale(_) => "Scale",
+            Handle::Scale(..) => "Scale",
             Handle::Arrow(a) => {
                 ["Move East or West", "Move North or South", "Raise or Lower"][a.axis]
             }
@@ -1310,6 +1322,31 @@ impl AreaView {
         self.snap.1
     }
 
+    /// The turns (radians) a turning ring's drag lands on with the Turn
+    /// snap set: the first selected object's rotation snapped to each of
+    /// the step's multiples within half a turn of it (the drag turns the
+    /// short way round), less its rotation; each ring is turned by as
+    /// much. None without the snap. (For any step, one that does not
+    /// divide 360 too: the multiples, negative ones among them, about the
+    /// rotation itself.)
+    fn snap_landings(&self) -> Vec<f32> {
+        let (Some(step), Some(model)) = (self.snap.1.filter(|s| *s >= 1.0), &self.model) else {
+            return Vec::new();
+        };
+        let first = self.selection.first().and_then(|&(k, i)| self.object_at(k, i));
+        let Some(r) = first.map(|i| model.objects[i].rotation.to_degrees()) else {
+            return Vec::new();
+        };
+        let lowest = ((r - 180.0) / step).ceil() as i64;
+        let highest = ((r + 180.0) / step).floor() as i64;
+        (lowest..=highest)
+            .map(|n| n as f32 * step)
+            // (Half a turn either way is one facing: kept once.)
+            .filter(|&a| a - r < 180.0 - 1e-3)
+            .map(|a| (a - r).to_radians())
+            .collect()
+    }
+
     /// The camera.
     pub fn camera(&self) -> Option<Camera> {
         self.orbit.map(|o| o.camera())
@@ -2170,8 +2207,8 @@ impl AreaView {
             }
         }
         if shift {
-            if let Some((of, _)) = self.scale_handle_of_at(pos) {
-                return Some(Handle::Scale(of));
+            if let Some((of, pivot)) = self.scale_handle_of_at(pos) {
+                return Some(Handle::Scale(of, pivot));
             }
             if let Some(arrow) = self.axis_arrow_at(pos) {
                 return Some(Handle::Arrow(arrow));
@@ -2970,6 +3007,64 @@ fn start_on_ground(app: &mut Moonglow, view: &AreaView) -> Option<(Vec3, f32)> {
     Some((p.with_z(z), facing))
 }
 
+/// Where the view's primary press goes with the mode in hand: one
+/// decision, which `input` dispatches its modes by and the overlays ask
+/// before they light, name or give the hand to a handle (only where the
+/// press reaches the objects' handles, [`PressTo::reaches_handles`]).
+/// In `input`'s order: a terrain brush (one that leaves a press on an
+/// object to it, a tile or group, apart), Paint's brush, a paste of tiles,
+/// Select Tiles, a paste of objects, an outline drawn anew, the start
+/// location placed, an appearance, a light or the palette's blueprint
+/// placed by a click; else the objects'.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PressTo {
+    Terrain,
+    /// A tile or group brush: a press on what object mode takes is the
+    /// objects' (`terrain_mode::objects_keep_their_presses`).
+    TerrainLeaving,
+    Paint,
+    TilePaste,
+    Tiles,
+    Pasting,
+    Redraw,
+    PlacingStart,
+    Appearance,
+    Light,
+    Brush,
+    Objects,
+}
+
+impl PressTo {
+    /// What the press goes to in `view` now.
+    pub(crate) fn of(app: &Moonglow, view: &AreaView) -> PressTo {
+        let writable = view.read_only.is_none();
+        if let Some(b) = crate::terrain_mode::active(app, view) {
+            return if crate::terrain_mode::objects_keep_their_presses(&b) {
+                PressTo::TerrainLeaving
+            } else {
+                PressTo::Terrain
+            };
+        }
+        match () {
+            _ if writable && crate::paint_mode::active(app).is_some() => PressTo::Paint,
+            _ if writable && view.tile_pasting => PressTo::TilePaste,
+            _ if writable && view.tile_mode => PressTo::Tiles,
+            _ if view.pasting => PressTo::Pasting,
+            _ if view.redraw.is_some() => PressTo::Redraw,
+            _ if app.palette.placing_start => PressTo::PlacingStart,
+            _ if writable && app.palette.placing_appearance.is_some() => PressTo::Appearance,
+            _ if writable && app.palette.placing_light.is_some() => PressTo::Light,
+            _ if writable && brush(app).is_some() => PressTo::Brush,
+            _ => PressTo::Objects,
+        }
+    }
+
+    /// Whether a press on a handle is the handle's.
+    pub(crate) fn reaches_handles(self) -> bool {
+        matches!(self, PressTo::Objects | PressTo::TerrainLeaving)
+    }
+}
+
 /// Whether a primary press at `pos` is one object mode would take for an
 /// object, `shift` held or not: a handle of the selection (its rings,
 /// arrows and scale handle, a spawn point's arrow or foot), an object
@@ -2984,21 +3079,14 @@ pub(crate) fn object_takes_press(
     pos: Pos2,
     shift: bool,
 ) -> bool {
-    let spawn = !app.settings.no_spawn_markers
-        && (view.spawn_arrow_at(pos).is_some() || view.spawn_foot_at(pos).is_some());
-    let handle = spawn
-        || (!shift && view.ring_at(pos).is_some())
-        || (shift
-            && (view.tilt_ring_at(pos).is_some()
-                || view.axis_arrow_at(pos).is_some()
-                || view.scale_handle_at(pos).is_some()));
-    if handle {
+    // (The handles as a press takes them, the start location's marker
+    // among them: [`AreaView::handle_under`], as the press and the hover.)
+    let modifiers = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+    let start = start_on_ground(app, view);
+    if view.handle_under(pos, modifiers, !app.settings.no_spawn_markers, start).is_some() {
         return true;
     }
-    if let Some(i) = view.pick(pos) {
-        return view.seen_before_ground(i, pos);
-    }
-    start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
+    view.pick(pos).is_some_and(|i| view.seen_before_ground(i, pos))
 }
 
 /// [`object_takes_press`] for `area`'s view, `None` without one: for the
@@ -3620,16 +3708,12 @@ fn viewport(
     let door_brush =
         dragged.map(|d| d.0).or_else(|| brush(app)).is_some_and(|k| k.restype == ResType::UTD);
     let (height, width) = app.settings.spawn_marker_size.unwrap_or(SPAWN_MARKER);
-    // (Whether the handles take a press here.)
-    let answers = !view.tile_mode
-        && !view.pasting
-        && !view.tile_pasting
-        && !app.palette.placing_start
-        && crate::paint_mode::active(app).is_none()
-        && crate::terrain_mode::active(app, view)
-            .is_none_or(|b| crate::terrain_mode::objects_keep_their_presses(&b));
+    // (Whether the handles take a press here: the decision `input`
+    // dispatches by.)
+    let answers = PressTo::of(app, view).reaches_handles();
     let marks = Marks {
         answers,
+        press_start: start_on_ground(app, view),
         spawn_points: (!app.settings.no_spawn_markers)
             .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
         door_arrows: !app.settings.no_door_arrows,
@@ -4319,9 +4403,10 @@ struct Marks {
     /// where the ghost isn't drawn).
     paste_boxes: Vec<(glam::Mat4, (Vec3, Vec3))>,
     /// The handles take a press here (lit under the pointer, named, a
-    /// hand): not where Select Tiles, a paste, Paint's brush or a painting
-    /// tile brush takes it, nor while the start location is placed.
+    /// hand): [`PressTo::reaches_handles`].
     answers: bool,
+    /// The start location as a press takes it (on the ground under it).
+    press_start: Option<(Vec3, f32)>,
 }
 
 /// Markers for objects without models, outlines, the grid, the start
@@ -4356,7 +4441,7 @@ fn overlays(
     let spawn_markers = marks.spawn_points.is_some();
     let under = hover
         .filter(|_| marks.answers && view.drag.is_none())
-        .and_then(|p| view.handle_under(p, modifiers, spawn_markers, start));
+        .and_then(|p| view.handle_under(p, modifiers, spawn_markers, marks.press_start));
     let lit = handles::Lit::held(view.drag).or(under.map(handles::Lit::One));
     // (A line is cut where it passes behind the eye, as
     // `AreaView::screen_segment` cuts it: the camera worked out once for
@@ -4641,9 +4726,13 @@ fn overlays(
     if let (true, Some((p, facing))) = (view.show_start, start) {
         let m = StartMarker::new(p, facing);
         // Brighter while it is held; over the handles' dark edge.
+        // (Lit, brighter and a point thicker: held, or its ring or arrow
+        // under the pointer.)
         let held = matches!(view.drag, Some(Drag::Start { .. }));
-        let width = if held { 4.0 } else { 3.0 };
-        let (blue, red) = colors.start;
+        let on = held || handles::Lit::lights(lit, &Handle::StartBody);
+        let width = if on { 4.0 } else { 3.0 };
+        let pick = |(idle, bright): (Color32, Color32)| if on { bright } else { idle };
+        let (blue, red) = (pick(colors.start[0]), pick(colors.start[1]));
         let edged = |canvas: &mut handles::Canvas, a: Vec3, b: Vec3, color: Color32| {
             if let Some(points) = segment(a, b) {
                 handles::edged_line(canvas, points, width, color);
@@ -4939,7 +5028,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             ui.ctx().request_repaint();
         }
     }
-    if view.pasting {
+    // (What the press goes to, as the overlays read it: after a paste
+    // asked for just now.)
+    let press = PressTo::of(app, view);
+    if press == PressTo::Pasting {
         let cancel = cancelled(ui, response);
         if cancel {
             view.pasting = false;
@@ -4954,7 +5046,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
 
     // Drawing a trigger's or encounter's outline anew.
-    if let Some((kind, index)) = view.redraw {
+    if let (PressTo::Redraw, Some((kind, index))) = (press, view.redraw) {
         let cancel = cancelled(ui, response);
         if cancel {
             view.redraw = None;
@@ -4987,7 +5079,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // Placing the start location (the palette's Start Location): where a
     // click puts it, facing the way the view looks, as the menu's Set
     // Start Location Here.
-    if app.palette.placing_start {
+    if press == PressTo::PlacingStart {
         // (Its marker shown, to be seen where it would go.)
         if !view.show_start {
             view.show_start = true;
@@ -5012,7 +5104,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // Placing an appearance taken from the Appearance Gallery by a click:
     // a placeable of it where a click puts it (its ghost showing where),
     // as a drag from there does; Shift + click places another.
-    if let Some(taken) = app.palette.placing_appearance.clone().filter(|_| !read_only) {
+    if let (PressTo::Appearance, Some(taken)) = (press, app.palette.placing_appearance.clone()) {
         if cancelled(ui, response) {
             app.palette.placing_appearance = None;
             view.ghost = None;
@@ -5026,7 +5118,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     // Placing a light (the palette's Lights): where a click puts it, as
     // the menu's Add Light Here.
-    if let Some(row) = app.palette.placing_light.filter(|_| !read_only) {
+    if let (PressTo::Light, Some(row)) = (press, app.palette.placing_light) {
         if cancelled(ui, response) {
             app.palette.placing_light = None;
         } else if response.clicked()
@@ -5043,7 +5135,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
 
     // Placing the palette's blueprint.
-    if let Some(key) = brush(app).filter(|_| !read_only) {
+    if let (PressTo::Brush, Some(key)) = (press, brush(app)) {
         let cancel = cancelled(ui, response);
         if cancel {
             app.palette.selected = None;
@@ -5215,49 +5307,48 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(pos) = origin
     {
         let hit = view.pick(pos);
-        let handle = view.ring_at(pos).filter(|_| !alt && !shift);
-        let tilt = view.tilt_ring_at(pos).filter(|_| shift && !alt);
-        let arrow = view.axis_arrow_at(pos).filter(|_| shift && !alt);
-        let scale = view.scale_handle_at(pos).filter(|_| shift && !alt);
-        let spawn =
-            view.spawn_arrow_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
-        let foot =
-            view.spawn_foot_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
-        // (Seen from afar the two handles of a point are close: the
-        // nearer one is meant.)
-        let nearer = |p: Vec3| view.screen_pos(p).map_or(f32::MAX, |q| q.distance(pos));
-        let spawn = spawn.filter(|&(object, point, at)| {
-            let facing = view
-                .model
-                .as_ref()
-                .and_then(|m| m.objects[object].spawn_facings.get(point).copied())
-                .unwrap_or(0.0);
-            foot.is_none_or(|f| nearer(spawn_arrow_tip(at, facing)) < nearer(f.2))
-        });
-        view.drag = if let Some((object, point, pivot)) = spawn {
-            let facing =
-                view.model.as_ref().and_then(|m| m.objects[object].spawn_facings.get(point));
-            Some(Drag::FaceSpawn { object, point, pivot, facing: facing.copied().unwrap_or(0.0) })
-        } else if let Some((object, point, was)) = foot {
+        // (The handle a press here takes: the one the hover lit, named and
+        // gave the hand, by the same call.)
+        let modifiers = ui.input(|i| i.modifiers);
+        let start = start_on_ground(app, view);
+        let taken = view.handle_under(pos, modifiers, !app.settings.no_spawn_markers, start);
+        let spawn_point = |object: usize, point: usize| {
+            let o = view.model.as_ref().map(|m| &m.objects[object]);
+            let at = o.and_then(|o| o.spawn_points.get(point).copied()).unwrap_or_default();
+            (at, o.and_then(|o| o.spawn_facings.get(point).copied()).unwrap_or(0.0))
+        };
+        view.drag = if let Some(Handle::SpawnTip(object, point)) = taken {
+            let (pivot, facing) = spawn_point(object, point);
+            Some(Drag::FaceSpawn { object, point, pivot, facing })
+        } else if let Some(Handle::SpawnFoot(object, point)) = taken {
+            let (was, _) = spawn_point(object, point);
             Some(Drag::MoveSpawn { object, point, at: was, was })
-        } else if let Some(pivot) = scale {
+        } else if let Some(Handle::Scale(_, pivot)) = taken {
             Some(Drag::Scale { pivot, from: pos, factor: 1.0 })
-        } else if let Some(arrow) = arrow {
+        } else if let Some(Handle::Arrow(arrow)) = taken {
             let (grip, screen) = view.slide_grip(&arrow, pos);
             Some(Drag::Slide { axis: arrow.axis, pivot: arrow.pivot, grip, by: 0.0, screen })
-        } else if let Some(ring) = tilt {
+        } else if let Some(Handle::Tilt(ring)) = taken {
             view.tilt_grip(&ring, pos).map(|(grip, screen)| Drag::Tilt {
                 ring,
                 grip,
                 angle: 0.0,
                 screen,
             })
-        } else if let Some(ring) = handle {
+        } else if let Some(Handle::Ring(ring)) = taken {
             view.angle_about(ring.pivot, pos).map(|grip| Drag::Spin {
                 pivot: ring.pivot,
                 grip,
                 angle: 0.0,
             })
+        } else if let (Some(Handle::StartTip | Handle::StartBody), Some(was)) = (taken, start) {
+            // The start location, by its marker's lines or (selected) its
+            // arrow's tip (what stands on it comes first).
+            let turn = taken == Some(Handle::StartTip);
+            let grip = view.ground_at(pos, was.0.z).map_or(Vec2::ZERO, |g| (g - was.0).truncate());
+            view.selection.clear();
+            view.start_selected = true;
+            Some(Drag::Start { turn, grip, at: was.0, facing: was.1, was })
         } else if alt {
             // With a selection, it is raised or lowered wherever the drag
             // begins, as Aurora's Alt + drag does (a builder's ask: it
@@ -5273,16 +5364,6 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             // (Read-only: picked, and not moved.)
             let from = view.ground_at(pos, o.position.z).filter(|_| !read_only);
             from.map(|from| Drag::Move { from, offset: Vec2::ZERO })
-        } else if let Some((was, turn)) = start_on_ground(app, view)
-            .filter(|_| !shift && !alt)
-            .and_then(|s| Some((s, view.start_grab(s, pos)?)))
-        {
-            // The start location, by its marker's lines (what stands on
-            // it comes first).
-            let grip = view.ground_at(pos, was.0.z).map_or(Vec2::ZERO, |g| (g - was.0).truncate());
-            view.selection.clear();
-            view.start_selected = true;
-            Some(Drag::Start { turn, grip, at: was.0, facing: was.1, was })
         } else {
             Some(Drag::Box { from: pos, to: pos })
         };

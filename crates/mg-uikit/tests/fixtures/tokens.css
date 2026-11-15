@@ -5,7 +5,10 @@
    mockups of 2026-11-10); the second part, the stylesheet's fixed colors
    (the mockup spec, section 12) and its two-part --shadow given tokens of
    their own, with their light values from the light theme's component
-   rules. */
+   rules; then the 3D view's compass (M4's U4), and the area view's handles
+   and their chips (the proposal's sections 11.3 and 11.5, M4's U7 and U8:
+   the handles keep one value in both themes, the chips follow the
+   theme). */
 
 .mg {
   --base: #15171a;
@@ -90,7 +93,9 @@
   --handle-scale-lit: #ffffff;
   --handle-edge: rgba(0, 0, 0, 0.55);
   --handle-start-ring: #4682ff;
+  --handle-start-ring-lit: #a6c2ff;
   --handle-start-arrow: #eb2828;
+  --handle-start-arrow-lit: #ff8f8f;
   /* The handles' readout and name chips (section 11.5), theme-aware. */
   --chip: rgba(12, 13, 15, 0.86);
   --chip-rim: transparent;
@@ -179,7 +184,9 @@
   --handle-scale-lit: #ffffff;
   --handle-edge: rgba(0, 0, 0, 0.55);
   --handle-start-ring: #4682ff;
+  --handle-start-ring-lit: #a6c2ff;
   --handle-start-arrow: #eb2828;
+  --handle-start-arrow-lit: #ff8f8f;
   /* The handles' readout and name chips (section 11.5), theme-aware. */
   --chip: rgba(232, 235, 239, 0.92);
   --chip-rim: rgba(20, 23, 27, 0.18);

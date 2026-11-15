@@ -234,14 +234,25 @@ fn hints(
         });
         let (grid, angle) = view.snap;
         match drag {
-            Drag::Turn { .. } | Drag::Spin { .. } | Drag::FaceSpawn { .. } => {
+            // (Each drag that snaps says how: the turns and the tilt by
+            // the Turn snap's angle, the start location's turn too.)
+            Drag::Turn { .. }
+            | Drag::Spin { .. }
+            | Drag::FaceSpawn { .. }
+            | Drag::Tilt { .. }
+            | Drag::Start { turn: true, .. } => {
                 if let Some(a) = angle {
                     let at = Hint::new(format!("Turn {a}°"));
                     out.push(at.part(HintPart::Icon(mg_uikit::Icon::Rotate)));
                 }
             }
-            Drag::Start { turn: true, .. } => {}
-            Drag::Tilt { .. } | Drag::Scale { .. } => {}
+            // (A scale goes in steps of 0.05 while the grid snaps.)
+            Drag::Scale { .. } => {
+                if grid.is_some() {
+                    let at = Hint::new("Snap 0.05");
+                    out.push(at.part(HintPart::Icon(mg_uikit::Icon::Magnet)));
+                }
+            }
             // (Up and down take no snap: the up arrow and Alt + drag.)
             Drag::Slide { axis: 2, .. } | Drag::Lift { .. } => {}
             _ => {

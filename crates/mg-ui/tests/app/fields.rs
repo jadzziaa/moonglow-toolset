@@ -2207,7 +2207,7 @@ fn area_properties_cancel_sets_back_its_sound_alone() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
     h.run_steps(5);
-    h.get_all_by_label("Audio").last().unwrap().click();
+    h.get_by_label("Area Properties pages").get_by_label("Audio").click();
     h.run_steps(3);
     let eax = |h: &mut Harness<'_, Moonglow>| props(h).integer("EnvAudio");
     let was = eax(&mut h);
@@ -2287,7 +2287,7 @@ fn arrow_keys_step_through_the_area_s_lists() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
     h.run_steps(5);
-    h.get_all_by_label("Audio").last().unwrap().click();
+    h.get_by_label("Area Properties pages").get_by_label("Audio").click();
     h.run_steps(3);
     let eax = |h: &mut Harness<'_, Moonglow>| props(h).integer("EnvAudio");
     let was = eax(&mut h);

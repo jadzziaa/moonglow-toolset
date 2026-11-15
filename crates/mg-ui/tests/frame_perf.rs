@@ -1211,22 +1211,29 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         v.selection.clear();
         v.walkmesh = false;
     }
-    // The 32 objects nearest the view's middle selected (as many as get
-    // handles of their own) and Shift held, seen close: each one's arrows,
-    // tilt rings and scale handle (M4's U7: each line over its edge, the
-    // rings in 96 pieces), lit under the pointer as it goes by.
+    // 32 objects selected (as many as get handles of their own) and Shift
+    // held, seen close: each one's arrows, tilt rings and scale handle (M4's
+    // U7: each line over its edge, the rings in 96 pieces), lit under the
+    // pointer as it goes by. The camera on the object with the most others
+    // within 12 m, the 32 nearest it selected: their handles in sight (the
+    // view's own middle had few in some areas; U7's review).
     if let Some(v) = h.state_mut().area_views.get_mut(&area)
         && let (Some(m), Some(orbit)) = (v.model.as_ref(), v.orbit.as_mut())
     {
+        let handled: Vec<_> = (m.objects.iter())
+            .filter(|o| o.kind != mg_area::ObjectKind::Sound && !o.locked)
+            .collect();
+        let crowd = |o: &mg_area::AreaObject| {
+            handled.iter().filter(|p| (p.position - o.position).length() < 12.0).count()
+        };
+        if let Some(middle) = handled.iter().max_by_key(|o| crowd(o)).map(|o| o.position) {
+            orbit.target = middle;
+        }
         orbit.pitch = 0.7;
         orbit.distance = 25.0;
         let target = orbit.target;
-        let mut near: Vec<_> = m
-            .objects
-            .iter()
-            .filter(|o| o.kind != mg_area::ObjectKind::Sound && !o.locked)
-            .map(|o| ((o.position - target).length(), (o.kind, o.index)))
-            .collect();
+        let mut near: Vec<_> =
+            (handled.iter()).map(|o| ((o.position - target).length(), (o.kind, o.index))).collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
         v.selection = near.into_iter().take(32).map(|(_, key)| key).collect();
     }

@@ -2163,6 +2163,9 @@ pub(crate) fn edit_many(
         },
     };
     let (held, is_viewed) = looked_at(app, &key);
+    // (Named, for a screen reader and the tests: the Properties panel
+    // draws the same fields.)
+    mg_uikit::name_group(ui, WINDOW_GROUP);
     let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
     // (Every page, of several too: their lists are edited on each,
     // `docs/lists-together-proposal.md`.)
@@ -2186,6 +2189,10 @@ pub(crate) fn edit_many(
     let pending = form_ui(app, ui, shown);
     window_drawn(app, pending, &tab, &targets, pressed);
 }
+
+/// The name of a blueprint's or placed object's Properties window (or
+/// tab), as a group around its pages and fields.
+pub const WINDOW_GROUP: &str = "Properties window";
 
 /// The object at `path` of the document `key` as it is now, or `None`
 /// with what is wrong said in `ui` (no module, the object gone, the

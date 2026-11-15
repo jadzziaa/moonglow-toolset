@@ -5477,7 +5477,8 @@ fn areas_by_name_and_area_properties() {
     h.get_by_label("Visual").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "area-names-visual");
-    h.get_by_label("Audio").click();
+    // (Its page: "Audio" is also the area header's popover.)
+    h.get_by_label("Area Properties pages").get_by_label("Audio").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "area-names-audio");
 }
@@ -5562,7 +5563,7 @@ fn areas_edited_together() {
     shoot(&mut h, &dir, "areas-chooser");
     h.get_all_by_label_contains(" Together").last().unwrap().click();
     h.run_steps(3);
-    h.get_all_by_label("Audio").last().unwrap().click();
+    h.get_by_label("Area Properties pages").get_by_label("Audio").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "areas-together-audio");
 }
@@ -11189,7 +11190,12 @@ fn shell_open_editors() {
             frames_until(&mut h, "the windows placed", |h| at(h).is_some_and(|x| x > 700.0));
         }
         // (The Properties' first page laid out, its portrait among it.)
-        frames_until(&mut h, "the Properties drawn", |h| h.query_by_label("First name").is_some());
+        // (In Faribeth's window: the Properties panel shows the creature
+        // selected in the area, its First name too.)
+        let window = mg_ui::blueprint::WINDOW_GROUP;
+        frames_until(&mut h, "the Properties drawn", |h| {
+            h.query_all_by_label(window).any(|w| w.query_by_label("First name").is_some())
+        });
         shoot(&mut h, &dir, name);
     }
 }

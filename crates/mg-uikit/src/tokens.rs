@@ -205,8 +205,13 @@ tokens! {
     handle_edge: "handle-edge" = rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55);
     /// The start location's ring (Aurora's blue, (70, 130, 255)).
     handle_start_ring: "handle-start-ring" = hex(0x4682ff), hex(0x4682ff);
+    /// The start location's ring lit (toward white, as the other handles'
+    /// lit colors).
+    handle_start_ring_lit: "handle-start-ring-lit" = hex(0xa6c2ff), hex(0xa6c2ff);
     /// The start location's arrow (Aurora's red, (235, 40, 40)).
     handle_start_arrow: "handle-start-arrow" = hex(0xeb2828), hex(0xeb2828);
+    /// The same, lit.
+    handle_start_arrow_lit: "handle-start-arrow-lit" = hex(0xff8f8f), hex(0xff8f8f);
     /// Under a handle's readout or name chip (section 11.5).
     chip: "chip" = rgba(12, 13, 15, 0.86), rgba(232, 235, 239, 0.92);
     /// The chip's 1 px rim (none in the dark theme).

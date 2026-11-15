@@ -1,6 +1,10 @@
 # Update log
 
 ## 2026-11-15
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U7 and U8's review ([04](manual/04-areas.md)).
+  * Handles are lit, named and given the hand only where a press would take them (not while a blueprint, an appearance or a light is placed, nor an outline redrawn); the press and the hover ask one decision.
+  * Only the hovered object's own handles fade; snap ticks on each selected object's ring, for any step; a tilt across half a turn goes the short way and reads as the field does (`-160°`); the dragged tilt ring alone is drawn.
+  * The start location's ring and arrow light up under the pointer, its name chip in the turning amber; the pivot dot stays whole; the Status Bar says the snap during a tilt, a scale and the start's turn.
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U8, the handles' drag feedback and readout chips** ([04](manual/04-areas.md)); merge point M4a.
   * **A chip says the value a handle sets** while it is dragged, with a strip in its color, in the light or dark theme: `182°`, `Y Rotation 12°`, `X 28.00 m`, `Scale 1.25` (with its capital, as Ctrl + wheel's too).
   * **What the drag has done shows**: a turn's faint wedge, a hollow triangle where it began and ticks at Turn's steps; a tilt's wedge and hollow dot; an arrow's guide line across the view and a hollow dot where the object stood; the scale handle's hollow square where it began. The turning ring stays at half strength during a scale drag.

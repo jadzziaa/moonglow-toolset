@@ -11,33 +11,96 @@ use mg_area::ObjectKind;
 /// Where the chest stands.
 const CHEST: Vec3 = Vec3::new(12.0, 20.0, 0.0);
 
+/// Where the second chest of [`two_chests`] stands, turned by
+/// [`SECOND_TURN`].
+const SECOND: Vec3 = Vec3::new(15.0, 20.0, 0.0);
+const SECOND_TURN: f32 = 0.3;
+
+/// Where the encounter's spawn point stands (the encounter about 6, 6),
+/// and the start location (facing north).
+const SPAWN: Vec3 = Vec3::new(5.5, 5.5, 0.0);
+const START: Vec3 = Vec3::new(30.0, 12.0, 0.0);
+
 /// [`area_harness`]'s area with a dynamic chest at [`CHEST`], selected,
-/// seen as the Gizmos boards see theirs (yaw 0.75, pitch 0.72, 10 m).
+/// seen as the Gizmos boards see theirs (yaw 0.75, pitch 0.72, 10 m); an
+/// encounter with a spawn point at [`SPAWN`] and the start location at
+/// [`START`] aside.
 fn chest_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
-    let chest = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+    scene_harness(name, &[(CHEST, 0.0)])
+}
+
+/// [`chest_harness`] with a second chest at [`SECOND`], turned, both
+/// selected.
+fn two_chests(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    scene_harness(name, &[(CHEST, 0.0), (SECOND, SECOND_TURN)])
+}
+
+fn scene_harness(
+    name: &str,
+    chests: &[(Vec3, f32)],
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let chests = chests.to_vec();
+    let n = chests.len();
+    let scene = move |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
         use mg_module::instances::{Placement, Placing, instance};
-        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
-        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let bp = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let chest = bp("plc_chest1", ResType::UTP);
         let none = |_: ResRef| None;
         let placing = Placing { game, item: &none };
-        let at = Placement { position: CHEST.to_array(), rotation: 0.0 };
-        let mut item = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
-        item.set("Static", mg_gff::Value::Byte(0));
+        let items = (chests.iter())
+            .map(|(p, r)| {
+                let at = Placement { position: p.to_array(), rotation: *r };
+                let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+                item.set("Static", mg_gff::Value::Byte(0));
+                item
+            })
+            .collect();
         let git_key = ResKey::new(area, ResType::GIT);
         let mut git = m.gff(&git_key).unwrap().unwrap();
-        git.root.set("Placeable List", mg_gff::Value::List(vec![item]));
+        git.root.set("Placeable List", mg_gff::Value::List(items));
+        let ute = bp("nw_giantevil", ResType::UTE);
+        let outline = [[-2.0, -2.0, 0.0], [2.0, -2.0, 0.0], [2.0, 2.0, 0.0], [-2.0, 2.0, 0.0]];
+        let at = Placement { position: [6.0, 6.0, 0.0], rotation: 0.0 };
+        let mut enc = instance(&placing, ResType::UTE, &ute, at, &outline).unwrap();
+        let mut spawn = mg_gff::Struct::new(2);
+        for (label, v) in [("X", SPAWN.x), ("Y", SPAWN.y), ("Z", 0.0), ("Orientation", 0.5)] {
+            spawn.set(label, mg_gff::Value::Float(v));
+        }
+        enc.set("SpawnPointList", mg_gff::Value::List(vec![spawn]));
+        git.root.set("Encounter List", mg_gff::Value::List(vec![enc]));
         m.set_gff(git_key, &git).unwrap();
+        let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+        let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+        ifo.root.set("Mod_Entry_Area", mg_gff::Value::ResRef(area.to_string().into_bytes()));
+        for (label, v) in [
+            ("Mod_Entry_X", START.x),
+            ("Mod_Entry_Y", START.y),
+            ("Mod_Entry_Z", 0.0),
+            ("Mod_Entry_Dir_X", 0.0),
+            ("Mod_Entry_Dir_Y", 1.0),
+        ] {
+            ifo.root.set(label, mg_gff::Value::Float(v));
+        }
+        m.set_gff(ifo_key, &ifo).unwrap();
     };
-    let (mut h, area) = area_harness_with(name, "ttr01", None, 4, None, &chest)?;
+    let (mut h, area) = area_harness_with(name, "ttr01", None, 4, None, &scene)?;
     h.run_steps(3);
-    {
-        let view = h.state_mut().area_views.get_mut(&area).unwrap();
-        view.selection = vec![(ObjectKind::Placeable, 0)];
-        let o = view.orbit.as_mut().unwrap();
-        (o.target, o.yaw, o.pitch, o.distance) = (CHEST + Vec3::Z * 0.5, 0.75, 0.72, 10.0);
-    }
+    look(&mut h, area, CHEST);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection = (0..n).map(|i| (ObjectKind::Placeable, i)).collect();
+    view.show_start = true;
     h.run_steps(3);
     Some((h, area))
+}
+
+/// The camera on `at` as the boards have theirs.
+fn look(h: &mut Harness<'_, Moonglow>, area: ResRef, at: Vec3) {
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    let o = view.orbit.as_mut().unwrap();
+    (o.target, o.yaw, o.pitch, o.distance) = (at + Vec3::Z * 0.5, 0.75, 0.72, 10.0);
+    h.run_steps(2);
 }
 
 fn tokens() -> mg_uikit::Tokens {
@@ -159,6 +222,8 @@ fn the_rings_are_projected_circles() {
     let t = tokens();
     let radius = h.state().area_views[&area].handle_radius_at(CHEST).unwrap();
     let turn = paths(&h, t.handle_turn, 1.5);
+    // (In 96 pieces, closed: 96 points.)
+    assert_eq!(turn.iter().map(Vec::len).collect::<Vec<_>>(), [96], "the turning ring's points");
     let lines: Vec<_> = turn.iter().map(|l| (l.clone(), true)).collect();
     let circle = true_circle(&h, area, CHEST, (Vec3::X, Vec3::Y), radius);
     on_circle(&lines, &circle, "the turning ring");
@@ -183,6 +248,9 @@ fn the_rings_are_projected_circles() {
         let ring = |c| paths(&h, c, 1.5).into_iter().filter(|l| l.len() > 2).collect::<Vec<_>>();
         let (near, far) = (ring(color), ring(color.gamma_multiply(0.4)));
         assert!(!near.is_empty() && !far.is_empty(), "{what}: both halves ({near:?}, {far:?})");
+        // (Each half 48 of the 96 pieces: 49 points.)
+        let counts: Vec<usize> = near.iter().chain(&far).map(Vec::len).collect();
+        assert_eq!(counts, [49, 49], "{what}: its halves' points");
         let lines: Vec<_> = near.iter().chain(&far).map(|l| (l.clone(), false)).collect();
         let circle = true_circle(&h, area, CHEST, plane, radius);
         on_circle(&lines, &circle, what);
@@ -232,6 +300,30 @@ fn the_rest_of_a_set_is_at_half_strength_while_one_is_lit() {
     assert!(!paths(&h, t.handle_x_lit, 2.5).is_empty(), "the X head's line lit, thicker");
     let half_rings = paths(&h, t.handle_y.gamma_multiply(0.5), 1.5);
     assert!(!half_rings.is_empty(), "the green ring at half");
+    // The pivot dot stays whole (neither section 11.3 nor the board dims
+    // it).
+    let dot = over_view(&h).into_iter().any(
+        |s| matches!(s, egui::Shape::Circle(c) if c.radius == 2.0 && c.fill == t.handle_scale),
+    );
+    assert!(dot, "the pivot dot whole");
+    shift(&mut h, false);
+}
+
+/// Only the hovered object's own set dims (section 11.3, the owner's
+/// ruling on U7's review): the other selected objects' sets stay whole.
+#[test]
+fn only_the_hovered_object_s_set_dims() {
+    let Some((mut h, area)) = two_chests("handles-dim-own-set") else { return };
+    let t = tokens();
+    let radius = h.state().area_views[&area].handle_radius_at(CHEST).unwrap();
+    shift(&mut h, true);
+    assert_eq!(triangles(&h, t.handle_y), 2, "both Y heads, whole");
+    h.hover_at(screen(&h, area, CHEST + Vec3::X * radius * 1.45));
+    h.run_steps(2);
+    assert_eq!(triangles(&h, t.handle_x_lit), 1, "the first's X head lit");
+    assert_eq!(triangles(&h, t.handle_y.gamma_multiply(0.5)), 1, "the first's Y head at half");
+    assert_eq!(triangles(&h, t.handle_y), 1, "the second's Y head whole");
+    assert_eq!(triangles(&h, t.handle_x), 1, "the second's X head whole");
     shift(&mut h, false);
 }
 
@@ -266,6 +358,8 @@ fn the_pointer_is_a_hand_over_every_handle() {
     assert_eq!(over(&mut h, square, shifted), egui::CursorIcon::Grab, "the scale square");
     let ctrl = egui::Modifiers::COMMAND;
     assert_ne!(over(&mut h, ring, ctrl), egui::CursorIcon::Grab, "Ctrl: the camera's");
+    let alt = egui::Modifiers::ALT;
+    assert_ne!(over(&mut h, ring, alt), egui::CursorIcon::Grab, "Alt: the drag raises");
     let grip = {
         let view = &h.state().area_views[&area];
         let i = view
@@ -328,6 +422,10 @@ fn a_chip_names_the_handle_under_the_pointer() {
     let (none, shifted) = (egui::Modifiers::NONE, egui::Modifiers::SHIFT);
     let ring = CHEST + Vec3::new(0.3f32.cos(), 0.3f32.sin(), 0.0) * radius;
     assert_eq!(named(&mut h, ring, none), ["Turn"]);
+    // Its bottom-left corner 12 right of the pointer and 12 up.
+    let pointer = screen(&h, area, ring);
+    let corner = chip_corner(&h, "Turn");
+    assert!(corner.distance(pointer + egui::vec2(12.0, -12.0)) < 0.5, "{corner:?} {pointer:?}");
     for (axis, name) in
         [(0, "Move East or West"), (1, "Move North or South"), (2, "Raise or Lower")]
     {
@@ -344,6 +442,7 @@ fn a_chip_names_the_handle_under_the_pointer() {
     // Off the handles, and with Ctrl, none.
     assert!(named(&mut h, CHEST + Vec3::new(3.0, -3.0, 0.0), none).is_empty());
     assert!(named(&mut h, ring, egui::Modifiers::COMMAND).is_empty());
+    assert!(named(&mut h, ring, egui::Modifiers::ALT).is_empty(), "Alt: the drag raises");
     // Dragged, none (what it is doing shows instead).
     let at = screen(&h, area, ring);
     h.event(egui::Event::ModifiersChanged(none));
@@ -423,6 +522,35 @@ fn chips(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Color32, egui::Color32
         .collect()
 }
 
+/// Each chip over the view: its words and its rect.
+fn chip_rects(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
+    let shapes = over_view(h);
+    let rects: Vec<egui::Rect> = (shapes.iter())
+        .filter_map(|s| match s {
+            egui::Shape::Rect(r) if r.rect.height() == 18.0 => Some(r.rect),
+            _ => None,
+        })
+        .collect();
+    (shapes.iter())
+        .filter_map(|s| match s {
+            egui::Shape::Text(t) => {
+                let at = t.visual_bounding_rect().center();
+                let chip = rects.iter().find(|r| r.contains(at) && r.width() > 2.0)?;
+                Some((t.galley.text().to_owned(), *chip))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The bottom-left corner of the chip saying `words`.
+#[track_caller]
+fn chip_corner(h: &Harness<'_, Moonglow>, words: &str) -> egui::Pos2 {
+    let all = chip_rects(h);
+    let found = all.iter().find(|(w, _)| w == words);
+    found.unwrap_or_else(|| panic!("no chip {words:?}: {all:?}")).1.left_bottom()
+}
+
 /// Each handle's readout while it is dragged is a chip (the proposal's
 /// section 11.5), in either theme: `135°` for the turning ring, `Y
 /// Rotation 30°` for the red ring, `X 13.00 m` for the east arrow, `Z …
@@ -462,6 +590,11 @@ fn each_handle_s_readout_is_a_chip() {
             (0..=6).map(|k| screen(&h, area, ring(0.3 + 0.785 * k as f32 / 6.0))).collect();
         drag_along(&mut h, &path, none);
         assert_eq!(chip_of(&h, "135°"), ("135°".into(), t.chip, t.handle_turn), "{theme}");
+        // (Its corner 10 right and 10 up of the facing's triangle on the
+        // ring, section 11.5.)
+        let mark = screen(&h, area, ring(135f32.to_radians()));
+        let corner = chip_corner(&h, "135°");
+        assert!(corner.distance(mark + egui::vec2(10.0, -10.0)) < 0.5, "{theme}: {corner:?}");
         let hollow = paths(&h, t.handle_turn.gamma_multiply(0.85), 1.0);
         assert!(hollow.iter().any(|p| p.len() == 3), "{theme}: where the turn began");
         drop_drag(&mut h, path[6]);
@@ -472,6 +605,27 @@ fn each_handle_s_readout_is_a_chip() {
         drag_along(&mut h, &path, shifted);
         let chip = chip_of(&h, "Y Rotation 30°");
         assert_eq!((chip.1, chip.2), (t.chip, t.handle_x), "{theme}");
+        // (10 right and 10 up of the grip's dot.)
+        let grip = over_view(&h).into_iter().find_map(|s| match s {
+            egui::Shape::Circle(c) if c.radius == 3.5 && c.fill == t.handle_x_lit => Some(c.center),
+            _ => None,
+        });
+        let grip = grip.unwrap_or_else(|| panic!("{theme}: the grip's dot"));
+        let corner = chip_corner(&h, "Y Rotation 30°");
+        assert!(corner.distance(grip + egui::vec2(10.0, -10.0)) < 0.5, "{theme}: {corner:?}");
+        let fill = t.handle_x.gamma_multiply(0.18);
+        let wedge = over_view(&h).into_iter().any(|s| {
+            matches!(s, egui::Shape::Mesh(m) if !m.vertices.is_empty()
+                && m.vertices.iter().all(|v| v.color == fill))
+        });
+        assert!(wedge, "{theme}: the tilt's wedge");
+        // The dragged ring alone, as the board draws it.
+        let green = paths(&h, t.handle_y, 1.5).into_iter().chain(paths(&h, t.handle_y, 2.5));
+        let green = green.chain(paths(&h, t.handle_y.gamma_multiply(0.4), 1.5));
+        let green = green.chain(paths(&h, t.handle_y.gamma_multiply(0.5), 1.5));
+        assert_eq!(green.filter(|l| l.len() > 2).count(), 0, "{theme}: no green ring");
+        let said = h.state().status_said().to_vec();
+        assert!(said.iter().any(|s| s == "Turn 15°"), "{theme}: the tilt's snap: {said:?}");
         let dots = over_view(&h).into_iter().filter(|s| {
             matches!(s, egui::Shape::Circle(c) if c.stroke.color == t.handle_x.gamma_multiply(0.85))
         });
@@ -484,6 +638,12 @@ fn each_handle_s_readout_is_a_chip() {
         drag_along(&mut h, &path, shifted);
         let chip = chip_of(&h, "X 13.00 m");
         assert_eq!((chip.1, chip.2), (t.chip, t.handle_x), "{theme}");
+        // (10 right and 4 up of the arrow's tip, where the chest is now.)
+        let now = CHEST + Vec3::X;
+        let r = h.state().area_views[&area].handle_radius_at(now).unwrap();
+        let tip = screen(&h, area, now + Vec3::X * r * 1.7);
+        let corner = chip_corner(&h, "X 13.00 m");
+        assert!(corner.distance(tip + egui::vec2(10.0, -4.0)) < 0.5, "{theme}: {corner:?} {tip:?}");
         // (Across the view and past it: of all the frame's shapes.)
         let guide = drawn(&h).into_iter().filter(|s| {
             matches!(s, egui::Shape::LineSegment { stroke, .. }
@@ -518,6 +678,11 @@ fn each_handle_s_readout_is_a_chip() {
         drag_along(&mut h, &path, shifted);
         let chip = chip_of(&h, "Scale 1.40");
         assert_eq!((chip.1, chip.2), (t.chip, t.handle_scale), "{theme}");
+        // (12 right and 12 up of the pointer.)
+        let corner = chip_corner(&h, "Scale 1.40");
+        assert!(corner.distance(path[5] + egui::vec2(12.0, -12.0)) < 0.5, "{theme}: {corner:?}");
+        let said = h.state().status_said().to_vec();
+        assert!(said.iter().any(|s| s == "Snap 0.05"), "{theme}: the scale's snap: {said:?}");
         let hollow = paths(&h, t.handle_scale.gamma_multiply(0.85), 1.25);
         let square_at =
             |p: &Vec<egui::Pos2>| p.len() == 4 && (p[0] + (p[2] - p[0]) / 2.0).distance(at) < 0.5;
@@ -553,8 +718,9 @@ fn a_turn_s_wedge_and_the_snap_s_ticks() {
             .count()
     };
     // (At 20 degrees: the facings a snapped turn lands on are not the
-    // multiples of the step from east, as at 15.)
-    for snap in [Some(20u16), None] {
+    // multiples of the step from east, as at 15; at 25, a step that does
+    // not divide 360, 15 of them within half a turn either way.)
+    for snap in [Some(20u16), Some(25), None] {
         h.state_mut().settings.snap_angle = snap;
         h.run_steps(2);
         assert!(ticks(&h).is_empty(), "no ticks before the turn");
@@ -565,12 +731,20 @@ fn a_turn_s_wedge_and_the_snap_s_ticks() {
         let at = ticks(&h);
         match snap {
             Some(step) => {
-                assert_eq!(at.len(), 360 / step as usize, "a tick a step");
-                for n in 0..360 / step {
-                    let a = std::f32::consts::FRAC_PI_2 + f32::from(n * step).to_radians();
+                // (The chest's rotation is 0: the multiples of the step
+                // from -180 to under 180, each a quarter turn on from it.)
+                let step = i32::from(step);
+                let turns: Vec<i32> =
+                    (-180 / step..=180 / step).map(|n| n * step).filter(|a| *a < 180).collect();
+                assert_eq!(at.len(), turns.len(), "a tick a step ({step})");
+                for turn in turns {
+                    let a = std::f32::consts::FRAC_PI_2 + (turn as f32).to_radians();
                     let on = screen(&h, area, ring(a));
-                    let facing = 90 + n * step;
-                    assert!(at.iter().any(|p| p.distance(on) < 0.5), "a tick at {facing}°");
+                    let facing = 90 + turn;
+                    assert!(
+                        at.iter().any(|p| p.distance(on) < 0.5),
+                        "a tick at {facing}° ({step})"
+                    );
                 }
             }
             None => assert!(at.is_empty(), "no snap, no ticks: {at:?}"),
@@ -641,4 +815,217 @@ fn a_ring_stays_lit_while_e_turns_it() {
     assert_eq!(rings(&h, t.handle_turn_lit, 2.5), 1, "still lit while turned");
     assert_eq!(rings(&h, t.handle_turn.gamma_multiply(0.5), 1.5), 0, "not at half");
     rest_turn_keys(&mut h, area);
+}
+
+/// With two objects at different bearings selected, each ring's ticks are
+/// at its own facing turned by the turns the first object's snapped
+/// rotation lands on (not at the first's facings on every ring).
+#[test]
+fn each_ring_s_ticks_are_its_own() {
+    let Some((mut h, area)) = two_chests("handles-ticks-two") else { return };
+    let t = tokens();
+    h.state_mut().settings.snap_angle = Some(20);
+    h.run_steps(2);
+    let radius = h.state().area_views[&area].handle_radius_at(CHEST).unwrap();
+    let ring = |a: f32| CHEST + Vec3::new(a.cos(), a.sin(), 0.0) * radius;
+    let path: Vec<_> =
+        (0..=6).map(|k| screen(&h, area, ring(0.3 + 0.785 * k as f32 / 6.0))).collect();
+    drag_along(&mut h, &path, egui::Modifiers::NONE);
+    let ticks: Vec<egui::Pos2> = (paths(&h, t.handle_turn, 1.0).into_iter())
+        .filter(|l| l.len() == 2 && (l[0].distance(l[1]) - 5.0).abs() < 0.01)
+        .map(|l| l[0])
+        .collect();
+    let second = h.state().area_views[&area].handle_radius_at(SECOND).unwrap();
+    // (The second's facing at the press: its rotation and a quarter turn;
+    // the first's rotation is 0, so the turns are the step's multiples.)
+    let facing = SECOND_TURN + std::f32::consts::FRAC_PI_2;
+    for n in -9..9 {
+        let a = facing + (n as f32 * 20.0).to_radians();
+        let on = screen(&h, area, SECOND + Vec3::new(a.cos(), a.sin(), 0.0) * second);
+        assert!(ticks.iter().any(|p| p.distance(on) < 0.5), "the second's tick {n}: {on:?}");
+    }
+    assert_eq!(ticks.len(), 36, "18 on each ring");
+    drop_drag(&mut h, path[6]);
+}
+
+/// A tilt from 170 degrees on by 30 reads -160 (the field's value, as the
+/// Properties and Adjust Location have it, within half a turn) and its
+/// wedge spans the 30 degrees turned, not the 330 the other way round.
+#[test]
+fn a_tilt_across_half_a_turn_goes_the_short_way() {
+    let Some((mut h, area)) = chest_harness("handles-tilt-across") else { return };
+    let t = tokens();
+    h.state_mut().settings.snap_angle = Some(10);
+    h.run_steps(2);
+    let radius = h.state().area_views[&area].handle_radius_at(CHEST).unwrap();
+    let red = |a: f32| CHEST + Vec3::new(0.0, -a.sin(), a.cos()) * radius;
+    let shifted = egui::Modifiers::SHIFT;
+    // First to 170, in small steps, let go.
+    let path: Vec<_> = (0..=34)
+        .map(|k| screen(&h, area, red(1.1 + 170f32.to_radians() * k as f32 / 34.0)))
+        .collect();
+    drag_along(&mut h, &path, shifted);
+    let last = *path.last().unwrap();
+    let button = egui::PointerButton::Primary;
+    h.event(egui::Event::PointerButton { pos: last, button, pressed: false, modifiers: shifted });
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let git = ResKey::new(area, ResType::GIT);
+    let rotate = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let chest = ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[0].clone();
+        mg_area::VisualTransform::read(&chest).map(|v| v.rotate.y)
+    };
+    assert_eq!(rotate(&mut h), Some(170.0), "tilted to 170 first");
+    // Then 30 more.
+    let from = 1.1 + 170f32.to_radians();
+    let path: Vec<_> = (0..=6)
+        .map(|k| screen(&h, area, red(from + 30f32.to_radians() * k as f32 / 6.0)))
+        .collect();
+    drag_along(&mut h, &path, shifted);
+    let all = chip_rects(&h);
+    assert!(all.iter().any(|(w, _)| w == "Y Rotation -160°"), "the field's value: {all:?}");
+    let fill = t.handle_x.gamma_multiply(0.18);
+    let wedge: Vec<usize> = (over_view(&h).into_iter())
+        .filter_map(|s| match s {
+            egui::Shape::Mesh(m) if m.vertices.iter().all(|v| v.color == fill) => {
+                Some(m.vertices.len())
+            }
+            _ => None,
+        })
+        .collect();
+    // (30 degrees in pieces of at most 3.75: 8 or 9, so 10 or 11 corners
+    // with the pivot; the long way, 330 degrees, would take 90.)
+    assert!(matches!(wedge.as_slice(), [10 | 11]), "the wedge spans 30 degrees: {wedge:?}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.event(egui::Event::PointerButton {
+        pos: path[6],
+        button,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(2);
+}
+
+/// Where a press would not take a handle, none is lit, named or given the
+/// hand: with the palette's blueprint chosen, an appearance or a light
+/// being placed by a click, an outline drawn anew (each mode takes the
+/// press first, `PressTo`).
+#[test]
+fn handles_answer_only_where_a_press_takes_them() {
+    let Some((mut h, area)) = chest_harness("handles-modes") else { return };
+    let t = tokens();
+    let radius = h.state().area_views[&area].handle_radius_at(CHEST).unwrap();
+    let ring = screen(&h, area, CHEST + Vec3::new(0.3f32.cos(), 0.3f32.sin(), 0.0) * radius);
+    let answers = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(ring + egui::vec2(1.0, 0.0));
+        h.run_steps(2);
+        h.hover_at(ring);
+        h.run_steps(2);
+        let grab = h.output().platform_output.cursor_icon == egui::CursorIcon::Grab;
+        let named = words(h).iter().any(|w| w == "Turn");
+        let lit = paths(h, t.handle_turn_lit, 2.5).into_iter().any(|l| l.len() > 40);
+        (grab, named, lit)
+    };
+    assert_eq!(answers(&mut h), (true, true, true), "no mode in hand");
+    type Set = fn(&mut Moonglow, ResRef);
+    let modes: [(&str, Set, Set); 4] = [
+        (
+            "a blueprint chosen",
+            |app, _| app.palette.selected = ResKey::parse("plc_chest1", ResType::UTP),
+            |app, _| app.palette.selected = None,
+        ),
+        (
+            "an appearance placed",
+            |app, _| {
+                let taken =
+                    mg_ui::appearance_gallery::DraggedAppearance { row: 0, name: "a".into() };
+                app.palette.placing_appearance = Some(taken);
+            },
+            |app, _| app.palette.placing_appearance = None,
+        ),
+        (
+            "a light placed",
+            |app, _| app.palette.placing_light = Some(0),
+            |app, _| app.palette.placing_light = None,
+        ),
+        (
+            "an outline drawn anew",
+            |app, area| {
+                app.area_views.get_mut(&area).unwrap().redraw = Some((ObjectKind::Encounter, 0));
+            },
+            |app, area| app.area_views.get_mut(&area).unwrap().redraw = None,
+        ),
+    ];
+    for (what, on, off) in modes {
+        on(h.state_mut(), area);
+        h.run_steps(2);
+        assert_eq!(answers(&mut h), (false, false, false), "{what}");
+        off(h.state_mut(), area);
+        h.run_steps(2);
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(ObjectKind::Placeable, 0)];
+        view.outline.clear();
+        h.run_steps(2);
+    }
+    assert_eq!(answers(&mut h), (true, true, true), "back in object mode");
+}
+
+/// The encounter's spawn point's handles answer without Shift (Shift
+/// takes the selection's other handles) and the start location's marker
+/// with its own: its name chip in the turning ring's amber, as its
+/// readout; its ring and arrow lit, a point thicker, under the pointer;
+/// the Status Bar hints the Turn snap while its tip turns it.
+#[test]
+fn the_spawn_point_and_the_start_location_answer_as_handles() {
+    let Some((mut h, area)) = chest_harness("handles-spawn-start") else { return };
+    let t = tokens();
+    look(&mut h, area, SPAWN);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Encounter, 0)];
+    h.run_steps(3);
+    let tip = SPAWN + Vec3::Z * 0.1 + Vec3::new(0.5f32.cos(), 0.5f32.sin(), 0.0);
+    let named = |h: &mut Harness<'_, Moonglow>, p: Vec3, m: egui::Modifiers, words_: &str| {
+        h.event(egui::Event::ModifiersChanged(m));
+        h.hover_at(screen(h, area, p));
+        h.run_steps(2);
+        let grab = h.output().platform_output.cursor_icon == egui::CursorIcon::Grab;
+        (words(h).iter().any(|w| w == words_), grab)
+    };
+    let (none, shifted) = (egui::Modifiers::NONE, egui::Modifiers::SHIFT);
+    assert_eq!(named(&mut h, tip, none, "Turn Spawn Point"), (true, true));
+    assert_eq!(named(&mut h, SPAWN, none, "Move Spawn Point"), (true, true));
+    assert_eq!(named(&mut h, tip, shifted, "Turn Spawn Point"), (false, false), "with Shift");
+    h.event(egui::Event::ModifiersChanged(none));
+    // The start location, selected.
+    look(&mut h, area, START);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection.clear();
+        view.start_selected = true;
+    }
+    h.hover_at(egui::pos2(5.0, 5.0));
+    h.run_steps(3);
+    let ring = |h: &Harness<'_, Moonglow>, color, width| {
+        paths(h, color, width).into_iter().filter(|l| l.len() > 10).count()
+    };
+    assert_eq!(ring(&h, t.handle_start_ring, 3.0), 1, "its ring, idle");
+    let start_tip = START + Vec3::new(0.0, 0.75, 0.05);
+    assert_eq!(named(&mut h, start_tip, none, "Turn Start Location"), (true, true));
+    let strip = chips(&h).into_iter().find(|c| c.0 == "Turn Start Location").map(|c| c.2);
+    assert_eq!(strip, Some(t.handle_turn), "its name chip's strip, the readout's");
+    // On its ring: lit, a point thicker.
+    let on_ring = START + Vec3::new(-1.0, 0.0, 0.05);
+    assert_eq!(named(&mut h, on_ring, none, "Move Start Location"), (true, true));
+    assert_eq!(ring(&h, t.handle_start_ring_lit, 4.0), 1, "its ring lit");
+    assert_eq!(ring(&h, t.handle_start_ring, 3.0), 0, "not idle");
+    // Its tip turned with the Turn snap: the Status Bar says the snap.
+    h.state_mut().settings.snap_angle = Some(15);
+    h.run_steps(2);
+    let at = screen(&h, area, start_tip);
+    let path: Vec<_> = (0..=5).map(|k| at + egui::vec2(-8.0 * k as f32, 4.0 * k as f32)).collect();
+    drag_along(&mut h, &path, none);
+    let said = h.state().status_said().to_vec();
+    assert!(said.iter().any(|s| s == "Turn 15°"), "the start's turn snaps: {said:?}");
+    drop_drag(&mut h, path[5]);
 }
