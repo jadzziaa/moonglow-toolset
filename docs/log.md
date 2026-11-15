@@ -1,6 +1,14 @@
 # Update log
 
 ## 2026-11-15
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U2, the docks hold what an editor brings**. Nothing changes for the user: the Right Dock, the Log and the Status Bar draw as before, pixel for pixel in the 44 shell and board pictures.
+  * **The registry** (`mg-ui/src/shell.rs`): the Log is a panel of `Dock::Bottom`; `editor_brings` (by the editor's kind, static tables) gives the Outliner, the Right Dock's sections, their order folded into one bar under 1400, the Bottom Dock's own panels and whether they follow the editor into its window. It replaces `editor_brings_palette` and `editor_brings_outliner`.
+  * **The Right Dock** stands its sections as one bar, stacked with seams (shares kept per kind), or in the wide layout's two columns (`arrange`); a lone section of two keeps today's Palette | Preview columns until U6.
+  * **Bodies with two hosts** (`panel_body`): the dock, or the editor's own window (`window_panes`); the Preview's late slot is generalized (`LateSlot`, `draw_late`).
+  * **The Bottom Dock** has a tab per panel, the panel in front's tools; the **Status Bar** a switch per panel with its badge, their width reckoned for any number (`switches_width`).
+  * **Settings**: `dock_layouts`, per kind, by names (section fronts, shares, the Bottom Dock's front); written only once chosen; cleared by Reset Layout. An area's front stays for the run (the M3 test's rule).
+  * **Plugins**: a panel an editor brings counts as that editor's pane ([17](manual/17-plugin-api.md)).
+  * Tests: library tests with test-only panels (`Panel::Sample`, built into no shipped binary) prove a second kind of editor fills the docks, its window and the switches; `arrange`, the section heights, the switches' widths for one to five, the settings both ways.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U1's review, of the kit's editor header, popover and tool shelf (none used by the application yet).
   * **Disabled items** stay disabled everywhere they are drawn: in More, unfolded into the row, and as a part of the caller's.
   * **`header_holds`** checks that each control is drawn inside the header's row, or inside More's popover.

@@ -784,15 +784,14 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// The Right Dock's Preview panel's body drawn late, after the editor
-/// area, in the room `shell::right_dock` kept for it this frame
-/// ([`Moonglow::preview_slot`]): where an editor's tab may show the same
+/// area, in the room `shell::panel_body` kept for it this frame (its
+/// late slot, `shell::draw_late`): where an editor's tab may show the same
 /// model, so that the tab keeps its view (as it did beside the Preview
 /// window: a model is drawn in one place a frame, `model_view`), this one
 /// saying so. Its widgets are the Right Dock's (under its pane), cut at
 /// the panel's edges. (Else the body is drawn in the dock in its place:
 /// [`preview_body`], so that Tab goes from the dock's tab bar into it.)
-pub(crate) fn preview_panel(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(slot) = app.preview_slot.take() else { return };
+pub(crate) fn preview_late(app: &mut Moonglow, ui: &mut Ui, slot: crate::shell::LateSlot) {
     let builder = egui::UiBuilder::new()
         .id_salt("preview-panel")
         .max_rect(slot.rect)

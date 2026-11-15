@@ -87,7 +87,7 @@ fn area_of(at: TreeAt) -> Option<ResRef> {
 }
 
 /// The area the Outliner lists: the active editor's, where it is an
-/// area's tab (`shell::editor_brings_outliner`).
+/// area's tab (`shell::editor_brings`).
 pub(crate) fn area(app: &Moonglow) -> Option<ResRef> {
     match app.active_editor() {
         Some(crate::Tab::Area(area)) if app.ws.is_some() => Some(*area),

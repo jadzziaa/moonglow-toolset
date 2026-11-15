@@ -518,6 +518,26 @@ fn keep_aside(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The docks' layout for one kind of editor ([`Settings::dock_layouts`]),
+/// by the panels' names (`shell::Panel::name`): a name this version does
+/// not know is passed by, the section's first panel in front.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockLayout {
+    /// The panel in front of each of the Right Dock's sections, from the
+    /// top (`""`: none chosen, its first).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fronts: Vec<String>,
+    /// Each section's share of the Right Dock's height, from the top, as
+    /// the builder dragged the seams between them: in thousandths of an
+    /// equal share (1000 each: equal; none kept, equal).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<u16>,
+    /// The Bottom Dock's panel in front, of the kind's own panels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -728,6 +748,18 @@ pub struct Settings {
     /// narrower window), each the width of its own layout. `None`: not
     /// chosen there, 741.
     pub right_dock_width_wide: Option<u32>,
+    /// The docks' layout for each kind of editor (by `Tab::kind`: "area",
+    /// "script"…), as the builder left it (M4's U2): which panel is in
+    /// front of each of the Right Dock's sections and of the Bottom Dock,
+    /// and the sections' shares of the dock's height; kept per kind, not
+    /// per document, as the docks' sizes are. Nothing is written until
+    /// something is chosen (a file with none reads empty), and kinds and
+    /// panels are kept by their names, so that a newer Moonglow's kind or
+    /// panel reads here, is kept, and is passed by (`DockLayout`). The
+    /// area's sections keep no front here: its Right Dock is on the tab
+    /// chosen last for the run, and on the Palette as a module opens.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub dock_layouts: std::collections::BTreeMap<String, DockLayout>,
     /// The Left Dock's seam over the Outliner, as the builder dragged it:
     /// the height of the panel above it (Module or Resources, its tab bar
     /// included), in whole points, kept as the docks' sizes are (drawn held
@@ -1963,6 +1995,55 @@ mod tests {
         let dir = mg_testkit::scratch_dir("settings-open-editors");
         let read = Settings::read_eframe(&dir.join("app.ron"), "moonglow-settings");
         assert_eq!(read.settings.open_editors, OpenEditors::Tabs, "no file");
+    }
+
+    /// The docks' layouts per kind (M4's U2): nothing written until one
+    /// is chosen, so a file stays as it was; an older file reads with none;
+    /// kept and read back in RON and JSON; a newer Moonglow's kind and
+    /// panel names read here with nothing unread; and an older Moonglow
+    /// (without the field) reads a file that has them.
+    #[test]
+    fn the_docks_layouts_per_kind_read_and_write_both_ways() {
+        let plain = Settings::default();
+        assert!(!plain.saved_text().contains("dock_layouts"), "{}", plain.saved_text());
+        let (read, unread) = Settings::read_fields(&plain.saved_text()).unwrap();
+        assert!(read.dock_layouts.is_empty() && unread.is_empty());
+        let mut kept = Settings { light_theme: true, ..Default::default() };
+        let script = DockLayout {
+            fronts: vec!["Reference".into(), String::new()],
+            shares: vec![1400, 600],
+            bottom: Some("Compiler".into()),
+        };
+        kept.dock_layouts.insert("script".into(), script);
+        // (A newer one's kind, and a panel this version has no name for.)
+        let newer = DockLayout { fronts: vec!["Checks".into()], ..Default::default() };
+        kept.dock_layouts.insert("a-newer-editor".into(), newer);
+        let text = kept.saved_text();
+        assert!(text.contains("dock_layouts"), "{text}");
+        assert_eq!(Settings::read_fields(&text).unwrap(), (kept.clone(), Vec::new()));
+        let json = serde_json::to_string(&kept).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), kept);
+        // (An empty layout writes none of its parts.)
+        let bare = Settings {
+            dock_layouts: [("hak".to_string(), DockLayout::default())].into(),
+            ..Default::default()
+        };
+        assert!(bare.saved_text().contains("\"hak\":()"), "{}", bare.saved_text());
+        // (As a Moonglow without the field reads it.)
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Older {
+            light_theme: bool,
+            hide_log: bool,
+        }
+        let older: Older = ron::from_str(&text).unwrap();
+        assert!(older.light_theme && !older.hide_log, "{text}");
+        let older: Older = serde_json::from_str(&json).unwrap();
+        assert!(older.light_theme);
+        // (A layout with a part a newer one added reads, the part passed by.)
+        let added = text.replace("bottom:Some(\"Compiler\")", "bottom:Some(\"Compiler\"),split:2");
+        assert_ne!(added, text);
+        assert_eq!(Settings::read_fields(&added).unwrap(), (kept, Vec::new()));
     }
 
     /// The settings 4.1.0 kept (before the shell's dock sizes), as RON and

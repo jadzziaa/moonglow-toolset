@@ -720,6 +720,12 @@ impl TabViewer for Viewer<'_> {
             // (Not a stop of Tab: `Sense::DRAG` alone.)
             ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::DRAG);
         }
+        // In a window of its own, the panels its editor brings there, at
+        // its right and under it (`shell::window_panes`; docked, they are
+        // the main window's docks').
+        if ui.layer_id().order != egui::Order::Background {
+            crate::shell::window_panes(self.app, ui, tab);
+        }
         let framed = |viewer: &mut Self, ui: &mut Ui, tab: &mut Tab| {
             egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
                 // (All the room, so a view that fills its tab still does.)
