@@ -145,7 +145,6 @@ impl Moonglow {
             doc: d.doc_source.clone(),
             custom: d.at.file != NWSCRIPT,
         });
-        self.script_tools.info = InfoTab::Help;
         if self.ws.as_ref().is_some_and(|w| w.module.contains(&k)) {
             let text = self.script_source(&k).unwrap_or_default();
             self.script_tools.jump = Some((k, tools::char_index(&text, d.at.span.start)));

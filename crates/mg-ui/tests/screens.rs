@@ -4203,6 +4203,108 @@ fn script_editor() {
     shoot(&mut h, &dir, "script-editor");
 }
 
+/// The script's Reference and Help where no board draws them (M4's U12):
+/// As Tabs at 1280 (one tab bar of the two, Help in front after a name
+/// is chosen), at 2560 (the wide layout's two columns), and floating in a
+/// window 600 wide (the pane at half the window).
+#[test]
+#[ignore]
+fn script_reference_layouts() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-reference");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n    ActionMoveToObject(OBJECT_SELF);\n}\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let script = mg_ui::Tab::Script(key);
+    for tabs in [true, false] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        if tabs {
+            app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+        h.run_steps(5);
+        let symbol = {
+            let (_, symbols) = &h.state().script_tools.symbols[&key];
+            symbols.iter().find(|s| s.name == "ActionMoveToObject").cloned()
+        };
+        h.state_mut().script_tools.help = symbol;
+        h.run_steps(5);
+        if tabs {
+            shoot(&mut h, &dir, "script-reference-1280");
+            h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Help").click();
+            h.run_steps(5);
+            shoot(&mut h, &dir, "script-help-1280");
+            h.set_size(egui::vec2(2560.0, 1000.0));
+            h.run_steps(8);
+            shoot(&mut h, &dir, "script-reference-2560");
+        } else {
+            place(&mut h, &script, (100.0, 80.0), (600.0, 600.0));
+            h.run_steps(8);
+            shoot(&mut h, &dir, "script-reference-floating-600");
+        }
+    }
+}
+
+/// M4's U12 review: the script's header with OK and Cancel at its end, As
+/// Tabs at 1600 and at 420 (the header's least: Save, Compile, More, OK,
+/// Cancel), and Help over the game's own functions whose documentation
+/// has a list (SetCalendar), code (ActionSit) and wrapped sentences
+/// (GetEnteringObject), at the Script board's 1600.
+#[test]
+#[ignore]
+fn script_review_pictures() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-review");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n    ActionSit(OBJECT_SELF);\n}\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run_steps(5);
+    for name in ["SetCalendar", "ActionSit", "GetEnteringObject"] {
+        let symbol = {
+            let (_, symbols) = &h.state().script_tools.symbols[&key];
+            symbols.iter().find(|s| s.name == name).cloned()
+        };
+        h.state_mut().script_tools.help = symbol;
+        h.run_steps(5);
+        shoot(&mut h, &dir, &format!("script-help-{name}"));
+    }
+    shoot(&mut h, &dir, "script-header-1600");
+    h.set_size(egui::vec2(420.0, 700.0));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "script-header-420");
+}
+
 /// The Edit menu opened from a script typed in, the module's last step
 /// elsewhere: its Undo and Redo the script's, plain "Undo" and "Redo".
 #[test]
@@ -12210,11 +12312,11 @@ fn board_wide() {
 
 /// Floating.png: As Floating Windows (the board's mode, the default), the
 /// script floating over the area where the board has it, the pyre
-/// selected. Today the floating script draws its Functions list and its
-/// Compiler and Help strip as M3 left them, not the board's Reference
-/// and Help at its right; the board's second script tab in the window
-/// (`m1q3_formosa_d`) is left out, a second script opening a window of
-/// its own.
+/// selected, `ActionMoveToObject` chosen in its Reference (M4's U12: its
+/// header, and Reference over Help at its right). Today its Compiler,
+/// Bookmarks and Search Results are still its own bottom strip (U13);
+/// the board's second script tab in the window (`m1q3_formosa_d`) is left
+/// out, a second script opening a window of its own.
 #[test]
 #[ignore]
 fn board_floating() {
@@ -12227,6 +12329,7 @@ fn board_floating() {
     frames_until(&mut h, "the script drawn", |h| h.state().tab_rect(&script).is_some());
     place(&mut h, &script, (328.0, 131.0), (1045.0, 637.0));
     h.run_steps(10);
+    board_help(&mut h, "ActionMoveToObject");
     shoot(&mut h, &board_dir(), "board_floating");
 }
 
@@ -12855,11 +12958,11 @@ fn preview_review() {
     shoot(&mut h, &board_dir(), "preview_docked_1280");
 }
 
-/// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17. Today the
-/// toolbar is today's (words, wrapped), the Functions list is the
-/// script's own pane, not the board's Reference and Help in the Right
-/// Dock; Compiler, Bookmarks and Search Results are the script's bottom
-/// pane, not the Bottom Dock's; the Status Bar has no line and column.
+/// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17,
+/// `ActionMoveToObject` chosen in Reference (M4's U12: the header, and
+/// Reference over Help in the Right Dock). Today Compiler, Bookmarks and
+/// Search Results are the script's bottom pane, not the Bottom Dock's,
+/// and the Status Bar has no line and column (U13).
 #[test]
 #[ignore]
 fn board_script() {
@@ -12870,7 +12973,20 @@ fn board_script() {
     let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
     h.state_mut().script_tools.jump = Some((key, 16));
     h.run_steps(10);
+    board_help(&mut h, "ActionMoveToObject");
     shoot(&mut h, &board_dir(), "board_script");
+}
+
+/// The boards' script with `name` chosen in its Reference (shown in
+/// Help), as a click on its row chooses it.
+fn board_help(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    let symbol = {
+        let (_, symbols) = &h.state().script_tools.symbols[&key];
+        symbols.iter().find(|s| s.name == name).cloned()
+    };
+    h.state_mut().script_tools.help = symbol;
+    h.run_steps(10);
 }
 
 /// Conversation.png: `m1q1faribeth.dlg` As Tabs, its second root line

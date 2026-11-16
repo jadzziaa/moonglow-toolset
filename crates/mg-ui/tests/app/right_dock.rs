@@ -1179,8 +1179,9 @@ fn editor_right(h: &Harness<'_, Moonglow>) -> f32 {
 }
 
 /// The Right Dock follows the active docked editor: with the area's tab in
-/// front it holds the Palette and the Preview; with Module Properties, a
-/// script or the manual docked in front of it, it is not drawn at all (no
+/// front it holds the Palette and the Preview; with a script's, the
+/// script's Reference and Help (M4's U12); with Module Properties or the
+/// manual docked in front of it, it is not drawn at all (no
 /// strip, no fold button, nothing of it left), the editor area takes its
 /// room, View › Right Dock is grayed and F6 passes over it; with the
 /// area's tab in front again it is back as it was: as wide, and folded
@@ -1201,7 +1202,7 @@ fn the_right_dock_follows_the_active_editor() {
     let beside = editor_right(&h);
     assert!(beside < window.right() - 390.0);
     let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
-    let others = [Tab::ModuleProperties, script, Tab::Manual];
+    let others = [Tab::ModuleProperties, Tab::Manual];
     // (The script: one of the module's, made for the test.)
     {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1250,6 +1251,19 @@ fn the_right_dock_follows_the_active_editor() {
         assert!((right_dock_rect(&h).width() - width).abs() < 1.0, "as wide");
         assert_eq!(right_tabs(&h), ["Palette", "Preview"], "with both its tabs");
     }
+    // A script's tab: its own Reference over its Help, the area's palettes
+    // gone; the area's tab again, the palettes back as they were.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&script));
+    assert!(right_dock_drawn(&h), "the script's Right Dock");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
+    assert!(!palette_shown(h.state()));
+    h.get_by_label("Reference, nwscript and includes");
+    h.get_by_label("Help, Nothing chosen");
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"], "the area's again");
     // Folded, it stays folded through a tab that takes it away.
     fold_palette(h.state_mut());
     settle(&mut h);

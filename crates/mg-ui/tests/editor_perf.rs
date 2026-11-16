@@ -153,6 +153,10 @@ fn editing_a_huge_script() {
     // read for the side lists, and for the check as you type.)
     let install = GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (As Tabs, as the other cases: the script in the main window's
+    // editor area, as wide as the screen gives it, not a window left at
+    // the size the harness gave it.)
+    app.settings.open_editors = mg_ui::Settings::new_installation().open_editors;
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
     let mut h = Harness::builder()
@@ -236,6 +240,26 @@ fn editing_a_huge_script() {
         }),
     );
     let middle_of = egui::pos2(SCREEN.x * 0.3, SCREEN.y * 0.5);
+    // (The pointer over the script's text, so that the wheel scrolls it:
+    // it moves down a few turns of the wheel, else this measures another
+    // tab's frames.)
+    let before = w.app.script_scroll_for_test(script).unwrap_or(0.0);
+    for _ in 0..4 {
+        w.frame(vec![
+            Event::PointerMoved(middle_of),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            },
+        ]);
+    }
+    for _ in 0..30 {
+        w.frame(Vec::new());
+    }
+    let after = w.app.script_scroll_for_test(script).unwrap_or(0.0);
+    assert!(after > before + 200.0, "the wheel scrolled the script: {before} to {after}");
     held(
         "scrolling",
         w.frames("scrolling", count, |n| {

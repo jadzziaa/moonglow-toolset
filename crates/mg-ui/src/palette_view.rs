@@ -413,6 +413,11 @@ pub(crate) enum Keys {
     /// gives its page rail's page shown the keyboard's focus, and Tab goes
     /// on through its controls (`properties_panel::panel`).
     Properties,
+    /// A script's Reference (M4's U12): no arrows of its own; F6 gives its
+    /// filter the keyboard's focus (`script_reference::reference`).
+    Reference,
+    /// A script's Help (M4's U12): text to read, nothing to take them.
+    Help,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

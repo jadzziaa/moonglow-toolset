@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T11:44:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T17:20:34Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -92,17 +92,17 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| Save, Compile | Header, icon and word |
-| Save As…, Print…, Open…, External Editor | Header icons |
-| Find…, Replace… | Header icons, their own group |
-| Bookmark | Header icon |
-| Definition, References, Rename Symbol…, Used By | Header icons |
-| To Scratch | Header, More button |
-| Codepage label | Header, right end |
-| "modified" label | The dot on the document tab ✓ M3 T9 (the dot; the editor's own label goes with its header, M4) |
+| Save, Compile | Header, icon and word ✓ M4 U12 (the first commands: into More last) |
+| Save As…, Print…, Open…, External Editor | Header icons ✓ M4 U12 |
+| Find…, Replace… | Header icons, their own group ✓ M4 U12 (between lines) |
+| Bookmark | Header icon ✓ M4 U12 |
+| Definition, References, Rename Symbol…, Used By | Header icons ✓ M4 U12 |
+| To Scratch | Header, More button ✓ M4 U12 |
+| Codepage label | Header, right end ✓ M4 U12 (quiet, then a line, More and OK and Cancel; into More where the row is short, after the left group's secondary commands, before Save and Compile) |
+| "modified" label | The dot on the document tab ✓ M3 T9 (the dot) ✓ M4 U12 (the editor's own label gone with its header; nothing else read it) |
 | Live error line under the toolbar | Status Bar message, and a wavy underline on the line |
-| Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel |
-| Help tab (bottom) | Right Dock, Help under Reference |
+| Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel ✓ M4 U12 (a segmented control over the filter; the Right Dock stays while a script's group has the focus) |
+| Help tab (bottom) | Right Dock, Help under Reference ✓ M4 U12 (one tab bar with Reference under 1400; prose with a row per parameter and a line for each other line of a list; what is laid out in columns and code examples kept as written) |
 | Compiler, Bookmarks, Search Results tabs (bottom) | Bottom Dock tabs, with switches in the Status Bar |
 | Key hints | Status Bar, as key caps ✓ M3 T12 (Find, Find next, Definition, References, Complete, Bookmark, Compile all, Replace, as bound, while a script's tab is the active editor; the line and column count is M4's) |
 
@@ -209,8 +209,8 @@ Every control of the screens mocked in the second round and its home in the mock
 | The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close ✓ M3 T11 (Collapse, Maximize and Close Window, named and tipped) |
 | Double-click and right-click on the empty bar | Unchanged: Maximize or Restore ✓ M3 T11 |
 | Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn |
-| Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window |
-| Help tab of the script's bottom pane | Under Reference, as on the Script board |
+| Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window ✓ M4 U12 (the pane narrows to half the window under 560, never dropped) |
+| Help tab of the script's bottom pane | Under Reference, as on the Script board ✓ M4 U12 |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window |
 | Resize corner | A grip at the bottom right ✓ M3 T11 |
 | Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) ✓ M4 U6 (Properties under the Palette and the Preview, as the Floating board draws it) |

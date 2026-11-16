@@ -161,15 +161,31 @@ pub(crate) fn ok_cancel(
     read_only: bool,
     before: impl FnOnce(&mut Moonglow),
 ) -> bool {
-    use crate::blueprint::Pressed;
-    let tips = [
-        "Save and close the window",
-        "Close the window without saving, asking about unsaved changes first",
-    ];
     let id = egui::Id::new(("side-ok-cancel", tab));
-    let pressed = crate::blueprint::ok_cancel_saying(ui, id, read_only, tips);
+    let pressed = crate::blueprint::ok_cancel_saying(ui, id, read_only, OK_CANCEL_TIPS);
     failed_foot(app, ui, tab);
     let Some(pressed) = pressed else { return false };
+    pressed_ok_cancel(app, tab, read_only, pressed, before)
+}
+
+/// [`ok_cancel`]'s tips: OK's and Cancel's.
+pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
+    "Save and close the window",
+    "Close the window without saving, asking about unsaved changes first",
+];
+
+/// What [`ok_cancel`]'s OK or Cancel (`pressed`) does, wherever they are
+/// drawn (a script's at its header's end, M4's U12): `before` run first,
+/// then OK saves and closes, Cancel closes asking about unsaved changes,
+/// Close (`read_only`) closes. Whether the window is closing.
+pub(crate) fn pressed_ok_cancel(
+    app: &mut Moonglow,
+    tab: &Tab,
+    read_only: bool,
+    pressed: crate::blueprint::Pressed,
+    before: impl FnOnce(&mut Moonglow),
+) -> bool {
+    use crate::blueprint::Pressed;
     before(app);
     // (A save that fails here asks the tab's question: why, and the ways
     // out, are on screen rather than nothing.)
@@ -205,7 +221,7 @@ pub(crate) fn ok_cancel(
 /// Why `tab`'s document could not be saved the last time, under its
 /// editor (above its OK and Cancel): the editor's own Save, its OK and
 /// the module's Save say it there, not only in the log.
-fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
+pub(crate) fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
     let Some(why) = app.failed_saving(tab) else { return };
     // (A 2DA's editor says it already, above its grid: "Not saved: …".)
     if let Tab::Table(id) = *tab

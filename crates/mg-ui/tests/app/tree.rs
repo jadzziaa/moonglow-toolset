@@ -102,7 +102,13 @@ fn resources_open_in_their_editors() {
     // Tab titles are drawn without accessible labels; check the dock and the
     // editor's content.
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
-    apart(&h, "Compile");
+    // (The script's header's: on its row, or in its More in a window this
+    // narrow, which is closed again.)
+    script_tool(&mut h, "Compile");
+    if h.query_by_label(SCRIPT_MORE).is_some() {
+        h.key_press(egui::Key::Escape);
+        h.run();
+    }
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(area).unwrap()));
     h.run();

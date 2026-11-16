@@ -82,6 +82,7 @@ pub mod renderer_check;
 pub mod saved;
 mod script_layout;
 pub mod script_nav;
+mod script_reference;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
@@ -106,6 +107,8 @@ mod transfer;
 mod tree;
 pub mod updates;
 pub use outliner::OUTLINER;
+pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
+pub use script_view::SCRIPT_HEADER;
 pub use shell::{LEAST_WINDOW_SIZE, Panel, RIGHT_COLUMN_TWO, RIGHT_DOCK, RIGHT_DOCK_LEAST};
 pub use tree::TreeAt;
 pub mod var_sets;
@@ -3089,6 +3092,10 @@ impl Moonglow {
         // (Properties: its page shown takes the focus as it is drawn,
         // `properties_panel::panel`.)
         self.props_focus = next == Keys::Properties;
+        // (Reference: its filter takes the focus as it is drawn,
+        // `script_reference::reference`.)
+        self.script_tools.reference_focus = next == Keys::Reference;
+        self.script_tools.help_focus = next == Keys::Help;
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)

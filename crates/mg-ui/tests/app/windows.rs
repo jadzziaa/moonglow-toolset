@@ -2918,6 +2918,9 @@ fn a_properties_window_s_buttons_stay_put() {
     m.set(post, Gff::new(*b"UTW ").to_bytes().unwrap());
     let talk = ResKey::parse("talk", ResType::DLG).unwrap();
     m.set(talk, Gff::new(*b"DLG ").to_bytes().unwrap());
+    // (A script's, in its header's end slot since M4's U12.)
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(script, b"void main() { }\n".to_vec());
     m.save().unwrap();
     let area = ResRef::from_str("start").unwrap();
     let mut moving = Vec::new();
@@ -2966,6 +2969,7 @@ fn a_properties_window_s_buttons_stay_put() {
             hak,
             table,
             tileset,
+            Tab::Script(script),
         ] {
             h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
             h.run_steps(8);

@@ -142,6 +142,53 @@ pub fn segmented<T: PartialEq + Copy>(
     value: &mut T,
     choices: &[(T, &str, &str)],
 ) -> Response {
+    segmented_in(ui, name, value, choices, None)
+}
+
+/// A [`segmented`] control that fills the width it is given (the mock's
+/// `.seg.fill`: the Script board's Functions, Variables, Constants and
+/// Templates over the Reference panel's list): its choices equal, each at
+/// least as wide as its words and some room; where the width is short of
+/// that, each its words and an equal share of the room left (at least 2
+/// points at each side), so that the words stay whole as long as they
+/// can.
+pub fn segmented_fill<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> Response {
+    let words: Vec<f32> = choices.iter().map(|c| segment_words(ui, c.1).size().x).collect();
+    let seams = choices.len().saturating_sub(1) as f32 * 1.0;
+    let widths = fill_widths(ui.available_width() - seams, &words);
+    segmented_in(ui, name, value, choices, Some(&widths))
+}
+
+/// The widths of a filled segmented control's choices ([`segmented_fill`])
+/// in `room` (the seams left out), their words `words` wide: equal where
+/// each one's words and [`metrics::CONTROL_PADDING_X`] at each side fit in
+/// an equal share; else each its words and an equal share of what is left,
+/// at least 2 points at each side.
+pub(crate) fn fill_widths(room: f32, words: &[f32]) -> Vec<f32> {
+    let n = words.len().max(1) as f32;
+    let equal = (room / n).floor();
+    let pad = 2.0 * metrics::CONTROL_PADDING_X;
+    if words.iter().all(|w| w + pad <= equal) {
+        return vec![equal; words.len()];
+    }
+    let spare = ((room - words.iter().sum::<f32>()) / n).floor().max(4.0);
+    words.iter().map(|w| (w + spare).ceil()).collect()
+}
+
+/// [`segmented`]'s body: each choice `widths`' width where given (filled),
+/// else its words' and the padding.
+fn segmented_in<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+    widths: Option<&[f32]>,
+) -> Response {
     let theme = theme::applied(ui.ctx());
     let group = ui.make_persistent_id(("mg-segmented", name));
     let ids: Vec<Id> = (0..choices.len()).map(|i| group.with(i)).collect();
@@ -193,7 +240,9 @@ pub fn segmented<T: PartialEq + Copy>(
             let on = *value == *choice;
             let ends = (i == 0, i + 1 == choices.len());
             let t = theme.map(|t| t.tokens());
-            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, i == chosen);
+            let width = widths.and_then(|w| w.get(i).copied());
+            let stop = i == chosen;
+            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, stop, width);
             if !tip.is_empty() {
                 response = response.on_hover_text(*tip);
             }
@@ -209,10 +258,22 @@ pub fn segmented<T: PartialEq + Copy>(
     inner.response
 }
 
+/// A segment's words laid out as [`segment`] draws them.
+fn segment_words(ui: &Ui, words: &str) -> std::sync::Arc<egui::Galley> {
+    egui::WidgetText::from(words).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    )
+}
+
 /// One choice of a [`segmented`] control, `id` its own; `ends` says
 /// whether it is the first and the last (their outer corners rounded);
-/// `stop` whether Tab stops at it (the choice chosen alone). Without the
-/// suite's tokens, in egui's selection and widget colors.
+/// `stop` whether Tab stops at it (the choice chosen alone); `width` its
+/// width where the control fills its room ([`segmented_fill`]). Without
+/// the suite's tokens, in egui's selection and widget colors.
+#[allow(clippy::too_many_arguments)]
 fn segment(
     ui: &mut Ui,
     id: Id,
@@ -221,15 +282,12 @@ fn segment(
     words: &str,
     ends: (bool, bool),
     stop: bool,
+    width: Option<f32>,
 ) -> Response {
-    let galley = egui::WidgetText::from(words).into_galley(
-        ui,
-        Some(egui::TextWrapMode::Extend),
-        f32::INFINITY,
-        egui::TextStyle::Button,
-    );
+    let galley = segment_words(ui, words);
     let height = metrics::CONTROL_HEIGHT.max(ui.spacing().interact_size.y);
-    let size = vec2(galley.size().x + 2.0 * metrics::CONTROL_PADDING_X, height);
+    let natural = galley.size().x + 2.0 * metrics::CONTROL_PADDING_X;
+    let size = vec2(width.unwrap_or(natural), height);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let sense = if stop { Sense::click() } else { Sense::CLICK };
     let response = ui.interact(rect, id, sense);
@@ -1041,6 +1099,31 @@ mod tests {
         let quiet = |on| Look { read_only: true, ..look(on, false, true) };
         assert_eq!(quiet(true).colors(&t), (t.text_3, t.text_3, t.panel));
         assert_eq!(quiet(false).colors(&t).1, t.text_3);
+    }
+
+    /// A filled segmented control's choices: equal where each one's
+    /// words and padding fit an equal share; else each its words and an
+    /// equal share of the rest, so that no word is cut while the room
+    /// holds the words; and it fills the room in a frame.
+    #[test]
+    fn a_filled_segmented_control_fills_its_room_and_keeps_its_words() {
+        assert_eq!(fill_widths(400.0, &[50.0, 60.0, 70.0, 80.0]), [100.0; 4]);
+        // (Short of room for equal shares with padding: words and a share.)
+        let w = fill_widths(264.0, &[58.0, 56.0, 64.0, 66.0]);
+        assert_eq!(w, [63.0, 61.0, 69.0, 71.0]);
+        assert!(w.iter().sum::<f32>() <= 264.0);
+        for (width, words) in w.iter().zip([58.0, 56.0, 64.0, 66.0]) {
+            assert!(*width >= words + 4.0);
+        }
+        let mut drawn = Vec::new();
+        frame(Some(crate::Theme::Dark), |ui| {
+            ui.set_width(330.0);
+            let mut v = 0;
+            let choices = [(0, "Functions", ""), (1, "Variables", ""), (2, "Constants", "")];
+            let r = segmented_fill(ui, "What to list", &mut v, &choices);
+            drawn.push(r.rect.width());
+        });
+        assert!((drawn[0] - 330.0).abs() <= 2.0, "{drawn:?}");
     }
 
     /// One frame of `add` in a context with the theme (or none).

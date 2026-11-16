@@ -583,7 +583,7 @@ fn replace_all_and_replace_are_steps_of_the_script_s_undo() {
         h.run_steps(3);
     };
     // Replace… from the toolbar, the text never clicked in.
-    h.get_by_label("Replace…").click();
+    script_click(&mut h, "Replace…");
     h.run_steps(3);
     assert!(!script_has_keys(&h, key));
     let search = &mut h.state_mut().script_tools.search;
@@ -1100,7 +1100,7 @@ fn the_module_s_save_says_a_script_was_not_compiled() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     assert!(h.state().script_tools.messages.is_empty());
-    h.state_mut().script_tools.info = mg_ui::script_tools::InfoTab::Help;
+    h.state_mut().script_tools.info = mg_ui::script_tools::InfoTab::Bookmarks;
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run();
     h.event(egui::Event::Text("a".into()));
@@ -1116,37 +1116,78 @@ fn the_module_s_save_says_a_script_was_not_compiled() {
     h.get_by_label_contains("saved, not compiled");
 }
 
-/// Help shows a function's documentation as the source has it: the
-/// comment lines with their `//` and their columns, then the declaration
+/// Help shows a function's declaration, a parameter to a line, and its
+/// documentation as prose with a row for each parameter (the Script
+/// board's, M4's U12), what is laid out in columns kept as written
 /// (Jasperre's report: lists in nwscript.nss's comments lost their
-/// alignment, the `//` and each line's indentation stripped).
+/// alignment); a click on the name in Reference chooses it, in either
+/// mode, Reference's tab bar left as it was.
 #[test]
-fn help_shows_documentation_as_the_source_has_it() {
-    let dir = mg_testkit::scratch_dir("ui-script-help");
+fn help_shows_documentation_as_prose_with_its_columns_kept() {
+    for mode in MODES {
+        help_as_prose(mode);
+    }
+}
+
+fn help_as_prose(mode: Mode) {
+    let dir = mg_testkit::scratch_dir(&mode.dir("ui-script-help"));
     let path = sample_module(&dir);
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
-    let text = "// Adds.\r\n// - nA:    the first\r\n//           (any)\r\nint Add(int nA) { return nA; }\r\nvoid main() { Add(1); }\r\n";
+    let text = "// Adds.\r\n// 0-10   :  Low.\r\n// 11-89  :  Middle.\r\n// - nA:    the first\r\n//           (any)\r\n// - nB: the second number, which is added to the first one and given back with it as the sum\r\n// * Returns the sum.\r\nint Add(int nA, int nB) { return nA; }\r\nvoid main() { Add(1, 2); }\r\n";
     let mut m = Module::open(&path).unwrap();
     m.set(key, text.as_bytes().to_vec());
     m.save().unwrap();
-    let mut app = app_with(Vec::new());
+    let mut app = app_in(mode, Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = harness(app, 1200.0, 800.0);
-    h.run();
-    h.get_by_label("Add").click();
-    h.run();
-    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Help);
-    let shown = h.get_by_label_contains("// - nA:").accesskit_node().value().unwrap_or_default();
+    settle(&mut h);
+    reference_row(&h, "Add").click();
+    settle(&mut h);
+    assert_eq!(h.state().script_tools.help.as_ref().map(|s| s.name.as_str()), Some("Add"));
+    // As Tabs, under 1400 Reference and Help share one tab bar: the click
+    // leaves Reference in front (a double click puts the name in), and
+    // Help's tab shows it.
+    if mode.tabs() {
+        assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
+        h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Help").click();
+        settle(&mut h);
+        assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Help));
+    }
+    let value = |h: &Harness<'_, Moonglow>, part: &str| {
+        let node = h.get_by_label_contains(part);
+        node.accesskit_node().value().unwrap_or_default().to_string()
+    };
     assert_eq!(
-        shown, "// Adds.\n// - nA:    the first\n//           (any)\nint Add(int nA)",
-        "as written, then the declaration"
+        value(&h, "int Add("),
+        "int Add(\n    int nA,\n    int nB)",
+        "a parameter to a line"
     );
+    assert_eq!(value(&h, "Adds."), "Adds.");
+    assert_eq!(value(&h, "0-10"), "0-10   :  Low.\n11-89  :  Middle.", "its columns kept");
+    // A row for the parameter: its name, and what it says beside it.
+    let name = h.get_by_label("nA").rect();
+    let said = h.get_by_label("the first (any)").rect();
+    assert!(
+        said.left() > name.right() && (said.top() - name.top()).abs() < 2.0,
+        "{name:?} {said:?}"
+    );
+    assert_eq!(value(&h, "Returns"), "Returns the sum.");
+    // A parameter's long words wrapped within Help, not cut at its edge.
+    let help = h.get_by_label("Help's text").rect();
+    let long = h.get_by_label_contains("the second number").rect();
+    assert!(long.right() <= help.right() + 0.5, "{mode:?}: {long:?} past {help:?}");
+    assert!(long.height() > 20.0, "{mode:?}: on more than one line: {long:?}");
+    // (Help's header names it, where it has one: in the window's pane.)
+    if !mode.tabs() {
+        h.get_by_label("Help, Add");
+    }
 }
 
 /// A `/* … */` comment directly above a function is its documentation in
-/// Help, as written, as BioWare's includes put theirs between `//::` lines
-/// (Jasperre's report); above the definition, where the prototype has none.
+/// Help, as BioWare's includes put theirs after a `//::` line (Jasperre's
+/// report), each its own paragraph (M4's U12: prose, the markers gone);
+/// above the definition, where the prototype has none.
 #[test]
 fn help_takes_a_block_comment_as_documentation() {
     let dir = mg_testkit::scratch_dir("ui-script-help-block");
@@ -1162,14 +1203,18 @@ fn help_takes_a_block_comment_as_documentation() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Hidden").click();
+    reference_row(&h, "Hidden").click();
     h.run();
-    let shown =
-        h.get_by_label_contains("Returns TRUE").accesskit_node().value().unwrap_or_default();
-    assert_eq!(
-        shown,
-        "//:: Hidden\n/*\n    Returns TRUE if oSelf is hidden\n*/\nint Hidden(object oSelf)"
-    );
+    let value = |h: &Harness<'_, Moonglow>, part: &str| {
+        let node = h.get_by_label_contains(part);
+        node.accesskit_node().value().unwrap_or_default().to_string()
+    };
+    assert_eq!(value(&h, "int Hidden("), "int Hidden(\n    object oSelf)");
+    assert_eq!(value(&h, "Returns TRUE"), "Returns TRUE if oSelf is hidden", "its prose");
+    let name = h
+        .query_all_by_value("Hidden")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Label);
+    assert_eq!(name.count(), 1, "the name over it, its own paragraph");
 }
 
 #[test]
@@ -1246,7 +1291,7 @@ fn the_external_script_editor_s_saves_come_back() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
     h.run_steps(3);
-    h.get_by_label("External Editor").click();
+    script_click(&mut h, "External Editor");
     h.run_steps(3);
     // The editor's file: the script; an edit saved there comes back.
     // (In the run's own folder, of a name no one can guess: not the
@@ -1370,7 +1415,7 @@ fn print_opens_a_highlighted_page_of_the_script() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Print…").click();
+    script_click(&mut h, "Print…");
     h.run();
     let page = std::fs::read_to_string(dir.join("print").join("hello.html")).unwrap();
     assert!(page.contains(" &lt; ") && page.contains("window.print()"), "{page}");
@@ -1473,7 +1518,7 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
     };
     assert_eq!(said(&h, "hello"), 0, "a tab opened by itself: Moonglow's editor alone");
     // Open Script.
-    h.get_by_label("Open…").click();
+    script_click(&mut h, "Open…");
     h.run_steps(3);
     let at = h.get_by_label("other_one").rect().center();
     double_click_now(&mut h, at);
@@ -1488,7 +1533,7 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
     assert!(h.state().dock.find_tab(&Tab::Script(nss("fresh"))).is_some());
     assert_eq!(said(&h, "fresh"), 1, "{:?}", h.state().log.entries);
     // Save As, from the script in front.
-    h.get_by_label("Save As…").click();
+    script_click(&mut h, "Save As…");
     h.run_steps(2);
     let window =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
@@ -2246,7 +2291,7 @@ fn open_script_s_arrows_choose_among_those_listed() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
     h.run_steps(4);
-    h.get_by_label("Open…").click();
+    script_click(&mut h, "Open…");
     h.run_steps(3);
     h.get_by_label("All Resources").click();
     h.run_steps(2);
@@ -2283,7 +2328,7 @@ fn open_script_s_escape_clears_the_name_then_closes() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
     h.run_steps(4);
-    h.get_by_label("Open…").click();
+    script_click(&mut h, "Open…");
     h.run_steps(3);
     let filter = |h: &Harness<'_, Moonglow>| {
         h.state().script_tools.open_script.as_ref().map(|w| w.filter.clone())
@@ -2327,7 +2372,7 @@ fn a_script_editor_opens_other_scripts() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
     h.run_steps(4);
-    h.get_by_label("Open…").click();
+    script_click(&mut h, "Open…");
     h.run_steps(3);
     // The module's two, as it opens.
     h.get_by_label("2 scripts");
@@ -2348,7 +2393,7 @@ fn a_script_editor_opens_other_scripts() {
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
     h.run_steps(3);
-    h.get_by_label("Open…").click();
+    script_click(&mut h, "Open…");
     h.run_steps(3);
     h.get_by_label("Module Resources Only").click();
     h.run_steps(2);
@@ -2397,7 +2442,7 @@ fn open_script_opens_the_scripts_selected_together() {
         w.selected.iter().map(|k| k.resref.to_string()).collect()
     };
     let window = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("Open…").click();
+        script_click(h, "Open…");
         h.run_steps(3);
         // (Past the double-click time of the click before.)
         h.run_steps(30);

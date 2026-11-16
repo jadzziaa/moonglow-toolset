@@ -991,6 +991,54 @@ pub(crate) fn area_tool<'t>(
     }
 }
 
+/// The script editor's header's control `name` (`mg_ui::SCRIPT_HEADER`,
+/// M4's U12): on its row, or in its More, which is opened for it where
+/// the header's record says it went there (left open: [`script_click`]
+/// clicks it, which closes More).
+#[track_caller]
+pub(crate) fn script_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let records = header::records(&h.ctx, mg_ui::SCRIPT_HEADER);
+    let rec = records.into_iter().next().expect("the script header");
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    assert_eq!(header::more_name(mg_ui::SCRIPT_HEADER), SCRIPT_MORE);
+    if place == Some(Place::More) && h.query_by_label(SCRIPT_MORE).is_none() {
+        h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label(header::MORE).click();
+        h.run_steps(3);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(SCRIPT_MORE).get_by_label(name),
+        Some(Place::Row | Place::Icon) => h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label(name),
+        other => panic!("{name} in the script header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// The row `name` of a script's Reference panel's list (M4's U12), in
+/// the Right Dock or in the script's window's right pane: by its group,
+/// apart from a header's button or a tab of the same name.
+#[track_caller]
+pub(crate) fn reference_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    h.get_by_label(mg_ui::SCRIPT_REFERENCE).get_by_label(name)
+}
+
+/// The script header's More's popover (`mg_uikit::header::more_name`).
+pub(crate) const SCRIPT_MORE: &str = "More in Script header";
+
+/// Clicks the script header's control `name` ([`script_tool`]: through
+/// More where it is there) and runs the frames that follow.
+#[track_caller]
+pub(crate) fn script_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    script_tool(h, name).click();
+    h.run_steps(3);
+}
+
 /// The palette's More (its rarer commands), not the area header's.
 #[track_caller]
 pub(crate) fn palette_more<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {

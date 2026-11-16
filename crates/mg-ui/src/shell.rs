@@ -165,6 +165,17 @@ pub enum Panel {
     /// Dock's lower section (the Main, Narrow, WideArea and Floating
     /// boards).
     Properties,
+    /// A script's Reference (M4's U12, the Script board's Right Dock): the
+    /// functions, variables and constants the script can use and the
+    /// templates, chosen by a segmented control over a filter and the
+    /// list; a click shows one in Help, a double click puts it in at the
+    /// cursor (`script_reference::reference`).
+    Reference,
+    /// A script's Help (M4's U12), under Reference: the declaration of
+    /// the function or constant chosen or under the cursor, and its
+    /// documentation as prose with a row for each parameter
+    /// (`script_reference::help`).
+    Help,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -222,7 +233,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 8] = [
+    pub(crate) const KEYED: [Panel; 10] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -231,6 +242,8 @@ impl Panel {
         Panel::Log,
         Panel::TileProperties,
         Panel::Properties,
+        Panel::Reference,
+        Panel::Help,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -247,9 +260,12 @@ impl Panel {
     pub(crate) fn dock(self) -> Dock {
         match self {
             Panel::Module | Panel::Resources | Panel::Outliner => Dock::Left,
-            Panel::Palette | Panel::Preview | Panel::TileProperties | Panel::Properties => {
-                Dock::Right
-            }
+            Panel::Palette
+            | Panel::Preview
+            | Panel::TileProperties
+            | Panel::Properties
+            | Panel::Reference
+            | Panel::Help => Dock::Right,
             Panel::Log => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
@@ -269,6 +285,8 @@ impl Panel {
             Panel::Log => "Log",
             Panel::TileProperties => "Tile Properties",
             Panel::Properties => "Properties",
+            Panel::Reference => "Reference",
+            Panel::Help => "Help",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -287,6 +305,8 @@ impl Panel {
             Panel::Log,
             Panel::TileProperties,
             Panel::Properties,
+            Panel::Reference,
+            Panel::Help,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -308,6 +328,8 @@ impl Panel {
             Panel::Log => Icon::Log,
             Panel::TileProperties => Icon::Tile,
             Panel::Properties => Icon::Properties,
+            Panel::Reference => Icon::Book,
+            Panel::Help => Icon::Help,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -341,6 +363,10 @@ impl Panel {
             Panel::Log => "Log: what Moonglow reports",
             Panel::TileProperties => "Tile Properties: the tiles selected",
             Panel::Properties => "Properties: the objects selected",
+            Panel::Reference => {
+                "Reference: the functions, variables, constants and templates a script can use"
+            }
+            Panel::Help => "Help: the function or constant chosen or under the cursor",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -397,6 +423,10 @@ impl Panel {
             Panel::Preview => own_preview(app, editor).map(|source| {
                 crate::model_view::info(app, &source).unwrap_or_else(|| source.to_string())
             }),
+            // (The Script board's: where the lists are from, and the name
+            // Help shows.)
+            Panel::Reference => Some(crate::script_reference::REFERENCE_DETAIL.to_string()),
+            Panel::Help => Some(crate::script_reference::help_detail(app)),
             _ => None,
         }
     }
@@ -437,6 +467,7 @@ impl Panel {
             Panel::TileProperties | Panel::Properties => {
                 brings.has(self) || brings.window_has(self)
             }
+            Panel::Reference | Panel::Help => brings.has(self),
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -456,6 +487,10 @@ impl Panel {
             // focus, `Moonglow::step_pane`.)
             Panel::TileProperties => Keys::TileProperties,
             Panel::Properties => Keys::Properties,
+            // (Reference's: F6 gives its filter the focus; Help's: nothing
+            // to take them, its text to read.)
+            Panel::Reference => Keys::Reference,
+            Panel::Help => Keys::Help,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -498,6 +533,11 @@ pub(crate) struct Brings {
     /// drags a seam, in thousandths of an equal share (none: equal): the
     /// Main board's palettes over Properties, 58 to 42.
     pub(crate) shares: &'static [u16],
+    /// The sections' shares in the editor's own window, where they differ
+    /// from the dock's (none: `shares`): the Floating board's script,
+    /// Reference 44 and Help 56, where the Script board's dock has 56
+    /// and 44.
+    pub(crate) window_shares: &'static [u16],
 }
 
 impl Brings {
@@ -545,6 +585,14 @@ const AREA_TILES_FOLDED: &[Panel] = &[Panel::Palette, Panel::Preview, Panel::Til
 /// in a dragged out area's window).
 const TILES_SECTION: Section = &[Panel::TileProperties];
 const TILES_ALONE: &[Section] = &[TILES_SECTION];
+/// A script's Right Dock (M4's U12, the Script board's): Reference over
+/// Help, each a section of its own with its header; one tab bar of the
+/// two under 1400; with the script into its window where it floats
+/// (Floating.png). The board's shares, Reference 56, Help 44.
+const SCRIPT_RIGHT: &[Section] = &[&[Panel::Reference], &[Panel::Help]];
+const SCRIPT_FOLDED: &[Panel] = &[Panel::Reference, Panel::Help];
+const SCRIPT_SHARES: &[u16] = &[1120, 880];
+const SCRIPT_WINDOW_SHARES: &[u16] = &[880, 1120];
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
 /// `editor_brings` by kind): an area's tab the Outliner (with a module
@@ -557,7 +605,8 @@ const TILES_ALONE: &[Section] = &[TILES_SECTION];
 /// selected; each also the one section that goes into the area's window
 /// where it is dragged out. The placeholder that stands for no area
 /// brings the palettes alone (it holds nothing to list or select, and no
-/// panel is shown empty). Any other tab brings none until M4 gives it its
+/// panel is shown empty). A script's tab brings its Reference over its
+/// Help (M4's U12). Any other tab brings none until M4 gives it its
 /// own: the Left Dock is then its tabs' panel alone, the whole height,
 /// and the Right Dock is not drawn, folded or not, its sizes kept.
 pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
@@ -597,6 +646,18 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         }
         crate::Tab::Area(_) => Brings { right, ..Brings::default() },
         crate::Tab::NoArea => Brings { right, ..Brings::default() },
+        // (A script's Reference and Help, whatever is open: its own
+        // symbols are listed without the game's; with it into its window
+        // where it floats. The Right Dock stays while the script's group
+        // has the focus, the owner's word at T9.)
+        crate::Tab::Script(_) => Brings {
+            right: SCRIPT_RIGHT,
+            folded: SCRIPT_FOLDED,
+            shares: SCRIPT_SHARES,
+            window_shares: SCRIPT_WINDOW_SHARES,
+            floats: true,
+            ..Brings::default()
+        },
         // (A blueprint's or a placed object's Properties form with a model
         // of its own, the game's data read: its own Preview, alone, the
         // Creature board's; with it into its window where it floats.)
@@ -881,22 +942,38 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     // for it and the editor's least beside it: the editor keeps its room,
     // and its panels come back as the window is widened.)
     let room = ui.available_width();
-    let fits = room - RIGHT_DOCK_LEAST - 1.0 >= window_editor_least(tab) - 0.5;
+    // (A script's pane never goes: it narrows to half the window, as the
+    // script's side lists did, so that its Reference and Help stay in
+    // reach in a small window. M4's U12.)
+    let halves = pane_halves(tab);
+    let fits = halves || room - RIGHT_DOCK_LEAST - 1.0 >= window_editor_least(tab) - 0.5;
     let owner = owner_of(app, tab).clone();
     match fits || right.is_empty() {
         true => app.panes_dropped.remove(&owner),
         false => app.panes_dropped.insert(owner),
     };
     if !right.is_empty() && fits {
-        let most = (ui.available_width() * 0.6).max(RIGHT_DOCK_LEAST);
+        let (least, most) = match halves && room < 2.0 * RIGHT_DOCK_LEAST {
+            true => {
+                let half = (room / 2.0).floor();
+                (half, half)
+            }
+            false => (RIGHT_DOCK_LEAST, (room * 0.6).max(RIGHT_DOCK_LEAST)),
+        };
         let shown = egui::Panel::right(pane.with("window-right"))
             .resizable(true)
             .default_size(RIGHT_DOCK_LEAST)
-            .size_range(RIGHT_DOCK_LEAST.min(most)..=most)
+            .size_range(least.min(most)..=most)
             .frame(egui::Frame::new().fill(t.panel))
             .show(ui, |ui| {
                 let whole = ui.max_rect();
-                let stack = Stack { kind, brings: &brings };
+                // (Its window's own shares where it has them.)
+                let shares = match brings.window_shares {
+                    [] => brings.shares,
+                    own => own,
+                };
+                let window = Brings { shares, ..brings };
+                let stack = Stack { kind, brings: &window };
                 let places = section_rects(app, whole, &right, stack);
                 let mut chosen = None;
                 for (i, (place, section)) in places.iter().copied().zip(&right).enumerate() {
@@ -971,6 +1048,14 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                 Some(panel.name().to_string());
         }
     }
+}
+
+/// Whether `tab`'s window's right pane stays at every width, narrowed to
+/// half the window under twice its least (a script's Reference and Help:
+/// its side lists did so), rather than going where the editor's least
+/// beside it does not fit.
+pub(crate) fn pane_halves(tab: &crate::Tab) -> bool {
+    matches!(tab, crate::Tab::Script(_))
 }
 
 /// The least room an editor keeps in a window of its own beside its
@@ -2686,6 +2771,7 @@ fn fold_tip(app: &Moonglow, ctx: &egui::Context, side: Side, open: bool) -> Stri
 /// as a press in the palettes' tab did ([`plugin_pane`]).
 pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     follow_editor(app);
+    help_forward(app);
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
     app.right_rect = None;
@@ -2905,6 +2991,38 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         (Some(panel), _) => choose_right(app, panel),
         (None, Some(panel)) => focus_right(app, panel),
         (None, None) => {}
+    }
+}
+
+/// Help asked to the front (`ScriptTools::help_forward`: a double click
+/// on a name in a script, Go to Definition): where a script is the active
+/// docked editor and its Help shares the Right Dock's one tab bar with
+/// Reference behind it (under 1400), Help is brought in front by the
+/// dock's panel alone, nothing kept in the settings ([`focus_right`]);
+/// where Reference and Help stand one over the other, or the script
+/// floats, Help is in sight already. Asked while no script is in front
+/// (Go to Definition opening one), it waits for the script's tab, unless
+/// nothing is left to bring one.
+fn help_forward(app: &mut Moonglow) {
+    let Some(from) = app.script_tools.help_forward else { return };
+    // (A floating script's window shows Help in its pane already, Reference
+    // over it: the docked script's Right Dock is left as it is. A script
+    // closed since: nothing.)
+    let docked =
+        app.dock.find_tab(&crate::Tab::Script(from)).is_some_and(|at| at.surface.is_main());
+    if !docked {
+        app.script_tools.help_forward = None;
+        return;
+    }
+    // (Asked while another editor came to the front, Go to Definition of
+    // the game's opening `nwscript.nss`: kept until a script is in front
+    // again.)
+    if !matches!(app.active_editor(), Some(crate::Tab::Script(_))) {
+        return;
+    }
+    app.script_tools.help_forward = None;
+    if panels(app, Dock::Right).contains(&Panel::Help) && right_shown(app) != Some(Panel::Help) {
+        focus_right(app, Panel::Help);
     }
 }
 
@@ -3305,6 +3423,16 @@ pub(crate) fn panel_body(
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 crate::properties_panel::panel(app, &mut body, editor, titled);
+            }
+            Panel::Reference | Panel::Help => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::Reference => crate::script_reference::reference(app, &mut body, editor),
+                    _ => crate::script_reference::help(app, &mut body, editor),
+                }
             }
             #[cfg(test)]
             Panel::Sample(_) => {

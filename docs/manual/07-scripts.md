@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T03:22:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T17:20:34Z }
 ---
 
 # Scripts
@@ -15,29 +15,68 @@ editor**.
 
 ## The script editor
 
-The editor highlights NWScript's syntax. Beside the text are Aurora's
-lists:
+The editor highlights NWScript's syntax. Over the text is the
+script's **header**, one row: **Save** and **Compile** with their words,
+then **Save As…**, **Print…**, **Open…** and **External Editor**,
+**Find…** and **Replace…**, **Bookmark**, and **Definition**,
+**References**, **Rename Symbol…** and **Used By** as icons (each named
+in its tooltip with its key); at its right end the codepage the script
+is read and saved in (below), **More** (⋯), which holds **To
+Scratch**, and **OK** and **Cancel**: OK puts the text into the module
+and closes the tab, Cancel closes it as last saved, asking first about
+unsaved text. Where the editor is narrow, Save and Compile lose their
+words first, then the icons go into More from the end of the row, then
+the codepage, Save and Compile last of all, so every command stays one
+click away; OK and Cancel stay at the end whatever the width. An unsaved
+script shows the dot on its tab (the header has no "modified" of its
+own).
 
-- **Functions**, **Constants** and **Variables**: everything `nwscript.nss`
-  declares (and the script's own variables), with **Help** on the
-  selected one. Double-click to insert it at the cursor.
+Beside the text, a script brings Aurora's lists and their help to the
+**Right Dock**: **Reference** over **Help**, each with its header (the
+seam between them drags; under 1400 points wide they share one tab
+bar). Where the script floats in a window of its own, they stand at
+the window's right instead, and narrow to half the window in a small
+one. The Right Dock is there whenever a script's tab is the editor in
+front, in its group too: click an area's tab and the area's panels are
+back.
+
+**Reference** lists, chosen above its filter (where the panel is too
+narrow for the four words, from a list):
+
+- **Functions**, **Variables** and **Constants**: everything
+  `nwscript.nss` declares, and the script's own and its includes' (in
+  the theme's text, the game's quieter). A click shows one in Help;
+  double-click to insert it at the cursor.
 - **Templates**: code templates, the game's and those in your Code
   Templates Directory (Options › Script Editor). Double-click to insert.
 
-**Help** shows the documentation as the source has it: the comments
+F6 to Reference puts the keyboard in its filter; F6 to Help takes it
+from the text (what you type then goes nowhere) until you click back in
+it.
+
+**Help** shows the function or constant chosen in Reference or under
+the cursor: its declaration, in the editor's font and colors, each
+parameter on a line of its own; then its documentation, the comments
 directly above the declaration (no empty line between), `//` lines and
 `/* … */` blocks alike, but not one that follows code on its line
-(`int nLast; // the last one` is about `nLast`), with their markers and their spacing, in the
-editor's font and colors, then the declaration itself, so the aligned
-lists in `nwscript.nss`'s comments line up as they do in the file.
-BioWare's includes document a function with a `/* … */` block between
-`//::` lines above its definition; where the prototype has no comment of
-its own, Help shows the definition's. A struct's members and local
-variables have theirs too, the comments above their lines. (`mg lsp`'s
-hover has the same text without the markers: no `//`, `/*`, `*/`, the
-` * ` down a block's side or the `*` of BioWare's `// * text`.)
+(`int nLast; // the last one` is about `nLast`). The comment's lines
+read as prose, without their markers, a sentence wrapped over several
+lines joined again: a line `- name: what it is` (or `name - what it
+is`) is a row for that parameter, its name beside what it says; any
+other line of a list (`- nYear should be from 0 to 32000`, `-> 0-10
+means…`, `1) Time can only…`) stands on a line of its own; and a line
+`* …` (BioWare's notes, "Returns…") is a quieter line of its own. What
+is laid out in columns (the lists in `nwscript.nss`'s comments,
+`0-10   :  Hostile.`) and code examples (`void main() { … }`) keep their
+layout, in the editor's font, so they line up as in the file. BioWare's includes
+document a function with a `/* … */` block after a `//::` line above its
+definition; where the prototype has no comment of its own, Help shows
+the definition's. A struct's members and local variables have theirs
+too, the comments above their lines. (`mg lsp`'s hover has the comment's
+text without the markers too.)
 
-Below the text are the **Compiler** messages: click one to go to its line.
+Below the text are the **Compiler** messages, the **Bookmarks** and
+**Search Results**: click a message to go to its line.
 Each starts with the time it was written (`14:03:27`), so two compiles
 in a row are easy to tell apart. When **Save** saves without compiling
 (Automatically Compile Scripts on Save is off), the Compiler tab says
@@ -111,7 +150,7 @@ burst of typing a step of the module's history would have put it
 under the module's Undo from any other tab too, where it would have
 taken back typing in a script you were not looking at.
 
-**Open…** on a script editor's toolbar opens other scripts: a list of
+**Open…** on a script editor's header opens other scripts: a list of
 them found by name, of the module's alone, its haks' alone or all of
 them with the game's (Aurora's Resources to Show). A click selects a
 script; Ctrl+click adds one or takes it away, Shift+click selects the
@@ -134,9 +173,9 @@ without Match case, accents are set aside as case is (`arbol` finds
 now under Search Results, and **Find In Files** searches (and replaces
 in) every script in the module. Search Results keeps the first 10,000
 lines found (the log says how many there were). A double click on a function's or a
-constant's name in a script brings its Help forward (over the
-compiler's messages, say).
-**Used By** (on the toolbar) lists where the module runs or includes the
+constant's name in a script brings its Help forward (in front of
+Reference where they share one tab bar).
+**Used By** (on the header) lists where the module runs or includes the
 script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines, and strings in scripts that spell its name
 (`ExecuteScript("name", …)`), each with its line in the scripts'
@@ -145,7 +184,8 @@ codepage (below).
 A script is read and saved in the codepage of the language chosen in
 **Options › Language**: Windows-1250 with Polish, Windows-1252 with
 English, French, German, Italian or Spanish (a module's own
-`encoding.2da`, where its haks have one). The toolbar names it.
+`encoding.2da`, where its haks have one). The header names it, at its
+right end.
 NWScript has no codepage of its own: the compiler copies a string's
 bytes into the compiled script, and the game shows them by its
 language's codepage. So a Polish module's scripts, kept in Windows-1250
@@ -187,8 +227,8 @@ With that:
 **Errors as you type**: half a second after you stop typing, Moonglow
 compiles the script (an include file needs no `main`), with its
 includes as Compile reads them: as saved. The first error
-shows under the toolbar and its line is underlined. That line under the
-toolbar is kept whether or not there is an error, so the text doesn't
+shows under the header and its line is underlined. That line under the
+header is kept whether or not there is an error, so the text doesn't
 move as errors come and go; a long message is cut to fit (hover over it
 for all of it). **Options › Script Editor › Check for errors as you
 type** turns this off.
@@ -196,7 +236,7 @@ type** turns this off.
 Other editors get the same
 features through `mg lsp` (see [Command-line tools](11-command-line.md)).
 
-The buttons:
+The header's buttons:
 
 - **Save** (Ctrl+S while the script's text has the keyboard, or the key
   given to Save in Options › Keyboard): put the text into the module,
@@ -235,7 +275,7 @@ The buttons:
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.
-- **To Scratch**: save and compile the script, then copy it into the
+- **To Scratch** (in More): save and compile the script, then copy it into the
   scratch folder: a folder you choose the first time (Tools › Options ›
   Folders changes it), such as the game's or a server's `development`
   folder, for a quick fix. Its compiled script goes with it when it

@@ -406,9 +406,11 @@ fn split_editor_makes_a_second_group_from_the_front_tab() {
 }
 
 /// The docks follow the focused group: an area in one, a script in the
-/// other, the Right Dock shown and gone as the focus moves; the front
-/// tab's line is the accent in the focused group, `line-soft` in the
-/// other.
+/// other, the Right Dock holding the area's palettes or the script's
+/// Reference and Help as the focus moves (it stays while the script's
+/// group has the focus: the owner's word at T9, the script's own panels
+/// since M4's U12); the front tab's line is the accent in the focused
+/// group, `line-soft` in the other.
 #[test]
 fn the_docks_follow_the_focused_editor_group() {
     let Some((mut h, area)) = area_harness("doc-tab-groups") else { return };
@@ -430,7 +432,12 @@ fn the_docks_follow_the_focused_editor_group() {
         });
     };
     assert_eq!(h.state().active_editor(), Some(&script));
-    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the script");
+    let script_s = |h: &Harness<'_, Moonglow>| {
+        let shows = h.state().right_dock_shows();
+        h.state().right_dock_rect().is_some()
+            && matches!(shows, Some(mg_ui::Panel::Reference | mg_ui::Panel::Help))
+    };
+    assert!(script_s(&h), "the script's Reference and Help beside it");
     lines(&mut h, &script, &area);
     click_tab(&mut h, &area);
     settle(&mut h);
@@ -439,7 +446,7 @@ fn the_docks_follow_the_focused_editor_group() {
     lines(&mut h, &area, &script);
     click_tab(&mut h, &script);
     settle(&mut h);
-    assert!(h.state().right_dock_rect().is_none());
+    assert!(script_s(&h), "the script's again");
     lines(&mut h, &script, &area);
 }
 
@@ -709,6 +716,10 @@ fn thirty_tabs_in_a_narrow_window() {
     // The first tab clicked to the front by its number: the bar scrolls.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num1);
     settle(&mut h);
+    // (Module Properties in front brings no Right Dock, which a script's
+    // tab does (M4's U12): the bar is the wider for it.)
+    let bar = bar_of(&h, &s(30));
+    let split = h.get_by_label("Split Editor").rect();
     let first = doc_tab(&h, "Module Properties").rect();
     assert!(first.left() >= bar.left() - 0.5 && first.right() <= split.left(), "{first:?}");
     // Nothing of the bar past its ends, nor under Split Editor: the tabs as

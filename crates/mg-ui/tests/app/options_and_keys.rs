@@ -870,10 +870,12 @@ fn the_theme_is_set_in_options() {
 }
 
 /// Options › General › Editors' toolbar buttons, Icons only, in the editors'
-/// toolbars too (ShadowM's request): the script editor's and the
-/// conversation editor's buttons show their glyphs alone and take less
-/// room, each named in its tip and by its name for a screen reader; with
-/// Icons and text, their words alone, as before.
+/// toolbars too (ShadowM's request): the conversation editor's buttons
+/// show their glyphs alone and take less room, each named in its tip and
+/// by its name for a screen reader; with Icons and text, their words
+/// alone, as before. The script editor's header (M4's U12) does not
+/// follow it: its icons are icons, named, with the tip saying what each
+/// does, either way.
 #[test]
 fn the_editors_toolbars_show_icons_only_when_asked() {
     let dir = mg_testkit::scratch_dir("ui-editor-icons-only");
@@ -902,7 +904,7 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.state_mut().settings.toolbar_icons_only = true;
     h.run_steps(3);
     let glyphs = width(&h, &scripts);
-    assert!(glyphs < words * 0.6, "the script's toolbar narrower: {glyphs} of {words}");
+    assert_eq!(glyphs, words, "the script's header as it was");
     // (Each an icon button, named by its words, its icon drawn.)
     let used_by = h.get_by_label("Used By").rect();
     assert!(used_by.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{used_by:?}");
@@ -910,7 +912,7 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.get_by_label("Used By").hover();
     // (A tooltip waits a moment.)
     h.run_steps(60);
-    h.get_by_label("Used By\nWhere the module runs or includes this script");
+    h.get_by_label("Where the module runs or includes this script");
     h.hover_at(egui::pos2(5.0, 790.0));
     h.state_mut().settings.toolbar_icons_only = false;
     h.run_steps(3);

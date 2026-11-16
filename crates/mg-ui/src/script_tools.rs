@@ -35,7 +35,7 @@ pub struct Symbol {
     pub custom: bool,
 }
 
-/// The side lists' tabs.
+/// What the Reference panel lists (its segmented control's choices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SideTab {
     #[default]
@@ -45,12 +45,12 @@ pub enum SideTab {
     Templates,
 }
 
-/// The bottom panel's tabs.
+/// The bottom panel's tabs (Help is the Right Dock's own panel since
+/// M4's U12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InfoTab {
     #[default]
     Compiler,
-    Help,
     Bookmarks,
     SearchResults,
 }
@@ -189,10 +189,46 @@ pub struct ScriptTools {
     /// Scripts to open in the external editor once their editor has them
     /// (opened from the module tree, with the option on).
     pub(crate) open_externally: std::collections::HashSet<ResKey>,
+    /// What the Reference panel lists, and its filter.
     pub side: SideTab,
     pub filter: String,
     pub info: InfoTab,
+    /// The function or constant the Help panel shows.
     pub help: Option<Symbol>,
+    /// Text the Reference panel put in (a double click on a name), for the
+    /// script's editor to put in at its cursor once it is drawn (the panel
+    /// is drawn before it).
+    pub(crate) insert: Option<(ResKey, String)>,
+    /// Help asked to the front by the script it names (a double click on
+    /// a name in its text, its Go to Definition): where that script is
+    /// docked, the Help panel brought in front of the one tab bar
+    /// Reference and Help share under 1400 once a script is the editor in
+    /// front (`shell::help_forward`); where it floats, its window's pane
+    /// shows Help already, and nothing else changes.
+    pub(crate) help_forward: Option<ResKey>,
+    /// The Reference panel's filter to take the keyboard's focus as it is
+    /// drawn (F6 to it).
+    pub(crate) reference_focus: bool,
+    /// The Help panel to take the keyboard's focus as it is drawn (F6 to
+    /// it): from the script's text, so that what is typed then goes
+    /// nowhere rather than into the script.
+    pub(crate) help_focus: bool,
+    /// The name Reference's list was last scrolled to, or clicked: a name
+    /// Help shows that differs (chosen by the cursor in the text, Go to
+    /// Definition) scrolls the list to it once.
+    pub(crate) list_at: Option<String>,
+    /// What the Reference panel showed as it was last drawn: the pass
+    /// (`Context::cumulative_pass_nr`), the script, its symbols' list and
+    /// the name marked chosen. Drawn before the editor, it is drawn again
+    /// where the editor changed them in the same pass, and only then: a
+    /// Reference not drawn this pass (behind Help's tab, the dock folded)
+    /// asks for nothing (M4's U12 review, A1).
+    pub(crate) reference_drawn: Option<(u64, ResKey, usize, Option<String>)>,
+    /// What the Help panel showed as it was last drawn: the pass and the
+    /// name, drawn again where the editor chose another in that pass.
+    pub(crate) help_drawn: Option<(u64, Option<String>)>,
+    /// What Help read of the name it shows, kept while it is shown.
+    pub(crate) help_read: Option<Arc<crate::script_reference::HelpRead>>,
     pub messages: Vec<Message>,
     pub search: Search,
     pub completion: Option<Completion>,
@@ -240,6 +276,13 @@ pub struct ScriptTools {
 const TEMPLATES_KEPT: f64 = 2.0;
 
 impl ScriptTools {
+    /// The script Help was asked to the front by, while the docks have not
+    /// yet brought it ([`ScriptTools::help_forward`]): for tests.
+    #[doc(hidden)]
+    pub fn help_forward_pending(&self) -> Option<ResKey> {
+        self.help_forward
+    }
+
     /// [`templates`], read at most [`TEMPLATES_KEPT`] seconds ago from the
     /// same folders, else now.
     pub(crate) fn templates(

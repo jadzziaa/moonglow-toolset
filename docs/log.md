@@ -1,6 +1,15 @@
 # Update log
 
 ## 2026-11-16
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U12's review ([07](manual/07-scripts.md#the-script-editor); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
+  * A script's **OK and Cancel** are at its header's right end, as every editor's with them.
+  * The window no longer redraws without end while Reference is out of sight (Help's tab in front, the dock folded) and the script is typed in.
+  * Help reads the game's documentation better: a list's lines each on their own, a sentence wrapped in the source joined again, `name - text` parameters, code examples kept as written; its lines 18 points apart; Reference's list goes to the name Help shows.
+  * Go to Definition brings Help forward when you are back in the script, and a floating script's leaves the docked one's panels alone; F6 to Help takes the keyboard from the text; the window's Reference and Help share it 44 to 56, as the Floating board draws them.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U12, the script header and the Reference panel**, as the Script, LightScript and Floating boards draw them ([07](manual/07-scripts.md#the-script-editor), [10](manual/10-options.md); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
+  * **The script editor's toolbar is one header row**: Save and Compile with their words, Save As…, Print…, Open…, External Editor, Find…, Replace…, Bookmark, Definition, References, Rename Symbol… and Used By as icons, To Scratch in More, the codepage at the right end; where the editor is narrow, what has no room goes into More, Save and Compile last. The "modified" label is gone: the tab's dot says it. It no longer follows Options' "Editors' toolbar buttons".
+  * **A script brings Reference and Help to the Right Dock**: Reference (Functions, Variables, Constants, Templates and the filter) over Help, one tab bar of the two under 1400; floating, the script window's right pane, narrowed to half a small window rather than dropped. The Right Dock stays while a script's group has the focus.
+  * **Help reads as prose**: the declaration a parameter to a line, the comment without its markers, a row for each `- name:` parameter, BioWare's `*` notes on their own, and what is laid out in columns kept as written.
 * **Fix**: A blueprint's pages no longer redraw every frame when one of them keeps changing height as it scrolls (seen in an armor's Appearance page beside its model): such a page is held at its larger height for a moment, so the window stays still and idle ([the UI redesign](ui-redesign-proposal.md)'s M4, after U11).
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U11's review ([05](manual/05-blueprints.md#the-editors), [02](manual/02-main-window.md); [deferred](deferred.md)).
   * A floating blueprint's window shows its Preview pane only where its form keeps its full room (972) beside it; elsewhere the Preview button opens the model's own tab. A window remembered at a narrower size opens at it, without the pane.

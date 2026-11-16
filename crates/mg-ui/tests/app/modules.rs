@@ -2112,7 +2112,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     };
     let scratch = dir.join("scratch");
     let mut h = open(&path, &scratch);
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { }\n");
     let ncs = std::fs::read(scratch.join("hello.ncs")).unwrap();
@@ -2133,7 +2133,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     if apart {
         std::fs::write(&other_spelling, b"NCS V1.0 older").unwrap();
     }
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     assert!(std::fs::read(scratch.join("hello.ncs")).unwrap().starts_with(b"NCS V1.0"));
     assert!(!scratch.join("hello.ndb").exists(), "no debug file of an older compile");
@@ -2148,7 +2148,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     }
     // With debug information: the debug file made goes with it.
     h.state_mut().settings.debug_info = true;
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     assert!(scratch.join("hello.ndb").exists(), "{:?}", texts(&h));
     h.state_mut().settings.debug_info = false;
@@ -2161,7 +2161,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     m.save().unwrap();
     let scratch = dir.join("scratch2");
     let mut h = open(&broken_path, &scratch);
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { x = 1; }\n");
     assert!(!scratch.join("hello.ncs").exists(), "no compiled script");
@@ -2175,7 +2175,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     std::fs::write(scratch.join("hello.ncs"), b"NCS V1.0 older").unwrap();
     std::fs::write(scratch.join("hello.ndb"), b"NDB older").unwrap();
     std::fs::write(scratch.join("other.ncs"), b"NCS V1.0 other").unwrap();
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     assert!(!scratch.join("hello.ncs").exists() && !scratch.join("hello.ndb").exists());
     assert!(scratch.join("other.ncs").exists(), "another script's is left");
@@ -2191,7 +2191,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     m.save().unwrap();
     let scratch = dir.join("scratch3");
     let mut h = open(&include_path, &scratch);
-    h.get_by_label("To Scratch").click();
+    script_click(&mut h, "To Scratch");
     h.run_steps(3);
     let source = std::fs::read(scratch.join("hello.nss")).unwrap();
     assert_eq!(source, b"int Twice(int n) { return 2 * n; }\n");
