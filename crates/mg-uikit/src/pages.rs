@@ -519,6 +519,69 @@ struct Kept {
     /// they were flowed into: kept while that count and the pages stay,
     /// so that a page growing moves no page into another column.
     flowed: (Vec<usize>, usize),
+    /// Each page's height changes, to hold one that flips ([`Flip`]).
+    flips: Vec<Flip>,
+}
+
+/// How a page's height has been changing, to hold one that will not
+/// settle. A page whose height follows where it stands on screen (a part
+/// of it sized by the room left in sight, as the Appearance page's model
+/// beside its fields was) measures anew each time it is placed: it flips
+/// between two heights, or grows each pass, and each change had the pass
+/// drawn again, every frame, for as long as it was in view (egui's
+/// warning of a discard a thousand frames in a row, M4's U11 review).
+#[derive(Clone, Copy, Debug, Default)]
+struct Flip {
+    /// Its height before its last change, and the frame of that change.
+    before: Option<f32>,
+    frame: u64,
+    /// The frames in a row it has changed in.
+    run: u32,
+    /// The height it is held at, and the frame it was held from.
+    held: Option<(f32, u64)>,
+}
+
+/// The frames a page that will not settle is held at a height before it
+/// is measured again: about a third of a second, so a page that grows for
+/// a while (pictures coming in) is followed at that pace.
+const HELD_FRAMES: u64 = 20;
+
+impl Flip {
+    /// The height to place the page by, from `kept` (as placed so far) and
+    /// `measured` in frame `frame`: as measured, but where it changes back
+    /// to the height it had before at once, or changes in two frames
+    /// running, the larger, held for [`HELD_FRAMES`] (a pass is drawn
+    /// again for it at most twice in that time).
+    fn hold(&mut self, kept: f32, measured: f32, frame: u64) -> f32 {
+        let near = |a: f32, b: f32| (a - b).abs() <= 0.5;
+        if let Some((height, since)) = self.held {
+            if frame < since + HELD_FRAMES {
+                return height;
+            }
+            self.held = None;
+            self.run = 0;
+        }
+        if near(measured, kept) {
+            return measured;
+        }
+        let soon = frame <= self.frame + 2;
+        let back = soon && self.before.is_some_and(|b| near(b, measured));
+        self.run = if frame == self.frame {
+            self.run
+        } else if soon {
+            self.run + 1
+        } else {
+            1
+        };
+        if back || self.run >= 2 {
+            let height = measured.max(kept);
+            self.held = Some((height, frame));
+            return height;
+        }
+        self.before = Some(kept);
+        self.frame = frame;
+        measured
+    }
 }
 
 /// A form's pages one after another on one scroll (module comment),
@@ -615,6 +678,8 @@ impl PageScroll {
         let mut kept = ui.data(|d| d.get_temp::<Kept>(kept_id)).unwrap_or_default();
         kept.heights.resize(n, self.estimate);
         kept.widths.resize(n, (0.0, 0.0));
+        kept.flips.resize(n, Flip::default());
+        let frame = ui.ctx().cumulative_frame_nr();
         if n == 0 {
             return ScrollOutput {
                 seen: Seen::default(),
@@ -750,6 +815,7 @@ impl PageScroll {
                     right = right.max(r.right());
                 }
                 let measured = r.height().max(PAGE_BAR).round();
+                let measured = kept.flips[i].hold(heights[i], measured, frame);
                 drawn[i] = Some(Rect::from_min_size(r.min, vec2(width.max(r.width()), measured)));
                 // (A page above the one held drawn at its kept height's
                 // place: measured otherwise, the pass is drawn again.)
@@ -852,6 +918,7 @@ impl PageScroll {
         let kept_id = self.id.with("mg-uikit-page-scroll");
         kept.natural.resize(n, self.estimate);
         kept.fills.resize(n, false);
+        let frame = ui.ctx().cumulative_frame_nr();
         kept.measured.resize(n, false);
         // (Flowed anew only where the columns or the pages changed, or a
         // page was measured for the first time: else each page keeps its
@@ -980,10 +1047,11 @@ impl PageScroll {
                 if !kept.measured[i] {
                     fills[i] = measured >= PROBE_ROOM * FILL_TELL;
                 }
-                natural[i] = match fills[i] {
+                let placed = match fills[i] {
                     true => PAGE_FILL + (measured - room).max(0.0),
                     false => measured,
                 };
+                natural[i] = kept.flips[i].hold(natural[i], placed, frame);
                 if !measured_now[i] {
                     measured_now[i] = true;
                     // (Its first height: the pages flowed again by it.)
@@ -1665,6 +1733,79 @@ mod tests {
         heights.borrow_mut()[2] += 200.0;
         h.run();
         assert_eq!(h.get_by_label("page 3").rect().top(), before, "the page below where it was");
+    }
+
+    /// A page whose height will not settle, flipping between two from pass
+    /// to pass or sized by the room in sight under its top (as the
+    /// Appearance page's model was beside its fields, which grew each time
+    /// it was placed), has the pass drawn again at most twice in twenty
+    /// frames, not in every frame for as long as it is in view (M4's U11
+    /// review: egui's warning of a discard a thousand frames in a row),
+    /// above the page held in one column and in columns; a page that grows
+    /// after it is still taken as measured.
+    #[test]
+    fn a_page_whose_height_flips_is_not_drawn_again_every_frame() {
+        for (columns, follows) in [(1, false), (2, false), (1, true), (2, true)] {
+            let grown = std::rc::Rc::new(std::cell::Cell::new(0.0f32));
+            let g = grown.clone();
+            let page = std::rc::Rc::new(std::cell::Cell::new(2));
+            let mut h = Harness::builder().with_size(vec2(700.0, 400.0)).build_ui(move |ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let mut scroll = PageScroll::new("flips").columns(columns);
+                for n in ["One", "Two", "Three", "Four", "Five", "Six"] {
+                    scroll = scroll.page(Icon::Info, n);
+                }
+                let flip = ui.ctx().cumulative_pass_nr() % 2 == 0;
+                let mut top = page.get();
+                scroll.show(ui, &mut top, |ui, i| {
+                    ui.label(format!("page {i}"));
+                    // (Flipping each pass, or as tall as the room in sight
+                    // under its top, as `beside_model` sized the model.)
+                    let tall = match (i, flip, follows) {
+                        (1, _, true) => (ui.clip_rect().bottom() - ui.cursor().top()).max(300.0),
+                        (1, true, false) => 300.0,
+                        (1, false, false) => 340.0,
+                        _ => 260.0,
+                    } + if i == 1 { g.get() } else { 0.0 };
+                    ui.allocate_exact_size(vec2(10.0, tall), Sense::hover());
+                    ui.label(format!("end {i}"));
+                });
+                page.set(top);
+            });
+            let extra = |h: &mut Harness<'_>| {
+                let (p, f) = (h.ctx.cumulative_pass_nr(), h.ctx.cumulative_frame_nr());
+                for _ in 0..20 {
+                    h.step();
+                }
+                (h.ctx.cumulative_pass_nr() - p) - (h.ctx.cumulative_frame_nr() - f)
+            };
+            // (Page 2 at the top, then the wheel up a little: the end of
+            // page 1, above the page held, in view.)
+            h.run_steps(4);
+            h.hover_at(pos2(400.0, 150.0));
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, 100.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(12);
+            assert!(h.query_by_label("page 2").is_some(), "{columns}: page 2 in view");
+            assert!(h.query_by_label("end 1").is_some(), "{columns}: page 1's end in view");
+            let first = extra(&mut h);
+            let what = if follows { "following the room in sight" } else { "flipping" };
+            assert!(
+                first <= 2,
+                "{columns} columns, {what}: drawn again {first} times in 20 frames"
+            );
+            // A real change after it settled: measured and drawn again once
+            // or twice, then still.
+            grown.set(500.0);
+            let after = extra(&mut h);
+            assert!((1..=3).contains(&after), "{columns} columns, {what}: grown: {after} in 20");
+            let later = extra(&mut h);
+            assert!(later <= 2, "{columns} columns, {what}: then {later} in 20 frames");
+        }
     }
 
     /// A page brought to the top stays there as it is measured anew,

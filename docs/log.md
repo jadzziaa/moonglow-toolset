@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-16
+* **Fix**: A blueprint's pages no longer redraw every frame when one of them keeps changing height as it scrolls (seen in an armor's Appearance page beside its model): such a page is held at its larger height for a moment, so the window stays still and idle ([the UI redesign](ui-redesign-proposal.md)'s M4, after U11).
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U11's review ([05](manual/05-blueprints.md#the-editors), [02](manual/02-main-window.md); [deferred](deferred.md)).
   * A floating blueprint's window shows its Preview pane only where its form keeps its full room (972) beside it; elsewhere the Preview button opens the model's own tab. A window remembered at a narrower size opens at it, without the pane.
   * The model fills its Preview: Frame fits what the model reaches as the camera sees it, so a creature stands from head to feet down a tall panel; it frames again as the panel changes shape until you move or zoom it.

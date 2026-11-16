@@ -383,3 +383,53 @@ fn each_set_of_areas_keeps_its_own_page() {
     sorted.sort();
     assert_eq!(sorted, ["Audio", "Visual"], "each its own: {tops:?}");
 }
+
+/// No form page has its scroll drawn again frame after frame (M4's U11
+/// review: a page whose height followed what of it was in sight, the
+/// Appearance page's model beside its fields, had every frame drawn twice,
+/// egui warning of a discard a thousand frames in a row): every kind's
+/// pages scrolled through a step at a time, docked at 1200 and at 3440 (in
+/// columns) and floating at 1000, each step drawn again at most twice in
+/// the ten frames after it.
+#[test]
+fn no_form_page_is_drawn_again_every_frame() {
+    let kinds = [
+        ("nw_aarcl001", ResType::UTI),
+        ("nw_bartender", ResType::UTC),
+        ("plc_chest1", ResType::UTP),
+        ("nw_storebar01", ResType::UTM),
+        ("nw_door_ttr_01", ResType::UTD),
+        ("nw_verminbeet", ResType::UTE),
+    ];
+    let sizes = [
+        (Mode::Tabs, egui::vec2(1200.0, 900.0)),
+        (Mode::Floating, egui::vec2(1000.0, 800.0)),
+        (Mode::Tabs, egui::vec2(3440.0, 1440.0)),
+    ];
+    for (mode, size) in sizes {
+        for (name, t) in kinds {
+            let copy = format!("d{}", &name[name.len().saturating_sub(12)..]);
+            let Some((mut h, _)) = blueprint_harness_in(mode, name, &copy, t, None) else { return };
+            h.set_size(size);
+            h.run_steps(30);
+            for step in 0..40 {
+                h.hover_at(egui::pos2(size.x * 0.6, size.y * 0.5));
+                let delta = if step < 30 { -150.0 } else { 400.0 };
+                h.event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, delta),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                h.run_steps(3);
+                let (p, f) = (h.ctx.cumulative_pass_nr(), h.ctx.cumulative_frame_nr());
+                h.run_steps(10);
+                let again = (h.ctx.cumulative_pass_nr() - p) - (h.ctx.cumulative_frame_nr() - f);
+                assert!(
+                    again <= 2,
+                    "{name} {mode:?} {size:?} step {step}: drawn again {again} times in 10 frames"
+                );
+            }
+        }
+    }
+}
