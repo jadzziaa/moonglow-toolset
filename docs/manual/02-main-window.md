@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:34:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
 ---
 
 # The main window
@@ -14,7 +14,9 @@ on a tab of its own (**Module**, the module tree, and **Resources**, the
 resource browser), and under them, while an area is in front, the
 **Outliner** (what the area holds: see [The Outliner](#the-outliner)), the
 **tabs** in the middle and the **Right Dock** on the right, with the
-**Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
+**Palette** and **Preview** panels on two tabs beside an area (beside a
+creature's, an item's, a placeable's or a door's editor, that editor's
+own **Preview** alone), the **log** in the Bottom Dock under the tabs, and the
 **Status Bar** (the log's
 switch at its left and, while the log is closed, its last line; in its
 middle the **hints** of the tab you work in, each a key or a gesture and
@@ -68,8 +70,8 @@ Go to Start Location** and the button under the area view's compass
 (it and the Start filter show its circled arrow); **Resources** is the Left Dock's
 Resources tab (also Tools › Resource Browser); **Palettes** is the
 Right Dock's Palette panel (also Tools › Palettes); **Preview** is the
-Right Dock's Preview panel, on the tab beside the palette's (also
-**Tools › Preview**). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types.
+Right Dock's Preview panel, on the tab beside the palette's, or the
+editor's own beside a blueprint's editor (also **Tools › Preview**). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types.
 
 ## Menus
 
@@ -674,7 +676,12 @@ line between them that you drag to share the dock (each column at least
 Layout), the arrow that folds the dock at the end of the second's
 header, by the window's edge as in one column; F6 stops at each, and
 the one you press in or reach is the dock's panel (the one its strip
-and View › Right Dock bring back).
+and View › Right Dock bring back). Beside an editor whose dock holds one
+panel alone (a blueprint's editor and its Preview), the dock there is
+549 wide at first: a creature's pages beside it stand in five columns
+of 480 on a 3440 screen, where at 560 they would make four. The width
+you drag it to is kept for that kind of editor, apart from the area's
+two columns.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -1110,8 +1117,13 @@ it there). The **Preview** tab beside it shows the chosen blueprint
 (Aurora's Preview window): its name, tag, resref, comments and a few
 fields of its type, an item's inventory icon, a store's stock by page,
 and creatures, doors, items and placeables in 3D under their fields,
-with the model viewer's controls. A 3D view is drawn in one place at a
-time: where the same blueprint or model is in a tab already, the tab
+with the model viewer's header row (its info line over it). Beside a
+creature's, an item's, a placeable's or a door's own editor in front,
+the Right Dock is that editor's Preview alone, of its own model (see
+[Blueprints](05-blueprints.md)); Tools › Preview then brings that one,
+and the palettes stay away. A 3D view is drawn in one place at a
+time: where the same blueprint or model is in a tab already (its model's
+tab, or its editor floating in a window with its own Preview), the tab
 keeps it and the Preview says the preview is shown elsewhere. The
 Preview is drawn only while its tab is in front (behind the palette's
 it reads and draws nothing), and then shows whatever is chosen in the
@@ -1254,7 +1266,15 @@ Properties. Drag to turn
 the model (right or middle button to move it), use the wheel to zoom
 (finer with Shift or Ctrl held, or pinch on a touchpad; a sideways
 scroll moves it left and right, as in the area view), and play its
-animations, including those from its supermodels. An item modeled lying
+animations, including those from its supermodels. Its controls are
+one header row over the view: **Animation**, **Play** or **Pause**,
+**Frame**, the **Lights**, **Shadow** and **Shaders** switches and
+**Export Files…**; what has no room goes into the row's **More** (in a
+page or a panel, **Pop Out** is there too), never onto a second row. A
+model's tab says its name, nodes, meshes, parts and supermodel over the
+row. **Frame** fits the whole model in the view, across a narrow one too
+(the Preview beside a form), and the view stays framed as its shape
+changes until you move or zoom it. An item modeled lying
 (a sword, an axe) is stood on its end, its broad side to you: a blade
 shows its flat, not its edge. **Lights**
 lights it with its own light nodes. **Shadow** (on unless you turn it

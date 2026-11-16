@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T09:31:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
 ---
 
 # Blueprints
@@ -341,15 +341,34 @@ The palette's buttons:
   wizard's blueprint is made at **Finish**, and stays when the window it
   opens is cancelled, as in Aurora.
 - **Delete**: remove a custom blueprint from the module.
-- **The model in the page:** a placeable's and a door's Basic page and
-  an item's Appearance page show the model beside their fields, in a
-  window wide enough for both (a creature's Appearance page always has
-  it). A change shows as you make it.
+- **The model in the Preview panel:** a creature's, an item's, a
+  placeable's and a door's editor (a blueprint's, or a placed object's
+  Properties) brings the Right Dock's **Preview** panel with its own
+  model, alone, where the area's tab has the Palette and the Preview of
+  the palette's choice; in a floating window it is the window's own
+  right pane where the window leaves the form at least 972 points beside
+  it (a new window asks for the form's 980 and the pane's 281, as much
+  as the screen allows: a window narrower than that, as on a screen of
+  1920 or less beside the area's docks, or one left at a narrower size,
+  shows no pane, and the Preview button opens the model in a tab or
+  window of its own). A change
+  shows as you make it. Over the model is one header row:
+  **Animation**, **Play** or **Pause**, **Frame**, the **Lights**,
+  **Shadow** and **Shaders** switches and **Export Files…**, with what
+  has no room in its **More** (and **Pop Out**, always there); the
+  panel's own header says the model's name, its nodes, meshes and parts
+  and its supermodel. The Status Bar gives the view's ways beside it:
+  Drag to turn the view, Right Drag or Middle Drag to move it, Wheel to
+  zoom, Shift + Wheel to zoom finer. The **Preview** button (a
+  creature's Basic page, a placeable's and a door's, an item's) brings
+  the panel to the front, the dock unfolded; where none is drawn (the
+  area's Properties panel, a window too narrow for its pane) it opens
+  the model viewer in a tab or window of its own.
 - **An appearance with no model**: when the row an appearance names (a
   placeable's `placeables.2da` row, a door's `doortypes.2da` row or a
   generic door's `genericdoors.2da` row, a creature's `appearance.2da`
   row) has no model to draw, a line in red under the field says why, and
-  the model's place in the page says it too: the row isn't in the table,
+  the Preview panel says it too: the row isn't in the table,
   it names no model, it is reserved (its model is `USER`: rows a table
   keeps for builders), or the model it names is in neither the module,
   its haks nor the game, as in "No model: plc_x99 (placeables.2da row
@@ -797,9 +816,9 @@ Advanced, Visuals, Comments.
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
 
-- **Appearance** opens with the creature's model, as it looks now and as
-  large as the window has room for; its wings, tail and colors, and its
-  body parts, are to the right, so a change shows as you make it (a
+- **Appearance** has the creature's wings, tail and colors, and its
+  body parts; its model, as it looks now, is the Preview panel's beside
+  the editor, so a change shows as you make it (a
   body part may be **0 (none)**, which draws nothing; wings or a tail
   that are an effect, CEP's `@VFX` rows, show their particles, as a
   held torch shows its flame). Each part's list
@@ -822,8 +841,9 @@ every change, as Aurora does on OK.
   parts, it gets them (each 1, no belt or shoulders) and head 1 in the
   same step, since the game draws no body without them. A head of 0, or
   none, is no head: the game draws the neck alone. **Pop
-  Out**, among the viewer's buttons, moves the model to a window of its
-  own (to keep beside other pages); **Bring Back** returns it to the page.
+  Out**, in the Preview's More, moves the model to a tab or window of its
+  own (to keep elsewhere); the panel says so, and **Bring Back** returns
+  it there.
 - **Feats** shows the feats the creature has beside the list to choose
   from, under **Assigned**; a feat's remove button (**Remove** and its
   name) takes it away.
@@ -994,9 +1014,8 @@ number, and an armor's parts under their lists by **Pictures of**: the
 part chosen there (the torso first), each of its models alone as the
 body shown wears it, in the armor's colors, opened at the armor's own,
 a click giving the armor that one (the thighs, shins and feet both
-sides together); the item's model shows in the page and follows each
-change, beside the fields in a wide window and beside the icon in a
-narrower one; an armor or a cloak is shown on a man or, with **Shown on
+sides together); the item's model shows in the Preview panel beside the
+editor and follows each change; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and an armor's inventory icon is then the one a
 woman's inventory shows (the game has no woman's icon of a cloak). Shown
 on is Options › General's **Show armor and cloaks on a woman**, kept

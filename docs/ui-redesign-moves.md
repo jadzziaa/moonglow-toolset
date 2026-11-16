@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T07:55:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T11:44:16Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -140,14 +140,14 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Portrait picture, its combo, Portraits… | Portrait section ✓ M4 U10 |
 | Conversation with its picker, Edit, No interrupt | Conversation section ✓ M4 U10 |
 | Description with its language button | Description section, full width ✓ M4 U10 (its heading names the language, the languages button at its right end) |
-| Preview window: info line, Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files… | Right Dock, Preview panel, one header row over the 3D view |
-| The Appearance page's own preview | The same Preview panel |
+| Preview window: info line, Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files… | Right Dock, Preview panel, one header row over the 3D view ✓ M4 U11 (the blueprint's tab brings its own Preview alone, a floating editor's in its window's right pane; the kit's `EditorHeader`, what has no room in its More, one row at 280; the info line in the panel's header, cut with "…" before its tools; the Creature board's five hints in the Status Bar) |
+| The Appearance page's own preview | The same Preview panel ✓ M4 U11 (and a placeable's, a door's and an item's model beside their fields; Pop Out in the header's More, Bring Back in the panel while popped) |
 | OK, Cancel | Editor header, right end, meaning unchanged ✓ M4 U9 |
 
 
 #### At 3440 by 1440
 
-- All 14 pages are in view at once, in five columns: Basic, Statistics, Appearance, Classes and Skills head the columns and the other pages stack under them. The page list keeps the real order and marks the pages in view. ✓ M4 U10 (as many columns of 480 or more as the room beside the list holds: six at 3440 today, the board's five beside a Right Dock as the board's, which the Preview panel, U11, brings; each page under the column that ends highest, so the stacking under the heads differs from the board's hand-laid one)
+- All 14 pages are in view at once, in five columns: Basic, Statistics, Appearance, Classes and Skills head the columns and the other pages stack under them. The page list keeps the real order and marks the pages in view. ✓ M4 U10 (as many columns of 480 or more as the room beside the list holds: six at 3440 today, the board's five beside a Right Dock as the board's, which the Preview panel, U11, brings ✓ M4 U11: five beside its 549; each page under the column that ends highest, so the stacking under the heads differs from the board's hand-laid one)
 
 ### Viewer
 

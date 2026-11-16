@@ -766,6 +766,11 @@ pub(crate) struct Form<'a> {
     pub root: Struct,
     /// What the list pages did to the objects edited together.
     pub together: Together,
+    /// Drawn as its object's own tab or window, every page on one scroll
+    /// (`false`: the Properties panel's page, Module or Area Properties,
+    /// the journal): where its tab brings the Preview panel, its Preview
+    /// button shows that (M4's U11).
+    pub own_tab: bool,
 }
 
 /// What a form's list pages asked of several objects edited together
@@ -2399,15 +2404,7 @@ pub(crate) fn edit_many(
     // The window this is, and the objects it edits.
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
-    let tab = match (path.0.is_empty(), also.is_empty()) {
-        (true, true) => Tab::Blueprint(key),
-        (true, false) => Tab::Blueprints(targets.iter().map(|(k, _)| *k).collect()),
-        (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
-        (false, false) => Tab::Instances {
-            area: key.resref,
-            paths: targets.iter().map(|(_, p)| p.clone()).collect(),
-        },
-    };
+    let tab = tab_of(key, &path, &also);
     let (held, is_viewed) = looked_at(app, &key);
     // (Named, for a screen reader and the tests: the Properties panel
     // draws the same fields.)
@@ -2516,6 +2513,25 @@ pub(crate) struct AllPages<'p> {
     pub pages: &'p [&'static str],
     pub top: &'p mut usize,
     pub bring: bool,
+}
+
+/// The tab of a Properties window of the object at `path` of `key`, with
+/// those edited with it (`also`): a blueprint's, several blueprints', a
+/// placed object's or several placed objects'.
+pub(crate) fn tab_of(key: ResKey, path: &GffPath, also: &[(ResKey, GffPath)]) -> Tab {
+    match (path.0.is_empty(), also.is_empty()) {
+        (true, true) => Tab::Blueprint(key),
+        (true, false) => {
+            Tab::Blueprints(std::iter::once(key).chain(also.iter().map(|(k, _)| *k)).collect())
+        }
+        (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
+        (false, false) => Tab::Instances {
+            area: key.resref,
+            paths: std::iter::once(path.clone())
+                .chain(also.iter().map(|(_, p)| p.clone()))
+                .collect(),
+        },
+    }
 }
 
 /// The name of a blueprint's or placed object's Properties window (or
@@ -2650,7 +2666,8 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     if viewed {
         typing_kept_out(ui, ui.available_rect_before_wrap());
     }
-    let mut form = Form { app, key, path, also, root, together: Default::default() };
+    let own_tab = all.is_some();
+    let mut form = Form { app, key, path, also, root, together: Default::default(), own_tab };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`;
     // in a narrow room, the panel's, down alone, its rows fitting it.)
     // (The Properties panel's always: it has no sideways scroll, at any

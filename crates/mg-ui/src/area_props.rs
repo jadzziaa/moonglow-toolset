@@ -227,6 +227,7 @@ fn pages(
                 also: also.clone(),
                 root: root.clone(),
                 together: Default::default(),
+                own_tab: false,
             };
             match page {
                 "Basic" => basic(&mut f, ui),
@@ -920,7 +921,8 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
         Some("Description"),
         Some("Label"),
     );
-    let mut f = Form { app, key: git, path, also, root, together: Default::default() };
+    let mut f =
+        Form { app, key: git, path, also, root, together: Default::default(), own_tab: false };
     egui::Grid::new(("are-audio", git)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, label, list) in [
             ("Ambient Sound, Day", "AmbientSndDay", &sounds),

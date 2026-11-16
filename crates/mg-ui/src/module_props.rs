@@ -151,6 +151,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             also: Vec::new(),
             root: root.clone(),
             together: Default::default(),
+            own_tab: false,
         };
         match page {
             Page::Basic => basic(&mut f, ui),

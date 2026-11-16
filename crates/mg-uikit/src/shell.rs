@@ -372,9 +372,13 @@ fn at_right_end<R>(
     child.spacing_mut().item_spacing.x = gap;
     let r = add(&mut child);
     let measured = child.min_rect().width();
-    if measured_again && (measured - width).abs() > 0.5 {
+    let kept = ui.data(|d| d.get_temp::<f32>(id)).is_some();
+    if measured_again && (!kept || (measured - width).abs() > 0.5) {
         ui.data_mut(|d| d.insert_temp(id, measured));
-        ui.ctx().request_discard("a bar's right-hand group changed width");
+        // (Kept now though none: a panel header's detail waits for it.)
+        if (measured - width).abs() > 0.5 {
+            ui.ctx().request_discard("a bar's right-hand group changed width");
+        }
     }
     r
 }
@@ -1000,21 +1004,64 @@ impl PanelHeader {
                 let x = bar.left() + DOCK_TAB_PADDING;
                 let mut end = x + title.size().x;
                 p.galley(pos2(x, y(title.size().y)), title, t.text);
+                let mut cut = None;
                 if let Some(detail) = &self.detail {
-                    let galley = p.layout_no_wrap(detail.clone(), font, t.text_3);
                     // (`.t3.row` after `.docktab.title`, in `.panel-tabs`,
                     // which has no gap: the title's 10 px padding at its
                     // right, and the detail's own 2 at its left.)
                     let at = end + PANEL_DETAIL_GAP;
-                    end = at + galley.size().x;
-                    p.galley(pos2(at, y(galley.size().y)), galley, t.text_3);
+                    // (Cut with "…" before the tools, as wide as they were
+                    // in the last frame (`.ell`): a long one, a model's
+                    // info line, ran under them.)
+                    // (Before the tools are first measured, no detail: the
+                    // pass is drawn again once they are, so the detail never
+                    // runs under them.)
+                    let tools_id = ui.unique_id().with("mg-uikit-tools");
+                    match ui.data(|d| d.get_temp::<f32>(tools_id)) {
+                        Some(tools) => {
+                            let room = bar.right() - TOOLS_PADDING.1 - tools - TOOLS_PADDING.0 - at;
+                            let galley = detail_galley(ui, detail, font, t.text_3, room.max(0.0));
+                            if galley.elided {
+                                cut = Some(detail.clone());
+                            }
+                            end = at + galley.size().x;
+                            p.galley(pos2(at, y(galley.size().y)), galley, t.text_3);
+                        }
+                        None => ui.ctx().request_discard("a panel header's tools not yet measured"),
+                    }
                 }
                 ui.add_space(end - bar.left());
-                tools_at_right_end(ui, bar, tools)
+                let tools = tools_at_right_end(ui, bar, tools);
+                (tools, cut)
             }
+        };
+        let (inner, cut) = inner;
+        // (A detail cut short is whole in the header's tip.)
+        let response = match cut {
+            Some(detail) => response.on_hover_text(detail),
+            None => response,
         };
         egui::InnerResponse::new(inner, response)
     }
+}
+
+/// A panel header's detail on one line at most `room` wide, cut with "…"
+/// where it is wider.
+fn detail_galley(
+    ui: &Ui,
+    detail: &str,
+    font: FontId,
+    color: Color32,
+    room: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(detail.to_string(), font, color);
+    job.wrap = egui::text::TextWrapping {
+        max_width: room,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    ui.painter().layout_job(job)
 }
 
 // ------------------------------------------------------------------ document tabs
@@ -1162,6 +1209,82 @@ mod tests {
         assert!(wide.build_words && !wide.left_dock_folded && wide.game_folder);
         // Quick Open becomes an icon under 240 of room.
         assert!(Yields::quick_open_as_icon(239.0) && !Yields::quick_open_as_icon(240.0));
+    }
+
+    /// A panel header's long detail (a model's info line, M4's U11) is
+    /// cut with "…" before the tools at the bar's end, whole in the
+    /// header's tip; a short one is drawn whole.
+    #[test]
+    fn a_panel_header_s_detail_stops_before_its_tools() {
+        let long = "c_aribeth: 27 nodes, 18 meshes + 5 parts, supermodel a_fa".to_string();
+        let input = |events: Vec<egui::Event>| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(320.0, 200.0))),
+            events,
+            ..Default::default()
+        };
+        type Text = (String, bool, Rect);
+        let texts = |out: &egui::FullOutput| -> Vec<Text> {
+            (out.shapes.iter())
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_string(),
+                        t.galley.elided,
+                        t.visual_bounding_rect(),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        // (Its first frame: what is drawn is the tools measured, never the
+        // detail under them.)
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 0.0);
+        let tool = std::cell::Cell::new(Rect::NOTHING);
+        let header = std::cell::Cell::new(Rect::NOTHING);
+        let frame = |events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(input(events), |ui| {
+                let r = PanelHeader::new("Preview").detail(long.clone()).show(ui, |ui| {
+                    tool.set(ui.add(egui::Button::new("X")).rect);
+                });
+                header.set(r.response.rect);
+            });
+            out.textures_delta.clear();
+            texts(&out)
+        };
+        // (One pass a frame: a frame whose pass is not drawn again, as when
+        // the window has used its passes, shows what that pass drew.)
+        ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::MIN);
+        let first = frame(Vec::new());
+        let second = frame(Vec::new());
+        // (Where the tools stand once measured: the first frame drew no
+        // detail there.)
+        let tools = tool.get();
+        for (t, _, rect) in first.iter().filter(|(t, ..)| t.starts_with("c_aribeth")) {
+            assert!(rect.right() <= tools.left(), "the first frame: {t} {rect:?} under {tools:?}");
+        }
+        let (_, cut, rect) = second.iter().find(|(t, ..)| t.starts_with("c_aribeth")).unwrap();
+        assert!(cut, "cut with …: {rect:?}");
+        let tool = tool.get();
+        assert!(rect.right() <= tool.left(), "before the tools: {rect:?} {tool:?}");
+        // Hovered, its tip holds it whole.
+        let over = header.get().left_center() + vec2(120.0, 0.0);
+        frame(vec![egui::Event::PointerMoved(over)]);
+        let mut tip = Vec::new();
+        for _ in 0..3 {
+            tip = frame(vec![egui::Event::PointerMoved(over)]);
+        }
+        let whole = tip.iter().any(|(t, cut, _)| *t == long && !cut);
+        assert!(whole, "whole in the tip: {tip:?}");
+        // A short one, whole, from its first frame too.
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        let mut out = ctx.run_ui(input(Vec::new()), |ui| {
+            PanelHeader::new("Preview").detail("short").show(ui, |_| ());
+        });
+        out.textures_delta.clear();
+        let whole = texts(&out).iter().any(|(t, cut, _)| t == "short" && !cut);
+        assert!(whole, "a short detail is drawn whole");
     }
 
     /// The editor's thresholds (the area header's, M4's to apply).

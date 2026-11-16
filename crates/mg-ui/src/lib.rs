@@ -234,6 +234,12 @@ pub enum Action {
     /// Resource Browser shows the Resources panel, Tools › Palettes the
     /// Palette panel).
     ShowPanel(Panel),
+    /// Shows a Properties form's own Preview (M4's U11; the Preview
+    /// button of the tab given): its panel in front where the tab is the
+    /// active docked editor, its window's right pane where it floats; a
+    /// tab or window of the model's own where neither is drawn (a window
+    /// too narrow for its pane).
+    ShowPreview(Tab),
     /// Shows the Properties panel in front, its dock unfolded, where the
     /// area is the active docked editor (a double click on one of its
     /// objects, ruling Q1; dragged out, its window's own pane shows it).
@@ -914,7 +920,8 @@ pub struct Moonglow {
     /// until the active editor brings the Palette itself
     /// (`shell::follow_editor`).
     pub(crate) palettes_asked: bool,
-    /// Whether the Right Dock may hold the Palette panel (true). Tests of
+    /// Whether the Right Dock may hold the Palette panel, and a blueprint's
+    /// own Preview (true; in its window's pane where it floats). Tests of
     /// other windows turn it off, so that the dock is not drawn beside
     /// what they look at.
     pub palette_dock: bool,
@@ -966,10 +973,11 @@ pub struct Moonglow {
     /// A Properties form is being drawn in the Properties panel: its ids
     /// are the panel's own (`blueprint::window_state_id`).
     pub(crate) panel_form: bool,
-    /// The areas dragged out into windows too narrow for their right pane
-    /// (`shell::window_panes`, the last frame's): a double click there opens
-    /// the Properties window, there being no panel to show.
-    pub(crate) panes_dropped: std::collections::HashSet<mg_core::ResRef>,
+    /// The editors dragged out into windows too narrow for their right pane
+    /// (`shell::window_panes`, the last frame's): a double click in such an
+    /// area opens the Properties window, there being no panel to show; a
+    /// blueprint's Preview button opens the model's own tab.
+    pub(crate) panes_dropped: std::collections::HashSet<Tab>,
     /// The Properties panel's page shown for each type of object (kept
     /// as another object of that type is selected; the windows keep
     /// theirs by object, `blueprint_pages`).
@@ -2686,7 +2694,11 @@ impl Moonglow {
                 // that brings no panels. Where the active editor brings
                 // them, the request goes at the next frame:
                 // `shell::follow_editor`.)
-                if matches!(panel, Panel::Palette | Panel::Preview) {
+                // (Not the Preview where the active editor brings its own,
+                // a blueprint's, M4's U11: no palettes come with it.)
+                let own = panel == Panel::Preview
+                    && shell::own_preview(self, self.active_editor()).is_some();
+                if matches!(panel, Panel::Palette | Panel::Preview) && !own {
                     self.palettes_asked = true;
                     // (Asked for, it is shown: a test that kept the dock
                     // from coming with the module too.)
@@ -3214,7 +3226,15 @@ impl Moonglow {
         // (One left too small to use, by an older version, is passed over.)
         let left = left
             .filter(|(_, s)| s[0] as f32 >= MIN_REMEMBERED.x && s[1] as f32 >= MIN_REMEMBERED.y);
-        let want = left.map_or(tab.window_size(), |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
+        // (A Properties form with its own Preview, the game's data read:
+        // that much wider, its pane beside the form's 980, M4's U11. A
+        // window of the kind left at a size opens so, its pane drawn only
+        // where the form keeps its least beside it.)
+        let first = match shell::own_preview(self, Some(&tab)) {
+            Some(_) => tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0),
+            None => tab.window_size(),
+        };
+        let want = left.map_or(first, |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
         let remembered = left.is_some();
         // Some of the main pane (the area view) shows beside it.
         // (The Options need their width, and aren't worked in beside it.)
@@ -4482,10 +4502,23 @@ impl Moonglow {
             }
             Action::FoldPalettes => self.show_panel(commands::Id::ViewPalettes, false),
             Action::ShowPanel(panel) => self.show_dock_panel(panel),
+            Action::ShowPreview(tab) => {
+                let brought = shell::own_preview(self, Some(&tab)).is_some();
+                let floating = self.dock.find_tab(&tab).is_some_and(|at| !at.surface.is_main());
+                if brought && self.active_editor() == Some(&tab) {
+                    self.show_dock_panel(Panel::Preview);
+                } else if !(brought && floating && !self.panes_dropped.contains(&tab)) {
+                    // (No Preview of its own drawn: the model's tab.)
+                    let model = model_view::Source::of_editor(&tab).map(|s| s.tab());
+                    if let Some(model) = model {
+                        self.actions.push(Action::OpenTab(model));
+                    }
+                }
+            }
             Action::ShowProperties(area) => {
                 if self.active_editor() == Some(&Tab::Area(area)) {
                     self.show_dock_panel(Panel::Properties);
-                } else if self.panes_dropped.contains(&area) {
+                } else if self.panes_dropped.contains(&Tab::Area(area)) {
                     // (Dragged out into a window too narrow for its pane:
                     // the Properties window, as before the panel.)
                     properties_panel::open_in_tab(self, Some(&Tab::Area(area)));

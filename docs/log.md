@@ -1,6 +1,15 @@
 # Update log
 
 ## 2026-11-16
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U11's review ([05](manual/05-blueprints.md#the-editors), [02](manual/02-main-window.md); [deferred](deferred.md)).
+  * A floating blueprint's window shows its Preview pane only where its form keeps its full room (972) beside it; elsewhere the Preview button opens the model's own tab. A window remembered at a narrower size opens at it, without the pane.
+  * The model fills its Preview: Frame fits what the model reaches as the camera sees it, so a creature stands from head to feet down a tall panel; it frames again as the panel changes shape until you move or zoom it.
+  * At the Preview's narrowest Export Files… and then the light and shader switches go into More before the animation and its controls; the header's tips say what each control does; the panel's info line waits for its tools to be measured, never drawn under them.
+  * The Preview's dock width dragged in a wide window is kept for that kind of editor, apart from the area's.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U11, the Preview panel**, as the Creature and WideCreature boards draw it ([05](manual/05-blueprints.md#the-editors), [02](manual/02-main-window.md); [parity](parity/checklists.md); [deferred](deferred.md)).
+  * **A creature's, an item's, a placeable's and a door's editor brings its own Preview** to the Right Dock, alone, with its model as it looks now; floating, the window's own right pane, the window opening that much wider. The Appearance page and a placeable's or door's Basic page no longer draw the model beside their fields; their **Preview** button brings the panel.
+  * **The model viewer's controls are one header row** (Animation, Play or Pause, Frame, Lights, Shadow, Shaders, Export Files…), what has no room in its More, Pop Out there too; the model's name, nodes, meshes and supermodel in the panel's header, cut with "…" before its tools. Every model view has the row; none reads Options' "Toolbar buttons" any more.
+  * The Status Bar says Drag, Right Drag, Middle Drag, Wheel and Shift + Wheel beside the Preview; Tools › Preview beside a blueprint brings its own, not the palettes. At 3440 the Preview's dock is 549 wide and a creature's pages stand in five columns.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U10's review ([05](manual/05-blueprints.md#the-editors)).
   * With pages side by side, a page keeps its column as others grow, Tab reaches a page in another column out of view, and a list's page (Skills, Feats, Spells, Variables) is given what room its column has left; nothing is shown a frame at its old place.
   * The Classes page in Alignment, Classes and Associates; Skills in two lists; Advanced's check boxes two to a row; Inventory's slot names whole; every `…` after a resource's name as high as its field.

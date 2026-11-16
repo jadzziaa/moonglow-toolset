@@ -276,18 +276,47 @@ fn a_long_name_yields_in_a_narrow_header() {
 }
 
 /// The windows open wide enough beside the page list for what they showed
-/// before it (the coordinator's ruling at U9's review): a placeable's model
-/// beside its Basic page's fields, an encounter's creatures with their
-/// Unique boxes, no sideways scroll.
+/// before it (the coordinator's ruling at U9's review): a placeable's form
+/// as wide as U9's 980 gave it and its Preview's pane beside it (M4's
+/// U11: the model is the pane's, no longer its Basic page's), an
+/// encounter's creatures with their Unique boxes, no sideways scroll.
 #[test]
 fn a_window_opens_wide_enough_beside_its_page_list() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "wide_chest", ResType::UTP) else {
         return;
     };
-    reopen(&mut h, key, egui::vec2(2000.0, 900.0));
+    // (The form's room: from the page list's left to the header's Cancel
+    // at its right end.)
+    let room = |h: &Harness<'_, Moonglow>| {
+        let left = h.get_all_by_label("Basic").map(|n| n.rect().left()).fold(f32::MAX, f32::min);
+        (left, h.get_by_label("Cancel").rect().right())
+    };
+    reopen(&mut h, key, egui::vec2(2600.0, 900.0));
+    let (left, right) = room(&h);
+    let alone = right - left;
+    assert!(h.query_by_label_contains("model viewer").is_none(), "no pane: no model");
+    // (Its window opens wider than U9's 980 by the pane, where the kind
+    // has a model: the form alone has more than 980 here; the room 980
+    // gave it is that less the pane.)
+    // (A screen wide enough that the window is not held to 85% of the
+    // main pane.)
+    assert!(alone > 980.0 + 200.0, "opened wider than 980: the form alone {alone}");
+    let at_980 = alone - (mg_ui::RIGHT_DOCK_LEAST + 1.0);
+    h.state_mut().palette_dock = true;
+    reopen(&mut h, key, egui::vec2(2600.0, 900.0));
     let basic = in_page(&h, "Basic");
-    let model = basic.query_by_label_contains("model viewer");
-    assert!(model.is_some(), "the model (here its want of a GPU said) beside the fields");
+    assert!(basic.query_by_label_contains("model viewer").is_none(), "no model in the page");
+    let model = h.query_by_label_contains("model viewer");
+    let model = model.expect("the model (here its want of a GPU said) in the window's pane").rect();
+    let (left, right) = room(&h);
+    assert!(model.left() >= right, "the pane at the form's right: {right} {model:?}");
+    // (The window opens as much wider than U9's 980 as the pane is: the
+    // form has what 980 gave it.)
+    assert!(
+        (right - left - at_980).abs() <= 2.0,
+        "the form keeps U9's room beside the pane: {} beside it, {at_980} at 980",
+        right - left
+    );
     drop(h);
     let Some((mut h, key)) = blueprint_harness("nw_verminbeet", "wide_encounter", ResType::UTE)
     else {

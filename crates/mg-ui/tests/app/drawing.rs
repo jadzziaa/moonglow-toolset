@@ -2025,39 +2025,40 @@ fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     h.render().expect("render").save(dir.join("twice.png")).unwrap();
     let source = mg_ui::model_view::Source::Resource(chest);
     assert!(h.state().model_views[&source].holds_targets(), "drawn in the one place");
-    let said: Vec<egui::Rect> = (h
-        .query_all_by_label("The preview is shown elsewhere in the window."))
-    .map(|n| n.rect())
-    .collect();
+    let said: Vec<egui::Rect> =
+        (h.query_all_by_label(mg_ui::model_view::SHOWN_ELSEWHERE)).map(|n| n.rect()).collect();
     assert_eq!(said.len(), 1, "and said in the other");
     let preview = h.state().preview_panel_rect().expect("the Preview panel");
     assert!(preview.contains(said[0].center()), "said in the Preview panel: {said:?} {preview:?}");
     // Its tab closed: the Preview panel draws it.
     close_tab(h.state_mut(), &Tab::Model(chest));
     settle(&mut h);
-    assert!(h.query_by_label("The preview is shown elsewhere in the window.").is_none());
+    assert!(h.query_by_label(mg_ui::model_view::SHOWN_ELSEWHERE).is_none());
     assert!(h.state().model_views[&source].holds_targets());
     h.render().expect("render").save(dir.join("once.png")).unwrap();
 }
 
-/// The same with the blueprint's own editor on its Appearance page (a
-/// creature's), which shows the model the palette's chosen blueprint has
-/// (the same source): docked in the editor area and as a floating window,
-/// the tab keeps its view and the Preview panel says the model is shown
-/// elsewhere (the Preview's body is drawn after the editor area while an
-/// open tab may show its model, `model_view::a_tab_may_show`).
+/// The same with the blueprint's own editor open, the blueprint also
+/// chosen in the palette (since M4's U11 its model is its own Preview
+/// panel's, not its Appearance page's). Docked in front of the area, the
+/// docks are the blueprint's: its Preview draws it, the palette's is not
+/// drawn, nothing is said. As a floating window, its window's pane draws
+/// it (the window is drawn with the editor area) and the main Right
+/// Dock's Preview, beside the area, says the model is shown elsewhere
+/// (drawn after the editor area while an open tab may show its model,
+/// `model_view::a_tab_may_show`; deferred: "A preview shown twice in a
+/// frame").
 #[test]
-fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
-    const ELSEWHERE: &str = "The preview is shown elsewhere in the window.";
+fn a_blueprint_s_own_preview_keeps_its_view_beside_the_palette_s() {
+    const ELSEWHERE: &str = mg_ui::model_view::SHOWN_ELSEWHERE;
     for docked in [true, false] {
         let name = if docked { "preview-page-docked" } else { "preview-page-floating" };
         let Some((mut h, _area)) = area_harness(name) else { return };
+        // (Wide enough for a floating window's form and pane.)
+        h.set_size(egui::vec2(2200.0, 1000.0));
         let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
-        if docked {
-            // (Creatures' editors dock in the middle, in front of the area.)
-            let middle = ("creature".to_string(), "middle".to_string());
-            h.state_mut().settings.window_places = vec![middle];
-        }
+        let place = if docked { "middle" } else { "window" };
+        h.state_mut().settings.window_places = vec![("creature".to_string(), place.to_string())];
         {
             let app = h.state_mut();
             let data = app.game.as_ref().unwrap().resman.get(&bandit).unwrap();
@@ -2073,15 +2074,26 @@ fn a_blueprint_s_appearance_page_keeps_its_view_beside_the_preview() {
         let source = mg_ui::model_view::Source::Resource(bandit);
         let view = h.state().model_views.get(&source).expect("a view of the bandit");
         assert!(view.holds_targets(), "{name}: drawn in the one place");
+        let headers = h.query_all_by_label(mg_ui::model_view::MODEL_HEADER).count();
+        assert_eq!(headers, 1, "{name}: one viewer");
         let said: Vec<egui::Rect> = h.query_all_by_label(ELSEWHERE).map(|n| n.rect()).collect();
-        assert_eq!(said.len(), 1, "{name}: said in the other place");
-        let preview = h.state().preview_panel_rect().expect("the Preview panel");
-        assert!(preview.contains(said[0].center()), "{name}: said in the Preview: {said:?}");
-        // The editor closed: the Preview panel draws the model.
+        if docked {
+            assert!(said.is_empty(), "{name}: nothing said: {said:?}");
+            let row = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+            let dock = h.state().right_dock_rect().expect("the Right Dock");
+            assert!(dock.contains_rect(row[0].row), "{name}: in the blueprint's Preview");
+        } else {
+            assert_eq!(said.len(), 1, "{name}: said in the other place");
+            let preview = h.state().preview_panel_rect().expect("the Preview panel");
+            assert!(preview.contains(said[0].center()), "{name}: said in the dock: {said:?}");
+        }
+        // The editor closed: the palette's Preview draws the model.
         close_tab(h.state_mut(), &Tab::Blueprint(bandit));
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
         settle(&mut h);
         assert!(h.query_by_label(ELSEWHERE).is_none(), "{name}: the Preview draws it");
         assert!(h.state().model_views[&source].holds_targets());
+        assert_eq!(h.query_all_by_label(mg_ui::model_view::MODEL_HEADER).count(), 1);
     }
 }
 

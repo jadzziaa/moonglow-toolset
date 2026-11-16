@@ -4559,21 +4559,6 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     }
 }
 
-/// A [`Dropdown`] with `label` after its box (and naming it).
-pub(crate) fn dropdown_labelled(
-    id_salt: impl egui::AsIdSalt,
-    label: impl Into<egui::WidgetText>,
-) -> Dropdown {
-    let salt = egui::Id::new(&id_salt);
-    Dropdown {
-        combo: egui::ComboBox::new(id_salt, label).icon(mg_uikit::combo_icon),
-        salt,
-        stays_open: false,
-        filtered: false,
-        width: None,
-    }
-}
-
 impl Dropdown {
     /// The box, its width as asked held to `ui`'s room (a narrow form's,
     /// the Properties panel: never past its edge).

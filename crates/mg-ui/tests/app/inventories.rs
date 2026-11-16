@@ -1058,6 +1058,9 @@ fn bandit_holding(
     area: ResRef,
     held: &dyn Fn(&mg_rules::GameData) -> Vec<mg_gff::Struct>,
 ) -> mg_edit::GffPath {
+    // (The windows' forms alone, laid side by side by their sizes: no
+    // Preview pane beside them in their windows, M4's U11.)
+    h.state_mut().palette_dock = false;
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
     let game = h.state().game.clone().unwrap();

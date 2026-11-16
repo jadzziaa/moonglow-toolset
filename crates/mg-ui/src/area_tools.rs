@@ -806,25 +806,14 @@ pub(crate) fn preview_late(app: &mut Moonglow, ui: &mut Ui, slot: crate::shell::
 /// down (radians: 15° and 10°).
 const PREVIEW_TURN: (f32, f32) = (0.2618, 0.1745);
 
-/// The Right Dock's Preview panel's body (Aurora's Preview window,
-/// `TfrmPreview`, and Moonglow's until M3's T6), in `ui`, `rect`: the
-/// blueprint chosen in the palette, its name, tag, resref and comments and
-/// a few fields of its type (an item's inventory icon beside them), in 3D
-/// under them for creatures, items, placeables and doors, a store's stock
-/// by page. With the arrow keys its own (F6 to the Right Dock with the
-/// Preview's tab in front), they turn its model as a drag does: Left and
-/// Right about it, Up and Down over or under it; a thin outline says so.
-pub(crate) fn preview_body(app: &mut Moonglow, ui: &mut Ui, rect: egui::Rect) {
-    use crate::palette_view::{Keys, keys_are, keys_outline};
-    keys_outline(ui, rect, Keys::Preview);
-    let Some(key) = app.palette.selected else {
-        ui.weak("Choose a blueprint in the palette.");
-        return;
-    };
-    let source = crate::model_view::Source::Resource(key);
+/// With the arrow keys the Preview's own (F6 to it), they turn `source`'s
+/// model as a drag does: Left and Right about it, Up and Down over or
+/// under it.
+fn turn_by_keys(app: &mut Moonglow, ui: &Ui, source: &crate::model_view::Source) {
+    use crate::palette_view::{Keys, keys_are};
     if keys_are(ui.ctx(), Keys::Preview)
         && !ui.ctx().egui_wants_keyboard_input()
-        && let Some(view) = app.model_views.get_mut(&source)
+        && let Some(view) = app.model_views.get_mut(source)
     {
         let (yaw, pitch) = ui.input(|i| {
             let k = |key| f32::from(u8::from(i.key_pressed(key)));
@@ -835,6 +824,76 @@ pub(crate) fn preview_body(app: &mut Moonglow, ui: &mut Ui, rect: egui::Rect) {
         o.yaw -= yaw * PREVIEW_TURN.0;
         o.pitch = (o.pitch + pitch * PREVIEW_TURN.1).clamp(-1.45, 1.45);
     }
+}
+
+/// What a blueprint's or placed object's own Preview says where its model
+/// has a tab or window of its own (Pop Out).
+pub const POPPED_OUT: &str = "The preview is in a window of its own.";
+
+/// A blueprint's or placed object's own Preview panel's body (M4's U11,
+/// the Creature board's Right Dock: what the Appearance page and a
+/// placeable's or a door's Basic page showed beside their fields), in
+/// `ui`, `rect`: its model's header row over its 3D view, flush with the
+/// panel's edges, the info line in the panel's tab bar where it is
+/// `titled` (else over the header, as the last frame drew the model). Pop Out, in the header's More, shows
+/// the model in a tab or window of its own; while it is there, the panel
+/// says so and offers to bring it back. The arrow keys turn the model as
+/// the palette's Preview's do.
+pub(crate) fn own_preview_body(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    rect: egui::Rect,
+    source: crate::model_view::Source,
+    titled: bool,
+) {
+    use crate::palette_view::{Keys, keys_outline};
+    keys_outline(ui, rect, Keys::Preview);
+    let tab = source.tab();
+    let popped = app.open_models.contains(&tab) || app.dock.find_tab(&tab).is_some();
+    if popped {
+        egui::Frame::new()
+            .inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 4 })
+            .show(ui, |ui| {
+                ui.weak(POPPED_OUT);
+                let bring =
+                    ui.button("Bring Back").on_hover_text("Close its window and show it here");
+                if bring.clicked() {
+                    app.actions.push(crate::Action::CloseTab(tab));
+                }
+            });
+        return;
+    }
+    turn_by_keys(app, ui, &source);
+    // (Untitled where it shares a tab bar under 1400: its info line over
+    // its header, in the panel's margin.)
+    if !titled && let Some(info) = crate::model_view::info(app, &source) {
+        let margin = egui::Margin { left: 8, right: 8, top: 4, bottom: 2 };
+        egui::Frame::new().inner_margin(margin).show(ui, |ui| {
+            ui.add(egui::Label::new(egui::RichText::new(info).weak()).truncate());
+        });
+    }
+    let shown = crate::model_view::Shown { info: false, pop_out: true, restore: false };
+    if crate::model_view::panel(app, ui, source, shown) {
+        app.actions.push(crate::Action::OpenTab(tab));
+    }
+}
+
+/// The Right Dock's Preview panel's body (Aurora's Preview window,
+/// `TfrmPreview`, and Moonglow's until M3's T6), in `ui`, `rect`: the
+/// blueprint chosen in the palette, its name, tag, resref and comments and
+/// a few fields of its type (an item's inventory icon beside them), in 3D
+/// under them for creatures, items, placeables and doors, a store's stock
+/// by page. With the arrow keys its own (F6 to the Right Dock with the
+/// Preview's tab in front), they turn its model as a drag does: Left and
+/// Right about it, Up and Down over or under it; a thin outline says so.
+pub(crate) fn preview_body(app: &mut Moonglow, ui: &mut Ui, rect: egui::Rect) {
+    use crate::palette_view::{Keys, keys_outline};
+    keys_outline(ui, rect, Keys::Preview);
+    let Some(key) = app.palette.selected else {
+        ui.weak("Choose a blueprint in the palette.");
+        return;
+    };
+    turn_by_keys(app, ui, &crate::model_view::Source::Resource(key));
     let Some(gff) = blueprint(app, key) else {
         ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
         return;

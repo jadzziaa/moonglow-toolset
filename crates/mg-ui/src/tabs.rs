@@ -238,9 +238,11 @@ impl Tab {
             Tab::Options => crate::options::WINDOW_SIZE.into(),
             Tab::PluginPanel { .. } => (380.0, 560.0),
             // (Its header with OK and Cancel over the pages, the page list
-            // at their left: wide enough beside the list for a placeable's
-            // model beside its Basic page's fields, a creature's slots beside
-            // their palette and an encounter's creatures whole; M4's U9.)
+            // at their left: wide enough beside the list for a creature's
+            // slots beside their palette, a store's palette beside its stock
+            // and an encounter's creatures whole; M4's U9.)
+            // (Its Preview's pane is added where one is drawn: M4's U11,
+            // `Moonglow::open_window`.)
             Tab::Blueprint(_)
             | Tab::Blueprints(_)
             | Tab::Instance { .. }

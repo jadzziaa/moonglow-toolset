@@ -514,58 +514,18 @@ fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<[String; 2]> {
     mg_rules::models::skeletons(&f.root, &appearance, gender.as_deref(), phenotype.as_deref())
 }
 
-/// The Appearance page: the creature as it looks now, as large as the
-/// window has room for; to its right the wings, tail and colors, and the
-/// body parts where the appearance has them; beneath it, what there is to
-/// say about the appearance. A narrow window stacks them.
+/// The Appearance page: the wings, tail and colors, and the body parts
+/// where the appearance has them; what there is to say about the
+/// appearance over them. (The creature as it looks now is the Preview
+/// panel's, M4's U11: the Creature board's Right Dock.)
 fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
     let Some(game) = f.app.game.clone() else { return };
     let prefix = body_prefix(f, &game);
-    let gap = ui.spacing().item_spacing.x;
-    // What is left of the page's visible height, and its width.
-    // (The visible width: a page once wider than the window would keep
-    // that width.)
-    let room = egui::vec2(
-        ui.available_width().min(ui.clip_rect().right() - ui.cursor().left()),
-        (ui.clip_rect().bottom() - ui.cursor().top()).max(APPEARANCE_PREVIEW.y),
-    );
-    let beside = room.x >= APPEARANCE_SIDE + gap + APPEARANCE_PREVIEW.x;
-    let note = |ui: &mut Ui| {
-        if prefix.is_none() {
-            ui.weak("This appearance is a single model: it has no body parts.");
-        }
-    };
-    if beside {
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                // (Room beneath for the note.)
-                let line = ui.text_style_height(&egui::TextStyle::Body) + 2.0 * gap;
-                // (The fields keep their width, their scroll bar included.)
-                let width = room.x - APPEARANCE_SIDE - 3.0 * gap - ui.spacing().scroll.bar_width;
-                let size = egui::vec2(width, room.y - line);
-                situated::inline_preview(f, ui, size);
-                note(ui);
-            });
-            ui.vertical(|ui| {
-                ui.set_width(APPEARANCE_SIDE);
-                egui::ScrollArea::vertical()
-                    .id_salt(("utc-appearance-side", f.key))
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| appearance_fields(f, ui, &game, prefix.as_ref()));
-            });
-        });
-    } else {
-        situated::inline_preview(f, ui, egui::vec2(room.x, APPEARANCE_PREVIEW.y));
-        note(ui);
-        ui.add_space(crate::widgets::SECTION_GAP);
-        appearance_fields(f, ui, &game, prefix.as_ref());
+    if prefix.is_none() {
+        ui.weak("This appearance is a single model: it has no body parts.");
     }
+    appearance_fields(f, ui, &game, prefix.as_ref());
 }
-
-/// The least the model takes of the Appearance page, and the width of the
-/// fields beside it.
-const APPEARANCE_PREVIEW: egui::Vec2 = egui::vec2(340.0, 300.0);
-const APPEARANCE_SIDE: f32 = 350.0;
 
 /// The Appearance page's fields: wings, tail and colors, then the body
 /// parts of an appearance that has them (`prefix`: its parts' models',

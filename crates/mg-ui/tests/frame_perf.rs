@@ -1999,6 +1999,16 @@ fn frames_at_144() {
     {
         if let Some(k) = k {
             tab(&mut h, &mut r, &format!("{what} {}", k.resref), Tab::Blueprint(k));
+            // (With its own Preview unfolded beside it, its model drawn
+            // again as it moves: M4's U11.)
+            if what != "store" {
+                let t = Tab::Blueprint(k);
+                open(&mut h, t.clone());
+                show_preview(&mut h);
+                view(&mut h, &mut r, &format!("{what} {}, its Preview", k.resref), Some(&t));
+                fold_palette(&mut h);
+                close(&mut h, &t);
+            }
             if what == "creature" {
                 pages_scrolled(&mut h, &mut r, &format!("creature {}", k.resref), k);
             }

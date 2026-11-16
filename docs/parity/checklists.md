@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T07:55:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T11:32:28Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -248,7 +248,7 @@ scripts (name, picker, Edit), Comments.
 | Store inventory (`TdlgInventory`, store mode): item palette, the five store pages, Infinite | an Inventory page: item palette, the pages (by the base item's `StorePanel`), items placed at the first free place in the 10-wide grid, Infinite, Remove | ◐ (a list, not Aurora's icon grid; drag between places not yet) |
 | Door (`TdlgDoorEdit`): Basic (`TfraSituatedBasic`: appearance from doortypes.2da, Generic Appearance from genericdoors.2da, hit points, hardness, saves, plot), Lock (`TfraSituatedLock`), Trap, Area Transition, Scripts (`TfraSituatedScripts`), Advanced (`TfraSituatedAdvanced`: faction, conversation, portrait, initial state, No Interrupt), Description, Comments | the same pages; Generic Appearance writes `GenericType_New` (and the old `GenericType` where the blueprint has it); Hit Points sets `CurrentHP` too; Setup Area Transition: see [Setup Area Transition](#setup-area-transition-tdlgareatransition) | ✅ [door_editor_sets_appearance_lock_and_transition] |
 | Placeable (`TdlgPlaceableEdit`): Basic (appearance from placeables.2da, Static, Useable, Has Inventory), Lock, Trap, Scripts, Advanced (plus Treasure Model), Description, Comments; Inventory… | the same pages; Static disables Useable and Has Inventory; the inventory is a page like the store's | ✅ [placeable_editor_fills_its_inventory] |
-| The 3D preview in the door and placeable dialogs | the model beside the Basic page's fields, with Pop Out to a window of its own; a Preview button where the page is narrow | ✅ [a_placeable_s_and_a_door_s_page_show_the_model] |
+| The 3D preview in the door and placeable dialogs | the Preview panel beside the editor (M4's U11: the Right Dock, or the window's own pane where it floats), with Pop Out in its header's More; the Basic page's Preview button brings it | ✅ [a_placeable_s_and_a_door_s_model_is_their_preview_panel_s, the_preview_button_and_pop_out] |
 | Portrait (`TdlgPortrait`: portraits.2da thumbnails, a large preview; Characters and Creatures, Placeable Objects and Doors or Plot Characters; race, gender and category filters; double-click or OK) | the portrait's picture beside a filtered list of portraits.2da base resrefs, and Portraits… opens the same Select Portrait window (pictures DDS over TGA, as the engine prefers); older blueprints' `Portrait` resref is kept in step | ✅ [portraits_are_chosen_from_their_pictures] |
 | Load Script Set / Save Script Set | the same buttons under the scripts of creatures, doors, placeables, triggers, encounters and areas: `.ini` files with a `[ResRefs]` section and Aurora's event names (`mg_module::script_set`, as the game's own `data/scr` sets); loading sets every event of the page (those the file leaves out to none) in one undoable step | ✅ [script_sets_save_and_load] (whether Aurora clears the events a set leaves out is not captured) |
 | Showing a page never changes the blueprint | every page of each editor, on blueprints with odd values | ✅ [showing_blueprint_editors_changes_nothing] |

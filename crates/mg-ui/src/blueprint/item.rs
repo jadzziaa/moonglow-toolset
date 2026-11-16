@@ -24,24 +24,13 @@ use crate::{Action, Moonglow};
 pub(super) const PAGES: [&str; 7] =
     ["General", "Appearance", "Properties", "Variables", "Visuals", "Description", "Comments"];
 
-/// The width of the Appearance page's fields beside the model.
-const APPEARANCE_SIDE: f32 = 460.0;
-
 /// The width of a part's choice: a number, "Model 12", "7 (AC 5)".
 const PART_WIDTH: f32 = 110.0;
-
-/// The least height of the model shown beside the icon, in a window too
-/// narrow to have it beside the page's fields.
-const MODEL_SHORT: f32 = 220.0;
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
         "General" => general(f, ui),
-        "Appearance" => with_game(f, |f, game| {
-            let fields =
-                |f: &mut Form<'_>, ui: &mut Ui, beside: bool| appearance(f, ui, game, beside);
-            super::situated::beside_model(f, ui, APPEARANCE_SIDE, fields);
-        }),
+        "Appearance" => with_game(f, |f, game| appearance(f, ui, game)),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
         "Visuals" => super::visuals::page(f, ui, true),
         "Description" => description(f, ui),
@@ -775,25 +764,15 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     }
 }
 
-fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
+fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let Ok(t) = game.table("baseitems") else { return };
     let row = base_row(f);
     let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
-    // The item's inventory icon, as it is now.
+    // The item's inventory icon, as it is now. (Its model is the Preview
+    // panel's, M4's U11.)
     let root = f.root.clone();
     let layers = icon(f, ui, game, &root);
-    if beside {
-        crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon");
-    } else {
-        // (The page's visible width: see `situated::beside_model`.)
-        let seen = ui.available_width().min(ui.clip_rect().right() - ui.cursor().left());
-        ui.horizontal_top(|ui| {
-            let icon = crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon").rect;
-            let gap = ui.spacing().item_spacing.x;
-            let size = egui::vec2(seen - icon.width() - 2.0 * gap, icon.height().max(MODEL_SHORT));
-            ui.vertical(|ui| super::situated::inline_preview(f, ui, size));
-        });
-    }
+    crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon");
     // Who wears it in the model and the icon shown: armor, cloaks and the
     // items the game has an icon of for each have a man's and a woman's.
     // (Options › General has the choice too, kept: inventories and the

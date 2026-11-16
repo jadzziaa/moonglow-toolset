@@ -851,14 +851,14 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.palette_dock = false;
-    // (Wide enough for the window's page list, the fields and the model
-    // beside them.)
-    let mut h = gpu_harness(app, rs, 1300.0, 700.0);
+    // (Wide enough for the window's page list, the fields and the Preview
+    // in the window's pane beside them, M4's U11.)
+    let mut h = gpu_harness(app, rs, 1700.0, 700.0);
     h.run_steps(3);
     let at = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+    let size = egui::vec2(1100.0 + mg_ui::RIGHT_DOCK_LEAST + 1.0, 620.0);
     if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
-        w.set_position(egui::pos2(40.0, 40.0)).set_size(egui::vec2(1100.0, 620.0));
+        w.set_position(egui::pos2(40.0, 40.0)).set_size(size);
     }
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
@@ -4374,10 +4374,13 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
     assert!(h.query_all_by_value("torch").next().is_some(), "the search takes it");
 }
 
-/// An item's Appearance page shows its model in the page, over the fields
-/// in a window too narrow to have it beside them.
+/// An item's model is its own Preview panel's (M4's U11; the Appearance
+/// page showed it in the page): the panel beside its tab draws it, with
+/// the model viewer's header (Pop Out in its More), and the Appearance
+/// page draws no viewer of its own; each of the sword's parts as
+/// pictures.
 #[test]
-fn an_item_s_appearance_page_shows_its_model() {
+fn an_item_s_model_is_its_preview_panel_s() {
     let Some((mut h, _area)) = area_harness("item-model") else { return };
     let key = ResKey::parse("nw_wswls001", ResType::UTI).unwrap();
     {
@@ -4385,20 +4388,28 @@ fn an_item_s_appearance_page_shows_its_model() {
         let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
         app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
         app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+        app.settings.window_places = vec![("item".to_string(), "middle".to_string())];
         app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     }
-    h.run_steps(10);
-    // (The viewer's own buttons: it is there, and has the game's data.)
-    assert!(h.query_by_label("Pop Out").is_some());
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(key);
+    assert!(h.state().model_views[&source].holds_targets(), "drawn");
+    let header = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+    assert_eq!(header.len(), 1, "one viewer");
+    assert!(right_dock_rect(&h).contains_rect(header[0].row), "in the Preview panel");
+    let places = mg_uikit::header::places(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+    assert!(places.iter().any(|(n, _)| n == "Pop Out"), "Pop Out in it: {places:?}");
     assert!(h.query_by_label_contains("No game data").is_none());
     // Each of the sword's parts as pictures.
     assert!(h.query_all_by_label_contains("Top ").count() > 1);
 }
 
-/// A placeable's and a door's Basic page show the model in the page, as
-/// Aurora's dialogs have a 3D preview.
+/// A placeable's and a door's model is their Preview panel's (M4's U11;
+/// their Basic page showed it beside the fields in a wide window): at 800
+/// and at 1900 the panel beside the tab draws it and the Basic page has
+/// its Preview button and no viewer; the tab closed, no viewer is drawn.
 #[test]
-fn a_placeable_s_and_a_door_s_page_show_the_model() {
+fn a_placeable_s_and_a_door_s_model_is_their_preview_panel_s() {
     let Some((mut h, _area)) = area_harness("situated-model") else { return };
     for (name, restype) in [("plc_chest1", ResType::UTP), ("nw_door_ttr_01", ResType::UTD)] {
         let key = ResKey::parse(name, restype).unwrap();
@@ -4412,23 +4423,23 @@ fn a_placeable_s_and_a_door_s_page_show_the_model() {
             app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
             app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
         }
-        // Too narrow for the fields and the model: a Preview button. (800
-        // wide: the Left Dock a strip and the Right Dock 280 there, M3
-        // T14, the editor area about 480 points, as 900 had it with both
-        // docks open before.)
-        h.set_size(egui::vec2(800.0, 800.0));
-        h.run_steps(10);
-        assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
-        assert!(apart_all(&h, "Preview").next().is_some(), "{key}");
-        // Wide enough: the viewer beside the fields.
-        h.set_size(egui::vec2(1900.0, 1000.0));
-        h.run_steps(10);
-        assert!(h.query_by_label("Pop Out").is_some(), "{key}: the viewer is in the page");
-        assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        let source = mg_ui::model_view::Source::Resource(key);
+        for width in [800.0, 1900.0] {
+            h.set_size(egui::vec2(width, 1000.0));
+            settle(&mut h);
+            let headers = h.query_all_by_label(mg_ui::model_view::MODEL_HEADER).count();
+            assert_eq!(headers, 1, "{key} at {width}: one viewer");
+            let header = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+            assert!(right_dock_rect(&h).contains_rect(header[0].row), "{key} at {width}: docked");
+            assert!(h.state().model_views[&source].holds_targets(), "{key} at {width}: drawn");
+            assert!(apart_all(&h, "Preview").next().is_some(), "{key} at {width}: its button");
+            assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        }
         let tab = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
         h.state_mut().dock.remove_tab(tab);
-        h.run_steps(3);
-        assert!(h.query_by_label("Pop Out").is_none(), "{key}: closed again");
+        settle(&mut h);
+        let header = h.query_by_label(mg_ui::model_view::MODEL_HEADER);
+        assert!(header.is_none(), "{key}: closed again");
     }
 }
 

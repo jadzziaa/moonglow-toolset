@@ -546,6 +546,12 @@ pub struct DockLayout {
     /// section's front).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folded: Option<String>,
+    /// The Right Dock's width in the wide layout where the kind's dock
+    /// holds one panel alone (a form's Preview, M4's U11), as the builder
+    /// dragged its edge (none: 549); the two-column dock's is
+    /// [`Settings::right_dock_width_wide`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wide_width: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -2065,6 +2071,7 @@ mod tests {
             bottom: Some("Compiler".into()),
             column: Some(420),
             folded: Some("Help".into()),
+            wide_width: Some(600),
         };
         kept.dock_layouts.insert("script".into(), script);
         // (A newer one's kind, and a panel this version has no name for.)

@@ -1270,82 +1270,18 @@ fn preview_tab(f: &Form<'_>) -> crate::Tab {
     }
 }
 
-/// The model viewer in the page, `size` large, as Aurora shows a creature
-/// in its Appearance page; Pop Out, among its buttons, moves it to a window
-/// of its own (to keep beside other pages). While it is there, the page
-/// says so and offers to bring it back.
-pub(super) fn inline_preview(f: &mut Form<'_>, ui: &mut Ui, size: egui::Vec2) {
-    let tab = preview_tab(f);
-    let size = size.max(egui::vec2(120.0, 120.0));
-    let popped = f.app.open_models.contains(&tab);
-    let source = match &tab {
-        crate::Tab::InstanceModel { area, path } => {
-            crate::model_view::Source::Instance { area: *area, path: path.clone() }
-        }
-        _ => crate::model_view::Source::Resource(f.key),
-    };
-    ui.allocate_ui(size, |ui| {
-        ui.set_min_size(size);
-        ui.set_max_size(size);
-        if popped {
-            ui.weak("The preview is in a window of its own.");
-            if ui.button("Bring Back").on_hover_text("Close its window and show it here").clicked()
-            {
-                f.app.actions.push(crate::Action::CloseTab(tab));
-            }
-        } else if crate::model_view::embedded(f.app, ui, source) {
-            f.app.actions.push(crate::Action::OpenTab(tab));
-        }
-    });
-}
-
-/// A page that shows the object's model beside its fields, which take a
-/// column `side` wide on the left; the model has the rest of the window.
-/// A window too narrow for both, the model at
-/// least [`MODEL_LEAST`] wide, has the fields alone, where they were, and
-/// they are told so (`false`): Preview shows the model, or the page finds
-/// it a place among its fields.
-pub(super) fn beside_model(
-    f: &mut Form<'_>,
-    ui: &mut Ui,
-    side: f32,
-    fields: impl FnOnce(&mut Form<'_>, &mut Ui, bool),
-) {
-    let gap = ui.spacing().item_spacing.x;
-    // What is left of the page's visible height, and its width. (The
-    // visible width: a page once wider than the window would keep that.)
-    let room = egui::vec2(
-        ui.available_width().min(ui.clip_rect().right() - ui.cursor().left()),
-        (ui.clip_rect().bottom() - ui.cursor().top()).max(MODEL_LEAST.y),
-    );
-    if room.x < side + gap + MODEL_LEAST.x {
-        fields(f, ui, false);
-        return;
-    }
-    // (The fields keep their width, their scroll bar included.)
-    let width = room.x - side - 3.0 * gap - ui.spacing().scroll.bar_width;
-    let size = egui::vec2(width, room.y - gap);
-    ui.horizontal_top(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(side);
-            egui::ScrollArea::vertical()
-                .id_salt(("beside-model", f.key))
-                .auto_shrink([false, false])
-                .show(ui, |ui| fields(f, ui, true));
-        });
-        ui.vertical(|ui| inline_preview(f, ui, size));
-    });
-}
-
-/// The least the model takes of a page that shows it.
-pub(super) const MODEL_LEAST: egui::Vec2 = egui::vec2(340.0, 300.0);
-
-/// Preview: the blueprint's model in the model viewer (Aurora shows it in
-/// the dialog).
+/// Preview: the object's model. Where its own tab or window brings the
+/// Preview panel (M4's U11), the panel is brought to the front (in its
+/// window's right pane where it floats); elsewhere (the area's Properties
+/// panel, a window too narrow for its pane) the model viewer opens in a
+/// tab or window of its own.
 pub(super) fn preview_button(f: &mut Form<'_>, ui: &mut Ui) {
     if ui.button("Preview").on_hover_text("Show the model").clicked() {
-        let tab = preview_tab(f);
-        f.app.actions.push(crate::Action::OpenTab(tab));
+        let action = match f.own_tab {
+            true => crate::Action::ShowPreview(super::tab_of(f.key, &f.path, &f.also)),
+            false => crate::Action::OpenTab(preview_tab(f)),
+        };
+        f.app.actions.push(action);
     }
 }
 

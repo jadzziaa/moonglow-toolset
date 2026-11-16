@@ -949,7 +949,21 @@ impl Composed {
     /// The box around it with its nodes as `stance` has them (model
     /// space).
     pub fn bounds_of(&self, stance: &Stance) -> (Vec3, Vec3) {
-        // (Every point it reaches: the box around them.)
+        let reached = self.reached_of(stance);
+        mg_render::box_of(reached).unwrap_or((Vec3::splat(-1.0), Vec3::splat(1.0)))
+    }
+
+    /// The points it reaches in `animation` at `t` (model space): each
+    /// mesh's box's corners where its node puts it (a skinned mesh's
+    /// vertices where its bones put them), or with no mesh its emitters'
+    /// boxes' corners. Tighter than [`Composed::bounds_in`]'s one box: a
+    /// view fits what it shows by them (the model viewer's Frame).
+    pub fn reached_in(&self, animation: Option<&str>, t: f32) -> Vec<Vec3> {
+        self.reached_of(&self.stance(animation, t))
+    }
+
+    fn reached_of(&self, stance: &Stance) -> Vec<Vec3> {
+        // (Every point it reaches.)
         let mut reached: Vec<Vec3> = Vec::new();
         let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
             for m in &gm.meshes {
@@ -987,7 +1001,7 @@ impl Composed {
                 }
             }
         }
-        mg_render::box_of(reached).unwrap_or((Vec3::splat(-1.0), Vec3::splat(1.0)))
+        reached
     }
 }
 

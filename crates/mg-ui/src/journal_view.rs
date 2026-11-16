@@ -302,6 +302,7 @@ fn category_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, cat: &Struct) {
         also: Vec::new(),
         root: cat.clone(),
         together: Default::default(),
+        own_tab: false,
     };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
@@ -348,6 +349,7 @@ fn entry_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, e: usize, entry: &Str
         also: Vec::new(),
         root: entry.clone(),
         together: Default::default(),
+        own_tab: false,
     };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T11:32:28Z }
 ---
 
 # Modules
@@ -1902,7 +1902,7 @@ folder's files, subfolders included, to look over and save.
   shows them, a GFF's fields, a text file's text, else its first bytes.
   A model is drawn in the model viewer: where the game reads this hak's
   copy (the hak is one of the module's, saved as it is) as the game
-  reads it, with **Pop Out** to a tab of its own; otherwise (a hak the
+  reads it, with **Pop Out** (in its header's More) to a tab of its own; otherwise (a hak the
   module doesn't list, or changed and not saved) from the hak as it is
   now, its supermodels and textures from the hak first, then from the
   module's haks, the module and the game, as the game would read them

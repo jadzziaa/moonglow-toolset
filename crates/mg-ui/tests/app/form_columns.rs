@@ -225,15 +225,18 @@ fn at_3440_every_page_of_a_creature_is_in_view_in_columns() {
     // A page chosen: the page at the top, the first still in view.
     page(&mut h, "Comments");
     assert_eq!(group(&h, "Basic").unwrap().top(), basic.top(), "nothing scrolled");
-    // Beside a Right Dock as WideCreature's (the screen 550 narrower): the
-    // board's five columns, every page still in view.
+    // Beside its own Preview in the Right Dock, as WideCreature's (M4's
+    // U11): the board's five columns, every page still in view.
     page(&mut h, "Basic");
-    h.set_size(egui::vec2(3440.0 - 550.0, 1440.0));
+    h.state_mut().palette_dock = true;
     settle(&mut h);
+    let dock = right_dock_rect(&h);
+    assert!((540.0..=561.0).contains(&dock.width()), "the Preview's dock: {dock:?}");
     let mut lefts: Vec<f32> = pages.iter().filter_map(|p| group(&h, p)).map(|r| r.left()).collect();
     lefts.sort_by(f32::total_cmp);
     lefts.dedup_by(|a, b| (*a - *b).abs() < 1.0);
     assert_eq!(lefts.len(), 5, "the board's five: {lefts:?}");
+    assert!(lefts.iter().all(|l| *l < dock.left()), "beside the dock: {lefts:?}");
     for p in pages {
         assert!(group(&h, p).is_some_and(|r| r.height() > 20.0), "{p} in view");
     }
@@ -359,16 +362,25 @@ fn wide_creature(copy: &str) -> Option<(Harness<'static, Moonglow>, ResKey)> {
     Some((h, key))
 }
 
-/// At 3440 a list's page is given what its column has to spare: Feats,
-/// a list over Spells in its column, more than the least a list is given;
-/// Skills shows every skill, each rank inside the page (the review's A3).
+/// At 3440, beside the creature's own Preview as a builder has it (M4's
+/// U11: five columns), a list's page is given what its column has to
+/// spare: Special Abilities, a list under Skills and Spells in its column,
+/// more than the least a list is given (Feats was, under Spells, while the
+/// Appearance page held the model: now Scripts follows it); Skills shows
+/// every skill, each rank inside the page (the review's A3).
 #[test]
 fn at_3440_a_list_is_given_its_column_s_room() {
-    let Some((h, _key)) = wide_creature("wide_skills") else { return };
-    let feats = in_page(&h, "Feats").rect();
+    let Some((mut h, _key)) = wide_creature("wide_skills") else { return };
+    h.state_mut().palette_dock = true;
+    settle(&mut h);
+    let skills = in_page(&h, "Skills").rect();
+    let abilities = in_page(&h, "Special Abilities").rect();
+    assert!((skills.left() - abilities.left()).abs() < 1.0, "under Skills: {abilities:?}");
+    assert!(right_dock_rect(&h).left() > skills.right(), "beside the Preview");
+    let abilities = in_page(&h, "Special Abilities").rect();
     assert!(
-        feats.height() > mg_uikit::pages::PAGE_FILL + 40.0,
-        "Feats given its column's spare: {feats:?}"
+        abilities.height() > mg_uikit::pages::PAGE_FILL + 40.0,
+        "Special Abilities given its column's spare: {abilities:?}"
     );
     let skills = in_page(&h, "Skills");
     let seen = skills.rect();

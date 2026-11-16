@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T02:56:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -360,13 +360,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
 - **A preview shown twice in a frame, the owner's call:** a 3D view
-  shown in two places in one frame (the Right Dock's Preview panel and
-  the model's tab, which keeps it: the panel's body is drawn after the
-  editor area since M3 T6, as the Preview window was) is drawn in the
-  first, and the second says "The preview is shown elsewhere in the
-  window." (the review's B19), rather than
-  getting targets of its own. The wording, and whether the second
-  should draw too, are asked. (S) (the review of November 2026, B19)
+  shown in two places in one frame (the Right Dock's Preview of the
+  palette's choice beside an area, and the same model's tab, or since
+  M4's U11 the same blueprint's editor floating in a window with its own
+  Preview in the window's pane: the tab or window keeps it, the panel's
+  body being drawn after the editor area since M3 T6, as the Preview
+  window was; or, more rarely, two forms of one blueprint open at once,
+  several edited together whose first it is and the blueprint alone,
+  whose own Previews show one view) is drawn in the first, and the
+  second says "The preview is shown elsewhere in the window." (the
+  review's B19), rather than
+  getting targets of its own. A blueprint's own Preview no longer meets
+  it beside its model's tab (Pop Out): it says "The preview is in a
+  window of its own." with Bring Back, as its Appearance page did. The
+  wording, and whether the second should draw too, are asked. (S) (the
+  review of November 2026, B19; restated by M4's U11, still the
+  owner's call)
 
 ## Bulk editing
 

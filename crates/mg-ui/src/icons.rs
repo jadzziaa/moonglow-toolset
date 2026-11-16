@@ -5,7 +5,6 @@
 //! alone, whatever it says).
 
 use mg_area::ObjectKind;
-use mg_uikit::Controls as _;
 pub(crate) use mg_uikit::Icon;
 use mg_uikit::{IconButton, Label};
 
@@ -114,8 +113,9 @@ pub(crate) fn object(kind: ObjectKind) -> Icon {
 }
 
 /// The editors' toolbars' icons, with Icons only (beside the others,
-/// their words alone): the script editor's, the conversation editor's,
-/// the model view's and the NUI Creator's.
+/// their words alone): the script editor's, the conversation editor's
+/// and the NUI Creator's; and the model view's header row's (M4's U11:
+/// it yields by its width, whatever the setting).
 pub(crate) mod editor {
     use super::Icon;
     icons! {
@@ -294,24 +294,6 @@ impl Tools {
         tip: &str,
     ) -> egui::Response {
         let r = toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on);
-        self.with_tip(r, name, tip)
-    }
-
-    /// An editor's toolbar tick: a check box and its words, or with Icons
-    /// only its icon as a toggle (on in the accent), named `name` either
-    /// way.
-    pub(crate) fn checkbox_word(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = match self.icons_only {
-            true => toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on),
-            false => ui.check_box(on, name),
-        };
         self.with_tip(r, name, tip)
     }
 

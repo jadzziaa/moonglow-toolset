@@ -2963,15 +2963,23 @@ fn armor_part_pictures() {
     let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1160.0, 850.0));
     settle(&mut h);
-    // (The page scrolled to its end: the gallery under the lists.)
+    // (The page scrolled down to the gallery under the lists, a step at a
+    // time until its pictures are drawn: since M4's U11 the page has no
+    // model and is short, and one long scroll went on past it into the
+    // pages after.)
     h.hover_at(h.get_by_label("Pictures of").rect().center());
-    h.event(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -2000.0),
-        phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
-    });
-    settle(&mut h);
+    for _ in 0..40 {
+        if h.query_all_by_label("Right shoulder").next().is_some() {
+            break;
+        }
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -100.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        settle(&mut h);
+    }
     shoot(&mut h, &dir, "armor-parts-torso");
     h.get_all_by_label("Right shoulder").last().unwrap().click();
     settle(&mut h);
@@ -12694,7 +12702,8 @@ fn gizmo_states_on(ground: &str, tileset: &str) {
 /// OK and Cancel at its right end, the page list at the left, the pages
 /// on one scroll (M4's U9), Basic and Statistics in their sections in two
 /// columns, the strref inside the first name's field (U10); the Preview
-/// panel showing the open blueprint (U11) is to come.
+/// panel showing the open blueprint, its header row and the info line in
+/// its header, the Status Bar's five hints (U11).
 #[test]
 #[ignore]
 fn board_creature() {
@@ -12727,9 +12736,8 @@ fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
 }
 
 /// WideCreature.png at 3440 by 1440: Faribeth's Properties As Tabs, every
-/// page in view side by side in six columns of 480 or more beside their
-/// list (M4's U10); the board's five once the Preview panel (U11) takes
-/// its share of the width.
+/// page in view side by side in columns of 480 or more beside their list
+/// (M4's U10): five, the board's, beside the Preview panel's 549 (U11).
 #[test]
 #[ignore]
 fn board_creature_wide() {
@@ -12776,6 +12784,75 @@ fn forms_wide() {
         pictures_shown(&mut h);
         shoot(&mut h, &board_dir(), name);
     }
+}
+
+/// A placeable's and a door's blueprint floating at their first width
+/// (M4's U11) in a screen of 1800 by 1000: the window's own right pane
+/// with the Preview beside the form. (The window asks for 980 for the form
+/// and the pane's 281; it is held to 85% of the main pane, about 1020
+/// here, so the form has about 740.)
+#[test]
+#[ignore]
+fn forms_floating_preview() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1800.0, 1000.0));
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+    for (name, t, kind) in [
+        ("forms_floating_placeable", ResType::UTP, "placeable"),
+        ("forms_floating_door", ResType::UTD, "door"),
+    ] {
+        let key = {
+            let ws = h.state().ws.as_ref().unwrap();
+            let mut keys: Vec<ResKey> = ws.module.keys_of(t).copied().collect();
+            keys.sort_by_key(|k| k.resref.to_string());
+            keys.first().copied()
+        };
+        let Some(key) = key else { continue };
+        let tab = mg_ui::Tab::Blueprint(key);
+        h.state_mut().settings.window_places = vec![(kind.to_string(), "window".to_string())];
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(&mut h, "the window drawn", |h| h.state().tab_rect(&tab).is_some());
+        pictures_shown(&mut h);
+        shoot(&mut h, &board_dir(), name);
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        h.state_mut().dock.remove_tab(at);
+        h.run_steps(3);
+    }
+}
+
+/// U11's review: Faribeth's blueprint floating, at its first width, in
+/// screens 1280, 1920 and 2560 wide (`preview_floating_*`: the Preview's
+/// pane only where the form keeps its 972 beside it, R1), and docked at
+/// 1280, the Preview's one row at the narrow dock's 280
+/// (`preview_docked_1280`).
+#[test]
+#[ignore]
+fn preview_review() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let utc = board_utc_tab();
+    for width in [1280.0, 1920.0, 2560.0] {
+        let mut h = board_window(&root, egui::vec2(width, 1000.0));
+        if let Some(at) = h.state().dock.find_tab(&utc) {
+            h.state_mut().dock.remove_tab(at);
+        }
+        h.run_steps(3);
+        {
+            let s = &mut h.state_mut().settings;
+            s.open_editors = mg_ui::OpenEditors::Floating;
+            s.window_places = vec![("creature".to_string(), "window".to_string())];
+            s.window_sizes.clear();
+        }
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(utc.clone()));
+        frames_until(&mut h, "the window drawn", |h| h.state().tab_rect(&utc).is_some());
+        pictures_shown(&mut h);
+        shoot(&mut h, &board_dir(), &format!("preview_floating_{width}"));
+    }
+    let mut h = board_window(&root, egui::vec2(1280.0, 800.0));
+    board_front(&mut h, &utc);
+    pictures_shown(&mut h);
+    shoot(&mut h, &board_dir(), "preview_docked_1280");
 }
 
 /// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17. Today the
