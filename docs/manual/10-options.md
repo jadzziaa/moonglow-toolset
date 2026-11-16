@@ -367,6 +367,11 @@ window is one in As Tabs too, for a kind you moved to a window):
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
   tree and the palettes). Areas are by name in Find Instance and the
   area transition's destinations too.
+- **Show tags beside names in the module tree** (off): a blueprint's tag
+  after what it is listed by, `Name (resref) (tag)`, and a placed
+  object's after its name, `Name (tag)`, a waypoint's too (otherwise
+  listed by its tag alone, as Aurora lists them), waypoints then in
+  their names' order.
 - **Hide empty groups in the module tree** (off): the tree's groups with
   nothing in them (Scripts (0)) and the kinds of object an area has none
   of (Doors (0)) are left out; off, they are listed, as Aurora lists
@@ -390,6 +395,9 @@ window is one in As Tabs too, for a kind you moved to a window):
   Preview and the item's Properties, whose Appearance page's **Shown
   on** changes it too. Off by default: a man's. A creature's own
   Inventory page shows the icons of its Gender, as the game does.
+- **Set a creature's portrait with its appearance** (off): an
+  appearance chosen brings the portrait its appearance.2da row names, in
+  the same step ([Blueprints](05-blueprints.md)).
 
 ### Questions
 

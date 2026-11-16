@@ -265,6 +265,80 @@ fn a_part_based_appearance_brings_a_body() {
     assert_eq!(c.integer("BodyPart_Torso"), None);
 }
 
+/// Picks appearance `name` in a creature's Basic page's Appearance
+/// dropdown (the one beside Gallery…).
+fn pick_appearance(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let line = h.get_by_label("Gallery…").rect().center().y;
+    let at = h
+        .query_all(combo)
+        .map(|n| n.rect().center())
+        .find(|c| (c.y - line).abs() < 6.0)
+        .expect("the Appearance dropdown");
+    h.hover_at(at);
+    press(h, at, true, egui::Modifiers::NONE);
+    press(h, at, false, egui::Modifiers::NONE);
+    h.run();
+    type_into_hint(h, "Filter", name);
+    let row = h.get_by_label(name).rect().center();
+    h.hover_at(row);
+    press(h, row, true, egui::Modifiers::NONE);
+    press(h, row, false, egui::Modifiers::NONE);
+    h.run();
+}
+
+/// Options › General › Set a creature's portrait with its appearance: a
+/// new appearance brings the portrait its appearance.2da row names
+/// (`po_Minotaur`: portraits.2da's `Minotaur_`), in the same step. Off (the
+/// default), the portrait is kept.
+#[test]
+fn an_appearance_brings_its_portrait_when_asked() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_portrait", ResType::UTC)
+    else {
+        return;
+    };
+    h.run();
+    let portrait = field(&mut h, &key).integer("PortraitId");
+    pick_appearance(&mut h, "Minotaur");
+    let c = field(&mut h, &key);
+    assert_eq!(c.integer("Appearance_Type"), Some(120));
+    assert_eq!(c.integer("PortraitId"), portrait, "kept unless asked");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    h.state_mut().settings.appearance_portrait = true;
+    pick_appearance(&mut h, "Minotaur");
+    let row = field(&mut h, &key).integer("PortraitId").expect("a portrait") as usize;
+    let portraits = h.state().game.as_ref().unwrap().table("portraits").unwrap();
+    assert_eq!(
+        portraits.get(row, "BaseResRef").map(str::to_lowercase).as_deref(),
+        Some("minotaur_")
+    );
+    // One step: Undo takes the portrait back with the appearance.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("PortraitId"), portrait);
+}
+
+/// A creature's Basic page has its Sound Set (after the gender) and its
+/// Faction, which Aurora keeps on Advanced: builders choose them with the
+/// rest (a builder's ask).
+#[test]
+fn a_creature_s_sound_set_and_faction_are_on_its_basic_page() {
+    let Some((mut h, _)) = blueprint_harness("nw_bandit001", "bandit_basic", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
+    assert!(y(&h, "Gender") < y(&h, "Sound Set"), "after the gender");
+    h.get_by_label("Play Sample");
+    h.get_by_label("Faction");
+    h.get_by_label("Edit Factions");
+    h.get_by_label("Advanced").click();
+    h.run();
+    assert!(h.query_by_label("Sound Set").is_none() && h.query_by_label("Faction").is_none());
+    h.get_by_label("Treasure Model");
+}
+
 /// A creature of a phenotype with no parts of its own (the game's row 1,
 /// whose `DefaultPhenoType` is 0: a server's own phenotype on the normal
 /// body) wears its default's, as the preview draws it: its Body Parts
@@ -971,8 +1045,7 @@ fn an_object_s_factions_leave_out_the_pc_faction() {
         return;
     };
     h.run();
-    h.get_by_label("Advanced").click();
-    h.run();
+    // (On the Basic page.)
     let shown = field(&mut h, &key).integer("FactionID").unwrap();
     let name = mg_module::factions::STANDARD[shown as usize];
     h.get_by_value(name).click();
@@ -3682,8 +3755,7 @@ fn a_creature_s_sound_set_plays_a_sample() {
     let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
     h.state_mut().speaker = Box::new(speaker.clone());
     h.run();
-    h.get_by_label("Advanced").click();
-    h.run();
+    // (On the Basic page.)
     h.get_by_label("Play Sample").click();
     h.run();
     let played = speaker.borrow().channels.get(&Channel::Preview).cloned();

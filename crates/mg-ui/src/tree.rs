@@ -51,11 +51,12 @@ pub(crate) struct AreaNames {
     read: HashMap<ResRef, (Stamp, AreaInfo)>,
     /// The areas the module's area list names, and what it was read from.
     listed: Option<(ListRead, std::collections::HashSet<ResRef>)>,
-    /// Blueprints' names, likewise.
-    names: HashMap<ResKey, (Stamp, String)>,
+    /// Blueprints' names and tags, likewise.
+    names: HashMap<ResKey, (Stamp, String, String)>,
     /// What each of the tree's groups lists, as made for a revision of the
-    /// workspace and the two options that shape it (areas by name, ResRefs
-    /// beside names): not made again every frame.
+    /// workspace and the three options that shape it (areas by name,
+    /// ResRefs beside names, tags beside names): not made again every
+    /// frame.
     groups: Option<Groups>,
     /// What the Filter finds, kept while it has the same typed.
     filtered: Filtered,
@@ -65,7 +66,7 @@ pub(crate) struct AreaNames {
 }
 
 /// What the groups' lists were made for ([`Groups::shape`]).
-type Shape = (u64, usize, bool, bool);
+type Shape = (u64, usize, bool, bool, bool);
 
 /// What the Filter finds, kept from frame to frame: it was looked for
 /// again every frame (each resource's name lowered, every placed object of
@@ -309,19 +310,34 @@ impl AreaNames {
         game: Option<&GameData>,
         key: ResKey,
     ) -> String {
+        self.blueprint_read(ws, game, key).0
+    }
+
+    /// A blueprint's name and its tag (trimmed; each empty when it has
+    /// none), read once as the areas' are.
+    pub(crate) fn blueprint_read(
+        &mut self,
+        ws: &Workspace,
+        game: Option<&GameData>,
+        key: ResKey,
+    ) -> (String, String) {
+        let read = |root: &mg_gff::Struct| {
+            let tag = crate::text::decode(root.string("Tag").unwrap_or_default());
+            (blueprint_name(game, root), tag.trim().to_string())
+        };
         if let Some(doc) = ws.loaded(&key) {
-            return blueprint_name(game, &doc.root);
+            return read(&doc.root);
         }
-        let Some(data) = ws.module.get(&key) else { return String::new() };
+        let Some(data) = ws.module.get(&key) else { return Default::default() };
         let stamp = stored_stamp(ws, &key, data);
-        if let Some((s, name)) = self.names.get(&key)
+        if let Some((s, name, tag)) = self.names.get(&key)
             && *s == stamp
         {
-            return name.clone();
+            return (name.clone(), tag.clone());
         }
-        let name = Gff::read(data).map(|g| blueprint_name(game, &g.root)).unwrap_or_default();
-        self.names.insert(key, (stamp, name.clone()));
-        name
+        let (name, tag) = Gff::read(data).map(|g| read(&g.root)).unwrap_or_default();
+        self.names.insert(key, (stamp, name.clone(), tag.clone()));
+        (name, tag)
     }
 
     /// The area's name in the editing language, else as the game shows it
@@ -357,6 +373,10 @@ pub(crate) struct KindContents {
     /// The places in the area's list, in the order listed: by the rows'
     /// text, as Aurora sorts them (those alike in the area's order).
     order: Order,
+    /// The same, by what the rows say with tags beside names (Options ›
+    /// General): waypoints by name then, as they read (`Name (tag)`); the
+    /// others' is `order`.
+    tagged_order: Order,
 }
 
 /// Places in an area's list, in the order listed: shared by the tree,
@@ -531,7 +551,17 @@ fn area_contents(ws: &Workspace, game: Option<&GameData>, area: ResRef) -> AreaC
             let keys: Vec<_> = rows.iter().map(|r| mg_core::text::sort_key(&r.text)).collect();
             // (Stable: alike rows keep the area's order.)
             order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
-            KindContents { kind, rows, order: order.into() }
+            let order: Order = order.into();
+            let tagged_order = if kind == mg_area::ObjectKind::Waypoint {
+                let keys: Vec<_> =
+                    rows.iter().map(|r| mg_core::text::sort_key(&tagged_text(r))).collect();
+                let mut tagged: Vec<usize> = (0..rows.len()).collect();
+                tagged.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
+                tagged.into()
+            } else {
+                order.clone()
+            };
+            KindContents { kind, rows, order, tagged_order }
         })
         .collect()
 }
@@ -595,7 +625,8 @@ pub(crate) fn contents_ui(
     look: Look,
 ) -> bool {
     let outliner = matches!(look, Look::Outliner { .. });
-    let hide_empty = matches!(look, Look::Tree { hide_empty: true });
+    let hide_empty = matches!(look, Look::Tree { hide_empty: true, .. });
+    let tags = matches!(look, Look::Tree { tags: true, .. });
     let (shown_kinds, fold) = match look {
         Look::Outliner { shown, fold } => (shown, fold),
         Look::Tree { .. } => ([true; 9], None),
@@ -613,11 +644,12 @@ pub(crate) fn contents_ui(
                 d.remove_temp::<bool>(egui::Id::new(("tree-area-kinds-closed", area))).is_some()
             });
     let mut body = |ui: &mut Ui| {
-        for (at, KindContents { kind, rows, order }) in contents.iter().enumerate() {
+        for (at, KindContents { kind, rows, order, tagged_order }) in contents.iter().enumerate() {
             // (By their places in the area's list, in the order listed:
             // borrowed, not copied every frame for each kind.)
             let shown: Order = match found {
                 Some(found) => found.get(at).cloned().unwrap_or_else(|| Arc::from([])),
+                None if tags => tagged_order.clone(),
                 None => order.clone(),
             };
             let count = if filtered {
@@ -748,7 +780,11 @@ pub(crate) fn contents_ui(
                 room(ui, first);
                 for &index in &shown[first..last] {
                     let object = &rows[index];
-                    let text = if object.text.is_empty() { NO_NAME } else { object.text.as_str() };
+                    let text = match tags {
+                        true => tagged_text(object),
+                        false => object.text.clone(),
+                    };
+                    let text = if text.is_empty() { NO_NAME } else { text.as_str() };
                     let several = chosen.is_some_and(|c| c.contains(&(*kind, index)));
                     let is_marked =
                         marked.is_some_and(|m| m.1 == index) || at_object == Some(index) || several;
@@ -764,7 +800,8 @@ pub(crate) fn contents_ui(
                     } else {
                         let how = "Click to go to it in the area, double-click for its \
                                    Properties. Right-click for more.";
-                        let tip = if object.tip.is_empty() {
+                        // (Both in the row already, with tags shown.)
+                        let tip = if object.tip.is_empty() || tags {
                             how.to_string()
                         } else {
                             format!("{}\n{how}", object.tip)
@@ -891,8 +928,9 @@ pub(crate) enum Look {
     /// The module tree's, under an area's row: each kind named with its
     /// count ("Creatures (46)"), a kind with nothing placed quiet, or left
     /// out where `hide_empty` (Options › General); an object's row its
-    /// name (a waypoint's tag), a click going to it.
-    Tree { hide_empty: bool },
+    /// name (a waypoint's tag), or with `tags` (Options › General) its
+    /// name and its tag, `Name (tag)`; a click going to it.
+    Tree { hide_empty: bool, tags: bool },
     /// The Outliner's (`outliner.rs`), the area's alone: each kind with an
     /// eye at its right (`shown`: what the area's view shows, by
     /// [`mg_area::ObjectKind::index`]), quiet where hidden; a kind with
@@ -1556,11 +1594,13 @@ pub(crate) fn seek_in(
 
 /// A row's text as the module tree shows it, for the letters typed
 /// ([`seek`]): `named` gives a resource's name where it is listed by name,
-/// `contents` an area's placed objects as read.
+/// `contents` an area's placed objects as read, `tags` whether they say
+/// their tags too ([`tagged_text`]).
 pub(crate) fn row_text(
     at: TreeAt,
     named: &dyn Fn(&ResKey) -> Option<String>,
     contents: &HashMap<ResRef, (Read, AreaContents)>,
+    tags: bool,
 ) -> String {
     match at {
         TreeAt::Group(name) => name.to_string(),
@@ -1571,11 +1611,20 @@ pub(crate) fn row_text(
                 .flat_map(|(_, c)| c.iter())
                 .find(|c| c.kind == kind)
                 .and_then(|c| c.rows.get(index));
-            match row {
-                Some(r) if !r.text.is_empty() => r.text.clone(),
-                _ => NO_NAME.to_string(),
-            }
+            let text = row.map(|r| if tags { tagged_text(r) } else { r.text.clone() });
+            text.filter(|t| !t.is_empty()).unwrap_or_else(|| NO_NAME.to_string())
         }
+    }
+}
+
+/// A placed object's row in the module tree with tags shown (Options ›
+/// General): `Name (tag)`, a waypoint's too; the one where the other is
+/// empty.
+fn tagged_text(row: &ObjectRow) -> String {
+    match (row.name.is_empty(), row.tag.is_empty()) {
+        (false, false) => format!("{} ({})", row.name, row.tag),
+        (true, _) => row.tag.clone(),
+        (false, true) => row.name.clone(),
     }
 }
 
@@ -1719,6 +1768,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // The object selected is still to be gone to, next frame.
     let mut object_waits = false;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
+    let tags = app.settings.tree_tags;
     let hide_empty = app.settings.tree_hides_empty;
     let filter = filter.clone();
     // (Marked while its tab is the one chosen.)
@@ -1743,7 +1793,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // What the groups list: made when the module or the options that
     // shape the lists change (a module can hold thousands of a kind, and
     // every group was gathered, named and sorted each frame, open or not).
-    let shape = (revision, ws.module.len(), by_name, resrefs);
+    let shape = (revision, ws.module.len(), by_name, resrefs, tags);
     if app.area_names.groups.as_ref().is_none_or(|g| g.shape != shape) {
         let game = app.game.as_deref();
         let mut lists = Vec::with_capacity(GROUPS.len());
@@ -1754,8 +1804,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             // Areas by name (Options › General): named, and in the names'
             // order; the filter finds a name or a ResRef.
             let mut names: HashMap<ResKey, String> = HashMap::new();
-            let named = types == &[ResType::ARE]
-                || types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
+            let blueprints = types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
+            let named = types == &[ResType::ARE] || blueprints;
             if by_name && named {
                 for k in &keys {
                     let name = if k.restype == ResType::ARE {
@@ -1768,6 +1818,20 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         names.insert(*k, named_label(&name, k.resref, resrefs));
                     }
                 }
+            }
+            // Tags beside names (Options › General): a blueprint's after
+            // what it is listed by, `Name (tag)`, which the filter finds
+            // too. (Before the names' order is taken: they sort by name.)
+            if tags && blueprints {
+                for k in &keys {
+                    let tag = app.area_names.blueprint_read(ws, game, *k).1;
+                    if !tag.is_empty() {
+                        let label = names.get(k).cloned().unwrap_or_else(|| k.to_string());
+                        names.insert(*k, format!("{label} ({tag})"));
+                    }
+                }
+            }
+            if by_name && named {
                 let shown =
                     |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
                 keys.sort_by_cached_key(|k| (mg_core::text::sort_key(&shown(k)), *k));
@@ -2102,7 +2166,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     chosen,
                                     &mut keys,
                                     &menu_commands,
-                                    Look::Tree { hide_empty },
+                                    Look::Tree { hide_empty, tags },
                                 );
                                 picked = keys.picked.or(picked);
                                 together |= keys.together;
@@ -2501,7 +2565,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         // is, go to the row whose name begins with them, as in Aurora's
         // (Windows') tree: a pause starts over ([`typed_row`]).
         let named = |k: &ResKey| lists.iter().find_map(|(_, names)| names.get(k).cloned());
-        let text = |at: TreeAt| row_text(at, &named, &app.area_contents);
+        let tags = app.settings.tree_tags;
+        let text = |at: TreeAt| row_text(at, &named, &app.area_contents, tags);
         let seek_from = |from: Option<TreeAt>, typed: &str| seek(&shown, &outs, from, typed, &text);
         let to = typed_row(ui, egui::Id::new("tree-typed"), app.tree_cursor, &seek_from);
         if let Some(at) = to {
@@ -3082,7 +3147,7 @@ mod tests {
         // A letter: the next row that begins with it, round the end.
         let contents = HashMap::new();
         let by = |named: &dyn Fn(&ResKey) -> Option<String>, at, typed: &str| {
-            seek(&shown, &outs, at, typed, &|r| row_text(r, named, &contents))
+            seek(&shown, &outs, at, typed, &|r| row_text(r, named, &contents, false))
         };
         let none = |_: &ResKey| None;
         assert_eq!(by(&none, Some(areas), "s"), Some(scripts));
@@ -3194,10 +3259,9 @@ mod tests {
             name: text.to_string(),
             tag: String::new(),
         };
-        let kind = |kind, rows: Vec<ObjectRow>, order: Vec<usize>| KindContents {
-            kind,
-            rows,
-            order: order.into(),
+        let kind = |kind, rows: Vec<ObjectRow>, order: Vec<usize>| {
+            let order: Order = order.into();
+            KindContents { kind, rows, tagged_order: order.clone(), order }
         };
         let contents = vec![
             kind(Creature, vec![row("Goblin"), row("Bandit")], vec![1, 0]),
@@ -3217,8 +3281,9 @@ mod tests {
         use mg_area::ObjectKind::{Creature, Door, Waypoint};
         let (shown, outs, contents, a, b) = opened_out();
         let none = |_: &ResKey| None;
-        let by =
-            |at, typed: &str| seek(&shown, &outs, at, typed, &|r| row_text(r, &none, &contents));
+        let by = |at, typed: &str| {
+            seek(&shown, &outs, at, typed, &|r| row_text(r, &none, &contents, false))
+        };
         let areas = Some(TreeAt::Group("Areas"));
         let object = |kind, i| Some(TreeAt::Object(a.resref, kind, i));
         assert_eq!(by(areas, "c"), Some(TreeAt::Kind(a.resref, Creature)));
@@ -3269,7 +3334,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let mut kept = AreaNames::default();
-        let mut shape = (1, 3, true, false);
+        let mut shape = (1, 3, true, false, false);
         let typed = ["gate", "GOBLIN", "gate wp", "b", "bandit", "nothing", "gate open", "a"];
         for typed in typed {
             let filter = Needle::new(typed);

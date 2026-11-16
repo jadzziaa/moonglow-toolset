@@ -724,7 +724,8 @@ Shared parts:
 
 ### Creatures
 
-Basic (name, race, gender, portrait, appearance, conversation;
+Basic (name, race, gender, sound set, faction, portrait, appearance,
+conversation; the sound set and the faction are on Advanced in Aurora;
 the races are those of racialtypes.2da with a name, as in Aurora: a row
 with only a label, `DELETED` or CEP's `CEP_RESERVED`, is not listed),
 **Statistics** (abilities, saves, armor class, hit points, speed, each
@@ -740,6 +741,13 @@ Advanced, Visuals, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
+
+With **Tools › Options › General › Set a creature's portrait with its
+appearance** (off unless asked), an appearance
+chosen on the Basic page or in the Appearance Gallery brings the portrait
+its appearance.2da row names (`PORTRAIT`, `po_Minotaur`: portraits.2da's
+`Minotaur_`), in the same step, which one Undo takes back. An appearance
+that names none, or one portraits.2da lacks, leaves the portrait as it is.
 
 - **Appearance** opens with the creature's model, as it looks now and as
   large as the window has room for; its wings, tail and colors, and its
@@ -1060,8 +1068,8 @@ brown), which a creature's appearance reflects. A texture's own
 `envmaptexture default` reflects the map its placeable names, and the
 area's where the placeable's is `default` or none, as in the game.
 
-The faction lists (a creature's, a placeable's, a door's, a trigger's and
-an encounter's Advanced page) leave out the PC faction: it is the
+The faction lists (a creature's Basic page, a placeable's, a door's, a
+trigger's and an encounter's Advanced page) leave out the PC faction: it is the
 players' alone, and the game puts a creature of it in Hostile. An object
 that already has it keeps it, shown as "PC (not for objects)", until
 another is picked; Verify Module warns of it, and of an object with no

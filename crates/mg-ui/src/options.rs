@@ -84,6 +84,8 @@ pub struct OptionsDraft {
     pub ask_before_closing: bool,
     pub debug_log: bool,
     pub name_resrefs: bool,
+    pub tree_tags: bool,
+    pub appearance_portrait: bool,
     pub palette_cr: bool,
     pub armor_on_woman: bool,
     pub light_theme: bool,
@@ -255,6 +257,8 @@ impl OptionsDraft {
             ask_before_closing: !s.close_without_asking,
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
+            tree_tags: s.tree_tags,
+            appearance_portrait: s.appearance_portrait,
             palette_cr: !s.palette_no_cr,
             armor_on_woman: s.armor_on_woman,
             light_theme: s.light_theme,
@@ -382,6 +386,8 @@ impl OptionsDraft {
             close_without_asking,
             no_debug_log,
             name_resrefs,
+            tree_tags,
+            appearance_portrait,
             palette_no_cr,
             armor_on_woman,
             light_theme,
@@ -488,6 +494,8 @@ impl OptionsDraft {
             close_without_asking: !self.ask_before_closing,
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
+            tree_tags: self.tree_tags,
+            appearance_portrait: self.appearance_portrait,
             palette_no_cr: !self.palette_cr,
             armor_on_woman: self.armor_on_woman,
             light_theme: self.light_theme,
@@ -2001,6 +2009,8 @@ fn general(
         .on_hover_text("List them in the module tree by name rather than ResRef");
     ui.check_box(&mut draft.name_resrefs, "Show ResRefs beside names")
         .on_hover_text("Show Name (resref) in the module tree and the palettes");
+    ui.check_box(&mut draft.tree_tags, "Show tags beside names in the module tree")
+        .on_hover_text("Show Name (tag) for blueprints and placed objects in the module tree");
     ui.check_box(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
         .on_hover_text("Leave groups with nothing in them out of the module tree");
     ui.check_box(&mut draft.palette_hides_empty, "Hide empty categories in the palettes")
@@ -2012,6 +2022,8 @@ fn general(
     ui.check_box(&mut draft.palette_cr, "Show challenge ratings in the creature palette");
     ui.check_box(&mut draft.armor_on_woman, "Show armor and cloaks on a woman")
         .on_hover_text("Show armor and cloak models and icons on a woman's body. Off, a man's.");
+    ui.check_box(&mut draft.appearance_portrait, "Set a creature's portrait with its appearance")
+        .on_hover_text("Give a creature the portrait its new appearance names in appearance.2da");
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Questions");
     ui.weak("What Moonglow asks, answered here once for all: each question's \"Always do this\" sets it too.");
@@ -2216,6 +2228,7 @@ mod tests {
         (d.area_names, d.categories_by_name, d.drag_windows_anywhere) = (true, true, true);
         d.ui_scale = 125;
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
+        (d.tree_tags, d.appearance_portrait) = (true, true);
         d.armor_on_woman = true;
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
@@ -2231,6 +2244,8 @@ mod tests {
         assert!(t.drag_windows_anywhere && !s.drag_windows_anywhere, "by the tab bar unless asked");
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
+        assert!(t.tree_tags && !s.tree_tags, "names alone unless asked");
+        assert!(t.appearance_portrait && !s.appearance_portrait, "the portrait kept unless asked");
         assert!(t.armor_on_woman && !s.armor_on_woman, "on a man unless asked");
         assert!(OptionsDraft::from_settings(&t).armor_on_woman, "and kept");
         use crate::settings::GraphicsBackend;

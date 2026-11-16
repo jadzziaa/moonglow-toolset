@@ -23,7 +23,7 @@ use crate::widgets::{
 use crate::{Action, Moonglow, Tab};
 
 mod creature;
-pub(crate) use creature::with_a_body;
+pub(crate) use creature::{with_a_body, with_its_portrait};
 mod creature_lists;
 mod door;
 pub(crate) mod encounter;

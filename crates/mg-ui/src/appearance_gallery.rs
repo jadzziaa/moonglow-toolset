@@ -473,6 +473,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     };
     if !edits.is_empty() {
         crate::blueprint::with_a_body(app, &mut edits);
+        crate::blueprint::with_its_portrait(app, &mut edits);
         app.actions.push(Action::Apply(Command::new("Appearance", edits)));
     }
     app.placeable_gallery = Some(state);

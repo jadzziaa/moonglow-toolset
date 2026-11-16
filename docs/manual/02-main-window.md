@@ -405,6 +405,11 @@ polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
+**Show tags beside names in the module tree** adds a blueprint's tag
+after what it is listed by (`Name (resref) (tag)`, `guard.utc (tag)`)
+and a placed object's after its name (`Name (tag)`; a waypoint, listed
+by its tag alone otherwise, as Aurora lists them, the same); the filter
+finds the tags either way.
 A ResRef you type (a blueprint's, Copy's or Rename's new name, a
 script's in its field) takes letters, digits and `_` alone, at most 16,
 in lower case, as in Aurora: other characters typed or pasted are left
@@ -513,7 +518,9 @@ dialog-export --to` does the same from the [command
 line](11-command-line.md).
 
 **Copy…** makes a copy in the module under a ResRef you give (a free one
-is offered), and for a blueprint or an area a Tag. An area is copied with
+is offered), and for a blueprint or an area a Tag: a blueprint's
+original's, an area's the ResRef, following it as you type until you
+change the Tag yourself. An area is copied with
 everything placed in it and joins the module's area list; one Undo takes
 the copy away.
 

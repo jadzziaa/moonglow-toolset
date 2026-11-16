@@ -943,9 +943,11 @@ original's and the copy's alike, so Retag leaves it as it is, and it
 finds whichever object the game finds first.
 
 An area copied with **Copy…** in the module tree has every tag of its
-original's objects: with the option on, the window lists the area's own
-tag (an area has no blueprint), the tags a builder set and those the
-project wants unique.
+original's objects, and its ResRef as its own tag (the Copy window's Tag
+follows the ResRef as you type it, until you change the Tag): with the
+option on, the window lists the area's own tag where it is another's
+(an area has no blueprint), the tags a builder set and those the project
+wants unique.
 
 A blueprint copied (the palette's **Edit Copy…**, **Copy…** in the
 module tree) with a tag another of the module's blueprints has is said

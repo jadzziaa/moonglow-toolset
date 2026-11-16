@@ -217,6 +217,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                 && let Some(Action::Apply(mut set)) = f.app.actions.pop()
             {
                 with_a_body(f.app, &mut set.edits);
+                with_its_portrait(f.app, &mut set.edits);
                 f.app.actions.push(Action::Apply(set));
             }
             f.gallery_button(ui, crate::appearance_gallery::Kind::Creature);
@@ -229,11 +230,25 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Gender");
         f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
         ui.end_row();
+        // (Aurora has it on Advanced: here with the gender, as builders
+        // asked.)
+        crate::widgets::field_label(ui, "Sound Set");
+        sound_set(f, ui);
+        ui.end_row();
         crate::widgets::field_label(ui, "Challenge Rating");
         rating_label(f, ui);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Creature);
+        ui.end_row();
+        // (Aurora has it on Advanced: here, as builders asked.)
+        crate::widgets::field_label(ui, "Faction");
+        ui.horizontal(|ui| {
+            situated::faction(f, ui, "Faction", "FactionID");
+            if ui.small_button("Edit Factions").clicked() {
+                f.app.actions.push(Action::OpenTab(Tab::Factions));
+            }
+        });
         ui.end_row();
         crate::widgets::field_label(ui, "Portrait");
         situated::portrait(f, ui);
@@ -428,6 +443,57 @@ pub(crate) fn with_a_body(app: &mut Moonglow, edits: &mut Vec<Edit>) {
                 label: field.to_string(),
                 value: Some(Value::Byte(u8::from(!bare))),
             });
+        }
+    }
+    edits.extend(more);
+}
+
+/// The portrait of a creature's new appearance, with Options › General ›
+/// Set a creature's portrait with its appearance (off by default): to
+/// each edit that sets `Appearance_Type`,
+/// the portraits.2da row its appearance.2da row names
+/// ([`mg_rules::appearance::appearance_portrait`]), in `PortraitId` and,
+/// where the creature keeps one (older files), `Portrait`, as Select
+/// Portrait sets them. A row that names none, or none portraits.2da has,
+/// leaves the portrait as it is.
+pub(crate) fn with_its_portrait(app: &mut Moonglow, edits: &mut Vec<Edit>) {
+    if !app.settings.appearance_portrait {
+        return;
+    }
+    let Some(game) = app.game.clone() else { return };
+    let (Ok(appearance), Ok(portraits)) = (game.table("appearance"), game.table("portraits"))
+    else {
+        return;
+    };
+    let Some(ws) = app.ws.as_mut() else { return };
+    let mut more = Vec::new();
+    for e in edits.iter() {
+        let Edit::SetField { key, path, label, value: Some(value) } = e else { continue };
+        let mut set = Struct::new(0);
+        set.set(label, value.clone());
+        let Some(row) = set.integer("Appearance_Type").and_then(|r| usize::try_from(r).ok()) else {
+            continue;
+        };
+        let Some(portrait) =
+            mg_rules::appearance::appearance_portrait(&appearance, &portraits, row)
+        else {
+            continue;
+        };
+        let Ok(doc) = ws.doc(key) else { continue };
+        let Some(creature) = path.get(&doc.root) else { continue };
+        let field = |label: &str, value| Edit::SetField {
+            key: *key,
+            path: path.clone(),
+            label: label.to_string(),
+            value: Some(value),
+        };
+        let id = super::integer(creature.get("PortraitId"), portrait as i64, FieldType::Word);
+        more.push(field("PortraitId", id));
+        let base = portraits.get(portrait, "BaseResRef").unwrap_or_default().to_lowercase();
+        if creature.get("Portrait").is_some()
+            && let Ok(r) = ResRef::from_str(&format!("po_{base}"))
+        {
+            more.push(field("Portrait", Value::resref(r)));
         }
     }
     edits.extend(more);
@@ -975,7 +1041,6 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let bags = f.choices("bodybag", Some("Name"), Some("LABEL"));
-    let sounds = f.choices("soundset", Some("STRREF"), Some("LABEL"));
     let ranges = f.choices("ranges", Some("Name"), Some("Label"));
     crate::widgets::two_columns(ui, 440.0, |ui, col| {
         if col == 0 {
@@ -985,14 +1050,6 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                     crate::widgets::field_label(ui, "Blueprint ResRef");
                     f.blueprint_resref(ui);
                     ui.end_row();
-                    crate::widgets::field_label(ui, "Faction");
-                    ui.horizontal(|ui| {
-                        situated::faction(f, ui, "Faction", "FactionID");
-                        if ui.small_button("Edit Factions").clicked() {
-                            f.app.actions.push(Action::OpenTab(Tab::Factions));
-                        }
-                    });
-                    ui.end_row();
                     crate::widgets::field_label(ui, "Treasure Model");
                     f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte);
                     ui.end_row();
@@ -1001,54 +1058,6 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                     ui.end_row();
                     crate::widgets::field_label(ui, "Perception Range");
                     f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Sound Set");
-                    ui.horizontal(|ui| {
-                        // Aurora's filters: gender and soundsettype.2da type.
-                        let id = f.id("utc-soundset-filter");
-                        let (mut gender, mut kind): (Option<i64>, Option<i64>) =
-                            ui.data(|d| d.get_temp(id)).unwrap_or_default();
-                        let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));
-                        let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
-                            v.map_or(all.to_string(), names)
-                        };
-                        let gender_name = |g: &Option<i64>| {
-                            name(*g, "Both", &|g| ["Male", "Female"][g as usize].into())
-                        };
-                        crate::widgets::dropdown(id.with("gender"))
-                            .selected_text(gender_name(&gender))
-                            .width(70.0)
-                            .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
-                        let list = crate::widgets::row_choice(id.with("type"), &types, kind);
-                        if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
-                            kind = k;
-                        }
-                        ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
-                        let current = f.root.integer("SoundSetFile").unwrap_or(-1);
-                        let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());
-                        let shown: Vec<_> = sounds
-                            .iter()
-                            .filter(|c| {
-                                let col = |l: &str| {
-                                    table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from)
-                                };
-                                c.row as i64 == current
-                                    || (gender.is_none_or(|g| col("GENDER") == Some(g))
-                                        && kind.is_none_or(|k| col("TYPE") == Some(k)))
-                            })
-                            .cloned()
-                            .collect();
-                        f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
-                        // Aurora's sound set list plays a sample when clicked.
-                        let set = f.root.integer("SoundSetFile").unwrap_or(-1);
-                        let tip = "Play a sample of the sound set";
-                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip)
-                            .clicked()
-                            && let Some(name) = sound_set_sample(f.app, set)
-                        {
-                            f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
-                        }
-                    });
                     ui.end_row();
                     crate::widgets::field_label(ui, "Subrace");
                     f.text(ui, "Subrace", "Subrace", 32);
@@ -1090,6 +1099,54 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 rating_label(f, ui);
                 ui.end_row();
             });
+        }
+    });
+}
+
+/// The Sound Set row: Aurora's filters (gender, and soundsettype.2da's
+/// type), the list, and Play Sample.
+fn sound_set(f: &mut Form<'_>, ui: &mut Ui) {
+    let sounds = f.choices("soundset", Some("STRREF"), Some("LABEL"));
+    ui.horizontal(|ui| {
+        // Aurora's filters: gender and soundsettype.2da type.
+        let id = f.id("utc-soundset-filter");
+        let (mut gender, mut kind): (Option<i64>, Option<i64>) =
+            ui.data(|d| d.get_temp(id)).unwrap_or_default();
+        let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));
+        let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
+            v.map_or(all.to_string(), names)
+        };
+        let gender_name =
+            |g: &Option<i64>| name(*g, "Both", &|g| ["Male", "Female"][g as usize].into());
+        crate::widgets::dropdown(id.with("gender"))
+            .selected_text(gender_name(&gender))
+            .width(70.0)
+            .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
+        let list = crate::widgets::row_choice(id.with("type"), &types, kind);
+        if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
+            kind = k;
+        }
+        ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
+        let current = f.root.integer("SoundSetFile").unwrap_or(-1);
+        let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());
+        let shown: Vec<_> = sounds
+            .iter()
+            .filter(|c| {
+                let col = |l: &str| table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from);
+                c.row as i64 == current
+                    || (gender.is_none_or(|g| col("GENDER") == Some(g))
+                        && kind.is_none_or(|k| col("TYPE") == Some(k)))
+            })
+            .cloned()
+            .collect();
+        f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
+        // Aurora's sound set list plays a sample when clicked.
+        let set = f.root.integer("SoundSetFile").unwrap_or(-1);
+        let tip = "Play a sample of the sound set";
+        if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip).clicked()
+            && let Some(name) = sound_set_sample(f.app, set)
+        {
+            f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
         }
     });
 }

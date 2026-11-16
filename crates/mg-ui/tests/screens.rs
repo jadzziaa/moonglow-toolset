@@ -2460,7 +2460,9 @@ fn illumination_and_pc_faction() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 760.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-        h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Advanced");
+        // (A creature's faction is on its Basic page.)
+        let page = if t == ResType::UTC { "Basic" } else { "Advanced" };
+        h.state_mut().blueprint_pages.insert((key, GffPath::root()), page);
         shoot(&mut h, &dir, &format!("{name}-advanced-light-faction"));
         if pc {
             h.get_by_value("PC (not for objects)").click();

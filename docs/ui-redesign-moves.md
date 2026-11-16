@@ -135,8 +135,8 @@ Every control of today's screens and its home in the mockups, by the names the c
 | The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) |
 | The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll |
 | Basic: First name, Last name (languages button, Random name), Tag | Identity section |
-| Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section |
-| Challenge rating, Category | Palette section |
+| Race, Appearance with Gallery…, Phenotype, Gender, Sound Set (with its filters and Play Sample; on Basic since builders asked, 2026-11-16, Aurora's is on Advanced), Preview | Race and Appearance section |
+| Challenge rating, Category, Faction with Edit Factions (on Basic likewise) | Palette section |
 | Portrait picture, its combo, Portraits… | Portrait section |
 | Conversation with its picker, Edit, No interrupt | Conversation section |
 | Description with its language button | Description section, full width |

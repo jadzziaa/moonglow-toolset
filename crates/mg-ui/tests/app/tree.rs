@@ -710,6 +710,54 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     }
 }
 
+/// Tags beside names (Options › General): a placed object's row says its
+/// name and its tag, a waypoint's too (by its tag alone otherwise, as
+/// Aurora lists them), and waypoints are then in their names' order, which
+/// a letter typed goes by.
+#[test]
+fn the_module_tree_shows_placed_objects_tags_when_asked() {
+    let Some((mut h, area)) = area_harness("tree-tags") else { return };
+    // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
+    // (The second named first in the alphabet: their tags are alike.)
+    let named = |i: usize, name: &str| mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", i),
+        label: "LocalizedName".into(),
+        value: Some(mg_gff::Value::LocString(LocString::from_text(
+            Language::ENGLISH,
+            Gender::Male,
+            name,
+        ))),
+    };
+    let edits = vec![named(0, "Zed Gate"), named(1, "Alder Post")];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Names", edits)));
+    h.run_steps(2);
+    h.get_by_label_contains("Placed Objects in ").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Zed Gate (NW_WAYPOINT001)").is_none());
+    h.state_mut().settings.tree_tags = true;
+    h.run_steps(2);
+    let y = |h: &Harness<'_, Moonglow>, l: &str| h.get_by_label(l).rect().center().y;
+    let (zed, alder) = (y(&h, "Zed Gate (NW_WAYPOINT001)"), y(&h, "Alder Post (NW_WAYPOINT001)"));
+    assert!(alder < zed, "by name: {alder} {zed}");
+    // A letter typed goes to the row that begins with it.
+    // (From the kind's row, the keys the tree's.)
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(2);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    h.event(egui::Event::Text("z".into()));
+    h.run_steps(3);
+    let waypoint = |i| Some(mg_ui::TreeAt::Object(area, mg_area::ObjectKind::Waypoint, i));
+    assert_eq!(h.state().tree_cursor, waypoint(0), "Zed Gate, as its row shows");
+}
+
 /// List areas and blueprints by name: a blueprint is listed by its name
 /// (a creature by its first and last names), with its ResRef in
 /// parentheses when asked for; one without a name keeps its ResRef.
@@ -724,6 +772,7 @@ fn blueprints_are_listed_by_name_when_asked() {
     let mut guard = Gff::new(*b"UTC ");
     guard.root.set("FirstName", text("Hent"));
     guard.root.set("LastName", text("Fynolds"));
+    guard.root.set("Tag", mg_gff::Value::String(b"GUARD_HENT".to_vec()));
     m.set(ResKey::parse("creature007", ResType::UTC).unwrap(), guard.to_bytes().unwrap());
     m.set(ResKey::parse("nameless", ResType::UTC).unwrap(), Gff::new(*b"UTC ").to_bytes().unwrap());
     let mut chest = Gff::new(*b"UTP ");
@@ -760,6 +809,15 @@ fn blueprints_are_listed_by_name_when_asked() {
     h.run();
     h.get_by_label("Hent Fynolds (creature007)");
     h.get_by_label("Old Chest (plc001)");
+    // Tags beside names, after what each is listed by; one without a tag
+    // as it was.
+    h.state_mut().settings.tree_tags = true;
+    h.run();
+    h.get_by_label("Hent Fynolds (creature007) (GUARD_HENT)");
+    h.get_by_label("Old Chest (plc001)");
+    (h.state_mut().settings.area_names, h.state_mut().settings.name_resrefs) = (false, false);
+    h.run();
+    h.get_by_label("creature007.utc (GUARD_HENT)");
 }
 
 /// The module tree leaves the middle its room: a very long name is cut
