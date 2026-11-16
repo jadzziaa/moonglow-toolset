@@ -65,7 +65,9 @@ pub use icons::{
     icon_label, icon_text_button, icon_text_toggle, icon_toggle, icons_drawn, joined_spacing,
     menu_button, name_group, record_icons, say_expanded, submenu_button,
 };
-pub use marks::{Badge, BadgeKind, KeyCap, modified_dot, paint_modified_dot};
+pub use marks::{
+    Badge, BadgeKind, KeyCap, WAVE_HEIGHT, modified_dot, paint_modified_dot, paint_wavy_line,
+};
 pub use menu::{
     MenuKeys, context_menu, menu_check, menu_form, menu_heading, menu_note, menu_radio,
     menu_radio_choice, menu_row_lit, menu_row_with_keys, menu_separator,

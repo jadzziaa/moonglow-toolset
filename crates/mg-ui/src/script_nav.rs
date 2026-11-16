@@ -13,7 +13,7 @@ use mg_resman::ResKey;
 use mg_script::Compiler;
 use mg_script::analysis::{Declaration, Index, NWSCRIPT};
 
-use crate::script_tools::{self as tools, InfoTab};
+use crate::script_tools as tools;
 use crate::script_view::ScriptBuffer;
 use crate::text::{decode_script as decode, encode_script as encode};
 use crate::{Action, Moonglow, Tab};
@@ -30,6 +30,12 @@ pub(crate) struct Live {
     /// The error: its 0-based line in this script (`None`: in an include)
     /// and message.
     pub(crate) error: Option<(Option<usize>, String)>,
+    /// Where an error in an include is: the include's name (as the
+    /// compiler gives it, without `.nss`) and its line (from 1).
+    pub(crate) include: Option<(String, usize)>,
+    /// How many entries the log had when the error was found (a warning
+    /// logged since takes its place in the Status Bar).
+    pub(crate) logged: usize,
 }
 
 /// The navigation state.
@@ -162,29 +168,33 @@ impl Moonglow {
             .unwrap_or_default()
     }
 
-    /// Lists where a declaration is used in the Search Results tab.
-    pub fn show_references(&mut self, d: &Declaration) {
+    /// Lists where a declaration is used in Search Results, brought to
+    /// the front (the Bottom Dock, or the window's bottom pane of the
+    /// script `from`, which it was run from, where it floats).
+    pub fn show_references(&mut self, d: &Declaration, from: Option<ResKey>) {
         self.sync_nav();
         let files = self.module_scripts();
-        let Moonglow { scripts, ws, game, script_nav, script_tools, .. } = self;
-        let mut src = source(scripts, ws.as_ref(), game.as_deref());
-        let refs = script_nav.index.references(d, &files, &mut src);
-        let mut results = Vec::new();
-        for r in &refs {
-            let (Some(k), Some(text)) = (tools::nss(&r.file), src(&r.file)) else { continue };
-            if text.get(..r.span.start).is_none() {
-                continue;
+        let mut hits = Vec::new();
+        {
+            let Moonglow { scripts, ws, game, script_nav, .. } = self;
+            let mut src = source(scripts, ws.as_ref(), game.as_deref());
+            let refs = script_nav.index.references(d, &files, &mut src);
+            for r in &refs {
+                let (Some(k), Some(text)) = (tools::nss(&r.file), src(&r.file)) else { continue };
+                if text.get(..r.span.start).is_none() {
+                    continue;
+                }
+                let line = mg_core::text::line_of(text.as_bytes(), r.span.start) - 1;
+                let shown = text.lines().nth(line).unwrap_or("").trim().to_string();
+                hits.push(crate::search_results::Hit::Line { script: k, line, text: shown });
             }
-            let line = mg_core::text::line_of(text.as_bytes(), r.span.start) - 1;
-            let shown = text.lines().nth(line).unwrap_or("").trim().to_string();
-            results.push((k, line, shown));
         }
-        let n = results.len();
-        results.truncate(tools::MAX_RESULTS);
-        script_tools.search.results = results;
-        script_tools.info = InfoTab::SearchResults;
+        let n = hits.len();
+        hits.truncate(tools::MAX_RESULTS);
         let cut = tools::results_cut(n);
-        self.log.info(format!("{}: {n} reference(s) in the module{cut}", d.name));
+        let what = format!("{}: {n} reference(s) in the module{cut}", d.name);
+        self.log.info(what.clone());
+        self.show_search_results(what, hits, from);
     }
 
     /// Renames a declaration everywhere it's used in the module's scripts,
@@ -272,8 +282,17 @@ impl Moonglow {
             c.set_require_entry_point(false);
             c.compile(&name).err()
         };
+        let logged = self.log.entries.len();
         let live = self.script_nav.live.entry(key).or_default();
         live.checked = Some(h);
+        if error.as_ref().map(|e| &e.message) != live.error.as_ref().map(|e| &e.1) {
+            live.logged = logged;
+        }
+        live.include = error
+            .as_ref()
+            .and_then(|e| e.location())
+            .filter(|(file, _)| !file.trim_end_matches(".nss").eq_ignore_ascii_case(&name))
+            .map(|(file, line)| (file.trim_end_matches(".nss").to_string(), line));
         live.error = error.map(|e| {
             let line = e
                 .location()
@@ -296,6 +315,13 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn script_error_for_test(&self, key: ResKey) -> Option<(Option<usize>, String)> {
         self.live_error(key).cloned()
+    }
+
+    /// Where the error a script's latest check found is, where it is in
+    /// an include: the include's name and its line (from 1).
+    pub(crate) fn live_include(&self, key: ResKey) -> Option<&(String, usize)> {
+        self.live_error(key)?;
+        self.script_nav.live.get(&key)?.include.as_ref()
     }
 
     /// The error a script's latest check found; none while checking as

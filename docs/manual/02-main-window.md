@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T20:45:18Z }
 ---
 
 # The main window
@@ -16,9 +16,10 @@ resource browser), and under them, while an area is in front, the
 **tabs** in the middle and the **Right Dock** on the right, with the
 **Palette** and **Preview** panels on two tabs beside an area (beside a
 creature's, an item's, a placeable's or a door's editor, that editor's
-own **Preview** alone), the **log** in the Bottom Dock under the tabs, and the
-**Status Bar** (the log's
-switch at its left and, while the log is closed, its last line; in its
+own **Preview** alone), the **log** and **Search Results** in the Bottom
+Dock under the tabs (beside a script, its Compiler and Bookmarks too), and the
+**Status Bar** (the Bottom Dock's
+switches at its left and, while the log is closed, its last line; in its
 middle the **hints** of the tab you work in, each a key or a gesture and
 what it does; at its right that tab's counts, a job while one runs, the
 module's name, "(modified)" while there are unsaved changes, and the
@@ -1292,6 +1293,17 @@ while the viewer plays): the same switch as the area view's toolbar
 
 ## The log
 
+The Bottom Dock under the tabs holds the **Log** and **Search Results**
+whatever is in front, and before them the panels the editor in front
+brings (a script's **Compiler** and **Bookmarks**: see
+[Scripts](07-scripts.md)), each a tab with its switch in the Status
+Bar. **Search Results** lists what the last search found (a script's
+Find In Files, Find In Currently Open Scripts and References); its
+switch shows how many lines, and a click on one opens it. A switch off
+opens the dock on its panel, one on closes the dock. Where nothing was
+chosen, the dock opens on the editor's own first panel (a script's
+Compiler), else on the log.
+
 Messages go to the log, in the Bottom Dock under the tabs: what was
 opened or saved, compiler errors, warnings about missing resources.
 Warnings are yellow, errors red. Each line begins with the time it was
@@ -1329,8 +1341,13 @@ meanwhile waits (the log says so).
 
 ## The Status Bar
 
-The row along the window's foot. At its left, the **Log** switch (and,
-while the log is closed, its last line: see [The log](#the-log)); in
+The row along the window's foot. At its left, the Bottom Dock's
+switches: **Log**, the editor's own (a script's **Compiler** and
+**Bookmarks**) and **Search Results**, with its count (and, while the
+log is closed, its last line: see [The log](#the-log); beside a script
+whose check as you type found an error, that error in red in its
+place, whether the log is open or not, until a warning or an error is
+logged after it, which shows instead; information lines do not); in
 its middle the **hints**; at its right the counts, a running job, the
 module's name and the game's folder.
 
@@ -1383,7 +1400,8 @@ Properties"). A
 screen reader reads each hint as one label ("Shift, Right Drag:
 Turn"); the hints take no Tab stop.
 
-**Counts.** An area's tab shows its size and how many objects it holds
+**Counts.** A script's tab shows where its cursor is ("Line 17, column
+12"). An area's tab shows its size and how many objects it holds
 ("11 by 11 tiles", "192 objects"; the objects of the kinds shown), and
 before them what is selected ("1 selected", rest the pointer on it for
 the object's kind, tag, blueprint, place and facing, which a drag of it
@@ -1391,12 +1409,14 @@ shows among the hints as it moves; "3 selected";
 in Select Tiles "2 by 3 tiles selected" or "Tile (4, 4) selected") and,
 with a tile brush, the tile under the pointer. Another tab has none.
 
-**When it is short of room**, its parts give way in this order: the
-switches (Log) show their icons alone first, their names in their tips
-(always in a window under 1400 points); then the game folder goes
-(always under 1400); then the hints, the last one first, each whole
-(a note at their head is cut short with an ellipsis, its whole words in
-its tip); then the log's last line, cut short from its usual width (a
+**When it is short of room**, its parts give way in this order. In a
+window under 1400 points the switches (Log, Search Results and the
+editor's own) show their icons alone, their names in their tips, and
+the game folder goes, whatever the room. From 1400 the game folder goes
+first; then the hints, the last one first, each whole (a note at their
+head is cut short with an ellipsis, its whole words in its tip); then
+the switches show their icons alone, once no hint is left. Then the
+log's last line, cut short from its usual width (a
 short one beside an area's hints, a little more beside another tab's)
 down to a few words, then gone; then the counts, the last first; then a
 running job's name is cut short (its bar kept); and last the module's

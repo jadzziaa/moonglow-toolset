@@ -243,6 +243,12 @@ fn editing_a_huge_script() {
     // (The pointer over the script's text, so that the wheel scrolls it:
     // it moves down a few turns of the wheel, else this measures another
     // tab's frames.)
+    // (The view at rest first: the page keys before leave it gliding to
+    // the cursor for a few frames, which a wheel's turn would be measured
+    // against, M4's U13.)
+    for _ in 0..30 {
+        w.frame(Vec::new());
+    }
     let before = w.app.script_scroll_for_test(script).unwrap_or(0.0);
     for _ in 0..4 {
         w.frame(vec![

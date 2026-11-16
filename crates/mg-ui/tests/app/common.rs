@@ -2287,3 +2287,26 @@ pub(crate) fn menu<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kitt
         .find(|n| n.rect().top() < mg_uikit::metrics::TOP_BAR)
         .unwrap_or_else(|| panic!("no menu {name} in the Top Bar"))
 }
+
+/// The paths of the wavy lines painted in the last frame in `color`, as
+/// their points.
+pub(crate) fn waves(h: &Harness<'_, Moonglow>, color: egui::Color32) -> Vec<Vec<egui::Pos2>> {
+    fn walk(shape: &egui::Shape, color: egui::Color32, out: &mut Vec<Vec<egui::Pos2>>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| walk(s, color, out)),
+            egui::Shape::Path(p)
+                if !p.closed
+                    && p.points.len() >= 3
+                    && p.stroke.color == egui::epaint::ColorMode::Solid(color) =>
+            {
+                out.push(p.points.clone());
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in &h.output().shapes {
+        walk(&clipped.shape, color, &mut out);
+    }
+    out
+}

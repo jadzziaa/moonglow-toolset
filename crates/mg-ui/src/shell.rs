@@ -129,8 +129,9 @@ pub(crate) fn keep_least_size(app: &mut Moonglow, ctx: &egui::Context) {
 /// shown. The Right Dock holds the **sections** the active docked editor
 /// brings ([`editor_brings`]: an area's Palette and Preview, one section
 /// of two tabs), each a tab bar of its panels; the Bottom Dock the
-/// editor's own panels and the global ones ([`Panel::BOTTOM_TABS`]: the
-/// Log), one tab bar, each with its switch in the Status Bar. A dock
+/// editor's own panels (a script's Compiler and Bookmarks) and the global
+/// ones ([`Panel::BOTTOM_TABS`]: Search Results and the Log), one tab bar,
+/// each with its switch in the Status Bar. A dock
 /// whose panels none is available is not drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Panel {
@@ -176,6 +177,19 @@ pub enum Panel {
     /// documentation as prose with a row for each parameter
     /// (`script_reference::help`).
     Help,
+    /// A script's Compiler (M4's U13, the Script board's Bottom Dock): what
+    /// its latest compile said, a click on a message going to its line
+    /// (`script_panels::compiler`).
+    Compiler,
+    /// A script's Bookmarks (M4's U13): its bookmarked lines and numbered
+    /// bookmarks, a click going to the line (`script_panels::bookmarks`).
+    Bookmarks,
+    /// Search Results (M4's U13): the Bottom Dock's global panel beside
+    /// the Log, whatever the editor in front: the last search's hits, a
+    /// click opening one (`search_results::body`). Fed by a script's
+    /// searches (Find In Files, Find In Currently Open Scripts,
+    /// References); U28 adds the dialogs that become panels.
+    SearchResults,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -233,7 +247,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 10] = [
+    pub(crate) const KEYED: [Panel; 13] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -244,17 +258,19 @@ impl Panel {
         Panel::Properties,
         Panel::Reference,
         Panel::Help,
+        Panel::Compiler,
+        Panel::Bookmarks,
+        Panel::SearchResults,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
-    /// board's Compiler, Bookmarks, then Search Results, Log (U13 puts
-    /// Search Results here, before the Log).
-    pub(crate) const BOTTOM_TABS: &'static [Panel] = &[Panel::Log];
+    /// board's Compiler, Bookmarks, then Search Results, Log.
+    pub(crate) const BOTTOM_TABS: &'static [Panel] = &[Panel::SearchResults, Panel::Log];
     /// The global panels' switches before the editor's own in the Status
     /// Bar (the Script board's Log, Problems: U20 adds Problems), and
-    /// after them (its Search Results: U13).
+    /// after them (its Search Results).
     pub(crate) const SWITCHES_BEFORE: &'static [Panel] = &[Panel::Log];
-    pub(crate) const SWITCHES_AFTER: &'static [Panel] = &[];
+    pub(crate) const SWITCHES_AFTER: &'static [Panel] = &[Panel::SearchResults];
 
     /// The dock it lives in.
     pub(crate) fn dock(self) -> Dock {
@@ -266,7 +282,7 @@ impl Panel {
             | Panel::Properties
             | Panel::Reference
             | Panel::Help => Dock::Right,
-            Panel::Log => Dock::Bottom,
+            Panel::Log | Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
             #[cfg(test)]
@@ -287,6 +303,9 @@ impl Panel {
             Panel::Properties => "Properties",
             Panel::Reference => "Reference",
             Panel::Help => "Help",
+            Panel::Compiler => "Compiler",
+            Panel::Bookmarks => "Bookmarks",
+            Panel::SearchResults => "Search Results",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -307,6 +326,9 @@ impl Panel {
             Panel::Properties,
             Panel::Reference,
             Panel::Help,
+            Panel::Compiler,
+            Panel::Bookmarks,
+            Panel::SearchResults,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -330,6 +352,9 @@ impl Panel {
             Panel::Properties => Icon::Properties,
             Panel::Reference => Icon::Book,
             Panel::Help => Icon::Help,
+            Panel::Compiler => Icon::Compile,
+            Panel::Bookmarks => Icon::Bookmark,
+            Panel::SearchResults => Icon::Search,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -367,6 +392,9 @@ impl Panel {
                 "Reference: the functions, variables, constants and templates a script can use"
             }
             Panel::Help => "Help: the function or constant chosen or under the cursor",
+            Panel::Compiler => "Compiler: what the script's latest compile said",
+            Panel::Bookmarks => "Bookmarks: the script's bookmarked lines",
+            Panel::SearchResults => "Search Results: what the last search found",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -399,8 +427,13 @@ impl Panel {
     /// Problems' errors, Search Results' hits, Checks'); the Log has none.
     /// `editor` is the editor it counts for (the active docked one).
     fn badge(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<mg_uikit::Badge> {
-        let _ = (app, editor);
+        let _ = editor;
         match self {
+            // (Its hits, where the last search found any.)
+            Panel::SearchResults => match app.search_results.hits.len() {
+                0 => None,
+                n => Some(mg_uikit::Badge::count(n)),
+            },
             #[cfg(test)]
             Panel::Sample(n) if n >= SAMPLE_BOTTOM => {
                 Some(mg_uikit::Badge::count(usize::from(n - SAMPLE_BOTTOM)))
@@ -467,7 +500,10 @@ impl Panel {
             Panel::TileProperties | Panel::Properties => {
                 brings.has(self) || brings.window_has(self)
             }
-            Panel::Reference | Panel::Help => brings.has(self),
+            Panel::Reference | Panel::Help | Panel::Compiler | Panel::Bookmarks => brings.has(self),
+            // (Whatever the editor, with nothing open too, as every board
+            // draws its switch: with no search yet, it says what fills it.)
+            Panel::SearchResults => true,
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -491,6 +527,9 @@ impl Panel {
             // to take them, its text to read.)
             Panel::Reference => Keys::Reference,
             Panel::Help => Keys::Help,
+            Panel::Compiler => Keys::Compiler,
+            Panel::Bookmarks => Keys::Bookmarks,
+            Panel::SearchResults => Keys::SearchResults,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -593,6 +632,12 @@ const SCRIPT_RIGHT: &[Section] = &[&[Panel::Reference], &[Panel::Help]];
 const SCRIPT_FOLDED: &[Panel] = &[Panel::Reference, Panel::Help];
 const SCRIPT_SHARES: &[u16] = &[1120, 880];
 const SCRIPT_WINDOW_SHARES: &[u16] = &[880, 1120];
+/// A script's own Bottom Dock panels (M4's U13, the Script board's tabs
+/// before Search Results and the Log), and the global one that follows it
+/// into its window's bottom pane (Floating.png: Compiler, Bookmarks,
+/// Search Results).
+const SCRIPT_BOTTOM: &[Panel] = &[Panel::Compiler, Panel::Bookmarks];
+const SCRIPT_WINDOW_BOTTOM: &[Panel] = &[Panel::SearchResults];
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
 /// `editor_brings` by kind): an area's tab the Outliner (with a module
@@ -606,7 +651,8 @@ const SCRIPT_WINDOW_SHARES: &[u16] = &[880, 1120];
 /// where it is dragged out. The placeholder that stands for no area
 /// brings the palettes alone (it holds nothing to list or select, and no
 /// panel is shown empty). A script's tab brings its Reference over its
-/// Help (M4's U12). Any other tab brings none until M4 gives it its
+/// Help (M4's U12), and its Compiler and Bookmarks to the Bottom Dock
+/// (U13), Search Results after them in its window where it floats. Any other tab brings none until M4 gives it its
 /// own: the Left Dock is then its tabs' panel alone, the whole height,
 /// and the Right Dock is not drawn, folded or not, its sizes kept.
 pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
@@ -655,6 +701,8 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             folded: SCRIPT_FOLDED,
             shares: SCRIPT_SHARES,
             window_shares: SCRIPT_WINDOW_SHARES,
+            bottom: SCRIPT_BOTTOM,
+            window_bottom: SCRIPT_WINDOW_BOTTOM,
             floats: true,
             ..Brings::default()
         },
@@ -1012,14 +1060,32 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         }
     }
     if !bottom.is_empty() {
+        // (Brought to the front in the run, else as kept for the kind,
+        // else its first.)
+        let owner = owner_of(app, tab).clone();
+        let run = app.window_bottoms.get(&owner).copied().filter(|p| bottom.contains(p));
         let kept = (kind.and_then(|k| app.settings.dock_layouts.get(k)))
             .and_then(|l| l.bottom.as_deref())
             .and_then(Panel::named)
             .filter(|p| bottom.contains(p));
-        let front = kept.unwrap_or(bottom[0]);
-        let shown = egui::Panel::bottom(pane.with("window-bottom"))
+        let front = run.or(kept).unwrap_or(bottom[0]);
+        // (A script's live error, for the bar's right end.)
+        let note = match tab {
+            crate::Tab::Script(key) => script_note(app, *key),
+            _ => None,
+        };
+        // (At most a third of the window's room under its tab bar, the
+        // editor keeping two thirds, and at least its tab bar and a line:
+        // in a small window the pane no longer crowds the code, M4's U13.)
+        let (least, most) = window_bottom_range(ui, ui.available_height());
+        // (Cut at the room the right pane leaves: its edge to drag is not
+        // over the right pane, nor is what it holds.)
+        let room = ui.available_rect_before_wrap();
+        ui.set_clip_rect(ui.clip_rect().intersect(room));
+        let shown = egui::Panel::bottom(egui::Id::new(("window-bottom", &owner)))
             .resizable(true)
-            .default_size(metrics::BOTTOM_DOCK)
+            .default_size(WINDOW_BOTTOM_HIGH.clamp(least, most))
+            .size_range(least..=most)
             .frame(egui::Frame::new().fill(t.panel))
             .show(ui, |ui| {
                 if pressed(ui, ui.max_rect()) {
@@ -1032,7 +1098,34 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                 }
                 #[cfg(test)]
                 app.sample_panes.push((WINDOW_BOTTOM, ui.max_rect()));
-                let bar = tabs.show(ui, &mut at, |_| ());
+                // (A floating script's live error at the bar's right end, in
+                // `error`, as the docked one's is in the Status Bar: the
+                // window has none of its own. Cut short to the room the
+                // tabs leave, its error icon alone where that is little.)
+                let words = tabs.tabs_width(ui, false);
+                let room = (ui.available_width() - words - 16.0).min(WINDOW_NOTE_MOST);
+                if note.is_some() && room >= mg_uikit::metrics::ICON + 8.0 {
+                    tabs = tabs.tools_width(room);
+                }
+                let error = mg_uikit::tokens(ui.ctx()).error;
+                let bar = tabs.show(ui, &mut at, |ui| {
+                    let note = note.as_ref().filter(|_| room >= mg_uikit::metrics::ICON + 8.0)?;
+                    let said = format!("Found as you type: {}", note.text);
+                    let r = if room >= 80.0 {
+                        let text = egui::RichText::new(&note.text).color(error).small();
+                        let label = egui::Label::new(text).truncate().sense(egui::Sense::click());
+                        ui.set_max_width(room - 4.0);
+                        let r = ui.add(label);
+                        r.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said)
+                        });
+                        r
+                    } else {
+                        let icon = IconButton::new(Icon::Error, &said).icon_only(true);
+                        ui.add(icon)
+                    };
+                    r.on_hover_text(&note.tip).clicked().then_some(note.at).flatten()
+                });
                 app.window_bars_drawn.push(front);
                 match front {
                     Panel::Log => {
@@ -1041,14 +1134,48 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     }
                     _ => panel_body(app, ui, (front, false), Host::Window, pane, Some(tab)),
                 }
-                bar.changed.then(|| bottom[at])
+                (bar.changed.then(|| bottom[at]), bar.inner)
             });
-        if let (Some(panel), Some(kind)) = (shown.inner, kind) {
-            app.settings.dock_layouts.entry(kind.to_string()).or_default().bottom =
-                Some(panel.name().to_string());
+        let (picked, to_line) = shown.inner;
+        if let Some((key, line)) = to_line {
+            let text = app.script_source(&key).unwrap_or_default();
+            app.script_tools.jump = Some((key, crate::script_tools::line_start(&text, line)));
+            app.script_tools.keys_back = Some(key);
+        }
+        if let Some(panel) = picked {
+            app.window_bottoms.insert(owner, panel);
+            if let Some(kind) = kind {
+                app.settings.dock_layouts.entry(kind.to_string()).or_default().bottom =
+                    Some(panel.name().to_string());
+            }
         }
     }
 }
+
+/// The least and the most height of a floating editor's window's bottom
+/// pane in a window `room` high under its tab bar ([`window_panes`]): its
+/// tab bar and a line of its panel at least; at most a third of the room
+/// ([`WINDOW_BOTTOM_SHARE`]), the editor keeping the rest, or the least
+/// where that is more (a window too short for both: the code keeps what
+/// the pane's tab bar and a line leave).
+pub(crate) fn window_bottom_range(ui: &Ui, room: f32) -> (f32, f32) {
+    let line = ui.text_style_height(&egui::TextStyle::Monospace);
+    let least = metrics::DOCK_TABS + line + 12.0;
+    (least, (room * WINDOW_BOTTOM_SHARE).floor().max(least))
+}
+
+/// The most a floating script's window's bottom pane's bar gives its live
+/// error's message, at its right end.
+const WINDOW_NOTE_MOST: f32 = 360.0;
+
+/// The most of a floating editor's window's height under its tab bar its
+/// bottom pane takes (M4's U13: the known difference "In small script
+/// windows the Compiler and Help strip crowds the code" settled; Help went
+/// to the right pane in U12).
+pub(crate) const WINDOW_BOTTOM_SHARE: f32 = 1.0 / 3.0;
+/// A floating editor's window's bottom pane's height at first, as the
+/// script's own pane under its text was.
+pub(crate) const WINDOW_BOTTOM_HIGH: f32 = 140.0;
 
 /// Whether `tab`'s window's right pane stays at every width, narrowed to
 /// half the window under twice its least (a script's Reference and Help:
@@ -1119,8 +1246,11 @@ pub(crate) fn left_shown(app: &Moonglow) -> Option<Panel> {
 
 /// The panel the Bottom Dock shows (its tab in front), of those it holds:
 /// the one chosen last (`Moonglow::bottom_panel`), else the one the
-/// settings keep for the editor's kind (of its own panels), else its
-/// first. `None` where it holds none.
+/// settings keep for the editor's kind, else the editor's own first (a
+/// script's Compiler, the Script board's), else the Log (not Search
+/// Results, the first global tab: a dock opened beside an editor of no
+/// panels of its own shows the log, as before it). `None` where it holds
+/// none.
 pub(crate) fn bottom_shown(app: &Moonglow) -> Option<Panel> {
     let held = panels(app, Dock::Bottom);
     if let Some(chosen) = app.bottom_panel.filter(|p| held.contains(p)) {
@@ -1131,7 +1261,9 @@ pub(crate) fn bottom_shown(app: &Moonglow) -> Option<Panel> {
         .and_then(|l| l.bottom.as_deref())
         .and_then(Panel::named)
         .filter(|p| held.contains(p));
-    kept.or(held.first().copied())
+    let own = || editor_brings(app).bottom.iter().copied().find(|p| held.contains(p));
+    let log = || held.contains(&Panel::Log).then_some(Panel::Log);
+    kept.or_else(own).or_else(log).or(held.first().copied())
 }
 
 /// A tab of the Bottom Dock chosen (its tab, its switch): the dock's panel
@@ -1145,6 +1277,13 @@ pub(crate) fn choose_bottom(app: &mut Moonglow, panel: Panel) {
         let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
         layout.bottom = Some(panel.name().to_string());
     }
+}
+
+/// The Bottom Dock's panel brought to the front without choosing its tab
+/// (a script's compile, bookmark or search: `ScriptTools::ask_forward`):
+/// the dock's panel from then on, nothing kept in the settings.
+pub(crate) fn focus_bottom(app: &mut Moonglow, panel: Panel) {
+    app.bottom_panel = Some(panel);
 }
 
 /// Whether the Bottom Dock shows `panel` now: open, with it in front.
@@ -1725,6 +1864,9 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 Panel::Log => {
                     format!("Show the log, or close it{}", key_note(app, &ctx, Id::ViewLog))
                 }
+                Panel::Compiler => "Show what the script's latest compile said, or close it".into(),
+                Panel::Bookmarks => "Show the script's bookmarks, or close them".into(),
+                Panel::SearchResults => "Show what the last search found, or close it".into(),
                 _ => format!("Show the {} panel, or close it", p.name()),
             };
             (p, bottom_shows(app, p), tip, p.badge(app, app.active_editor()))
@@ -1752,14 +1894,27 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     // color for a warning or an error; its time and its first lines in
     // the tip, made only while the line is hovered or has the focus.
     let log = &app.log;
-    let last = (!log_on).then(|| last_line(log)).flatten().map(|(i, line)| {
-        let color = match log.entries[i].0 {
-            crate::Level::Info => None,
-            crate::Level::Warning => Some(t.warn),
-            crate::Level::Error => Some(t.error),
-        };
-        (i, line, color)
-    });
+    // (The editor's message in its place, whether the log shows or not:
+    // a script's live error, M4's U13.)
+    // (A warning or an error logged since it was found is shown instead,
+    // while the log is closed: it is newer, and as urgent.)
+    let alarm = |i: usize| {
+        i >= shown.note.as_ref().map_or(0, |n| n.since)
+            && !matches!(log.entries[i].0, crate::Level::Info)
+    };
+    let newer = (!log_on).then(|| last_line(log)).flatten().filter(|(i, _)| alarm(*i));
+    let message = shown.note.clone().filter(|_| newer.is_none());
+    let last = match &message {
+        Some(n) => Some((None, n.text.clone(), Some(t.error))),
+        None => (!log_on).then(|| last_line(log)).flatten().map(|(i, line)| {
+            let color = match log.entries[i].0 {
+                crate::Level::Info => None,
+                crate::Level::Warning => Some(t.warn),
+                crate::Level::Error => Some(t.error),
+            };
+            (Some(i), line, color)
+        }),
+    };
     let tips_made = std::cell::Cell::new(0);
     let job = app.job_shown().map(|crate::jobs::JobShown { title, steps, note }| {
         let (name, mut tip) = match steps {
@@ -1843,15 +1998,22 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
             let core = item.width(ui) + note_width + note_gap + job_width + job_gap;
             let all_counts: f32 = count_widths.iter().sum();
             let with_folder = core + all_counts + between + folder_item.width(ui);
-            // First of all, the switches show their icons alone: under
-            // 1400 (`Yields::status_switch_icons`, the Narrow board's), or
-            // where the bar at its fullest does not fit beside their words;
-            // then the folder goes: under 1400 (`Yields::game_folder`), or
-            // where it does not fit beside the middle at its fullest.
+            // Under 1400 the switches show their icons alone first
+            // (`Yields::status_switch_icons`, the Narrow board's), then the
+            // folder goes (`Yields::game_folder`), then the hints drop.
+            // From 1400 up (SPEC 12, proposal 5.2, Script.png at 1600: the
+            // coordinator's ruling at U13's review) the folder goes where it
+            // does not fit beside the middle at its fullest, then the hints
+            // drop whole, and the switches lose their words only where the
+            // bar does not fit beside them with no hint and the line at its
+            // cap; then the line is cut.
             let gaps = 2.0 * status::GAP;
             let full = with_folder + middle_full;
+            let bare = core
+                + all_counts
+                + line_full.map_or(0.0, |l| status::SEPARATOR_WIDTH + status::GAP + l);
             let icons = yields.status_switch_icons
-                || switches_width(ui, &switches) + gaps + full > ui.available_width();
+                || switches_width(ui, &switches) + gaps + bare > ui.available_width();
             let switches: Vec<StatusSwitch> =
                 switches.into_iter().map(|s| s.icon_only(icons)).collect();
             let left = switches_width(ui, &switches) + gaps;
@@ -1924,7 +2086,10 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                     status::separator(ui);
                     let mut pressed = None;
                     if let Some((i, text, color, width)) = line {
-                        let name = format!("Last log line: {text}");
+                        let name = match i {
+                            Some(_) => format!("Last log line: {text}"),
+                            None => format!("Found as you type: {text}"),
+                        };
                         let mut line = StatusLog::new(text.as_str()).name(name).max_width(width);
                         if let Some(color) = color {
                             line = line.color(color);
@@ -1932,7 +2097,12 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                         let mut shown = ui.add(line);
                         if shown.hovered() || shown.has_focus() {
                             tips_made.set(tips_made.get() + 1);
-                            shown = shown.on_hover_text(last_line_tip(log, i));
+                            let tip = match (i, &message) {
+                                (Some(i), _) => last_line_tip(log, i),
+                                (None, Some(n)) => n.tip.clone(),
+                                (None, None) => String::new(),
+                            };
+                            shown = shown.on_hover_text(tip);
                         }
                         pressed = Some(shown.clicked());
                     }
@@ -1974,7 +2144,16 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
         }
         app.settings.hide_log = on;
     } else if last_clicked {
-        app.show_panel(Id::ViewLog, true);
+        match message {
+            // (The live error's line, the keys in its script's text.)
+            Some(Note { at: Some((key, line)), .. }) => {
+                let text = app.script_source(&key).unwrap_or_default();
+                app.script_tools.jump = Some((key, crate::script_tools::line_start(&text, line)));
+                app.script_tools.keys_back = Some(key);
+            }
+            Some(_) => {}
+            None => app.show_panel(Id::ViewLog, true),
+        }
     }
 }
 
@@ -2073,12 +2252,16 @@ pub(crate) const LAST_LINE_CAP_AREA: f32 = 96.0;
 /// The most it takes beside another editor's (150 to 260 on the other
 /// boards: the Creature board's 160).
 pub(crate) const LAST_LINE_CAP: f32 = 160.0;
+/// The most it takes beside a script's (the Script board's `.sb-log`,
+/// 170): the live error's message there too (M4's U13).
+pub(crate) const LAST_LINE_CAP_SCRIPT: f32 = 170.0;
 
-/// The most of the bar the log's last line takes now: less beside an
-/// area, whose hints are many.
+/// The most of the bar the log's last line (or the Status Bar's message)
+/// takes now: less beside an area, whose hints are many.
 pub(crate) fn last_line_cap(app: &Moonglow) -> f32 {
     match app.active_editor() {
         Some(crate::Tab::Area(_) | crate::Tab::NoArea) => LAST_LINE_CAP_AREA,
+        Some(crate::Tab::Script(_)) => LAST_LINE_CAP_SCRIPT,
         _ => LAST_LINE_CAP,
     }
 }
@@ -2090,15 +2273,50 @@ pub(crate) fn last_line_cap(app: &Moonglow) -> f32 {
 pub(crate) struct Shown {
     pub(crate) hints: Vec<Hint>,
     pub(crate) counts: Vec<Count>,
+    /// The editor's message, in the place of the log's last line (the
+    /// Script board's `.sb-log`), shown whether the log is or not: a
+    /// script's live error (M4's U13).
+    pub(crate) note: Option<Note>,
 }
 
 impl Shown {
-    /// What it says, a line a hint (as a screen reader says it) and a
-    /// line a count: two frames that say the same show the same.
+    /// What it says, a line a hint (as a screen reader says it), a line a
+    /// count and its message: two frames that say the same show the same.
     pub(crate) fn said(&self) -> Vec<String> {
         let hints = self.hints.iter().map(Hint::spoken);
-        hints.chain(self.counts.iter().map(|c| c.text.clone())).collect()
+        let counts = self.counts.iter().map(|c| c.text.clone());
+        hints.chain(counts).chain(self.note.iter().map(|n| n.text.clone())).collect()
     }
+}
+
+/// `key`'s live error as the Status Bar's message ([`Note`]), where its
+/// check found one: the compiler's words, the tip one short sentence
+/// after them, a click going to the line its underline is under (its own,
+/// the nearest with text above an end of file's, an include's `#include`
+/// line: `script_view::underlined_line`).
+pub(crate) fn script_note(app: &Moonglow, key: mg_resman::ResKey) -> Option<Note> {
+    let (line, text) = app.live_error(key)?;
+    let text = text.replace(['\r', '\n'], " ");
+    let tip = format!("{text}\nClick to go to its line.");
+    let at = app.error_underline_line(key).or(*line).map(|l| (key, l));
+    let since = app.script_nav.live.get(&key).map_or(0, |l| l.logged);
+    Some(Note { text, tip, at, since })
+}
+
+/// The Status Bar's message of the editor in front ([`Shown::note`]): a
+/// script's live error, in the compiler's words (`hello.nss(3): ERROR:
+/// …`), in the theme's `error`,
+/// its whole words and where it comes from in its tip; a click goes to
+/// its line where it says one (the script, its line from 0).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Note {
+    pub(crate) text: String,
+    pub(crate) tip: String,
+    pub(crate) at: Option<(mg_resman::ResKey, usize)>,
+    /// How many entries the log had when it was found: a warning or an
+    /// error logged since takes its place in the bar (as the log's last
+    /// line would), an information line does not.
+    pub(crate) since: usize,
 }
 
 /// One of the Status Bar's counts ("11 by 11 tiles", "1 selected"), with
@@ -2287,9 +2505,9 @@ pub(crate) fn shown(
                 k.hint(Cmd::OpenModule, "Open module"),
                 k.hint(Cmd::QuickOpen, "Go to resource or command"),
             ];
-            Shown { hints: hints.into_iter().flatten().collect(), counts: Vec::new() }
+            Shown { hints: hints.into_iter().flatten().collect(), ..Shown::default() }
         }
-        Some(Tab::Script(_)) => {
+        Some(Tab::Script(key)) => {
             let hints = [
                 k.hint(Cmd::Find, "Find"),
                 k.hint(Cmd::FindNext, "Find next"),
@@ -2300,7 +2518,16 @@ pub(crate) fn shown(
                 k.hint(Cmd::CompileAll, "Compile all"),
                 k.hint(Cmd::Replace, "Replace"),
             ];
-            Shown { hints: hints.into_iter().flatten().collect(), counts: Vec::new() }
+            // (The Script board's count: the cursor's line and column, as
+            // its editor last found them.)
+            let (line, column) = app.scripts.get(key).and_then(|b| b.place).map_or((1, 1), |p| p.2);
+            let counts = vec![Count::new(format!("Line {line}, column {column}"))];
+            // (Its live error, as the Status Bar's message: M4's U13.)
+            // (In the compiler's words, which say the script and the line,
+            // `hello.nss(5): ERROR: …`, or an include's.)
+            let note = script_note(app, *key);
+            let hints = hints.into_iter().flatten().collect();
+            Shown { hints, counts, note }
         }
         // (A blueprint's or a placed object's form with its own Preview
         // shown, M4's U11: the 3D view's ways, the Creature board's, after
@@ -2316,7 +2543,7 @@ pub(crate) fn shown(
                     .iter()
                     .map(|(keys, words)| Hint::keys(keys.iter().copied(), *words)),
             );
-            Shown { hints, counts: Vec::new() }
+            Shown { hints, ..Shown::default() }
         }
         Some(tab) if tab.escape_cancels() => {
             let mut hints = Vec::new();
@@ -2336,7 +2563,7 @@ pub(crate) fn shown(
             }
             hints.push(Hint::keys(["Tab"], "Next field"));
             hints.push(Hint::keys(["Shift", "Tab"], "Previous field"));
-            Shown { hints, counts: Vec::new() }
+            Shown { hints, ..Shown::default() }
         }
         _ => Shown::default(),
     };
@@ -3026,6 +3253,93 @@ fn help_forward(app: &mut Moonglow) {
     }
 }
 
+/// A Bottom Dock panel a script asked to the front
+/// (`ScriptTools::forward`: a compile, a bookmark, a search's hits), acted
+/// on as the frame begins, before the docks are drawn (the editor that
+/// asked, drawn inside the dock area, cannot see the active editor): where
+/// the script floats, its window's bottom pane shows the panel (whichever
+/// of the window's tabs is in front); else the
+/// main window's Bottom Dock does, a script's own panel only where the
+/// script is the docked editor in front (a Compile All's scripts behind
+/// another editor leave the dock as it is), a search's hits whatever is in
+/// front. The dock open, the panel comes to the front; closed, it opens on
+/// it only where asked to (`Forward::open`: a search's hits, a failed
+/// compile). Nothing is kept in the settings beyond the dock opened
+/// ([`focus_bottom`]).
+pub(crate) fn bottom_forward(app: &mut Moonglow) {
+    use crate::script_tools::InfoTab;
+    // (Windows closed since keep no front.)
+    if !app.window_bottoms.is_empty() {
+        let dock = &app.dock;
+        app.window_bottoms.retain(|tab, _| dock.find_tab(tab).is_some());
+    }
+    let asks = std::mem::take(&mut app.script_tools.forward);
+    if asks.is_empty() {
+        return;
+    }
+    let panel_of = |tab: InfoTab| match tab {
+        InfoTab::Compiler => Panel::Compiler,
+        InfoTab::Bookmarks => Panel::Bookmarks,
+        InfoTab::SearchResults => Panel::SearchResults,
+    };
+    // (The main window's Bottom Dock's: the last ask it takes, opening it
+    // where any of the asks it takes for that panel opens it, so that a
+    // script in front that failed among several saved opens Compiler.)
+    let mut docked: Option<(Panel, bool)> = None;
+    for asked in asks {
+        let panel = panel_of(asked.tab);
+        let script = asked.from.map(crate::Tab::Script);
+        let at = script.as_ref().and_then(|t| app.dock.find_tab(t));
+        // (Its window's pane is drawn for the tab in front there, whichever:
+        // each of the window's tabs has it in front.)
+        if let Some(at) = at
+            && !at.surface.is_main()
+        {
+            let tabs: Vec<crate::Tab> = (app.dock.iter_leaves())
+                .filter(|(p, _)| p.surface == at.surface)
+                .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
+                .collect();
+            for tab in tabs {
+                app.window_bottoms.insert(tab, panel);
+            }
+            continue;
+        }
+        let own = panel != Panel::SearchResults;
+        if own && (script.is_none() || app.active_editor() != script.as_ref()) {
+            continue;
+        }
+        let open = asked.open || docked.is_some_and(|(p, o)| p == panel && o);
+        docked = Some((panel, open));
+    }
+    let Some((panel, open)) = docked else { return };
+    if !panels(app, Dock::Bottom).contains(&panel) {
+        return;
+    }
+    // (Open on the log, the dock stays on it unless asked to open: a
+    // bookmark or a compile that passed do not take the log's place.)
+    let on_log = bottom_shows(app, Panel::Log);
+    if open || (!app.settings.hide_log && !on_log) {
+        focus_bottom(app, panel);
+        app.settings.hide_log = false;
+    }
+}
+
+/// After the frame is drawn: where a Bottom Dock panel drawn in this pass
+/// showed what has changed since (`ScriptTools::made`: the script's
+/// editor, drawn after it, compiled or set a bookmark; a search's window
+/// found its hits), or a panel was asked to the front, the next frame is
+/// asked for, once; nothing else is compared, and a panel not drawn asks
+/// for nothing (the endless redraw M4's U12 review found must not come
+/// back through them).
+pub(crate) fn follow_bottom(app: &Moonglow, ctx: &egui::Context) {
+    let t = &app.script_tools;
+    let pass = ctx.cumulative_pass_nr();
+    let stale = t.bottom_drawn.is_some_and(|(p, least)| p == pass && least != t.made);
+    if stale || !t.forward.is_empty() {
+        ctx.request_repaint();
+    }
+}
+
 /// What a stacked section's bar did ([`section_bar`]): the tab chosen in
 /// it, if one was, and what its tools gave.
 struct SectionBar<R> {
@@ -3365,7 +3679,9 @@ pub(crate) fn panel_body(
     // flush with the panel's edges, the Creature board's.)
     let own = (panel == Panel::Preview).then(|| own_preview(app, editor)).flatten();
     let margin = match panel {
-        Panel::Properties => Margin::ZERO,
+        // (Compiler's inset ground fills the panel, its own margin in it:
+        // the Script board's `.compiler-out`.)
+        Panel::Properties | Panel::Compiler => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -3432,6 +3748,18 @@ pub(crate) fn panel_body(
                 match panel {
                     Panel::Reference => crate::script_reference::reference(app, &mut body, editor),
                     _ => crate::script_reference::help(app, &mut body, editor),
+                }
+            }
+            // (The Bottom Dock's, or a script's window's bottom pane's.)
+            Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::Compiler => crate::script_panels::compiler(app, &mut body, editor),
+                    Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
+                    _ => crate::search_results::body(app, &mut body),
                 }
             }
             #[cfg(test)]
@@ -3835,8 +4163,10 @@ mod dock_tests {
         );
         assert!(drawn(&h).contains(&(S0, Host::Dock)) && drawn(&h).contains(&(S1, Host::Dock)));
         assert!(h.state().sample_late_drawn.contains(&(S0, welcome)), "the late slot drawn");
-        assert_eq!(tabs_of(&h, BOTTOM_DOCK), ["Sample 8", "Sample 9", "Log"]);
-        assert_eq!(switches_shown(&h), ["Log", "Sample 8", "Sample 9"]);
+        // (The global ones after the editor's own: Search Results and the
+        // Log, M4's U13; Search Results' switch after the editor's.)
+        assert_eq!(tabs_of(&h, BOTTOM_DOCK), ["Sample 8", "Sample 9", "Search Results", "Log"]);
+        assert_eq!(switches_shown(&h), ["Log", "Sample 8", "Sample 9", "Search Results"]);
         let badge = switch(&h, "Sample 9").accesskit_node().value();
         assert_eq!(badge.as_deref(), Some("1"), "its count");
         // The Bottom Dock in front: the editor's first own panel.
@@ -3955,7 +4285,8 @@ mod dock_tests {
         assert_eq!(tabs_of(&h, &format!("{WINDOW_RIGHT}, Section 2")), ["Sample 1"]);
         assert_eq!(tabs_of(&h, WINDOW_BOTTOM), ["Sample 8", "Sample 9"]);
         assert!(h.state().right_rect.is_none(), "the Welcome page brings no Right Dock");
-        assert_eq!(switches_shown(&h), ["Log"], "the window's own panels have no switch");
+        let globals = ["Log", "Search Results"];
+        assert_eq!(switches_shown(&h), globals, "the window's own panels have no switch");
     }
 
     /// A seam between stacked sections dragged keeps the two sections'

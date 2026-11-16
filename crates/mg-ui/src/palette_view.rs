@@ -418,6 +418,12 @@ pub(crate) enum Keys {
     Reference,
     /// A script's Help (M4's U12): text to read, nothing to take them.
     Help,
+    /// The Bottom Dock's Compiler, Bookmarks and Search Results (M4's
+    /// U13): no arrows of their own; F6 gives the panel the keyboard's
+    /// focus, from the script's text (`script_panels::begin`).
+    Compiler,
+    Bookmarks,
+    SearchResults,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

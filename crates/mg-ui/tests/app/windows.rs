@@ -2832,9 +2832,10 @@ fn scripts_open_as_tabs_of_one_window() {
 }
 
 /// The lower halves of the script, conversation and journal editors
-/// (the compiler's pane, the selection's fields) are dragged up only so
-/// far: three fifths of the script editor, seven tenths of the others,
-/// the text or the lines above keeping their room.
+/// (the script's window's bottom pane, Compiler and the rest since M4's
+/// U13; the selection's fields) are dragged up only so far: a third of
+/// the script's window, seven tenths of the others, the text or the lines
+/// above keeping their room.
 #[test]
 fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     let dir = mg_testkit::scratch_dir("ui-lower-halves");
@@ -2848,7 +2849,7 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     m.set_gff(talk, &g).unwrap();
     m.save().unwrap();
     for (tab, panel, share) in [
-        (Tab::Script(script), egui::Id::new(("script-info", script)), 0.6),
+        (Tab::Script(script), egui::Id::new(("window-bottom", Tab::Script(script))), 1.0 / 3.0),
         (Tab::Dialog(talk), egui::Id::new(("dlg-data", talk)), 0.7),
         (Tab::Journal, egui::Id::new("journal-fields"), 0.7),
     ] {
@@ -2858,6 +2859,11 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
         app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
         let mut h = harness(app, 1200.0, 900.0);
         h.run_steps(4);
+        // (The script's in a window as tall as the harness has room for.)
+        if matches!(tab, Tab::Script(_)) {
+            own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
+            h.run_steps(4);
+        }
         let rect = |h: &Harness<'_, Moonglow>| {
             egui::containers::panel::PanelState::load(&h.ctx, panel)
                 .unwrap_or_else(|| panic!("{tab:?}: no lower half"))

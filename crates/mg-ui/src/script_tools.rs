@@ -45,14 +45,30 @@ pub enum SideTab {
     Templates,
 }
 
-/// The bottom panel's tabs (Help is the Right Dock's own panel since
-/// M4's U12).
+/// The script's panels of the Bottom Dock (M4's U13: Compiler and
+/// Bookmarks, its own, and the global Search Results; Help is the Right
+/// Dock's own panel since U12): the one a script asked to the front last
+/// ([`ScriptTools::info`], [`ScriptTools::ask_forward`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InfoTab {
     #[default]
     Compiler,
     Bookmarks,
     SearchResults,
+}
+
+/// A Bottom Dock panel asked to the front ([`ScriptTools::ask_forward`]):
+/// by the script `from` (none: a search not of one script's), opening the
+/// dock where it is closed if `open` (a search's hits, a compile that
+/// failed), else only where it is open. The docks act on it as the next
+/// frame begins (`shell::bottom_forward`): the main window's Bottom Dock
+/// where `from` is the docked script in front (or for a search, where it
+/// does not float), its window's bottom pane where it floats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Forward {
+    pub(crate) from: Option<ResKey>,
+    pub(crate) tab: InfoTab,
+    pub(crate) open: bool,
 }
 
 /// A compiler message, with where it points if it says.
@@ -109,7 +125,6 @@ pub struct Search {
     pub in_open: bool,
     /// The script the window works on.
     pub script: Option<ResKey>,
-    pub results: Vec<(ResKey, usize, String)>,
 }
 
 /// The most lines Search Results keeps (Find In Files, References): a
@@ -192,7 +207,24 @@ pub struct ScriptTools {
     /// What the Reference panel lists, and its filter.
     pub side: SideTab,
     pub filter: String,
+    /// The Bottom Dock panel a script asked to the front last.
     pub info: InfoTab,
+    /// The asks of this frame, until the docks act on them as the next
+    /// frame begins (`shell::bottom_forward`).
+    pub(crate) forward: Vec<Forward>,
+    /// Counts what the Bottom Dock panels show changing (a compile's
+    /// messages, a bookmark, a search's hits): each panel drawn notes the
+    /// count it showed and the pass ([`ScriptTools::bottom_drawn`]); one
+    /// drawn this pass before the change is drawn again
+    /// (`shell::follow_bottom`), and nothing is asked for otherwise.
+    pub(crate) made: u64,
+    /// The pass a Bottom Dock panel was last drawn in and the least count
+    /// ([`ScriptTools::made`]) a panel drawn in it showed.
+    pub(crate) bottom_drawn: Option<(u64, u64)>,
+    /// The Bottom Dock panel (its keys) to take the keyboard's focus as
+    /// it is drawn (F6 to it): from the script's text, so that what is
+    /// typed then goes nowhere.
+    pub(crate) list_focus: Option<crate::palette_view::Keys>,
     /// The function or constant the Help panel shows.
     pub help: Option<Symbol>,
     /// Text the Reference panel put in (a double click on a name), for the
@@ -281,6 +313,13 @@ impl ScriptTools {
     #[doc(hidden)]
     pub fn help_forward_pending(&self) -> Option<ResKey> {
         self.help_forward
+    }
+
+    /// Gives `key`'s editor the keyboard once it is drawn, as a menu
+    /// closed with nothing chosen does (for tests).
+    #[doc(hidden)]
+    pub fn keys_back_for_test(&mut self, key: ResKey) {
+        self.keys_back = Some(key);
     }
 
     /// [`templates`], read at most [`TEMPLATES_KEPT`] seconds ago from the
@@ -431,7 +470,17 @@ impl ScriptTools {
              Scripts on Save is off)"
         );
         self.messages.push(Message::new(key, said, None, false));
-        self.info = InfoTab::Compiler;
+        self.ask_forward(Some(key), InfoTab::Compiler, false);
+    }
+
+    /// The Bottom Dock panel `tab` asked to the front by the script `from`
+    /// (none: a search not of one script's), the dock opened where it is
+    /// closed if `open` ([`Forward`]); what the panels show changed
+    /// ([`ScriptTools::made`]).
+    pub(crate) fn ask_forward(&mut self, from: Option<ResKey>, tab: InfoTab, open: bool) {
+        self.info = tab;
+        self.forward.push(Forward { from, tab, open });
+        self.made += 1;
     }
 
     /// All symbols a script can use: its own and its includes' (custom),

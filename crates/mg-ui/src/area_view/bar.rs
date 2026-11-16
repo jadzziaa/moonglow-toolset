@@ -31,7 +31,7 @@ pub(crate) fn status(app: &Moonglow, view: &AreaView, ctx: &egui::Context) -> Sh
         counts.push(Count::new(format!("{} by {} tiles", m.width, m.height)));
         counts.push(Count::new(format!("{n} objects")));
     }
-    Shown { hints, counts }
+    Shown { hints, counts, note: None }
 }
 
 /// "Right Click / Esc: Stop": what drops a tool in hand.

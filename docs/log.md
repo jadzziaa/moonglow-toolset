@@ -1,6 +1,14 @@
 # Update log
 
 ## 2026-11-16
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U13's review ([07](manual/07-scripts.md#the-script-editor), [02](manual/02-main-window.md#the-status-bar)).
+  * An error at the end of a script, or in an include, is underlined too: on the line with text above it, or on the `#include` line naming the include. A script in a window of its own says its error in red at the right of its window's bottom pane.
+  * From 1400 points the Status Bar drops hints before its switches lose their words, as the boards draw it.
+  * A bookmark or a compile that passed no longer takes the log's place, a search that finds nothing opens nothing, a failing script in front opens Compiler when File › Save compiles, and References from a docked script go to its Bottom Dock; a warning logged after an error found as you type shows in its place.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U13, the script's Bottom Dock panels and Search Results**, as the Script, LightScript and Floating boards draw them ([07](manual/07-scripts.md#the-script-editor), [02](manual/02-main-window.md#the-log); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
+  * **Compiler and Bookmarks are the Bottom Dock's panels** while a script is in front, after the Log's switch in the Status Bar; they follow the script whose group you work in. Floating, they are the script window's bottom pane, which takes at most a third of the window, so a small window keeps its code in view.
+  * **Search Results is a panel of its own**, beside the Log whatever is in front, its switch counting the lines found: Find In Files, Find In Currently Open Scripts and References put their lines there, and a click opens the line in its script. A search opens it; a failed compile opens Compiler.
+  * **Errors as you type** are a red wavy underline on the line, with the error in its tip, and the Status Bar's message beside the script in front (click it to go to the line); no row under the header any more. The Status Bar says the cursor's **line and column**.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U12's review ([07](manual/07-scripts.md#the-script-editor); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
   * A script's **OK and Cancel** are at its header's right end, as every editor's with them.
   * The window no longer redraws without end while Reference is out of sight (Help's tab in front, the dock folded) and the script is typed in.

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T17:20:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T20:45:18Z }
 ---
 
 # Scripts
@@ -75,14 +75,41 @@ the definition's. A struct's members and local variables have theirs
 too, the comments above their lines. (`mg lsp`'s hover has the comment's
 text without the markers too.)
 
-Below the text are the **Compiler** messages, the **Bookmarks** and
-**Search Results**: click a message to go to its line.
-Each starts with the time it was written (`14:03:27`), so two compiles
-in a row are easy to tell apart. When **Save** saves without compiling
-(Automatically Compile Scripts on Save is off), the Compiler tab says
-so instead of keeping the last compile's message; so does File › Save
-(Ctrl+S with the keyboard elsewhere) for each script whose unsaved text
-it stores into the module.
+A script brings two panels of its own to the **Bottom Dock** under the
+editor area, **Compiler** and **Bookmarks**, before **Search Results**
+and the **Log**, which are there whatever is in front; each has its
+switch in the Status Bar (Log, Compiler, Bookmarks, Search Results),
+which opens the dock on it or closes it. They follow the script in
+front: with two scripts side by side, the one whose group you work in.
+A script in a window of its own has them on its window's **bottom
+pane** instead (Compiler, Bookmarks, Search Results), under its text
+beside Reference and Help; that pane takes at most a third of the
+window's height, however far its edge is dragged, so that the text
+keeps the rest in a small window.
+
+- **Compiler**: what the script's latest compile said; click a message
+  that names a line to go there (in an include too). Each starts with
+  the time it was written (`14:03:27`), so two compiles in a row are
+  easy to tell apart. When **Save** saves without compiling
+  (Automatically Compile Scripts on Save is off), Compiler says so
+  instead of keeping the last compile's message; so does File › Save
+  (Ctrl+S with the keyboard elsewhere) for each script whose unsaved
+  text it stores into the module. A compile brings Compiler to the
+  front where the dock is open, and opens the dock on it where the
+  compile failed.
+- **Bookmarks**: the numbered bookmarks (`[1]`) and the bookmarked
+  lines, each with its line's number and text; click one to go to its
+  line. Setting or clearing a bookmark brings it to the front where the
+  dock is open.
+- **Search Results**: what the last search found (Find In Files, Find
+  In Currently Open Scripts, References), what was searched over the
+  lines, its switch's count the lines found; click a line to go there,
+  in its own script. A search opens the dock on it (a script in a
+  window of its own shows it on its window's bottom pane).
+
+F6 goes round to the panel in front of the Bottom Dock too, which then
+has the keyboard: what you type goes nowhere until you click back in
+the text.
 
 The editor works with plain line ends. A script saved with Windows line
 ends (CRLF, as BioWare's scripts and Moonglow's new ones are) has no
@@ -226,12 +253,24 @@ With that:
 
 **Errors as you type**: half a second after you stop typing, Moonglow
 compiles the script (an include file needs no `main`), with its
-includes as Compile reads them: as saved. The first error
-shows under the header and its line is underlined. That line under the
-header is kept whether or not there is an error, so the text doesn't
-move as errors come and go; a long message is cut to fit (hover over it
-for all of it). **Options › Script Editor › Check for errors as you
-type** turns this off.
+includes as Compile reads them: as saved. The first error's line gets
+a red wavy underline, under what is on it; rest the pointer on it for
+the error. An error at the end of the file (where its line is blank)
+underlines the nearest line with text above it; an error in an include
+underlines the `#include` line that names it, and its tip says which
+include and which line. While the script is the tab in front of the
+main window, the Status Bar says the error too, in red, where the log's
+last line would be (cut short where it is long: hover over it for all
+of it), until a warning or an error is logged after it; click it to go
+to the underlined line. A script in a window of its own says it at the
+right end of its window's bottom pane's tab bar, in red (its icon alone
+where the pane is narrow); click it the same way. Nothing above the
+text comes and goes with an error, so the text doesn't move. **Options › Script Editor › Check for
+errors as you type** turns this off.
+
+**Line and column.** Beside the script in front, the right of the
+Status Bar says where the cursor is: "Line 17, column 12" (columns in
+characters, a tab one of them).
 
 Other editors get the same
 features through `mg lsp` (see [Command-line tools](11-command-line.md)).

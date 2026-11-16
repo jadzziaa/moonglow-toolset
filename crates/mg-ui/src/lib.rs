@@ -82,11 +82,13 @@ pub mod renderer_check;
 pub mod saved;
 mod script_layout;
 pub mod script_nav;
+mod script_panels;
 mod script_reference;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
 pub mod search;
+pub mod search_results;
 pub mod settings;
 mod shell;
 mod side_doc;
@@ -107,8 +109,10 @@ mod transfer;
 mod tree;
 pub mod updates;
 pub use outliner::OUTLINER;
+pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES};
 pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
 pub use script_view::SCRIPT_HEADER;
+pub use search_results::SEARCH_HITS;
 pub use shell::{LEAST_WINDOW_SIZE, Panel, RIGHT_COLUMN_TWO, RIGHT_DOCK, RIGHT_DOCK_LEAST};
 pub use tree::TreeAt;
 pub mod var_sets;
@@ -751,6 +755,9 @@ pub struct Moonglow {
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
     pub script_tools: script_tools::ScriptTools,
+    /// Search Results' hits (M4's U13): the last search's, whatever the
+    /// editor in front (`search_results`).
+    pub search_results: search_results::SearchResults,
     /// The NUI window whose last Build failed, and why: shown by its Build button.
     pub(crate) nui_build_error: Option<(String, String)>,
     /// The Save Script As window: the script and the new name.
@@ -860,6 +867,11 @@ pub struct Moonglow {
     /// The Bottom Dock's panel chosen last (its tab or its switch), for
     /// the run: shown where the dock holds it (`shell::bottom_shown`).
     pub(crate) bottom_panel: Option<Panel>,
+    /// Each floating editor's window's bottom pane's panel brought to the
+    /// front in the run (a tab clicked there, a script's compile or
+    /// search), by the editor's tab: shown where the pane holds it
+    /// (`shell::window_panes`), before the kind's kept one.
+    pub(crate) window_bottoms: HashMap<Tab, Panel>,
     /// The Left Dock's panel chosen last (its tab selected), for the run:
     /// shown where the dock holds it (`shell::left_shown`).
     pub(crate) left_panel: Panel,
@@ -1501,6 +1513,7 @@ impl Moonglow {
             dialog_clip: None,
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
+            search_results: search_results::SearchResults::default(),
             nui_build_error: None,
             script_save_as: None,
             new_script: None,
@@ -1545,6 +1558,7 @@ impl Moonglow {
             window_bars_drawn: Vec::new(),
             right_fronts: Vec::new(),
             bottom_panel: None,
+            window_bottoms: HashMap::new(),
             left_rect: None,
             left_panel: Panel::Module,
             left_drawn: None,
@@ -2068,6 +2082,8 @@ impl Moonglow {
         // issue 10): a side dock's button at its tab bar's end (folded,
         // the chevron at its strip's top), the Bottom Dock's switch in the
         // Status Bar.
+        // (A Bottom Dock panel a script asked to the front last frame.)
+        shell::bottom_forward(self);
         shell::status_bar(self, ui);
         // (Set again where the Left Dock draws the Resources panel.)
         self.resources_here = None;
@@ -2215,6 +2231,8 @@ impl Moonglow {
         bake_view::window(self, ui);
         bake_view::save_window(self, ui.ctx());
         shell::draw_late(self, ui);
+        // (A Bottom Dock panel drawn before what it shows changed.)
+        shell::follow_bottom(self, ui.ctx());
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());
         build_view::window(self, ui.ctx());
@@ -2745,6 +2763,7 @@ impl Moonglow {
         self.status_for_tests = shown.map(|(hints, counts)| shell::Shown {
             hints,
             counts: counts.into_iter().map(shell::Count::new).collect(),
+            note: None,
         });
     }
 
@@ -2818,6 +2837,19 @@ impl Moonglow {
     /// the log under it: `None` where it was closed.
     pub fn bottom_dock_rect(&self) -> Option<egui::Rect> {
         self.bottom_rect
+    }
+
+    /// The panel a floating editor's window's bottom pane was brought to
+    /// in the run, by the editor's tab (for tests).
+    #[doc(hidden)]
+    pub fn window_bottom_for_test(&self, tab: &Tab) -> Option<Panel> {
+        self.window_bottoms.get(tab).copied()
+    }
+
+    /// The panel the Bottom Dock shows (its tab in front): `None` where it
+    /// is closed, or holds no panel.
+    pub fn bottom_dock_shows(&self) -> Option<Panel> {
+        (!self.settings.hide_log).then(|| shell::bottom_shown(self)).flatten()
     }
 
     /// How many times the Status Bar has made the tip of the log's last
@@ -3096,6 +3128,9 @@ impl Moonglow {
         // `script_reference::reference`.)
         self.script_tools.reference_focus = next == Keys::Reference;
         self.script_tools.help_focus = next == Keys::Help;
+        // (Compiler, Bookmarks, Search Results: the panel takes it.)
+        let lists = [Keys::Compiler, Keys::Bookmarks, Keys::SearchResults];
+        self.script_tools.list_focus = lists.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)
@@ -5116,12 +5151,14 @@ impl Moonglow {
             if !compiled.is_empty() {
                 self.log.info(format!("Compiled on save: {}", transfer::listed(&compiled)));
             }
-            let failed: Vec<String> = stored
-                .iter()
-                .filter(|k| !compiled.contains(&k.resref.to_string()))
-                .filter(|k| self.script_fails(**k))
-                .map(|k| k.resref.to_string())
-                .collect();
+            // (Each failure's error in Compiler, as its own Compile says.)
+            let mut failed = Vec::new();
+            for k in stored.iter().filter(|k| !compiled.contains(&k.resref.to_string())) {
+                if let Some(e) = self.script_failure(*k) {
+                    self.note_failure(*k, e);
+                    failed.push(k.resref.to_string());
+                }
+            }
             if !failed.is_empty() {
                 self.log.error(format!(
                     "Did not compile (saved as they are; Compile in the script's editor says why): {}",

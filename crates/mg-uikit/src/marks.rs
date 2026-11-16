@@ -279,10 +279,64 @@ pub fn modified_dot(ui: &mut Ui) -> Response {
     response
 }
 
+/// A wavy line's height, crest to trough (the code view's `.tx.err`,
+/// `underline wavy`: an error's mark under its text).
+pub const WAVE_HEIGHT: f32 = 3.0;
+/// A wavy line's length from one crest to the next.
+pub const WAVE_LENGTH: f32 = 4.0;
+
+/// The points of a wavy line along `x` (left to right), its middle at `y`,
+/// [`WAVE_HEIGHT`] from crest to trough, a crest every [`WAVE_LENGTH`]: a
+/// zigzag through each half wave's top and bottom, ending where `x` ends.
+pub fn wavy_line_points(x: egui::Rangef, y: f32) -> Vec<Pos2> {
+    let half = WAVE_LENGTH / 2.0;
+    let amp = WAVE_HEIGHT / 2.0;
+    let mut points = Vec::new();
+    let mut at = x.min;
+    let mut up = true;
+    while at < x.max {
+        points.push(egui::pos2(at, if up { y - amp } else { y + amp }));
+        at += half;
+        up = !up;
+    }
+    // (The last point at the line's end, on the wave's slope there.)
+    let last = points.last().copied().unwrap_or(egui::pos2(x.min, y - amp));
+    let gone = (x.max - last.x) / half;
+    let to = if up { y - amp } else { y + amp };
+    points.push(egui::pos2(x.max, last.y + (to - last.y) * gone.clamp(0.0, 1.0)));
+    points
+}
+
+/// Paints a wavy line ([`wavy_line_points`]) in `stroke`: an error's
+/// underline in a code view, in the theme's `error` (`.code .tx.err`).
+pub fn paint_wavy_line(painter: &Painter, x: egui::Rangef, y: f32, stroke: Stroke) {
+    painter.add(egui::Shape::line(wavy_line_points(x, y), stroke));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tokens::contrast;
+
+    /// A wavy line runs from its start to its end, left to right, its
+    /// points within half its height of its middle, crest and trough in
+    /// turn half a wave apart; a line shorter than half a wave is a
+    /// slope.
+    #[test]
+    fn a_wavy_line_waves_from_its_start_to_its_end() {
+        let points = wavy_line_points(egui::Rangef::new(10.0, 31.0), 50.0);
+        assert_eq!(points.first().map(|p| p.x), Some(10.0));
+        assert_eq!(points.last().map(|p| p.x), Some(31.0));
+        assert!(points.windows(2).all(|w| w[0].x < w[1].x), "{points:?}");
+        let amp = WAVE_HEIGHT / 2.0;
+        assert!(points.iter().all(|p| (p.y - 50.0).abs() <= amp + 1e-4), "{points:?}");
+        let crests: Vec<f32> = points[..points.len() - 1].iter().map(|p| p.y).collect();
+        assert!(crests.windows(2).all(|w| (w[0] - w[1]).abs() == WAVE_HEIGHT), "{crests:?}");
+        assert_eq!(points.len(), 12, "a point each half wave and the end: {points:?}");
+        let short = wavy_line_points(egui::Rangef::new(0.0, 1.0), 0.0);
+        assert_eq!(short.len(), 2, "{short:?}");
+        assert!((short[1].y - short[0].y).abs() <= WAVE_HEIGHT);
+    }
 
     /// A badge's words on its fill meet 4.5:1 in both themes, every kind
     /// (the colored ones with `on-status`: dark text in the dark theme,

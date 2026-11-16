@@ -4421,6 +4421,140 @@ fn script_help() {
     shoot(&mut h, &dir, "script-compiler");
 }
 
+/// A script's Bottom Dock panels where no board draws them (M4's U13):
+/// As Tabs at 1600, the check as you type's error (its wavy underline and
+/// the Status Bar's message, the line and column beside it), Bookmarks
+/// with a bookmark and a numbered one, Search Results after Find In
+/// Currently Open Scripts; floating in a window 700 by 300 and 700 by
+/// 640, its bottom pane at most a third of it (the known difference "In
+/// small script windows the Compiler and Help strip crowds the code").
+#[test]
+#[ignore]
+fn script_bottom_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-bottom");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "// The door's guard.\nvoid main()\n{\n    object oDoor = GetObjectByTag(\"door\");\n    \
+                int nOpen = GetIsOpen(oDoor) +;\n    ActionOpenDoor(oDoor);\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.settings.hide_log = false;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let script = mg_ui::Tab::Script(key);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    h.run();
+    h.run();
+    // The error found as you type (a moment after the script opens).
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let at = text.find("ActionOpenDoor").unwrap();
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run_steps(10);
+    h.state_mut().scripts_mut_bookmark_for_test(key, text.find("object").unwrap());
+    h.state_mut().scripts_mut_bookmark_for_test(key, at);
+    // (The Bottom Dock open on Compiler, the script's first.)
+    h.run_steps(10);
+    shoot(&mut h, &dir, "script-live-error");
+    h.get_by_label("Status Bar").get_by_label("Bookmarks").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "script-bookmarks");
+    let search = &mut h.state_mut().script_tools.search;
+    (search.open, search.script, search.in_open) = (true, Some(key), true);
+    search.find = "oDoor".into();
+    h.run_steps(4);
+    h.get_by_label("Find All").click();
+    h.run_steps(4);
+    h.state_mut().script_tools.search.open = false;
+    h.run_steps(10);
+    shoot(&mut h, &dir, "script-search-results");
+    // Floating: the window's bottom pane in a short window and a taller.
+    let path = h.state().dock.find_tab(&script).unwrap();
+    let rect = egui::Rect::from_min_size(egui::pos2(200.0, 120.0), egui::vec2(700.0, 300.0));
+    h.state_mut().dock.detach_tab(path, rect);
+    h.run_steps(3);
+    for (high, name) in [(300.0, "script-window-300"), (640.0, "script-window-640")] {
+        place(&mut h, &script, (200.0, 120.0), (700.0, high));
+        h.run_steps(10);
+        shoot(&mut h, &dir, name);
+    }
+}
+
+/// U13's review: the Status Bar at 1600 and 1400 beside a script (the
+/// switches' words kept, hints dropped first); a floating script with an
+/// error at its end (the underline on the line above, the message at its
+/// window's bottom pane's bar); an include's error under its `#include`.
+#[test]
+#[ignore]
+fn script_review_cases() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-u13-review");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"Chapter1".to_vec()));
+    m.set_info(&info).unwrap();
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    m.set(
+        nss("m1q3_formosa_9"),
+        b"void main()\n{\n    ActionMoveToObject(OBJECT_SELF);\n}\n".to_vec(),
+    );
+    m.set(nss("at_end"), b"// The door's guard.\nvoid main()\n{\n    int n = 1;\n\n\n".to_vec());
+    m.set(nss("inc_bad"), b"// An include.\nint Broken() { return 1 +; }\n".to_vec());
+    m.set(
+        nss("uses"),
+        b"// Uses it.\n#include \"inc_bad\"\nvoid main() { int n = Broken(); }\n".to_vec(),
+    );
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.settings.hide_log = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>, n: &str| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(nss(n))));
+        h.run_steps(10);
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        h.run_steps(10);
+    };
+    open(&mut h, "m1q3_formosa_9");
+    h.state_mut().log.info("m1q3_formosa_9.nss: compiled");
+    h.run_steps(10);
+    for width in [1600.0, 1400.0] {
+        h.set_size(egui::vec2(width, 900.0));
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("script-yields-{width}"));
+    }
+    h.set_size(egui::vec2(1600.0, 900.0));
+    open(&mut h, "uses");
+    shoot(&mut h, &dir, "script-include-error");
+    open(&mut h, "at_end");
+    let tab = mg_ui::Tab::Script(nss("at_end"));
+    let path = h.state().dock.find_tab(&tab).unwrap();
+    let rect = egui::Rect::from_min_size(egui::pos2(300.0, 140.0), egui::vec2(900.0, 560.0));
+    h.state_mut().dock.detach_tab(path, rect);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "script-floating-eof");
+}
+
 /// Help (go to definition) on a function whose comment follows a line of
 /// code with a comment of its own (that one is the code's, not the
 /// function's), and on a struct's member after `.` (its comment above it,
@@ -12329,7 +12463,7 @@ fn board_floating() {
     frames_until(&mut h, "the script drawn", |h| h.state().tab_rect(&script).is_some());
     place(&mut h, &script, (328.0, 131.0), (1045.0, 637.0));
     h.run_steps(10);
-    board_help(&mut h, "ActionMoveToObject");
+    board_script_state(&mut h);
     shoot(&mut h, &board_dir(), "board_floating");
 }
 
@@ -12958,11 +13092,11 @@ fn preview_review() {
     shoot(&mut h, &board_dir(), "preview_docked_1280");
 }
 
-/// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17,
-/// `ActionMoveToObject` chosen in Reference (M4's U12: the header, and
-/// Reference over Help in the Right Dock). Today Compiler, Bookmarks and
-/// Search Results are the script's bottom pane, not the Bottom Dock's,
-/// and the Status Bar has no line and column (U13).
+/// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17 after
+/// `void main()` (column 12), `ActionMoveToObject` chosen in Reference
+/// (M4's U12: the header, and Reference over Help in the Right Dock),
+/// compiled, the Bottom Dock open on Compiler with its switches in the
+/// Status Bar and the line and column at its right (U13).
 #[test]
 #[ignore]
 fn board_script() {
@@ -12970,11 +13104,27 @@ fn board_script() {
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     board_front(&mut h, &board_script_tab());
-    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
-    h.state_mut().script_tools.jump = Some((key, 16));
-    h.run_steps(10);
-    board_help(&mut h, "ActionMoveToObject");
+    board_script_state(&mut h);
     shoot(&mut h, &board_dir(), "board_script");
+}
+
+/// The boards' script as Script.png draws it: the caret at line 17,
+/// column 12, `ActionMoveToObject` in Help, compiled, and (docked) the
+/// Bottom Dock open on Compiler.
+fn board_script_state(h: &mut Harness<'_, Moonglow>) {
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    let text = h.state().script_text(key).unwrap();
+    let at = mg_ui::script_tools::line_start(&text, 16) + 11;
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run_steps(10);
+    board_help(h, "ActionMoveToObject");
+    h.get_by_label(mg_ui::SCRIPT_HEADER).get_by_label("Compile").click();
+    h.run_steps(10);
+    // (Docked, its switch: the boards' log is closed.)
+    if h.state().active_editor() == Some(&board_script_tab()) {
+        h.get_by_label("Status Bar").get_by_label("Compiler").click();
+    }
+    h.run_steps(10);
 }
 
 /// The boards' script with `name` chosen in its Reference (shown in

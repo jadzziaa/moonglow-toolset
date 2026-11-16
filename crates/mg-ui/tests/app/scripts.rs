@@ -1,6 +1,7 @@
 //! The script editor and compiling.
 
 use crate::common::*;
+use mg_ui::search_results::Hit;
 
 fn script_cursor(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<(usize, usize)> {
     let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))?;
@@ -1635,14 +1636,9 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     assert!(h.state().dock.find_tab(&Tab::Script(inc)).is_some(), "the include opens");
 
     // References: its definition and its use.
-    h.state_mut().show_references(&d);
-    let results: Vec<String> = h
-        .state()
-        .script_tools
-        .search
-        .results
-        .iter()
-        .map(|(k, l, _)| format!("{}:{l}", k.resref))
+    h.state_mut().show_references(&d, None);
+    let results: Vec<String> = (h.state().search_results.hits.iter())
+        .map(|Hit::Line { script, line, .. }| format!("{}:{line}", script.resref))
         .collect();
     assert_eq!(results, ["inc_util:1", "main_a:3"]);
 
@@ -1663,9 +1659,9 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     // Errors as you type: checked once typing pauses, the line shown.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
     h.run_steps(3);
-    // (Where the text begins: the error's line is kept for it, there or
-    // not, so the text does not move as one comes and goes; Jasperre's
-    // report.)
+    // (Where the text begins: it does not move as an error comes and
+    // goes, Jasperre's report; since M4's U13 the error is the Status
+    // Bar's message and a wavy underline, no row of its own.)
     let editor = egui::Id::new(("script", main));
     let top =
         |h: &Harness<'_, Moonglow>| h.ctx.read_response(editor).expect("the editor").rect.top();
@@ -1680,15 +1676,16 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     h.run_steps(2);
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
-    let said = h.get_by_label_contains("line 4:").rect().expand2(egui::vec2(24.0, 4.0));
-    assert!(icon_drawn(&h, mg_uikit::Icon::Error, said), "marked with an error icon");
+    // (Its wavy underline, M4's U13: no row of its own under the header.)
+    let error_color = mg_uikit::tokens(&h.ctx).error;
+    assert_eq!(waves(&h, error_color).len(), 1, "a wavy underline on its line");
     assert_eq!(top(&h), before, "the text stays where it was");
     // Options › Script Editor: no checking as you type.
     h.state_mut().settings.no_live_check = true;
     h.run_steps(2);
-    assert!(h.query_by_label_contains("line 4:").is_none());
-    assert!(h.state().script_error_for_test(main).is_none(), "nor its underline");
-    assert!(top(&h) < before, "and no line kept for one");
+    assert!(waves(&h, error_color).is_empty(), "no underline");
+    assert!(h.state().script_error_for_test(main).is_none(), "nor its error");
+    assert_eq!(top(&h), before, "and the text where it was");
 }
 
 /// A script's laid-out text (a galley a line) is kept while its tab is
@@ -1748,7 +1745,7 @@ fn search_results_keep_ten_thousand_lines_and_draw_those_in_sight() {
     h.run_steps(3);
     h.get_by_label("Find All").click();
     h.run_steps(3);
-    assert_eq!(h.state().script_tools.search.results.len(), 10_000);
+    assert_eq!(h.state().search_results.hits.len(), 10_000);
     let said = "\"word\": 12500 lines found: the first 10000 are in Search Results";
     assert!(h.state().log.entries.iter().any(|(_, m)| m == said), "{:?}", h.state().log.entries);
     h.state_mut().script_tools.search.open = false;
@@ -1828,9 +1825,9 @@ fn rename_symbol_s_places_are_the_module_s_after_an_editor_is_canceled() {
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Script(inc)).is_none(), "closed");
     let d = h.state_mut().declaration_at(main, TWICE_IN_MAIN).expect("Twice");
-    h.state_mut().show_references(&d);
-    let results: Vec<String> = (h.state().script_tools.search.results.iter())
-        .map(|(k, l, text)| format!("{}:{l} {text}", k.resref))
+    h.state_mut().show_references(&d, None);
+    let results: Vec<String> = (h.state().search_results.hits.iter())
+        .map(|Hit::Line { script, line, text }| format!("{}:{line} {text}", script.resref))
         .collect();
     assert_eq!(
         results,

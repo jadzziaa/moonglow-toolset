@@ -300,9 +300,9 @@ fn persistent_world_stays_within_budget() {
     let (decl, took) = time(|| app.declaration_at(script, at));
     let decl = decl.expect("GetObjectByTag's declaration");
     b.check("go to definition", took, MS(100));
-    let ((), took) = time(|| app.show_references(&decl));
+    let ((), took) = time(|| app.show_references(&decl, None));
     b.check("references of GetObjectByTag (every script)", took, S(1));
-    let ((), took) = time(|| app.show_references(&decl));
+    let ((), took) = time(|| app.show_references(&decl, None));
     b.check("references again (indexed)", took, MS(200));
     close(&mut h, &Tab::Script(script));
 
