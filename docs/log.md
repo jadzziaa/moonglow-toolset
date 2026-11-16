@@ -1,6 +1,13 @@
 # Update log
 
 ## 2026-11-16
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U10's review ([05](manual/05-blueprints.md#the-editors)).
+  * With pages side by side, a page keeps its column as others grow, Tab reaches a page in another column out of view, and a list's page (Skills, Feats, Spells, Variables) is given what room its column has left; nothing is shown a frame at its old place.
+  * The Classes page in Alignment, Classes and Associates; Skills in two lists; Advanced's check boxes two to a row; Inventory's slot names whole; every `…` after a resource's name as high as its field.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U10, blueprint sections and columns**, as the Creature and WideCreature boards draw them ([05](manual/05-blueprints.md#the-editors); [parity](parity/checklists.md#blueprint-editors-object-properties-dialogs)).
+  * **A creature's Basic page stands in sections**: Identity, Race and Appearance, Palette, Portrait and Conversation under bold headings, its Description across the page under them; Statistics in Ability Scores, Armor Class, Hit Points and Saves.
+  * **A page's sections flow into columns** of 440 points or more where it has the width (two in a docked editor at 1600); where the room beside the page list holds four columns of 480, **the pages stand side by side**, every page of a creature in view at once on a 3440 screen, the list marking them all.
+  * A name whose text is the talk table's shows its StrRef inside its field; a description's heading names the language edited, its languages button at the right. A number field's arrows stand one over the other, as high as the field.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U9's review ([05](manual/05-blueprints.md#the-editors)).
   * Blueprint windows open 980 wide and Module and Area Properties 930 (as much as the screen allows), so a placeable's or door's model stands beside its Basic page again, a creature's slots each on one line, an encounter's creatures whole.
   * The header's title gives way in a narrow window: the ResRef first, then the name cut short with an ellipsis. The page list and header stand flush with the window's edges.

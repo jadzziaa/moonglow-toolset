@@ -261,9 +261,10 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
     let mut changed: Option<Vec<Struct>> = None;
     let mut pick: Option<(Option<usize>, String, String)> = None;
     let mut set_new: Option<(Option<usize>, String, ResRef)> = None;
-    // (In a narrow room, the Properties panel's: each texture on a line,
-    // what draws it on the line under.)
-    let narrow = super::narrow(ui);
+    // (In a narrow room, the Properties panel's, or a column of pages side
+    // by side (M4's U10): each texture on a line, what draws it on the line
+    // under.)
+    let narrow = super::narrow(ui) || ui.available_width() < TEXTURE_ROW;
     mg_uikit::with_table_rows(ui, |ui| {
         egui::Grid::new(f.id(p.field).with(narrow))
             .num_columns(if narrow { 2 } else { 5 })
@@ -899,6 +900,10 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
     }
     add_row(f, ui, &p, &items);
 }
+
+/// The width a texture's row takes on one line: its pictures, its name,
+/// the field, Select Texture… and Reset.
+const TEXTURE_ROW: f32 = 560.0;
 
 #[cfg(test)]
 mod tests {

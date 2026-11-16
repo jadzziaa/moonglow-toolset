@@ -2105,6 +2105,19 @@ pub(crate) fn drawn(h: &Harness<'_, Moonglow>) -> Vec<egui::Shape> {
     out
 }
 
+/// [`drawn`], each shape with the rectangle it is clipped to.
+pub(crate) fn drawn_clipped(h: &Harness<'_, Moonglow>) -> Vec<(egui::Shape, egui::Rect)> {
+    fn add(shape: &egui::Shape, clip: egui::Rect, out: &mut Vec<(egui::Shape, egui::Rect)>) {
+        match shape {
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, clip, out)),
+            s => out.push((s.clone(), clip)),
+        }
+    }
+    let mut out = Vec::new();
+    h.output().shapes.iter().for_each(|c| add(&c.shape, c.clip_rect, &mut out));
+    out
+}
+
 /// Opens Quick Open by its key (Ctrl+P) and types `text` into its field
 /// (nothing typed for an empty `text`).
 pub(crate) fn quick_open(h: &mut Harness<'_, Moonglow>, text: &str) {

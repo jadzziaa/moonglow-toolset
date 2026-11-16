@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T02:56:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T09:31:50Z }
 ---
 
 # Blueprints
@@ -512,8 +512,12 @@ containers and creature items aren't made magical.
 ## The editors
 
 A name or description whose text is the talk table's (a StrRef, as the
-game's blueprints have) shows in blue with its StrRef beside it; typing
-there gives the blueprint text of its own.
+game's blueprints have) shows in blue, a name with its StrRef inside its
+field at the right end, a description with it under the text; typing
+there gives the blueprint text of its own. The **…** after a name's
+field, and at the right of a description's heading (which names the
+language edited, "Description English"), edits the text in every
+language.
 
 Each blueprint opens as a tab with Aurora's pages. Its header shows
 the blueprint's kind, its name and its ResRef (in a narrow window the
@@ -530,6 +534,40 @@ field brought into view as the keyboard comes to it. In a window too
 narrow for the list's words, the pages are a column of icons (their
 names in their tooltips). Only the pages in view are drawn, so a
 creature's fourteen pages cost what the few in view do.
+
+A page's fields are grouped in sections under bold headings: a
+creature's Basic page has Identity (its names and tag), Race and
+Appearance, Palette (its challenge rating and category), Portrait and
+Conversation, with its Description across the page under them; its
+Statistics page has Ability Scores, Armor Class, Hit Points and Saves.
+Where the page is wide enough, its sections flow into columns at least
+440 points wide each, down the first column and on down the next (Tab
+goes in the same order): two columns in a docked editor at 1600, one in
+a window at its first width. Where the room beside the page list holds
+four columns of 480 points or more (a docked editor on a 3440-wide
+screen: six), the pages themselves stand side by side in columns, no
+more columns than the form has pages, each page under the
+column that ends highest, a line between the columns, so that a
+creature's fourteen pages are in view at once. A page keeps its column
+while the window keeps its number of columns (a page that grows moves
+only the pages under it); a list's page (Skills, Feats, Spells,
+Variables) is given what room its column has left in view. The list
+marks every page in view, a page clicked there comes as near the top as
+the scroll goes, and Tab goes page after page in the list's order, to a
+page in another column out of view too. Module Properties and Area
+Properties stand their pages side by side the same way.
+
+A creature's Classes page is in Alignment, Classes and Associates; its
+Skills stand in two lists side by side where the page is wide enough;
+its Advanced page's check boxes two to a row, Challenge Rating under
+them. Where a page is narrow, a row of controls goes onto two lines
+rather than past its edge (a door's Gallery… under its generic
+appearance, a texture's replacement under its name), and a creature's
+Inventory stands its item palette over its slots, their names whole.
+
+A number field's arrows stand one over the other at its right end, as
+high as the field together: click one, or hold it, or press Up and Down
+in the field, for one more or one less.
 
 Every change takes effect at once and is one undoable step. **OK**
 closes the window (what was changed is the module's

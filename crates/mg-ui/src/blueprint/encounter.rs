@@ -151,9 +151,16 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     // (The palette beside the list; in a narrow room, the Properties
     // panel's, over it, and the list without its Tag and ResRef.)
     let narrow = super::narrow(ui);
-    super::beside_or_over(ui, |ui| {
+    // (Over it too where the room is short of the palette and the list's
+    // five columns, a column of pages side by side: M4's U10.)
+    let over = narrow || ui.available_width() < PALETTE + LIST_LEAST;
+    let layout = match over {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(if narrow { ui.available_width() } else { 280.0 });
+            ui.set_width(if over { ui.available_width() } else { PALETTE });
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
@@ -261,9 +268,16 @@ fn creatures_together(f: &mut Form<'_>, ui: &mut Ui) {
     // (The palette beside the list; in a narrow room, the Properties
     // panel's, over it, and the list without its Tag and ResRef.)
     let narrow = super::narrow(ui);
-    super::beside_or_over(ui, |ui| {
+    // (Over it too where the room is short of the palette and the list's
+    // five columns, a column of pages side by side: M4's U10.)
+    let over = narrow || ui.available_width() < PALETTE + LIST_LEAST;
+    let layout = match over {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, |ui| {
         ui.vertical(|ui| {
-            ui.set_width(if narrow { ui.available_width() } else { 280.0 });
+            ui.set_width(if over { ui.available_width() } else { PALETTE });
             add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
         });
         ui.separator();
@@ -406,3 +420,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
     });
 }
+
+/// The width of the Creature List page's palette beside its list.
+const PALETTE: f32 = 280.0;
+/// The least room the list's five columns take beside the palette.
+const LIST_LEAST: f32 = 440.0;

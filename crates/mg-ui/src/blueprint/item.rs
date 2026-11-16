@@ -190,7 +190,7 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
             Some((name, t.get_int(row, "Stacking").unwrap_or(1).max(1)))
         })
         .unwrap_or_else(|| (format!("({})", f.int("BaseItem")), 1));
-    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+    mg_uikit::form::FormColumns::new(f.id("uti-general")).show(ui, 2, |ui, col| {
         if col == 0 {
             super::form_grid(ui, ("uti-general", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Item name");

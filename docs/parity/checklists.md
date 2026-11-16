@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T07:55:18Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -217,7 +217,16 @@ icons, the pages one after another on one scroll, drawn only where in
 sight, a page clicked in the list brought to the top (M4 U9;
 [a_creature_s_pages_stand_on_one_scroll_beside_their_list,
 the_keyboard_goes_down_the_pages_and_along_the_list,
-blueprint_editor_pages_draw_nothing_over_anything_else]).
+blueprint_editor_pages_draw_nothing_over_anything_else]). A page's fields
+stand in sections under headings (a creature's Basic: Identity, Race and
+Appearance, Palette, Portrait, Conversation, its Description across the
+page), flowing into columns of 440 points or more where the page has the
+width; where the room holds four columns of 480, the pages stand side by
+side in columns, every page of a creature in view at 3440 (M4 U10;
+[a_creature_s_basic_page_stands_in_its_sections,
+sections_flow_into_columns_by_the_width,
+at_3440_every_page_of_a_creature_is_in_view_in_columns]). A name whose
+text is the talk table's shows its StrRef inside its field.
 A placed object's (or several of one type's) pages also show in the area
 editor's Properties panel, the Right Dock's lower section, without OK or
 Cancel: each change one Undo step (M4 U6, the UI redesign's S2;

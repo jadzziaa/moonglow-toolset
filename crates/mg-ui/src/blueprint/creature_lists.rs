@@ -619,7 +619,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         };
         list.iter().enumerate().filter(|(_, s)| of(s)).map(|(i, _)| i).collect()
     };
-    ui.columns(2, |columns| {
+    super::list_beside(ui, |columns| {
         // The class's spells, to choose from: a click on one gives it to the
         // creature (prepares one more of it).
         let ui = &mut columns[0];
@@ -1034,7 +1034,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         c.list(&list_of(l)).iter().filter(|e| spell_key(e) == k).count()
     };
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
-    ui.columns(2, |columns| {
+    super::list_beside(ui, |columns| {
         let ui = &mut columns[0];
         egui::ScrollArea::vertical()
             .id_salt(("utc-spell-list", key, which))
@@ -1893,8 +1893,9 @@ pub(super) fn equip_edits(
 
 /// The width under which a creature's Inventory page stands its item
 /// palette over its slots rather than beside them: the palette's least
-/// (200), the slots' compact shape and the gap between.
-const INVENTORY_SIDE_BY_SIDE: f32 = 440.0;
+/// (200), the slots with their names whole (at 440, in a column of pages
+/// side by side, "Creature Wea…") and the gap between.
+const INVENTORY_SIDE_BY_SIDE: f32 = 540.0;
 
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     if f.several() {

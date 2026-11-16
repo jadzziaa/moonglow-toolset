@@ -1362,14 +1362,67 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         row(ui, |ui| {
-            if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
+            // (Where its text is not its own, the field says whose inside
+            // its right end, "StrRef 24650" or the language's name, in
+            // the talk table's color: the Creature board's `.field .keys`.
+            // A window's field fills its row's room but for the buttons
+            // after it; a narrow form's keeps its width, which the row
+            // wraps.)
+            let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+            // (A field is never wider than its row's room: egui's isn't.)
+            let width = match narrow(ui) {
+                true => 240.0_f32.min(ui.available_width()),
+                false => {
+                    // (And a few points for the frames past their widgets.)
+                    let buttons =
+                        2.0 * (mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x) + 6.0;
+                    (ui.available_width() - buttons).clamp(LOC_FIELD.start, LOC_FIELD.end)
+                }
+            };
+            let id = self.id(label);
+            let color = talk_table_color(ui);
+            let keys = borrowed.as_ref().map(|(from, why)| {
+                let font = egui::FontId::proportional(mg_uikit::metrics::SMALL_SIZE);
+                let w = ui.fonts_mut(|f| f.layout_no_wrap(from.clone(), font, color)).size().x;
+                (from.clone(), *why, w)
+            });
+            let at = ui.cursor().min;
+            let typed = ui
+                .scope(|ui| {
+                    if keys.is_some() {
+                        ui.visuals_mut().override_text_color = Some(color);
+                    }
+                    let room = keys.as_ref().map_or(0.0, |k| k.2 + KEYS_PADDING);
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(FIELD_END_ROOM), room));
+                    let typed =
+                        crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width);
+                    ui.data_mut(|d| d.remove::<f32>(egui::Id::new(FIELD_END_ROOM)));
+                    typed
+                })
+                .inner;
+            if let Some(v) = typed {
                 self.set_typed(
                     what,
                     label,
                     Value::LocString(with_edited_text(current.clone(), &v)),
                 );
             }
-            let shown = crate::widgets::loc_shown(self.app, &current).0;
+            if let Some((from, why, w)) = keys {
+                let h = ui.spacing().interact_size.y;
+                let field = egui::Rect::from_min_size(at, egui::vec2(width, h));
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(field.right() - w - KEYS_PADDING, field.top()),
+                    egui::pos2(field.right() - 4.0, field.bottom()),
+                );
+                let mut inside = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(rect)
+                        .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                );
+                let text =
+                    egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
+                inside.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+            }
             let held = current.clone();
             self.hold_text(ui, what, label, &shown, true, move |text| {
                 Value::LocString(with_edited_text(held.clone(), &text))
@@ -1380,16 +1433,19 @@ impl Form<'_> {
         });
     }
 
-    /// A localized multi-line text (descriptions).
+    /// A localized multi-line text (descriptions), under its section
+    /// heading: the text's name, the language edited after it, the
+    /// languages button at its end (the Creature board's Description).
     pub(crate) fn locstring_memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        row(ui, |ui| {
-            let language = crate::text::edit_language().name().unwrap_or("?");
-            crate::widgets::field_label(ui, format!("{what} ({language})"));
-            if crate::widgets::languages_button(ui) {
-                self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-            }
+        let language = crate::text::edit_language().name().unwrap_or("?");
+        let mut languages = false;
+        mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
+            languages = crate::widgets::languages_button(ui);
         });
+        if languages {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
         self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
             self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
@@ -2118,6 +2174,18 @@ pub fn instance_pages(t: ResType) -> Vec<&'static str> {
 /// runs past the panel's edge. A window keeps its look above it.
 pub(crate) const NARROW_FORM: f32 = 400.0;
 
+/// The width of a localized name's field in a window (`Form::locstring`):
+/// its row's room, held to these.
+const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
+
+/// The room inside a field's right end round the words that say whose its
+/// text is ("StrRef 24650"): the board's `.field .keys` padding.
+const KEYS_PADDING: f32 = 8.0;
+
+/// Where a field drawn by `widgets::commit_field` finds room to keep at
+/// its right end, inside it, for words drawn there (`Form::locstring`).
+pub(crate) const FIELD_END_ROOM: &str = "blueprint-field-end-room";
+
 /// Whether the form being drawn is laid out narrow: as [`form_ui`] found
 /// its room ([`NARROW_FORM`]), whatever cell or column of it `ui` is (a
 /// window's grid cell is narrower than that, and keeps its look); outside
@@ -2135,11 +2203,12 @@ const NARROW_ID: &str = "blueprint-form-narrow";
 pub(crate) fn form_grid(ui: &Ui, id: impl egui::AsIdSalt) -> FormGrid {
     let narrow = narrow(ui);
     let grid = egui::Grid::new(id).num_columns(2);
+    let half = (ui.available_width() * 0.5).floor();
     let grid = match narrow {
-        true => grid.max_col_width((ui.available_width() * 0.5).floor()),
+        true => grid.max_col_width(half),
         false => grid,
     };
-    FormGrid { grid, narrow }
+    FormGrid { grid, narrow, half }
 }
 
 /// A form's grid ([`form_grid`]): egui's, its text wrapping within its
@@ -2149,11 +2218,23 @@ pub(crate) fn form_grid(ui: &Ui, id: impl egui::AsIdSalt) -> FormGrid {
 pub(crate) struct FormGrid {
     grid: egui::Grid,
     narrow: bool,
+    half: f32,
 }
 
 impl FormGrid {
     pub(crate) fn spacing(mut self, spacing: impl Into<egui::Vec2>) -> Self {
         self.grid = self.grid.spacing(spacing);
+        self
+    }
+
+    /// The labels' column at least `mg_uikit::metrics::LABEL_WIDTH` (in a
+    /// narrow room, at most half the width still).
+    pub(crate) fn labels(mut self) -> Self {
+        let least = match self.narrow {
+            true => mg_uikit::metrics::LABEL_WIDTH.min(self.half),
+            false => mg_uikit::metrics::LABEL_WIDTH,
+        };
+        self.grid = self.grid.min_col_width(least);
         self
     }
 
@@ -2176,6 +2257,69 @@ impl FormGrid {
         }
     }
 }
+
+/// A form's section (M4's U10, the Creature board's): its heading
+/// (`widgets::section_heading`), then its grid of labels and values
+/// ([`form_grid`], kept by `id`), the labels' column at least the
+/// stylesheet's `--lbl-w` (`mg_uikit::metrics::LABEL_WIDTH`) so that the
+/// sections of a page line up.
+pub(crate) fn section(
+    ui: &mut Ui,
+    title: &str,
+    id: impl egui::AsIdSalt,
+    add: impl FnOnce(&mut Ui),
+) {
+    crate::widgets::section_heading(ui, title);
+    form_grid(ui, id).labels().spacing([12.0, 6.0]).show(ui, add);
+}
+
+/// The room from `ui`'s cursor to its right edge (in a grid's cell, to
+/// the page's right edge): what a row of fixed widths has before it runs
+/// past a column of pages side by side (M4's U10).
+pub(crate) fn room_right(ui: &Ui) -> f32 {
+    ui.max_rect().right() - ui.cursor().min.x
+}
+
+/// A list with what it gives beside it (a creature's spells to choose
+/// from, and those it has): the list the wider, the side
+/// [`SIDE_SHARE`] of the room (between [`SIDE_LEAST`] and
+/// [`SIDE_MOST`]), each clipped to its part; in a narrow form, halves as
+/// `Ui::columns` gives them.
+pub(crate) fn list_beside<R>(ui: &mut Ui, add: impl FnOnce(&mut [Ui]) -> R) -> R {
+    if narrow(ui) {
+        return ui.columns(2, add);
+    }
+    let gap = ui.spacing().item_spacing.x;
+    let total = ui.available_width();
+    let side = (total * SIDE_SHARE).clamp(SIDE_LEAST, SIDE_MOST).min(total / 2.0);
+    let list = (total - side - gap).max(0.0);
+    let top = ui.cursor().min;
+    let high = ui.available_height();
+    let part =
+        |x: f32, w: f32| egui::Rect::from_min_size(egui::pos2(x, top.y), egui::vec2(w, high));
+    let mut parts = [part(top.x, list), part(top.x + list + gap, side)].map(|r| {
+        let mut child = ui.new_child(
+            egui::UiBuilder::new().max_rect(r).layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(r.intersect(ui.clip_rect()));
+        child
+    });
+    // (A name longer than the side cut short, its whole in its tip. Not
+    // the list's: its grid's columns, laid out by their first frame, would
+    // cut every name to that.)
+    parts[1].style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+    let out = add(&mut parts);
+    let used = parts[0].min_rect().union(parts[1].min_rect());
+    ui.advance_cursor_after_rect(used);
+    out
+}
+
+/// The share of the room what a list gives takes beside it
+/// ([`list_beside`]: the board's Spells, `minmax(0, 1fr) 140px`).
+const SIDE_SHARE: f32 = 0.35;
+/// The least and most what a list gives takes beside it.
+const SIDE_LEAST: f32 = 150.0;
+const SIDE_MOST: f32 = 320.0;
 
 /// A row of controls: in a narrow room ([`narrow`]) wrapping onto the
 /// next line where the panel's width ends, else one line as a window has
@@ -2537,7 +2681,13 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
         }
         // (The window's: every page on one scroll, drawn where in sight.)
         Some(AllPages { id, pages, top, bring }) => {
-            let scroll = crate::form_pages::scroll(id, pages, !narrow, bring);
+            let scroll = crate::form_pages::scroll(
+                id,
+                pages,
+                !narrow,
+                bring,
+                crate::form_pages::page_columns(ui.available_width()),
+            );
             scroll.show(ui, top, |ui, i| {
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
             });

@@ -160,6 +160,11 @@ fn rating_label(f: &Form<'_>, ui: &mut Ui) {
     }
 }
 
+/// The Basic page's sections, in order (the Creature board's): down the
+/// first column and on down the next where the page has two.
+const BASIC_SECTIONS: [&str; 5] =
+    ["Identity", "Race and Appearance", "Palette", "Portrait", "Conversation"];
+
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     // (Those with a name, as Aurora and the Creature Wizard list them: a
     // row without one is `DELETED`, `INVALID_RACE`, CEP's `CEP_RESERVED`.)
@@ -168,92 +173,104 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.appearance_rows(mg_rules::ObjectKind::Creature, &appearances);
     let phenotypes = f.choices("phenotype", Some("Name"), Some("Label"));
     let genders = f.choices("gender", Some("NAME"), Some("GENDER"));
-    super::form_grid(ui, ("utc-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
-        for (text, what, label, last) in [
-            ("First name", "First name", "FirstName", false),
-            ("Last name", "Last name", "LastName", true),
-        ] {
-            crate::widgets::field_label(ui, text);
-            super::row(ui, |ui| {
-                f.locstring(ui, what, label);
-                // A random name from the race's letter tables.
-                if crate::widgets::icon_button(
-                    ui,
-                    mg_uikit::Icon::Dice,
-                    "Random Name",
-                    "Random name",
-                )
-                .clicked()
-                {
-                    let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
-                    let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
-                    let name =
-                        f.app.game.as_deref().and_then(|g| {
-                            g.random_name(race, gender, last, &mut fastrand::Rng::new())
-                        });
-                    if let Some(n) = name {
-                        let current = f.root.locstring(label).cloned().unwrap_or_default();
-                        f.set_typed(
-                            what,
-                            label,
-                            Value::LocString(crate::text::with_edited_text(current, &n)),
-                        );
-                    }
+    let key = f.key;
+    mg_uikit::form::FormColumns::new(f.id("utc-basic")).show(ui, BASIC_SECTIONS.len(), |ui, s| {
+        super::section(ui, BASIC_SECTIONS[s], ("utc-basic", key, s), |ui| match s {
+            0 => {
+                for (text, what, label, last) in [
+                    ("First name", "First name", "FirstName", false),
+                    ("Last name", "Last name", "LastName", true),
+                ] {
+                    crate::widgets::field_label(ui, text);
+                    super::row(ui, |ui| {
+                        f.locstring(ui, what, label);
+                        random_name_button(f, ui, what, label, last);
+                    });
+                    ui.end_row();
                 }
-            });
-            ui.end_row();
-        }
-        crate::widgets::field_label(ui, "Tag");
-        f.tag(ui, "Tag", "Tag");
-        ui.end_row();
-        crate::widgets::field_label(ui, "Race");
-        f.choice(ui, "Race", "Race", &races, FieldType::Byte);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Appearance");
-        super::row(ui, |ui| {
-            let before = f.app.actions.len();
-            f.appearance_choice(ui, "Appearance_Type", &appearances, FieldType::Word, true);
-            if f.app.actions.len() > before
-                && let Some(Action::Apply(mut set)) = f.app.actions.pop()
-            {
-                with_a_body(f.app, &mut set.edits);
-                f.app.actions.push(Action::Apply(set));
+                crate::widgets::field_label(ui, "Tag");
+                f.tag(ui, "Tag", "Tag");
+                ui.end_row();
             }
-            f.gallery_button(ui, crate::appearance_gallery::Kind::Creature);
+            1 => {
+                crate::widgets::field_label(ui, "Race");
+                f.choice(ui, "Race", "Race", &races, FieldType::Byte);
+                ui.end_row();
+                crate::widgets::field_label(ui, "Appearance");
+                super::row(ui, |ui| {
+                    let before = f.app.actions.len();
+                    f.appearance_choice(ui, "Appearance_Type", &appearances, FieldType::Word, true);
+                    if f.app.actions.len() > before
+                        && let Some(Action::Apply(mut set)) = f.app.actions.pop()
+                    {
+                        with_a_body(f.app, &mut set.edits);
+                        f.app.actions.push(Action::Apply(set));
+                    }
+                    f.gallery_button(ui, crate::appearance_gallery::Kind::Creature);
+                });
+                ui.end_row();
+                f.model_warning(ui, mg_rules::ObjectKind::Creature);
+                crate::widgets::field_label(ui, "Phenotype");
+                f.choice(ui, "Phenotype", "Phenotype", &phenotypes, FieldType::Int);
+                ui.end_row();
+                crate::widgets::field_label(ui, "Gender");
+                f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
+                ui.end_row();
+                crate::widgets::field_label(ui, "");
+                situated::preview_button(f, ui);
+                ui.end_row();
+            }
+            2 => {
+                crate::widgets::field_label(ui, "Challenge rating");
+                rating_label(f, ui);
+                ui.end_row();
+                crate::widgets::field_label(ui, "Category");
+                f.category(ui, BlueprintKind::Creature);
+                ui.end_row();
+            }
+            3 => {
+                crate::widgets::field_label(ui, "Portrait");
+                situated::portrait(f, ui);
+                ui.end_row();
+            }
+            _ => {
+                crate::widgets::field_label(ui, "Conversation");
+                f.conversation(ui);
+                ui.end_row();
+                crate::widgets::field_label(ui, "");
+                f.mark_mixed(ui, "Interruptable");
+                let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
+                if ui.check_box(&mut no_interrupt, "No interrupt").changed() {
+                    let v = i64::from(!no_interrupt);
+                    f.set_int("No interrupt", "Interruptable", v, FieldType::Byte);
+                }
+                ui.end_row();
+            }
         });
-        ui.end_row();
-        f.model_warning(ui, mg_rules::ObjectKind::Creature);
-        crate::widgets::field_label(ui, "Phenotype");
-        f.choice(ui, "Phenotype", "Phenotype", &phenotypes, FieldType::Int);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Gender");
-        f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Challenge rating");
-        rating_label(f, ui);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Category");
-        f.category(ui, BlueprintKind::Creature);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Portrait");
-        situated::portrait(f, ui);
-        ui.end_row();
-        crate::widgets::field_label(ui, "Conversation");
-        f.conversation(ui);
-        ui.end_row();
-        crate::widgets::field_label(ui, "");
-        f.mark_mixed(ui, "Interruptable");
-        let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
-        if ui.check_box(&mut no_interrupt, "No interrupt").changed() {
-            f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
-        }
-        ui.end_row();
-        crate::widgets::field_label(ui, "");
-        situated::preview_button(f, ui);
-        ui.end_row();
     });
-    ui.separator();
+    // (The description across the page, under the columns.)
+    ui.add_space(mg_uikit::form::SECTIONS_GAP);
     f.locstring_memo(ui, "Description", "Description");
+}
+
+/// The dice after a name: a random name from the race's letter tables.
+fn random_name_button(f: &mut Form<'_>, ui: &mut Ui, what: &str, label: &str, last: bool) {
+    if !crate::widgets::icon_button(ui, mg_uikit::Icon::Dice, "Random Name", "Random name")
+        .clicked()
+    {
+        return;
+    }
+    let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
+    let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
+    let name = f
+        .app
+        .game
+        .as_deref()
+        .and_then(|g| g.random_name(race, gender, last, &mut fastrand::Rng::new()));
+    if let Some(n) = name {
+        let current = f.root.locstring(label).cloned().unwrap_or_default();
+        f.set_typed(what, label, Value::LocString(crate::text::with_edited_text(current, &n)));
+    }
 }
 
 fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
@@ -263,131 +280,160 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
         return;
     };
     let speeds = f.choices("creaturespeed", Some("Name"), Some("Label"));
-    crate::widgets::section_heading(ui, "Ability Scores");
-    // (In a narrow room, the Properties panel's: the total and its bonus
-    // in one column, "12 (+1)", the racial modifier in its tip.)
-    let narrow = super::narrow(ui);
-    egui::Grid::new(("utc-abilities", f.key, narrow))
-        .num_columns(if narrow { 3 } else { 5 })
-        .spacing([if narrow { 8.0 } else { 16.0 }, 4.0])
-        .striped(true)
-        .show(ui, |ui| {
-            let heads: &[&str] = match narrow {
-                true => &["", "Base", "Total"],
-                false => &["", "Base", "Racial modifier", "Total", "Bonus"],
-            };
-            for h in heads {
-                ui.strong(*h);
-            }
-            ui.end_row();
-            let names =
-                ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
-            for (i, (name, label)) in names.iter().zip(ABILITIES).enumerate() {
-                crate::widgets::field_label(ui, *name);
-                f.spin(ui, name, label, 3..=100);
-                let (racial, total) = (signed(stats.racial[i]), stats.totals[i]);
-                let bonus = signed(modifier(total));
-                if narrow {
-                    ui.label(format!("{total} ({bonus})"))
-                        .on_hover_text(format!("Racial modifier {racial}, bonus {bonus}"));
-                } else {
-                    ui.label(racial);
-                    ui.label(total.to_string());
-                    ui.label(bonus);
+    // (Ability Scores and Saves, then Armor Class and Hit Points, where
+    // the page has two columns, as the Creature board; in one, Ability
+    // Scores, Armor Class, Hit Points, Saves, as WideCreature.)
+    let columns = mg_uikit::form::form_columns(ui.available_width());
+    let order: [usize; 4] = if columns > 1 { [0, 3, 1, 2] } else { [0, 1, 2, 3] };
+    mg_uikit::form::FormColumns::new(f.id("utc-statistics")).columns(columns).keys(order).show(
+        ui,
+        4,
+        |ui, s| {
+            match order[s] {
+                0 => {
+                    crate::widgets::section_heading(ui, "Ability Scores");
+                    // (In a narrow room, the Properties panel's: the total and its bonus
+                    // in one column, "12 (+1)", the racial modifier in its tip.)
+                    let narrow = super::narrow(ui);
+                    egui::Grid::new(("utc-abilities", f.key, narrow))
+                        .num_columns(if narrow { 3 } else { 5 })
+                        .spacing([if narrow { 8.0 } else { 16.0 }, 4.0])
+                        .striped(true)
+                        .show(ui, |ui| {
+                            let heads: &[&str] = match narrow {
+                                true => &["", "Base", "Total"],
+                                false => &["", "Base", "Racial modifier", "Total", "Bonus"],
+                            };
+                            for h in heads {
+                                ui.strong(*h);
+                            }
+                            ui.end_row();
+                            let names = [
+                                "Strength",
+                                "Dexterity",
+                                "Constitution",
+                                "Intelligence",
+                                "Wisdom",
+                                "Charisma",
+                            ];
+                            for (i, (name, label)) in names.iter().zip(ABILITIES).enumerate() {
+                                crate::widgets::field_label(ui, *name);
+                                f.spin(ui, name, label, 3..=100);
+                                let (racial, total) = (signed(stats.racial[i]), stats.totals[i]);
+                                let bonus = signed(modifier(total));
+                                if narrow {
+                                    ui.label(format!("{total} ({bonus})")).on_hover_text(format!(
+                                        "Racial modifier {racial}, bonus {bonus}"
+                                    ));
+                                } else {
+                                    ui.label(racial);
+                                    ui.label(total.to_string());
+                                    ui.label(bonus);
+                                }
+                                ui.end_row();
+                            }
+                        });
                 }
-                ui.end_row();
-            }
-        });
-    ui.add_space(crate::widgets::SECTION_GAP);
-    crate::widgets::two_columns(ui, 340.0, |ui, col| {
-        if col == 0 {
-            crate::widgets::section_heading(ui, "Armor Class");
-            super::form_grid(ui, ("utc-ac", f.key)).spacing([16.0, 4.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Natural AC");
-                // (Aurora takes up to 1000 here, more than the byte the file
-                // keeps; a byte is the most that is kept.)
-                f.spin(ui, "Natural AC", "NaturalAC", 0..=255);
-                ui.end_row();
-                for (label, v) in [
-                    ("Base", "10".to_string()),
-                    ("Dexterity bonus", signed(stats.ac_dex)),
-                    ("Size modifier", signed(stats.ac_size)),
-                    ("Total armor class", stats.ac.to_string()),
-                ] {
-                    crate::widgets::field_label(ui, label);
-                    ui.label(v);
-                    ui.end_row();
-                }
-            });
-            ui.add_space(crate::widgets::SECTION_GAP);
-            crate::widgets::section_heading(ui, "Hit Points");
-            super::form_grid(ui, ("utc-hp", f.key)).spacing([16.0, 4.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Base hit points");
-                // The current hit points follow the base.
-                f.mark_mixed(ui, "HitPoints");
-                if let Some(v) = spin_number(ui, f.int("HitPoints"), 1..=10_000) {
-                    f.set_many(
-                        "Hit points",
-                        &[
-                            ("HitPoints", v, FieldType::Short),
-                            ("CurrentHitPoints", v, FieldType::Short),
-                        ],
+                1 => {
+                    crate::widgets::section_heading(ui, "Armor Class");
+                    super::form_grid(ui, ("utc-ac", f.key)).labels().spacing([16.0, 4.0]).show(
+                        ui,
+                        |ui| {
+                            crate::widgets::field_label(ui, "Natural AC");
+                            // (Aurora takes up to 1000 here, more than the byte the file
+                            // keeps; a byte is the most that is kept.)
+                            f.spin(ui, "Natural AC", "NaturalAC", 0..=255);
+                            ui.end_row();
+                            for (label, v) in [
+                                ("Base", "10".to_string()),
+                                ("Dexterity bonus", signed(stats.ac_dex)),
+                                ("Size modifier", signed(stats.ac_size)),
+                                ("Total armor class", stats.ac.to_string()),
+                            ] {
+                                crate::widgets::field_label(ui, label);
+                                ui.label(v);
+                                ui.end_row();
+                            }
+                        },
                     );
                 }
-                ui.end_row();
-                crate::widgets::field_label(ui, "Hit point bonuses");
-                ui.label(signed(stats.hp_bonus));
-                ui.end_row();
-                crate::widgets::field_label(ui, "Total hit points");
-                ui.label(stats.max_hit_points.to_string());
-                ui.end_row();
-            });
-            ui.separator();
-            super::row(ui, |ui| {
-                crate::widgets::field_label(ui, "Movement rate");
-                f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
-            });
-        } else {
-            crate::widgets::section_heading(ui, "Saves");
-            // (Narrow: the base and the modifier in the total's tip.)
-            let narrow = super::narrow(ui);
-            let grid = egui::Grid::new(("utc-saves", f.key, narrow));
-            let grid = grid.num_columns(if narrow { 3 } else { 5 });
-            grid.spacing([if narrow { 8.0 } else { 16.0 }, 4.0]).show(ui, |ui| {
-                let heads: &[&str] = match narrow {
-                    true => &["", "Bonus", "Total"],
-                    false => &["", "Base", "Modifier", "Bonus", "Total"],
-                };
-                for h in heads {
-                    ui.strong(*h);
+                2 => {
+                    crate::widgets::section_heading(ui, "Hit Points");
+                    super::form_grid(ui, ("utc-hp", f.key)).labels().spacing([16.0, 4.0]).show(
+                        ui,
+                        |ui| {
+                            crate::widgets::field_label(ui, "Base hit points");
+                            // The current hit points follow the base.
+                            f.mark_mixed(ui, "HitPoints");
+                            if let Some(v) = spin_number(ui, f.int("HitPoints"), 1..=10_000) {
+                                f.set_many(
+                                    "Hit points",
+                                    &[
+                                        ("HitPoints", v, FieldType::Short),
+                                        ("CurrentHitPoints", v, FieldType::Short),
+                                    ],
+                                );
+                            }
+                            ui.end_row();
+                            crate::widgets::field_label(ui, "Hit point bonuses");
+                            ui.label(signed(stats.hp_bonus));
+                            ui.end_row();
+                            crate::widgets::field_label(ui, "Total hit points");
+                            ui.label(stats.max_hit_points.to_string());
+                            ui.end_row();
+                            crate::widgets::field_label(ui, "Movement rate");
+                            f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
+                            ui.end_row();
+                        },
+                    );
                 }
-                ui.end_row();
-                for (i, (name, label)) in
-                    [("Fortitude", "fortbonus"), ("Reflex", "refbonus"), ("Will", "willbonus")]
+                _ => {
+                    crate::widgets::section_heading(ui, "Saves");
+                    // (Narrow: the base and the modifier in the total's tip.)
+                    let narrow = super::narrow(ui);
+                    let grid = egui::Grid::new(("utc-saves", f.key, narrow));
+                    let grid = grid.num_columns(if narrow { 3 } else { 5 });
+                    grid.spacing([if narrow { 8.0 } else { 16.0 }, 4.0]).show(ui, |ui| {
+                        let heads: &[&str] = match narrow {
+                            true => &["", "Bonus", "Total"],
+                            false => &["", "Base", "Modifier", "Bonus", "Total"],
+                        };
+                        for h in heads {
+                            ui.strong(*h);
+                        }
+                        ui.end_row();
+                        for (i, (name, label)) in [
+                            ("Fortitude", "fortbonus"),
+                            ("Reflex", "refbonus"),
+                            ("Will", "willbonus"),
+                        ]
                         .into_iter()
                         .enumerate()
-                {
-                    crate::widgets::field_label(ui, name);
-                    if !narrow {
-                        ui.label(stats.saves_base[i].to_string());
-                        ui.label(signed(stats.saves_modifier[i]));
-                    }
-                    // (To 250, as Aurora; below 0, which Aurora's field doesn't
-                    // go, for the penalties files have.)
-                    f.mark_mixed(ui, label);
-                    if let Some(v) = spin_number(ui, f.int(label), -100..=250) {
-                        f.set_int(name, label, v, FieldType::Short);
-                    }
-                    let base = (stats.saves_base[i], signed(stats.saves_modifier[i]));
-                    let total = ui.label(stats.saves[i].to_string());
-                    if narrow {
-                        total.on_hover_text(format!("Base {}, modifier {}", base.0, base.1));
-                    }
-                    ui.end_row();
+                        {
+                            crate::widgets::field_label(ui, name);
+                            if !narrow {
+                                ui.label(stats.saves_base[i].to_string());
+                                ui.label(signed(stats.saves_modifier[i]));
+                            }
+                            // (To 250, as Aurora; below 0, which Aurora's field doesn't
+                            // go, for the penalties files have.)
+                            f.mark_mixed(ui, label);
+                            if let Some(v) = spin_number(ui, f.int(label), -100..=250) {
+                                f.set_int(name, label, v, FieldType::Short);
+                            }
+                            let base = (stats.saves_base[i], signed(stats.saves_modifier[i]));
+                            let total = ui.label(stats.saves[i].to_string());
+                            if narrow {
+                                total
+                                    .on_hover_text(format!("Base {}, modifier {}", base.0, base.1));
+                            }
+                            ui.end_row();
+                        }
+                    });
                 }
-            });
-        }
-    });
+            }
+        },
+    );
 }
 
 fn signed(v: i32) -> String {
@@ -599,9 +645,10 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         let t = classes_2da.as_ref()?;
         t.get_int(usize::try_from(class).ok()?, column).map(i64::from)
     };
-    // Alignment: a preset, and the two axes.
+    // Alignment: a preset, and the two axes (WideCreature's sections:
+    // Alignment, Classes, Associates).
     let (ge, lc) = (f.int("GoodEvil"), f.int("LawfulChaotic"));
-    super::row(ui, |ui| {
+    super::section(ui, "Alignment", ("utc-alignment", key), |ui| {
         crate::widgets::field_label(ui, "Alignment");
         let shown = ALIGNMENTS
             .iter()
@@ -623,12 +670,16 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                 &[("GoodEvil", g, FieldType::Byte), ("LawfulChaotic", l, FieldType::Byte)],
             );
         }
+        ui.end_row();
         crate::widgets::field_label(ui, "Good–Evil");
         f.number(ui, "Good-evil", "GoodEvil", 0..=100);
+        ui.end_row();
         crate::widgets::field_label(ui, "Lawful–Chaotic");
         f.number(ui, "Lawful-chaotic", "LawfulChaotic", 0..=100);
+        ui.end_row();
     });
-    ui.separator();
+    ui.add_space(mg_uikit::form::SECTIONS_GAP);
+    crate::widgets::section_heading(ui, "Classes");
     if f.several() {
         classes_together(f, ui, &all, &domains, &schools, &class_int);
     } else {
@@ -642,9 +693,9 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     {
         crate::levelup_view::open(f.app, key, base);
     }
-    ui.separator();
+    ui.add_space(mg_uikit::form::SECTIONS_GAP);
+    crate::widgets::section_heading(ui, "Associates");
     associates(f, ui, &list, &class_int);
-    ui.separator();
     super::row(ui, |ui| {
         crate::widgets::field_label(ui, "Default package for autolevelup");
         f.choice(ui, "Package", "StartingPackage", &packages, FieldType::Byte);
@@ -1000,29 +1051,52 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let targets = f.list_targets();
     let mut edit = None;
+    // (Two lists side by side where the page has the room, as
+    // WideCreature's; one in a narrow form or a narrow page.)
+    let halves = if !super::narrow(ui) && ui.available_width() >= SKILLS_TWO { 2 } else { 1 };
+    let per = skills.len().div_ceil(halves);
     egui::ScrollArea::vertical().id_salt(("utc-skills", key)).show(ui, |ui| {
-        mg_uikit::with_table_rows(ui, |ui| {
-            super::form_grid(ui, ("utc-skill-grid", key))
-                .striped(true)
-                .spacing([24.0, mg_uikit::metrics::TABLE_RULE])
-                .show(ui, |ui| {
-                    ui.strong("Skill");
-                    ui.strong("Rank");
-                    ui.end_row();
-                    for s in skills.iter() {
-                        let r = ui.label(&s.text);
-                        let game = described_by.as_deref();
-                        super::creature_lists::described(r, game, "skills", "Description", s.row);
-                        let rank = lists::skill_rank(&targets[0], s.row);
-                        let differs = targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
-                        f.mark_if(ui, &format!("Skill#{}", s.row), differs);
-                        if let Some(v) = commit_number(ui, rank, 0..=127) {
-                            edit = Some((s.row, v));
-                        }
+        let mut grid = |ui: &mut Ui, half: usize| {
+            mg_uikit::with_table_rows(ui, |ui| {
+                super::form_grid(ui, ("utc-skill-grid", key, half))
+                    .striped(true)
+                    .spacing([24.0, mg_uikit::metrics::TABLE_RULE])
+                    .show(ui, |ui| {
+                        ui.strong("Skill");
+                        ui.strong("Rank");
                         ui.end_row();
+                        for s in skills.iter().skip(half * per).take(per) {
+                            let r = ui.label(&s.text);
+                            let game = described_by.as_deref();
+                            super::creature_lists::described(
+                                r,
+                                game,
+                                "skills",
+                                "Description",
+                                s.row,
+                            );
+                            let rank = lists::skill_rank(&targets[0], s.row);
+                            let differs =
+                                targets.iter().any(|t| lists::skill_rank(t, s.row) != rank);
+                            f.mark_if(ui, &format!("Skill#{}", s.row), differs);
+                            if let Some(v) = commit_number(ui, rank, 0..=127) {
+                                edit = Some((s.row, v));
+                            }
+                            ui.end_row();
+                        }
+                    })
+            });
+        };
+        match halves {
+            1 => grid(ui, 0),
+            _ => {
+                ui.columns(2, |cols| {
+                    for (half, col) in cols.iter_mut().enumerate() {
+                        grid(col, half);
                     }
-                })
-        });
+                });
+            }
+        }
     });
     if let Some((row, v)) = edit {
         // (The list is indexed by skill: missing entries up to it are
@@ -1032,11 +1106,15 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
+/// The width from which a creature's skills stand in two lists side by
+/// side.
+const SKILLS_TWO: f32 = 400.0;
+
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let bags = f.choices("bodybag", Some("Name"), Some("LABEL"));
     let sounds = f.choices("soundset", Some("STRREF"), Some("LABEL"));
     let ranges = f.choices("ranges", Some("Name"), Some("Label"));
-    crate::widgets::two_columns(ui, 440.0, |ui, col| {
+    mg_uikit::form::FormColumns::new(f.id("utc-advanced")).show(ui, 2, |ui, col| {
         if col == 0 {
             super::form_grid(ui, ("utc-adv", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Blueprint ResRef");
@@ -1060,50 +1138,40 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
                 ui.end_row();
                 crate::widgets::field_label(ui, "Sound set");
-                super::row(ui, |ui| {
-                    // Aurora's filters: gender and soundsettype.2da type.
-                    let id = f.id("utc-soundset-filter");
-                    let (mut gender, mut kind): (Option<i64>, Option<i64>) =
-                        ui.data(|d| d.get_temp(id)).unwrap_or_default();
-                    let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));
-                    let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
-                        v.map_or(all.to_string(), names)
-                    };
-                    let gender_name = |g: &Option<i64>| {
-                        name(*g, "Both", &|g| ["Male", "Female"][g as usize].into())
-                    };
-                    crate::widgets::dropdown(id.with("gender"))
-                        .selected_text(gender_name(&gender))
-                        .width(70.0)
-                        .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
-                    let list = crate::widgets::row_choice(id.with("type"), &types, kind);
-                    if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
-                        kind = k;
-                    }
-                    ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
-                    let current = f.root.integer("SoundSetFile").unwrap_or(-1);
-                    let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());
-                    let shown: Vec<_> = sounds
-                        .iter()
-                        .filter(|c| {
-                            let col = |l: &str| {
-                                table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from)
-                            };
-                            c.row as i64 == current
-                                || (gender.is_none_or(|g| col("GENDER") == Some(g))
-                                    && kind.is_none_or(|k| col("TYPE") == Some(k)))
-                        })
-                        .cloned()
-                        .collect();
-                    f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
-                    // Aurora's sound set list plays a sample when clicked.
-                    let set = f.root.integer("SoundSetFile").unwrap_or(-1);
-                    let tip = "Play a sample of the sound set";
-                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip)
-                        .clicked()
-                        && let Some(name) = sound_set_sample(f.app, set)
-                    {
-                        f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
+                // (The filters on a line of their own, the list and its
+                // sample under them, where the row is short of all four: a
+                // column of pages side by side, M4's U10.)
+                let two = !super::narrow(ui) && super::room_right(ui) < SOUND_SET_ROW;
+                ui.vertical(|ui| {
+                    let filters = super::row(ui, |ui| {
+                        // Aurora's filters: gender and soundsettype.2da type.
+                        let id = f.id("utc-soundset-filter");
+                        let (mut gender, mut kind): (Option<i64>, Option<i64>) =
+                            ui.data(|d| d.get_temp(id)).unwrap_or_default();
+                        let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));
+                        let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
+                            v.map_or(all.to_string(), names)
+                        };
+                        let gender_name = |g: &Option<i64>| {
+                            name(*g, "Both", &|g| ["Male", "Female"][g as usize].into())
+                        };
+                        crate::widgets::dropdown(id.with("gender"))
+                            .selected_text(gender_name(&gender))
+                            .width(70.0)
+                            .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
+                        let list = crate::widgets::row_choice(id.with("type"), &types, kind);
+                        if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
+                            kind = k;
+                        }
+                        ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
+                        if !two {
+                            sound_set_choice(f, ui, &sounds, gender, kind);
+                        }
+                        (gender, kind)
+                    });
+                    if two {
+                        let (gender, kind) = filters.inner;
+                        super::row(ui, |ui| sound_set_choice(f, ui, &sounds, gender, kind));
                     }
                 });
                 ui.end_row();
@@ -1121,15 +1189,27 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.end_row();
             });
         } else {
-            for (text, label) in [
+            // (Two to a row, as WideCreature's; one under another in a
+            // narrow form.)
+            let checks = [
                 ("Leaves lootable corpse", "Lootable"),
                 ("Disarmable", "Disarmable"),
                 ("Plot", "Plot"),
                 ("No permanent death", "NoPermDeath"),
                 ("Immortal", "IsImmortal"),
-            ] {
-                f.check(ui, text, label);
-            }
+            ];
+            let per_row = if super::narrow(ui) { 1 } else { 2 };
+            egui::Grid::new(("utc-adv-checks", f.key, per_row)).num_columns(per_row).show(
+                ui,
+                |ui| {
+                    for (n, (text, label)) in checks.into_iter().enumerate() {
+                        f.check(ui, text, label);
+                        if n % per_row == per_row - 1 {
+                            ui.end_row();
+                        }
+                    }
+                },
+            );
             ui.add_space(crate::widgets::SECTION_GAP);
             crate::widgets::section_heading(ui, "Challenge Rating");
             super::form_grid(ui, ("utc-cr", f.key)).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -1148,6 +1228,41 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             });
         }
     });
+}
+
+/// The width of the Advanced page's Sound set row on one line: its two
+/// filters, the list and the sample's button.
+const SOUND_SET_ROW: f32 = 420.0;
+
+/// The Sound set list, by the filters chosen, and its sample's button.
+fn sound_set_choice(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    sounds: &[Choice],
+    gender: Option<i64>,
+    kind: Option<i64>,
+) {
+    let current = f.root.integer("SoundSetFile").unwrap_or(-1);
+    let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());
+    let shown: Vec<_> = sounds
+        .iter()
+        .filter(|c| {
+            let col = |l: &str| table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from);
+            c.row as i64 == current
+                || (gender.is_none_or(|g| col("GENDER") == Some(g))
+                    && kind.is_none_or(|k| col("TYPE") == Some(k)))
+        })
+        .cloned()
+        .collect();
+    f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
+    // Aurora's sound set list plays a sample when clicked.
+    let set = f.root.integer("SoundSetFile").unwrap_or(-1);
+    let tip = "Play a sample of the sound set";
+    if crate::widgets::icon_button(ui, mg_uikit::Icon::Play, "Play Sample", tip).clicked()
+        && let Some(name) = sound_set_sample(f.app, set)
+    {
+        f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
+    }
 }
 
 /// A sound set's sample (soundset.2da `RESREF`'s soundset file): its

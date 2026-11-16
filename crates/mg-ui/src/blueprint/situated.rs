@@ -53,13 +53,14 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
             crate::widgets::field_label(ui, "Set DC");
             ui.label(cell("SetDC"));
             ui.end_row();
-            // (One under another in a narrow room, the Properties panel's.)
+            // (One under another in a narrow room, the Properties panel's,
+            // or a column of pages side by side, M4's U10.)
             let checks = [
                 ("Disarmable", "TrapDisarmable"),
                 ("Detectable", "TrapDetectable"),
                 ("One shot", "TrapOneShot"),
             ];
-            if super::narrow(ui) {
+            if super::narrow(ui) || super::room_right(ui) < TRAP_CHECKS_ROW {
                 for (text, label) in checks {
                     crate::widgets::field_label(ui, "");
                     f.check(ui, text, label);
@@ -1347,6 +1348,10 @@ pub(super) fn preview_button(f: &mut Form<'_>, ui: &mut Ui) {
         f.app.actions.push(crate::Action::OpenTab(tab));
     }
 }
+
+/// The width of the Trap page's row of three check boxes, its label's
+/// column included (the page's labels are long).
+const TRAP_CHECKS_ROW: f32 = 540.0;
 
 #[cfg(test)]
 mod tests {

@@ -128,7 +128,13 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
     let id = egui::Id::new("module-properties-pages");
     let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &names, &mut top);
     let narrow = crate::form_pages::narrow(listed.body.available_width());
-    let scroll = crate::form_pages::scroll(id, &names, !narrow, listed.chosen);
+    let scroll = crate::form_pages::scroll(
+        id,
+        &names,
+        !narrow,
+        listed.chosen,
+        crate::form_pages::page_columns(listed.body.available_width()),
+    );
     scroll.show(&mut listed.body, &mut top, |ui, i| {
         let page = PAGES[i].0;
         // (The module's fields as a blueprint's are: `blueprint::Form`'s,

@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T07:55:18Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -134,12 +134,12 @@ Every control of today's screens and its home in the mockups, by the names the c
 |---|---|
 | The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) ✓ M4 U9 (the header: the kind's icon, the name, the resref quieter, OK and Cancel at its right end; Module and Area Properties the same) |
 | The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll ✓ M4 U9 (each page with its icon, the page at the top filled, the others in view marked; each page under its bar, drawn only where in sight; a window too narrow for the words lists them as the Properties panel's icon rail) |
-| Basic: First name, Last name (languages button, Random name), Tag | Identity section |
-| Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section |
-| Challenge rating, Category | Palette section |
-| Portrait picture, its combo, Portraits… | Portrait section |
-| Conversation with its picker, Edit, No interrupt | Conversation section |
-| Description with its language button | Description section, full width |
+| Basic: First name, Last name (languages button, Random name), Tag | Identity section ✓ M4 U10 (the StrRef inside the name's field at its right end, the languages button and Random Name after it) |
+| Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section ✓ M4 U10 |
+| Challenge rating, Category | Palette section ✓ M4 U10 |
+| Portrait picture, its combo, Portraits… | Portrait section ✓ M4 U10 |
+| Conversation with its picker, Edit, No interrupt | Conversation section ✓ M4 U10 |
+| Description with its language button | Description section, full width ✓ M4 U10 (its heading names the language, the languages button at its right end) |
 | Preview window: info line, Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files… | Right Dock, Preview panel, one header row over the 3D view |
 | The Appearance page's own preview | The same Preview panel |
 | OK, Cancel | Editor header, right end, meaning unchanged ✓ M4 U9 |
@@ -147,7 +147,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 #### At 3440 by 1440
 
-- All 14 pages are in view at once, in five columns: Basic, Statistics, Appearance, Classes and Skills head the columns and the other pages stack under them. The page list keeps the real order and marks the pages in view.
+- All 14 pages are in view at once, in five columns: Basic, Statistics, Appearance, Classes and Skills head the columns and the other pages stack under them. The page list keeps the real order and marks the pages in view. ✓ M4 U10 (as many columns of 480 or more as the room beside the list holds: six at 3440 today, the board's five beside a Right Dock as the board's, which the Preview panel, U11, brings; each page under the column that ends highest, so the stacking under the heads differs from the board's hand-laid one)
 
 ### Viewer
 

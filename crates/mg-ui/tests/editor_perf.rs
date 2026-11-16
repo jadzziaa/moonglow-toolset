@@ -419,6 +419,51 @@ fn opening_select_texture() {
     println!("the click's frame, opened again (the list kept): {:?}", t.elapsed());
 }
 
+/// The boards' creature's Properties docked across the development
+/// machine's screen (3440×1400, As Tabs): its fourteen pages side by side
+/// in columns, every one drawn each frame (M4's U10, the WideCreature
+/// board), held to the 144 fps budget idle and with the pointer moving
+/// over them.
+#[test]
+#[ignore]
+fn a_wide_creature_every_page_drawn() {
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The boards' creature, Faribeth of Chapter1: a copy of the game's
+    // module in a scratch folder.)
+    let key = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
+    let dir = mg_testkit::scratch_dir("wide-creature-perf");
+    let path = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    app.settings.open_editors = mg_ui::Settings::new_installation().open_editors;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let count: usize =
+        std::env::var("EDITOR_FRAMES").ok().and_then(|n| n.parse().ok()).unwrap_or(200);
+    let mut w = Window { app, ctx: egui::Context::default(), clock: 0.0 };
+    // (Its pictures read and its pages measured: a few seconds' frames.)
+    let t = Instant::now();
+    w.frame(Vec::new());
+    println!("the wide creature, first frame: {:.2} ms", ms(t.elapsed()));
+    for _ in 0..300 {
+        w.frame(Vec::new());
+    }
+    let idle = w.frames("the wide creature, idle, every page drawn", count, |_| Vec::new());
+    let hover = w.frames("the wide creature, the pointer moving over its pages", count, |n| {
+        let x = 600.0 + (n as f32 * 13.0) % 2600.0;
+        let y = 150.0 + (n as f32 * 7.0) % 1100.0;
+        vec![Event::PointerMoved(egui::pos2(x, y))]
+    });
+    for (what, median) in [("idle", idle), ("the pointer moving", hover)] {
+        assert!(
+            median.as_secs_f64() <= BUDGET.as_secs_f64() * MARGIN,
+            "{what}: median {:.2} ms past the budget",
+            ms(median)
+        );
+    }
+}
+
 /// The 2DA editor on a large table, as a persistent world's appearance.2da
 /// is (the game's, its rows repeated to 12,000), with a Find typed: plain
 /// egui frames (no accessibility tree), idle and with a cell set at each.

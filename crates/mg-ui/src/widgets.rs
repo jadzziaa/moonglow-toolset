@@ -1511,7 +1511,14 @@ pub(crate) fn resref_field(
                 Err(e) => app.log.error(e.to_string()),
             }
         }
-        if ui.small_button("…").on_hover_text(title).clicked() {
+        // (A square as high as the field: the board's `.field-group >
+        // .btn-icon`, as a name's languages button.)
+        let side = ui.spacing().interact_size.y;
+        if ui
+            .add(egui::Button::new("…").min_size(egui::vec2(side, side)))
+            .on_hover_text(title)
+            .clicked()
+        {
             app.open_picker(id, title, types);
         }
     });
@@ -2049,7 +2056,11 @@ pub(crate) fn loc_text(
 /// The "…" beside a localized string's text, which opens String Edit for
 /// its text in every language: whether it was clicked.
 pub(crate) fn languages_button(ui: &mut Ui) -> bool {
-    ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
+    // (As high as the field it follows, a square: the board's
+    // `.field-group > .btn-icon`.)
+    let side = ui.spacing().interact_size.y;
+    let button = egui::Button::new("…").min_size(egui::vec2(side, side));
+    ui.add(button).on_hover_text("Edit text in multiple languages").clicked()
 }
 
 /// `current` (a text field's value, the field `id`) with `token` put
@@ -2205,6 +2216,17 @@ fn commit_field(
     let edit = if hint.is_empty() { edit } else { edit.hint_text(hint) };
     let edit = match limit {
         Some(n) => edit.char_limit(n),
+        None => edit,
+    };
+    // (Room kept inside its right end for words drawn there: a localized
+    // name's "StrRef 24650", `Form::locstring`.)
+    let end = ui.data(|d| d.get_temp::<f32>(egui::Id::new(crate::blueprint::FIELD_END_ROOM)));
+    let edit = match end.filter(|e| *e > 0.0) {
+        Some(end) => {
+            let mut margin = mg_uikit::controls::FIELD_MARGIN;
+            margin.right = margin.right.saturating_add(end.round() as i8);
+            edit.margin(margin)
+        }
         None => edit,
     };
     let out = edit.id(id).desired_width(width).show(ui);
@@ -2391,6 +2413,51 @@ fn spin_step(v: f64, by: f64, lo: f64, hi: f64) -> f64 {
     if (to - v) * by > 0.0 { to } else { v }
 }
 
+/// The width of a number field's arrows ([`spin_with`]).
+pub(crate) const SPIN_ARROW_WIDTH: f32 = 14.0;
+
+/// One of a number field's arrows ([`spin_with`]): [`SPIN_ARROW_WIDTH`]
+/// wide, half the field's height, the upper or the lower, in the field's
+/// `raised` group look (`.field-group > .btn-icon`), its chevron in
+/// `text-2` (`text` hovered); pressed and held as a drag too.
+struct SpinArrow<'a> {
+    icon: mg_uikit::Icon,
+    name: &'a str,
+    height: f32,
+    up: bool,
+}
+
+impl egui::Widget for SpinArrow<'_> {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let size = egui::vec2(SPIN_ARROW_WIDTH, self.height);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+        let enabled = ui.is_enabled();
+        let name = self.name.to_string();
+        response
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+        if ui.is_rect_visible(rect) {
+            let t = mg_uikit::tokens(ui.ctx());
+            let hot = enabled && (response.hovered() || response.is_pointer_button_down_on());
+            let fill = if hot { t.raised_hover } else { t.raised };
+            let color = match (enabled, hot) {
+                (false, _) => t.text_off,
+                (true, true) => t.text,
+                (true, false) => t.text_2,
+            };
+            let r = mg_uikit::metrics::RADIUS;
+            let corners = match self.up {
+                true => egui::CornerRadius { ne: r, ..Default::default() },
+                false => egui::CornerRadius { se: r, ..Default::default() },
+            };
+            ui.painter().rect_filled(rect, corners, fill);
+            let side = (self.height - 1.0).clamp(6.0, mg_uikit::metrics::ICON_SMALL);
+            let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
+            self.icon.paint(ui.painter(), square, color);
+        }
+        response
+    }
+}
+
 /// [`spin_number`] by `step`, the field set up by `make` too (its speed,
 /// decimals, suffix).
 pub(crate) fn spin_with<T: egui::emath::Numeric>(
@@ -2438,44 +2505,50 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         }
         let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
         use mg_uikit::Icon;
-        for (icon, words, arrow, tip) in [
-            (Icon::ChevronUp, "One More", 1i8, "One more"),
-            (Icon::ChevronDown, "One Less", -1i8, "One less"),
-        ] {
-            // (Named with the field's label, first: "Hit Points: One More".)
-            let name = label.as_ref().map_or(words.to_string(), |l| format!("{l}: {words}"));
-            let name = name.as_str();
-            let by = f64::from(arrow) * step;
-            let can = stepped(shown, by) != shown;
-            // (A drag too: egui takes a press held past a click's time for
-            // no click, and the arrow for no longer pressed.)
-            let arrow_button = icon_only(icon, name).sense(egui::Sense::click_and_drag());
-            let b =
-                ui.add_enabled(can, arrow_button).on_hover_text(tip).on_disabled_hover_text(tip);
-            if !b.is_pointer_button_down_on() {
-                continue;
-            }
-            held = true;
-            match &mut run {
-                Some(r) if r.arrow == arrow => {
-                    // Held: after a pause, a step each SPIN_RATE.
-                    let held_for = now - r.since;
-                    let due = if held_for < SPIN_DELAY {
-                        1
-                    } else {
-                        2 + ((held_for - SPIN_DELAY) / SPIN_RATE) as u32
-                    };
-                    for _ in r.done..due {
-                        r.value = stepped(r.value, by);
+        // (The arrows one over the other, glued to the field's right end
+        // and as high as it together: sized with their field, M4's U10.)
+        let field_h = ui.spacing().interact_size.y;
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (icon, words, arrow, tip) in [
+                (Icon::ChevronUp, "One More", 1i8, "One more"),
+                (Icon::ChevronDown, "One Less", -1i8, "One less"),
+            ] {
+                // (Named with the field's label, first: "Hit Points: One More".)
+                let name = label.as_ref().map_or(words.to_string(), |l| format!("{l}: {words}"));
+                let by = f64::from(arrow) * step;
+                let can = stepped(shown, by) != shown;
+                // (A drag too: egui takes a press held past a click's time
+                // for no click, and the arrow for no longer pressed.)
+                let half =
+                    SpinArrow { icon, name: &name, height: (field_h / 2.0).floor(), up: arrow > 0 };
+                let b = ui.add_enabled(can, half).on_hover_text(tip).on_disabled_hover_text(tip);
+                if !b.is_pointer_button_down_on() {
+                    continue;
+                }
+                held = true;
+                match &mut run {
+                    Some(r) if r.arrow == arrow => {
+                        // Held: after a pause, a step each SPIN_RATE.
+                        let held_for = now - r.since;
+                        let due = if held_for < SPIN_DELAY {
+                            1
+                        } else {
+                            2 + ((held_for - SPIN_DELAY) / SPIN_RATE) as u32
+                        };
+                        for _ in r.done..due {
+                            r.value = stepped(r.value, by);
+                        }
+                        r.done = r.done.max(due);
                     }
-                    r.done = r.done.max(due);
+                    _ => {
+                        run =
+                            Some(SpinRun { value: stepped(shown, by), arrow, since: now, done: 1 });
+                    }
                 }
-                _ => {
-                    run = Some(SpinRun { value: stepped(shown, by), arrow, since: now, done: 1 });
-                }
+                ui.ctx().request_repaint();
             }
-            ui.ctx().request_repaint();
-        }
+        });
         if let Some(v) = typed {
             ui.data_mut(|d| d.remove::<SpinRun>(run_id));
             return (v.to_f64() != current.to_f64()).then_some(v);

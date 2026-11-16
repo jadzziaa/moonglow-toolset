@@ -19,6 +19,7 @@ mod dialogs;
 mod doc_tabs;
 mod drawing;
 mod fields;
+mod form_columns;
 mod form_pages;
 mod gpu_memory;
 mod hak_closing;

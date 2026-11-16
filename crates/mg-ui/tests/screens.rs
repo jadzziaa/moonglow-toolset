@@ -12692,9 +12692,9 @@ fn gizmo_states_on(ground: &str, tileset: &str) {
 
 /// Creature.png: Faribeth's Properties As Tabs, on Basic: the header with
 /// OK and Cancel at its right end, the page list at the left, the pages
-/// on one scroll (M4's U9); the pages' sections and columns (U10) and the
-/// Preview panel showing the open blueprint (U11) are to come; the Right
-/// Dock shows the palette.
+/// on one scroll (M4's U9), Basic and Statistics in their sections in two
+/// columns, the strref inside the first name's field (U10); the Preview
+/// panel showing the open blueprint (U11) is to come.
 #[test]
 #[ignore]
 fn board_creature() {
@@ -12726,10 +12726,10 @@ fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
     }
 }
 
-/// WideCreature.png at 3440 by 1440: Faribeth's Properties As Tabs. Today
-/// the pages one after another on one scroll beside their list (M4's U9),
-/// not the board's columns of every page side by side (U10); the Right
-/// Dock's wide layout holds the palette and the Preview.
+/// WideCreature.png at 3440 by 1440: Faribeth's Properties As Tabs, every
+/// page in view side by side in six columns of 480 or more beside their
+/// list (M4's U10); the board's five once the Preview panel (U11) takes
+/// its share of the width.
 #[test]
 #[ignore]
 fn board_creature_wide() {
@@ -12739,6 +12739,43 @@ fn board_creature_wide() {
     board_front(&mut h, &board_utc_tab());
     pictures_shown(&mut h);
     shoot(&mut h, &board_dir(), "board_creature_wide");
+}
+
+/// Other forms docked across 3440 by 1440 (M4's U10): a placeable's,
+/// a door's and a waypoint's blueprints, Module Properties and an area's
+/// Area Properties, each with its pages side by side in columns, no more
+/// columns than pages.
+#[test]
+#[ignore]
+fn forms_wide() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+    let first = |h: &Harness<'_, Moonglow>, t: ResType| {
+        let ws = h.state().ws.as_ref().unwrap();
+        let mut keys: Vec<ResKey> = ws.module.keys_of(t).copied().collect();
+        keys.sort_by_key(|k| k.resref.to_string());
+        keys.first().copied()
+    };
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let mut tabs = vec![
+        ("forms_wide_module_properties", mg_ui::Tab::ModuleProperties),
+        ("forms_wide_area_properties", mg_ui::Tab::AreaProperties(area)),
+    ];
+    for (name, t) in [
+        ("forms_wide_placeable", ResType::UTP),
+        ("forms_wide_door", ResType::UTD),
+        ("forms_wide_waypoint", ResType::UTW),
+    ] {
+        if let Some(key) = first(&h, t) {
+            tabs.push((name, mg_ui::Tab::Blueprint(key)));
+        }
+    }
+    for (name, tab) in tabs {
+        board_front(&mut h, &tab);
+        pictures_shown(&mut h);
+        shoot(&mut h, &board_dir(), name);
+    }
 }
 
 /// Script.png: `m1q3_formosa_9` As Tabs, the caret on line 17. Today the

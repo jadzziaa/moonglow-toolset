@@ -95,6 +95,9 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         // The generic door's model (EE: GenericType_New; the old byte field
         // follows it where the blueprint has one).
         crate::widgets::field_label(ui, "Generic appearance");
+        // (Gallery… under the list where the row is short of both: a
+        // narrow form, a column of pages side by side, M4's U10.)
+        let under = super::narrow(ui) || super::room_right(ui) < GENERIC_ROW;
         f.mark_mixed(ui, mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
             let picks = f.picks();
@@ -111,7 +114,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         });
         // (Under the list in a narrow room: beside it, it was past the
         // Properties panel's edge.)
-        if super::narrow(ui) {
+        if under {
             ui.end_row();
             ui.label("");
         }
@@ -127,3 +130,6 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
     });
 }
+
+/// The width of the generic appearance's list and Gallery… beside it.
+const GENERIC_ROW: f32 = 450.0;

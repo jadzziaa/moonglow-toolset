@@ -183,7 +183,13 @@ fn pages(
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
     let narrow = crate::form_pages::narrow(ui.available_width());
-    let scroll = crate::form_pages::scroll(id, pages, !narrow, listed.chosen);
+    let scroll = crate::form_pages::scroll(
+        id,
+        pages,
+        !narrow,
+        listed.chosen,
+        crate::form_pages::page_columns(ui.available_width()),
+    );
     let shown = scroll.show(ui, &mut top, |ui, i| {
         let page = pages[i];
         if several {

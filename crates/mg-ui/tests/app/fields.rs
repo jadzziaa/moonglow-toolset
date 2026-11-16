@@ -472,7 +472,8 @@ fn a_placeable_s_numbers_have_arrows() {
     for dc in ["Open lock DC", "Close lock DC"] {
         let row = h.get_by_label(dc).rect();
         let on_row =
-            |n: &egui_kittest::Node<'_>| (n.rect().center().y - row.center().y).abs() < 4.0;
+            |n: &egui_kittest::Node<'_>| (n.rect().center().y - row.center().y).abs() < 8.0;
+        // (One over the other at the field's end, as high as it: M4's U10.)
         assert!(on_row(&h.get_by_label(&format!("{dc}: One More"))), "{dc} has its arrows");
         assert!(on_row(&h.get_by_label(&format!("{dc}: One Less"))), "{dc} has its arrows");
     }

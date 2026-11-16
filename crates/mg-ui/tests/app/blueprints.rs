@@ -3200,7 +3200,8 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
     let up = h
         .get_all_by_label("One More")
-        .find(|n| (n.rect().center().y - row.center().y).abs() < 4.0)
+        // (The upper of the two at the field's end: M4's U10.)
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 8.0)
         .expect("its arrow up")
         .rect()
         .center();
@@ -4124,13 +4125,24 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
             egui::vec2(1000.0, 800.0),
             egui::vec2(800.0, 700.0),
             egui::vec2(600.0, 700.0),
+            egui::vec2(3440.0, 1440.0),
         ] {
             h.set_size(size);
+            // (At 3440 the window as wide as the screen: its pages side
+            // by side in columns, M4's U10.)
+            if size.x > 3000.0 {
+                let at = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+                if let Some(state) = h.state_mut().dock.get_window_state_mut(at.surface) {
+                    state
+                        .set_position(egui::pos2(10.0, 40.0))
+                        .set_size(size - egui::vec2(20.0, 80.0));
+                }
+            }
             // Each page brought to the top, then walked down its whole
             // height by the wheel (the pages on one scroll, M4's U9), until
             // the page after it is at the top.
             let pages = mg_ui::blueprint::pages(t);
-            for (i, page) in pages.iter().enumerate() {
+            for page in pages.iter() {
                 let at = |h: &Harness<'_, Moonglow>| {
                     h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied()
                 };
@@ -4142,10 +4154,11 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
                     for o in overlapping(&h) {
                         found.push(format!("{t:?} {page} at {}: {o}", size.x));
                     }
-                    // (The last page walked until the scroll goes no further.)
-                    let last = i + 1 == pages.len();
+                    // (A page walked until the page after it is at the top,
+                    // or the scroll goes no further: the last page, or every
+                    // page where the pages stand in columns all in view.)
                     let seen = (at(&h) == Some(page)).then(|| in_page(&h, page).rect());
-                    let stopped = last && steps > 0 && seen.is_some() && seen == prev;
+                    let stopped = steps > 0 && seen.is_some() && seen == prev;
                     if seen.is_none() || stopped || steps > 40 {
                         break;
                     }
@@ -4171,7 +4184,7 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
         }
     }
     assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
-    assert!(walked >= 4 * all, "every page walked at each size: {walked} turns, {all} pages");
+    assert!(walked >= 5 * all, "every page walked at each size: {walked} turns, {all} pages");
 }
 
 /// The Creature Wizard offers the racial types that have a name (not

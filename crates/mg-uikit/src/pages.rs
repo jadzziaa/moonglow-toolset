@@ -211,6 +211,13 @@ pub const PAGE_BAR_PADDING: f32 = 16.0;
 /// A page's margins round its fields under its bar (`.page > .content`:
 /// `padding: 0 12px 12px 16px`, the bar's `margin-bottom: 10px`).
 pub const PAGE_MARGIN: egui::Margin = egui::Margin { left: 16, right: 12, top: 10, bottom: 12 };
+/// The room a page in columns ([`PageScroll::columns`]) that is not its
+/// column's last is given for what fills the room it has (a list, a
+/// memo): its bar and margins included.
+pub const PAGE_FILL: f32 = 320.0;
+/// The line between columns of pages (`.cw .strip`: `gap: 1px` over
+/// `line`).
+pub const PAGE_COLUMN_LINE: f32 = 1.0;
 
 /// What a [`PageList`] did.
 #[derive(Debug)]
@@ -231,14 +238,14 @@ pub struct PageList {
     id: egui::Id,
     name: String,
     pages: Vec<(Icon, String)>,
-    in_view: Range<usize>,
+    in_view: Vec<usize>,
 }
 
 impl PageList {
     /// A list named "Pages", its scroll kept by `id_salt`.
     pub fn new(id_salt: impl egui::AsId) -> Self {
         let id = egui::Id::new(id_salt);
-        PageList { id, name: PAGES.to_string(), pages: Vec::new(), in_view: 0..0 }
+        PageList { id, name: PAGES.to_string(), pages: Vec::new(), in_view: Vec::new() }
     }
 
     /// Named `name` for a screen reader (and tests) in place of "Pages".
@@ -256,7 +263,15 @@ impl PageList {
     /// The pages in view on the scroll beside it (marked, the page at the
     /// top aside): [`PageScroll::seen`].
     pub fn in_view(mut self, pages: Range<usize>) -> Self {
-        self.in_view = pages;
+        self.in_view = pages.collect();
+        self
+    }
+
+    /// The pages in view on the scroll beside it, each named (marked, the
+    /// page at the top aside): [`Seen::pages_in_view`], which in columns
+    /// need not follow one another.
+    pub fn pages_in_view(mut self, pages: impl IntoIterator<Item = usize>) -> Self {
+        self.in_view = pages.into_iter().collect();
         self
     }
 
@@ -447,8 +462,12 @@ impl PageBar {
 pub struct Seen {
     /// The page at the top of the scroll.
     pub top: usize,
-    /// The pages in view, in part or whole.
+    /// The pages in view, in part or whole: from the first to the last
+    /// (in columns, [`PageScroll::columns`], some between them may be out
+    /// of view: [`Seen::pages_in_view`]).
     pub in_view: Range<usize>,
+    /// The pages in view, in part or whole, in order.
+    pub pages_in_view: Vec<usize>,
 }
 
 /// What a [`PageScroll`] did.
@@ -487,6 +506,19 @@ struct Kept {
     focused: Option<egui::Id>,
     /// The pass a Tab was last pressed in.
     tab_pass: Option<u64>,
+    /// In columns ([`PageScroll::columns`]): each page's height as last
+    /// measured (a page that fills the room it is given, a list's, at
+    /// [`PAGE_FILL`]), or the estimate.
+    natural: Vec<f32>,
+    /// In columns: whether each page fills the room it is given (it
+    /// measured as high as its room), as last drawn.
+    fills: Vec<bool>,
+    /// In columns: whether each page has been measured.
+    measured: Vec<bool>,
+    /// In columns: the column each page stands in, and how many columns
+    /// they were flowed into: kept while that count and the pages stay,
+    /// so that a page growing moves no page into another column.
+    flowed: (Vec<usize>, usize),
 }
 
 /// A form's pages one after another on one scroll (module comment),
@@ -508,6 +540,7 @@ pub struct PageScroll {
     sideways: bool,
     bring: bool,
     estimate: f32,
+    columns: usize,
 }
 
 impl PageScroll {
@@ -520,6 +553,7 @@ impl PageScroll {
             sideways: false,
             bring: false,
             estimate: 400.0,
+            columns: 1,
         }
     }
 
@@ -532,6 +566,21 @@ impl PageScroll {
     /// Scrolls sideways too (a window too narrow for its pages).
     pub fn sideways(mut self, sideways: bool) -> Self {
         self.sideways = sideways;
+        self
+    }
+
+    /// The pages side by side in `columns` columns of the scroll's width
+    /// (the WideCreature board's), a line between them: each page goes
+    /// under the column that ends highest, as last measured (the first
+    /// pages heading the columns); the last page of a column reaches down
+    /// to the scroll's foot (what fills the room it has, a list or a memo,
+    /// fills it), the others are given [`PAGE_FILL`] for what fills. Drawn
+    /// in the pages' order, which the keyboard goes in. No sideways scroll,
+    /// and no room after the last page: a page brought to the top comes as
+    /// near it as the scroll goes, and is the page at the top while its bar
+    /// is in view.
+    pub fn columns(mut self, columns: usize) -> Self {
+        self.columns = columns.max(1);
         self
     }
 
@@ -578,6 +627,9 @@ impl PageScroll {
             kept.anchor = (asked, 0.0);
         }
         kept.anchor.0 = kept.anchor.0.min(n - 1);
+        if self.columns > 1 {
+            return self.show_columns(ui, page, add, kept);
+        }
         let top_of = |heights: &[f32], i: usize| heights[..i].iter().sum::<f32>();
         let (anchor, into) = kept.anchor;
         let start = top_of(&kept.heights, anchor) + into;
@@ -707,44 +759,9 @@ impl PageScroll {
                 heights[i] = measured;
                 y += measured;
             }
-            // (The page with the keyboard: where it came this frame, else
-            // where it was while it stays on the same widget. One the
-            // keyboard came to out of sight, by a key, is brought into
-            // view: its rectangle read only then, as reading a response
-            // after a press elsewhere takes the keyboard from it.)
-            focused = ui.memory(|m| m.focused());
-            let pressed = ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released());
-            // (Come to another widget between passes, by Shift + Tab, an
-            // arrow key or code: found by its place among the pages drawn,
-            // where no press can have it taken.)
-            let came = focused.is_some() && focused != kept.focused && focus_moved.is_none();
-            let response = |f: egui::Id| ui.ctx().read_response(f);
-            let response = focused
-                .filter(|_| !pressed && (focus_moved.is_some() || came))
-                .and_then(response)
-                .filter(|r| r.layer_id == ui.layer_id());
-            // (A widget of the scroll's: in sight, or clipped away by the
-            // scroll whole. A page drawn out of sight may lie under the
-            // header or a panel beside the scroll, whose widgets are seen.)
-            let ours = |r: &Response| {
-                viewport_screen.contains(r.rect.center()) || r.interact_rect.area() <= 0.0
-            };
-            let at = response.as_ref().filter(|r| ours(r)).map(|r| r.rect.center());
-            let found =
-                at.and_then(|c| drawn.iter().position(|d| d.is_some_and(|d| d.contains(c))));
-            focus_page = match focus_moved {
-                Some(i) => Some(i),
-                None if came => found,
-                None if focused.is_some() && focused == kept.focused => kept.focus_page,
-                None => None,
-            };
-            if let Some(r) = response
-                && at.is_some()
-                && focus_page.is_some()
-                && !viewport_screen.contains_rect(r.rect)
-            {
-                ui.scroll_to_rect_animation(r.rect, None, egui::style::ScrollAnimation::none());
-            }
+            let (f, fp) = keyboard_page(ui, &kept, focus_moved, &drawn, viewport_screen);
+            focused = f;
+            focus_page = fp;
             // (Room after the last page for its bar to come to the top.)
             let total: f32 = heights.iter().sum();
             let tail = (view_h - heights[n - 1]).max(0.0);
@@ -805,7 +822,8 @@ impl PageScroll {
             y += h;
         }
         let first = first.unwrap_or(top);
-        let seen = Seen { top, in_view: first..last + 1 };
+        let seen =
+            Seen { top, in_view: first..last + 1, pages_in_view: (first..last + 1).collect() };
         if seen != kept.seen || new_anchor != kept.anchor {
             ui.ctx().request_repaint();
         }
@@ -819,6 +837,372 @@ impl PageScroll {
         *page = top;
         ScrollOutput { seen, drawn, viewport: viewport_screen }
     }
+
+    /// [`PageScroll::show`] in columns ([`PageScroll::columns`]), from
+    /// where it has taken the page asked for.
+    fn show_columns(
+        self,
+        ui: &mut Ui,
+        page: &mut usize,
+        mut add: impl FnMut(&mut Ui, usize),
+        mut kept: Kept,
+    ) -> ScrollOutput {
+        let n = self.pages.len();
+        let k = self.columns;
+        let kept_id = self.id.with("mg-uikit-page-scroll");
+        kept.natural.resize(n, self.estimate);
+        kept.fills.resize(n, false);
+        kept.measured.resize(n, false);
+        // (Flowed anew only where the columns or the pages changed, or a
+        // page was measured for the first time: else each page keeps its
+        // column, and a page growing moves only those under it.)
+        if kept.flowed.1 != k || kept.flowed.0.len() != n {
+            kept.flowed = (flow(&kept.natural, k), k);
+        }
+        let (anchor, into) = kept.anchor;
+        let room_h = ui.available_height().max(1.0);
+        let before = ColumnLayout::of(&kept.flowed.0, &kept.natural, &kept.fills, k, room_h);
+        let start = before.tops[anchor] + into;
+        let scroll_id_salt = self.id.with("scroll");
+        let mut area =
+            egui::ScrollArea::vertical().id_salt(scroll_id_salt).auto_shrink([false, false]);
+        let scroll_id = ui.make_persistent_id(scroll_id_salt);
+        let now = egui::scroll_area::State::load(ui.ctx(), scroll_id).map(|s| s.offset.y);
+        if now.is_none_or(|o| (o - start).abs() > 0.5) {
+            area = area.vertical_scroll_offset(start);
+        }
+        let pass = ui.ctx().cumulative_pass_nr();
+        if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+            kept.tab_pass = Some(pass);
+        }
+        let tab = kept.tab_pass.is_some_and(|at| pass <= at + 1);
+        let mut focused = None;
+        let mut focus_page = None;
+        let mut focus_moved = None;
+        let mut drawn: Vec<Option<Rect>> = vec![None; n];
+        let mut natural = kept.natural.clone();
+        let mut fills = kept.fills.clone();
+        let mut measured_now = kept.measured.clone();
+        let mut viewport_screen = Rect::NOTHING;
+        let mut redraw = false;
+        let out = area.show_viewport(ui, |ui, viewport| {
+            let origin = ui.max_rect().min;
+            let width = ui.available_width();
+            let line = PAGE_COLUMN_LINE;
+            let column_w = ((width - line * (k - 1) as f32) / k as f32).max(1.0);
+            viewport_screen = viewport.translate(origin.to_vec2());
+            let mut lowest = 0.0_f32;
+            let shown: Vec<bool> = (0..n)
+                .map(|i| {
+                    let top = before.tops[i];
+                    top < viewport.max.y && top + before.heights[i] > viewport.min.y
+                })
+                .collect();
+            let first = shown.iter().position(|s| *s).unwrap_or(anchor);
+            let last = shown.iter().rposition(|s| *s).unwrap_or(anchor);
+            // (On a Tab, the pages before and after the one with the
+            // keyboard too: in columns they need not be in view beside it.)
+            let keys = kept.focus_page;
+            for i in 0..n {
+                let inside = keys.is_some();
+                let beside = keys.is_some_and(|f| i + 1 == f || i == f + 1);
+                // (And each page not measured yet, once, wherever it is: a
+                // column's spare room is shared by what each page is.)
+                let draw = shown[i]
+                    || keys == Some(i)
+                    || !kept.measured[i]
+                    || (tab && (beside || (inside && i + 1 == first) || i == last + 1));
+                if !draw {
+                    continue;
+                }
+                let c = before.column[i];
+                // (A page measured for the first time is given a room past
+                // any page's own height, which tells one that fills it
+                // from one that does not; one that fills is given its
+                // share of what its column has to spare, what it has
+                // under what fills kept; one that does not, what it
+                // measures and more.)
+                let over = (kept.natural[i] - PAGE_FILL).max(0.0);
+                let room = match (kept.measured[i], kept.fills[i]) {
+                    (false, _) => PROBE_ROOM,
+                    (true, true) => before.heights[i] - over,
+                    (true, false) => before.heights[i].max(kept.natural[i]),
+                }
+                .max(PAGE_BAR);
+                let at = origin + vec2(c as f32 * (column_w + line), before.tops[i]);
+                let rect = Rect::from_min_size(at, vec2(column_w, room));
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(rect)
+                        .id(self.id.with(("mg-uikit-page", i)))
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                );
+                child.set_max_width(column_w);
+                // (Clipped to its column, as the board's `.pcol` is: what a
+                // page lays out by the room it sees, a model beside its
+                // fields, takes its column's.)
+                let column =
+                    Rect::from_x_y_ranges(at.x..=at.x + column_w, ui.clip_rect().y_range());
+                child.set_clip_rect(column.intersect(ui.clip_rect()));
+                let (icon, name) = &self.pages[i];
+                crate::icons::name_group(&child, &format!("{name}{PAGE_GROUP}"));
+                PageBar::new(*icon, name.clone()).first(before.tops[i] < 0.5).show(&mut child);
+                let was = ui.memory(|m| m.focused());
+                egui::Frame::NONE.inner_margin(PAGE_MARGIN).show(&mut child, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    add(ui, i);
+                });
+                let after = ui.memory(|m| m.focused());
+                if after.is_some() && after != was {
+                    focus_moved = Some(i);
+                }
+                let r = child.min_rect();
+                let seen = r.intersect(viewport_screen);
+                let seen =
+                    if seen.is_positive() { seen } else { Rect::from_min_size(r.min, Vec2::ZERO) };
+                ui.ctx().accesskit_node_builder(child.unique_id(), |node| {
+                    node.set_bounds(egui::accesskit::Rect {
+                        x0: seen.min.x.into(),
+                        y0: seen.min.y.into(),
+                        x1: seen.max.x.into(),
+                        y1: seen.max.y.into(),
+                    });
+                });
+                let measured = r.height().max(PAGE_BAR).round();
+                drawn[i] = Some(Rect::from_min_size(r.min, vec2(column_w, measured)));
+                // (What places the pages: what a page measures, or for one
+                // that filled its room, [`PAGE_FILL`], the least it is
+                // given, so that what it is given to spare is not taken
+                // back as its own height.)
+                // (Whether it fills, by its first measure; what places it:
+                // what it measures, or for one that fills, [`PAGE_FILL`]
+                // and what it has under what fills.)
+                if !kept.measured[i] {
+                    fills[i] = measured >= PROBE_ROOM * FILL_TELL;
+                }
+                natural[i] = match fills[i] {
+                    true => PAGE_FILL + (measured - room).max(0.0),
+                    false => measured,
+                };
+                if !measured_now[i] {
+                    measured_now[i] = true;
+                    // (Its first height: the pages flowed again by it.)
+                    redraw = true;
+                }
+                lowest = lowest.max(r.top() - origin.y + measured);
+            }
+            // (The lines between the columns, down the view.)
+            let stroke = Stroke::new(line, ui.tokens().line);
+            for c in 1..k {
+                let x = origin.x + c as f32 * column_w + (c - 1) as f32 * line + line / 2.0;
+                ui.painter().vline(x, viewport_screen.y_range(), stroke);
+            }
+            let (f, fp) = keyboard_page(ui, &kept, focus_moved, &drawn, viewport_screen);
+            focused = f;
+            focus_page = fp;
+            let after = ColumnLayout::of(&kept.flowed.0, &natural, &fills, k, room_h);
+            // (A page drawn where the heights now measured put it
+            // elsewhere: the pass drawn again, before it is shown.)
+            redraw |= (0..n).any(|i| {
+                drawn[i].is_some()
+                    && ((after.tops[i] - before.tops[i]).abs() > 0.5
+                        || (after.heights[i] - before.heights[i]).abs() > 0.5)
+            });
+            // (Down to the foot, or to a page drawn past it.)
+            let all = Rect::from_min_max(
+                origin,
+                pos2(origin.x + width, origin.y + after.foot.max(lowest)),
+            );
+            ui.advance_cursor_after_rect(all);
+        });
+        // (A page measured for the first time flows the pages again.)
+        if measured_now.iter().zip(&kept.measured).any(|(now, was)| *now && !*was) {
+            kept.flowed = (flow(&natural, k), k);
+        }
+        if redraw {
+            ui.ctx().request_discard("a page in columns measured anew");
+        }
+        let layout = ColumnLayout::of(&kept.flowed.0, &natural, &fills, k, room_h);
+        let view_h = out.inner_rect.height();
+        // (Where egui left it, as a place in the page held: by the heights
+        // now measured, a page above it grown, it stays where it was in
+        // view.)
+        let into_now = into + (out.state.offset.y - start);
+        let at = (layout.tops[anchor] + into_now).max(0.0);
+        // (The page held while its bar is in view: brought there, or as
+        // the wheel goes; else the first page whose bar is in view; else
+        // the first in view.)
+        let bar_in_view =
+            |p: usize| layout.tops[p] >= at - 0.5 && layout.tops[p] + PAGE_BAR <= at + view_h + 0.5;
+        let in_view =
+            |p: usize| layout.tops[p] < at + view_h && layout.tops[p] + layout.heights[p] > at;
+        let top = match bar_in_view(anchor) {
+            true => anchor,
+            false => (0..n)
+                .find(|&p| bar_in_view(p))
+                .or_else(|| (0..n).find(|&p| in_view(p)))
+                .unwrap_or(anchor),
+        };
+        let new_anchor = (top, at - layout.tops[top]);
+        let pages_in_view: Vec<usize> = (0..n).filter(|&p| in_view(p)).collect();
+        let first = pages_in_view.first().copied().unwrap_or(top);
+        let last = pages_in_view.last().copied().unwrap_or(top);
+        let seen = Seen { top, in_view: first..last + 1, pages_in_view };
+        if seen != kept.seen
+            || (new_anchor.0 != kept.anchor.0)
+            || (new_anchor.1 - kept.anchor.1).abs() > 0.5
+        {
+            ui.ctx().request_repaint();
+        }
+        kept.natural = natural;
+        kept.fills = fills;
+        kept.measured = measured_now;
+        kept.anchor = new_anchor;
+        kept.reported = Some(top);
+        kept.seen = seen.clone();
+        kept.focus_page = focus_page;
+        kept.focused = focused;
+        ui.data_mut(|d| d.insert_temp(kept_id, kept));
+        *page = top;
+        ScrollOutput { seen, drawn, viewport: viewport_screen }
+    }
+}
+
+/// The room a page in columns is given the first time it is drawn: past
+/// any page's own height, so that a page that measures much of it
+/// ([`FILL_TELL`]) fills the room it is given, a list's. (Drawn so in a
+/// pass that is drawn again before it is shown.)
+const PROBE_ROOM: f32 = 4000.0;
+/// How much of [`PROBE_ROOM`] a page that fills the room it is given
+/// measures at least (a list may take a share of its room).
+const FILL_TELL: f32 = 0.5;
+
+/// Each page's column, the pages `heights` high flowed into `columns`
+/// columns: each under the column that ends highest (the first of two
+/// within half a point), in order.
+fn flow(heights: &[f32], columns: usize) -> Vec<usize> {
+    let mut bottoms = vec![0.0_f32; columns];
+    let mut column = Vec::with_capacity(heights.len());
+    for h in heights {
+        let mut c = 0;
+        for (j, b) in bottoms.iter().enumerate() {
+            if *b < bottoms[c] - 0.5 {
+                c = j;
+            }
+        }
+        column.push(c);
+        bottoms[c] += h;
+    }
+    column
+}
+
+/// Where pages stand in columns ([`PageScroll::columns`]), each in its
+/// column ([`flow`]): one under another by their heights, what a column
+/// has to spare down to the view's foot shared among its pages that fill
+/// their room, or given to its last page where none does; the scroll
+/// reaches down to the tallest column ([`ColumnLayout::foot`]).
+#[derive(Clone, Debug, PartialEq)]
+struct ColumnLayout {
+    column: Vec<usize>,
+    tops: Vec<f32>,
+    /// How high each page stands, its share of its column's spare room
+    /// with it.
+    heights: Vec<f32>,
+    /// The foot the columns reach down to.
+    foot: f32,
+}
+
+impl ColumnLayout {
+    fn of(column: &[usize], natural: &[f32], fills: &[bool], columns: usize, view_h: f32) -> Self {
+        let n = natural.len();
+        let mut bottoms = vec![0.0_f32; columns];
+        let mut fill_count = vec![0usize; columns];
+        let mut last = vec![None; columns];
+        for i in 0..n {
+            let c = column[i].min(columns - 1);
+            bottoms[c] += natural[i];
+            if fills[i] {
+                fill_count[c] += 1;
+            }
+            last[c] = Some(i);
+        }
+        let foot = bottoms.iter().copied().fold(view_h, f32::max);
+        let mut heights = natural.to_vec();
+        for i in 0..n {
+            let c = column[i].min(columns - 1);
+            // (What the column has to spare in the view: a column taller
+            // than the view gives a short one nothing to stretch to.)
+            let spare = (view_h - bottoms[c]).max(0.0);
+            if fills[i] {
+                heights[i] += spare / fill_count[c] as f32;
+            } else if fill_count[c] == 0 && last[c] == Some(i) {
+                heights[i] += spare;
+            }
+        }
+        let mut y = vec![0.0_f32; columns];
+        let mut tops = Vec::with_capacity(n);
+        for i in 0..n {
+            let c = column[i].min(columns - 1);
+            tops.push(y[c]);
+            y[c] += heights[i];
+        }
+        ColumnLayout {
+            column: column.iter().map(|c| (*c).min(columns - 1)).collect(),
+            tops,
+            heights,
+            foot,
+        }
+    }
+}
+
+/// The page with the keyboard after a pass: where it came this pass,
+/// else where it was while it stays on the same widget; and the widget
+/// with it. One the keyboard came to out of sight, by a key, is brought
+/// into view.
+fn keyboard_page(
+    ui: &Ui,
+    kept: &Kept,
+    focus_moved: Option<usize>,
+    drawn: &[Option<Rect>],
+    viewport_screen: Rect,
+) -> (Option<egui::Id>, Option<usize>) {
+    // (The page with the keyboard: where it came this frame, else
+    // where it was while it stays on the same widget. One the
+    // keyboard came to out of sight, by a key, is brought into
+    // view: its rectangle read only then, as reading a response
+    // after a press elsewhere takes the keyboard from it.)
+    let focused = ui.memory(|m| m.focused());
+    let pressed = ui.input(|i| i.pointer.any_pressed() || i.pointer.any_released());
+    // (Come to another widget between passes, by Shift + Tab, an
+    // arrow key or code: found by its place among the pages drawn,
+    // where no press can have it taken.)
+    let came = focused.is_some() && focused != kept.focused && focus_moved.is_none();
+    let response = |f: egui::Id| ui.ctx().read_response(f);
+    let response = focused
+        .filter(|_| !pressed && (focus_moved.is_some() || came))
+        .and_then(response)
+        .filter(|r| r.layer_id == ui.layer_id());
+    // (A widget of the scroll's: in sight, or clipped away by the
+    // scroll whole. A page drawn out of sight may lie under the
+    // header or a panel beside the scroll, whose widgets are seen.)
+    let ours =
+        |r: &Response| viewport_screen.contains(r.rect.center()) || r.interact_rect.area() <= 0.0;
+    let at = response.as_ref().filter(|r| ours(r)).map(|r| r.rect.center());
+    let found = at.and_then(|c| drawn.iter().position(|d| d.is_some_and(|d| d.contains(c))));
+    let focus_page = match focus_moved {
+        Some(i) => Some(i),
+        None if came => found,
+        None if focused.is_some() && focused == kept.focused => kept.focus_page,
+        None => None,
+    };
+    if let Some(r) = response
+        && at.is_some()
+        && focus_page.is_some()
+        && !viewport_screen.contains_rect(r.rect)
+    {
+        ui.scroll_to_rect_animation(r.rect, None, egui::style::ScrollAnimation::none());
+    }
+    (focused, focus_page)
 }
 
 /// A page's button: 24 px square, painted in its state's tokens.
@@ -1028,7 +1412,11 @@ mod tests {
         assert_eq!(toggled(&h, "One"), Some(egui::accesskit::Toggled::True), "the page at the top");
         assert_eq!(toggled(&h, "Two"), Some(egui::accesskit::Toggled::False));
         let seen = PageScroll::seen(&h.ctx, "form").unwrap();
-        assert_eq!(seen, Seen { top: 0, in_view: 0..3 }, "300 high: three of 120 in view");
+        assert_eq!(
+            seen,
+            Seen { top: 0, in_view: 0..3, pages_in_view: vec![0, 1, 2] },
+            "300 high: three of 120 in view"
+        );
         let _ = h.get_by_label(PAGES);
     }
 
@@ -1296,5 +1684,425 @@ mod tests {
             assert_eq!(page.get(), 2, "still the page at the top");
             assert_eq!(h.get_by_label("page 2").rect().top(), at_top, "its bar at the top");
         }
+    }
+
+    /// Six pages in `columns` columns of a scroll `high` high beside their
+    /// list, page `i` `heights[i]` high (as [`pages_harness`]'s), or where
+    /// that is below 0 filling the room it is given.
+    fn columns_harness(
+        heights: std::rc::Rc<std::cell::RefCell<Vec<f32>>>,
+        page: std::rc::Rc<std::cell::Cell<usize>>,
+        columns: usize,
+        high: f32,
+    ) -> Harness<'static> {
+        Harness::builder().with_size(vec2(700.0, high + 16.0)).build_ui(move |ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let names = ["One", "Two", "Three", "Four", "Five", "Six"];
+            let seen =
+                PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
+            let mut top = page.get();
+            let room = ui.available_rect_before_wrap();
+            let mut left = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
+            );
+            let mut list = PageList::new("cols-list").pages_in_view(seen);
+            let mut scroll = PageScroll::new("cols").columns(columns);
+            for n in names {
+                list = list.page(Icon::Info, n);
+                scroll = scroll.page(Icon::Info, n);
+            }
+            let chosen = list.show(&mut left, &mut top).changed;
+            let mut body =
+                ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+                    pos2(room.left() + PAGE_LIST, room.top()),
+                    room.max,
+                )));
+            let heights = heights.borrow().clone();
+            scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
+                ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
+                let mut text = String::new();
+                let id = egui::Id::new(("cols-field", i));
+                ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
+                let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
+                ui.add(field).widget_info(|| {
+                    WidgetInfo::labeled(WidgetType::TextEdit, true, format!("field {i}"))
+                });
+                ui.data_mut(|d| d.insert_temp(id, text));
+                let rest = match heights[i] < 0.0 {
+                    true => ui.available_height(),
+                    false => heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0,
+                };
+                ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
+            });
+            page.set(top);
+        })
+    }
+
+    /// In columns each page goes under the column that ends highest, the
+    /// first pages heading them; the pages in view need not follow one
+    /// another; those out of view are not drawn.
+    #[test]
+    fn pages_in_columns_stand_under_the_column_that_ends_highest() {
+        let heights = std::rc::Rc::new(std::cell::RefCell::new(vec![
+            100.0, 300.0, 100.0, 100.0, 100.0, 120.0,
+        ]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights, page.clone(), 2, 300.0);
+        h.run();
+        let at = |h: &Harness<'_>, n: &str| h.get_by_label(&format!("{n} page")).rect();
+        let (p0, p1, p2, p3) = (at(&h, "One"), at(&h, "Two"), at(&h, "Three"), at(&h, "Four"));
+        assert_eq!(p0.top(), p1.top(), "the first two head the columns");
+        assert!(p1.left() > p0.left() + 200.0, "side by side: {p0:?} {p1:?}");
+        assert_eq!(p2.left(), p0.left(), "the third under the first, its column ending higher");
+        assert!((p2.top() - p0.bottom()).abs() <= 1.0, "under it: {p0:?} {p2:?}");
+        assert!((p3.top() - p2.bottom()).abs() <= 1.0, "and the fourth under that");
+        assert!(h.query_by_label("page 4").is_none(), "a page out of view is not drawn");
+        let seen = PageScroll::seen(&h.ctx, "cols").unwrap();
+        assert_eq!(seen.top, 0);
+        assert_eq!(seen.pages_in_view, vec![0, 1, 2, 3]);
+        // (The line between the columns, painted down the view.)
+        let line = (h.output().shapes.iter()).any(|c| match &c.shape {
+            egui::Shape::LineSegment { points, stroke } => {
+                stroke.width == PAGE_COLUMN_LINE
+                    && points[0].x == points[1].x
+                    && points[0].x > p0.right()
+                    && points[0].x < p1.left()
+            }
+            _ => false,
+        });
+        assert!(line, "a line between the columns");
+    }
+
+    /// In columns a page chosen comes as near the top as the scroll goes
+    /// and is the page at the top while its bar is in view; the pages
+    /// scrolled out of view are not drawn.
+    #[test]
+    fn in_columns_a_page_chosen_is_the_page_at_the_top() {
+        let heights = std::rc::Rc::new(std::cell::RefCell::new(vec![
+            100.0, 300.0, 100.0, 100.0, 100.0, 120.0,
+        ]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights, page.clone(), 2, 300.0);
+        h.run();
+        h.get_by_label("Five").click();
+        h.run();
+        assert_eq!(page.get(), 4, "the page chosen at the top");
+        let toggled = |h: &Harness<'_>, n: &str| h.get_by_label(n).accesskit_node().toggled();
+        assert_eq!(toggled(&h, "Five"), Some(egui::accesskit::Toggled::True));
+        assert!(h.query_by_label("page 4").is_some(), "drawn");
+        assert!(h.query_by_label("page 0").is_none(), "the first scrolled out of view");
+        // Every page in view: the page chosen is the page at the top,
+        // though nothing scrolls.
+        let heights = std::rc::Rc::new(std::cell::RefCell::new(vec![100.0; 6]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights, page.clone(), 3, 600.0);
+        h.run();
+        let first = h.get_by_label("page 0").rect().top();
+        h.get_by_label("Four").click();
+        h.run();
+        assert_eq!(page.get(), 3, "the page chosen at the top");
+        assert_eq!(toggled(&h, "Four"), Some(egui::accesskit::Toggled::True));
+        assert_eq!(h.get_by_label("page 0").rect().top(), first, "nothing scrolled");
+    }
+
+    /// In columns Tab goes from page to page in the pages' order, from one
+    /// column to the next and back.
+    #[test]
+    fn in_columns_tab_goes_page_after_page() {
+        let heights = std::rc::Rc::new(std::cell::RefCell::new(vec![100.0; 6]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights, page, 3, 300.0);
+        h.run();
+        h.get_by_label("field 0").click();
+        h.run();
+        for next in 1..5 {
+            h.key_press(egui::Key::Tab);
+            h.run();
+            let name = format!("field {next}");
+            let field = h.get_by_label(&name);
+            assert!(field.accesskit_node().is_focused(), "Tab on to page {next}'s field");
+        }
+    }
+
+    /// A column's last page reaches down to the scroll's foot: what fills
+    /// the room it is given fills the column.
+    #[test]
+    fn a_column_s_last_page_reaches_down_to_the_foot() {
+        let heights =
+            std::rc::Rc::new(std::cell::RefCell::new(vec![50.0, 50.0, 50.0, 50.0, 50.0, -1.0]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights, page, 2, 700.0);
+        h.run();
+        let (two, six) = (h.get_by_label("Two page").rect(), h.get_by_label("Six page").rect());
+        assert_eq!(six.left(), two.left(), "the last page in the second column");
+        assert!(six.top() > two.bottom(), "under the others there");
+        assert!(six.height() > PAGE_FILL, "more than another page is given: {six:?}");
+        assert!((six.bottom() - 708.0).abs() <= 1.0, "down to the foot: {six:?}");
+        let seen = PageScroll::seen(&h.ctx, "cols").unwrap();
+        assert_eq!(seen.pages_in_view, vec![0, 1, 2, 3, 4, 5], "every page in view");
+    }
+
+    /// In columns too the scroll keeps its place by a page: one above the
+    /// page at the top that grows moves nothing in view.
+    #[test]
+    fn in_columns_a_page_above_growing_moves_nothing_in_view() {
+        // (The second column longer: the third page under the first.)
+        let heights = std::rc::Rc::new(std::cell::RefCell::new(vec![
+            200.0, 260.0, 200.0, 200.0, 200.0, 200.0,
+        ]));
+        let page = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut h = columns_harness(heights.clone(), page.clone(), 2, 300.0);
+        h.run();
+        h.get_by_label("Three").click();
+        h.run();
+        assert_eq!(page.get(), 2);
+        // (The wheel up a little: the first page's foot in view above it.)
+        h.hover_at(pos2(400.0, 150.0));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, 50.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(12);
+        h.run();
+        assert_eq!(page.get(), 2, "its bar still in view");
+        let before = h.get_by_label("page 2").rect().top();
+        let one = h.get_by_label("One page").rect();
+        assert_eq!(h.get_by_label("Three page").rect().left(), one.left(), "under the first");
+        assert!(one.height() > 0.0, "the page above in view");
+        heights.borrow_mut()[0] += 60.0;
+        h.run();
+        assert_eq!(page.get(), 2, "still the page at the top");
+        assert_eq!(h.get_by_label("page 2").rect().top(), before, "where it was");
+    }
+
+    type Rcv<T> = std::rc::Rc<std::cell::RefCell<T>>;
+    /// Up to eight pages in `columns` columns of a scroll `high` high,
+    /// page `i` `heights[i]` high (filling its room where below 0), a
+    /// field "field i" at its top and "last i" at its foot (the review's
+    /// probe harness).
+    fn eight_harness(
+        heights: Rcv<Vec<f32>>,
+        page: std::rc::Rc<std::cell::Cell<usize>>,
+        columns: std::rc::Rc<std::cell::Cell<usize>>,
+        high: f32,
+    ) -> Harness<'static> {
+        Harness::builder().with_size(vec2(700.0, high + 16.0)).build_ui(move |ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let names = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
+            let n = heights.borrow().len();
+            let seen =
+                PageScroll::seen(ui.ctx(), "cols").map(|s| s.pages_in_view).unwrap_or_default();
+            let mut top = page.get();
+            let room = ui.available_rect_before_wrap();
+            let mut left = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(room.min, vec2(PAGE_LIST, room.height()))),
+            );
+            let mut list = PageList::new("cols-list").pages_in_view(seen);
+            let mut scroll = PageScroll::new("cols").columns(columns.get());
+            for nm in &names[..n] {
+                list = list.page(Icon::Info, *nm);
+                scroll = scroll.page(Icon::Info, *nm);
+            }
+            let chosen = list.show(&mut left, &mut top).changed;
+            let mut body =
+                ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(
+                    pos2(room.left() + PAGE_LIST, room.top()),
+                    room.max,
+                )));
+            let heights = heights.borrow().clone();
+            scroll.bring(chosen).show(&mut body, &mut top, |ui, i| {
+                ui.add_sized(vec2(100.0, 20.0), egui::Label::new(format!("page {i}")));
+                let mut text = String::new();
+                let id = egui::Id::new(("cols-field", i));
+                ui.data_mut(|d| text = d.get_temp::<String>(id).unwrap_or_default());
+                let field = egui::TextEdit::singleline(&mut text).id(id.with("edit"));
+                ui.add(field).widget_info(|| {
+                    WidgetInfo::labeled(WidgetType::TextEdit, true, format!("field {i}"))
+                });
+                ui.data_mut(|d| d.insert_temp(id, text));
+                // (A page that fills its room: no last field, the rest of
+                // its room taken.)
+                if heights[i] < 0.0 {
+                    let rest = ui.available_height();
+                    ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
+                    return;
+                }
+                let rest = heights[i] - 20.0 - 22.0 - PAGE_BAR - 22.0 - 30.0;
+                ui.allocate_exact_size(vec2(10.0, rest.max(0.0)), Sense::hover());
+                // A last field at the page's foot.
+                let mut t2 = String::new();
+                let id2 = egui::Id::new(("cols-last", i));
+                ui.data_mut(|d| t2 = d.get_temp::<String>(id2).unwrap_or_default());
+                ui.add(egui::TextEdit::singleline(&mut t2).id(id2.with("edit"))).widget_info(
+                    || WidgetInfo::labeled(WidgetType::TextEdit, true, format!("last {i}")),
+                );
+                ui.data_mut(|d| d.insert_temp(id2, t2));
+            });
+            page.set(top);
+        })
+    }
+
+    /// The field with the keyboard.
+    fn focused_name(h: &Harness<'_>) -> String {
+        for i in 0..8 {
+            for w in ["field", "last"] {
+                let n = format!("{w} {i}");
+                if let Some(node) = h.query_by_label(&n)
+                    && node.accesskit_node().is_focused()
+                {
+                    return n;
+                }
+            }
+        }
+        "none".into()
+    }
+
+    /// The wheel turned by `dy` over the scroll, settled.
+    fn wheel(h: &mut Harness<'_>, dy: f32) {
+        h.hover_at(pos2(400.0, 150.0));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, dy),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(12);
+        h.run();
+    }
+
+    fn rc<T>(v: T) -> std::rc::Rc<std::cell::RefCell<T>> {
+        std::rc::Rc::new(std::cell::RefCell::new(v))
+    }
+
+    fn cell<T: Copy>(v: T) -> std::rc::Rc<std::cell::Cell<T>> {
+        std::rc::Rc::new(std::cell::Cell::new(v))
+    }
+
+    /// In columns Tab goes on to the next page and Shift + Tab back to the
+    /// one before, out of view in the other column (the pages in view
+    /// not one after another: the review's A1).
+    #[test]
+    fn in_columns_tab_reaches_the_page_beside_out_of_view() {
+        let heights = rc(vec![100.0, 500.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
+        let mut h = eight_harness(heights.clone(), cell(0), cell(2), 300.0);
+        h.run();
+        wheel(&mut h, -250.0);
+        let seen = PageScroll::seen(&h.ctx, "cols").unwrap();
+        assert!(!seen.pages_in_view.contains(&2), "page 2 out of view: {seen:?}");
+        h.get_by_label("last 1").click();
+        h.run();
+        h.key_press(egui::Key::Tab);
+        h.run();
+        assert_eq!(focused_name(&h), "field 2", "Tab from page 1's last field to page 2's first");
+        let mut h = eight_harness(heights, cell(0), cell(2), 300.0);
+        h.run();
+        wheel(&mut h, -210.0);
+        h.get_by_label("field 3").click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+        h.run();
+        h.run();
+        assert_eq!(focused_name(&h), "last 2", "Shift + Tab from page 3 to page 2's last field");
+    }
+
+    /// In columns a page keeps its column while the column count stays:
+    /// the page held, Four, neither moves sideways nor down when a page in
+    /// the other column, One, grows (the review's A2).
+    #[test]
+    fn in_columns_a_page_keeps_its_column_as_others_grow() {
+        let heights = rc(vec![100.0, 150.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
+        let page = cell(0);
+        // (Every page in view: One, growing, drawn and measured.)
+        let mut h = eight_harness(heights.clone(), page.clone(), cell(2), 900.0);
+        h.run();
+        h.get_by_label("Four").click();
+        h.run();
+        let before = h.get_by_label("Four page").rect();
+        // (One, in the other column: flowed anew, Four would go under it.)
+        heights.borrow_mut()[0] += 100.0;
+        h.run();
+        let after = h.get_by_label("Four page").rect();
+        assert_eq!(page.get(), 3, "still the page at the top");
+        assert_eq!(after.left(), before.left(), "in its column");
+        assert_eq!(after.top(), before.top(), "where it was in view");
+    }
+
+    /// The column count changed: the pages flowed anew in the frame it
+    /// changed in (no frame of the old flow at the new width), the page at
+    /// the top and the keyboard kept (the review's B8).
+    #[test]
+    fn a_column_count_changed_flows_the_pages_in_its_frame() {
+        let heights = rc(vec![100.0, 200.0, 150.0, 300.0, 100.0, 250.0, 120.0, 100.0]);
+        let (page, cols) = (cell(0), cell(1));
+        let mut h = eight_harness(heights, page.clone(), cols.clone(), 300.0);
+        h.run();
+        h.get_by_label("Six").click();
+        h.run();
+        h.get_by_label("field 5").click();
+        h.run();
+        for k in [2, 3, 1, 3] {
+            cols.set(k);
+            h.step();
+            // (In the one frame: each page in view against the one above it
+            // in its column, none over another.)
+            let rects: Vec<Rect> = (0..8)
+                .filter_map(|i| {
+                    let name = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"][i];
+                    h.query_by_label(&format!("{name}{PAGE_GROUP}")).map(|n| n.rect())
+                })
+                .filter(|r| r.height() > 0.0)
+                .collect();
+            for (a, ra) in rects.iter().enumerate() {
+                for rb in &rects[a + 1..] {
+                    assert!(!ra.intersect(*rb).is_positive(), "{k} columns: {ra:?} over {rb:?}");
+                }
+            }
+            h.run();
+            assert_eq!(page.get(), 5, "{k} columns: the page at the top kept");
+            assert_eq!(focused_name(&h), "field 5", "{k} columns: the keyboard kept");
+        }
+    }
+
+    /// In columns a page above the one in view that grows is shown at its
+    /// new height in the frame it grows in: the pass drawn again, the page
+    /// under it never over it (the review's B2).
+    #[test]
+    fn in_columns_a_page_grown_is_drawn_again_at_once() {
+        let heights = rc(vec![100.0, 300.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]);
+        let mut h = eight_harness(heights.clone(), cell(0), cell(2), 600.0);
+        h.run();
+        let one = h.get_by_label("One page").rect();
+        let three = h.get_by_label("Three page").rect();
+        assert_eq!(three.left(), one.left(), "Three under One");
+        heights.borrow_mut()[0] += 80.0;
+        h.step();
+        let (one, three) = (h.get_by_label("One page").rect(), h.get_by_label("Three page").rect());
+        assert_eq!(three.top(), one.bottom(), "Three against One, in the frame One grew");
+    }
+
+    /// A column's spare room goes to its pages that fill their room: a
+    /// list not its column's last is given more than [`PAGE_FILL`] where
+    /// the column has room (the review's A3); and when the view grows
+    /// shorter, a page that fills is given less again, not kept at what
+    /// it was given (decision 6's, the review's B9).
+    #[test]
+    fn a_column_s_spare_room_goes_to_its_pages_that_fill() {
+        let heights = rc(vec![100.0, 400.0, -1.0, 100.0, 100.0, 100.0]);
+        let mut h = eight_harness(heights, cell(0), cell(2), 700.0);
+        h.run();
+        let three = h.get_by_label("Three page").rect();
+        let five = h.get_by_label("Five page").rect();
+        assert_eq!(five.left(), three.left(), "Five under the list, Three");
+        assert!(three.height() > PAGE_FILL + 50.0, "the column's spare given to it: {three:?}");
+        assert!((five.bottom() - 708.0).abs() <= 1.0, "the column down to the foot: {five:?}");
+        // A shorter view: the list given less.
+        h.set_size(vec2(700.0, 416.0));
+        h.run();
+        let three = h.get_by_label("Three page").rect();
+        assert!(three.height() < 300.0, "the list given less in a shorter view: {three:?}");
     }
 }

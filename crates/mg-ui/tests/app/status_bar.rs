@@ -620,13 +620,17 @@ fn the_status_bar_holds_at_every_width() {
             window.x_range(),
             switch.center().y - half..=switch.center().y + half,
         );
-        let texts: Vec<egui::Rect> = drawn(h)
+        // (As seen: a text cut by its clip, a page's at a scroll's foot,
+        // counts only where it shows.)
+        let texts: Vec<egui::Rect> = drawn_clipped(h)
             .into_iter()
-            .filter_map(|s| match s {
-                egui::Shape::Text(t) => Some(t.visual_bounding_rect()),
+            .filter_map(|(s, clip)| match s {
+                egui::Shape::Text(t) => Some((t.visual_bounding_rect(), clip)),
                 _ => None,
             })
-            .filter(|r| r.center().y > bar.top() && r.center().y < bar.bottom())
+            .filter(|(r, _)| r.center().y > bar.top() && r.center().y < bar.bottom())
+            .filter(|(r, clip)| r.intersects(*clip))
+            .map(|(r, clip)| r.intersect(clip))
             .collect();
         (bar, bar_controls(h, "Status Bar"), texts)
     };
@@ -720,8 +724,19 @@ fn the_status_bar_holds_at_every_width() {
         let line_w = has(line).map(|r| r.width());
         let line_full = line_w.is_some_and(|w| w >= cap);
         let job_cut = job.is_none_or(|r| r.width() < full_job - 0.5);
-        let name_cut =
-            has(name).is_some_and(|r| drawn_texts(&h, r).iter().any(|w| w.contains('…')));
+        // (Its own text as seen: a form's `…` clipped away under the bar
+        // is not its.)
+        let name_cut = has(name).is_some_and(|r| {
+            drawn_clipped(&h).into_iter().any(|(s, clip)| match s {
+                egui::Shape::Text(t) => {
+                    let at = t.visual_bounding_rect();
+                    r.expand(1.0).contains_rect(at)
+                        && clip.contains(at.center())
+                        && t.galley.text().contains('…')
+                }
+                _ => false,
+            })
+        });
         // The order they yield in: first the switches show their icons
         // alone (always under 1400, M3 T14, and wherever the rest does not
         // fit beside their words), then the folder goes (always under
