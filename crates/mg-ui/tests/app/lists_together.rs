@@ -179,8 +179,9 @@ fn a_special_ability_is_set_on_those_that_have_it() {
     assert_eq!(each(&mut h, &keys, uses), [2, 3, 2]);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add special ability"));
     undo(&mut h);
-    h.get_by_label("Remove").click();
-    h.run();
+    in_page(&h, "Special Abilities").get_by_label("Remove").click();
+    // (The grid's widths settle as its rows go, as above.)
+    settle(&mut h);
     assert_eq!(each(&mut h, &keys, uses), [0, 0, 0]);
     undo(&mut h);
     assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
@@ -262,7 +263,25 @@ fn an_encounter_s_creature_is_added_to_those_that_lack_it() {
         list.iter().filter_map(|c| c.integer("SingleSpawn")).collect()
     };
     let was = each(&mut h, &keys, unique);
-    h.get_all_by_role(egui::accesskit::Role::CheckBox).last().unwrap().click();
+    // (Scrolled to: beside the page list, the table runs past the
+    // window's right edge.)
+    let unique_box = |h: &Harness<'_, Moonglow>| {
+        let boxes = h.get_all_by_role(egui::accesskit::Role::CheckBox);
+        boxes.max_by(|a, b| a.rect().center().y.total_cmp(&b.rect().center().y)).unwrap().rect()
+    };
+    let at = unique_box(&h).center();
+    h.hover_at(at - egui::vec2(200.0, 0.0));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-600.0, 0.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
+    let at = unique_box(&h).center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
     h.run();
     let now = each(&mut h, &keys, unique);
     assert_eq!(now[0], was[0]);

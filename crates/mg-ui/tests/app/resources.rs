@@ -566,7 +566,7 @@ fn an_older_module_s_single_hak_is_layered_and_said() {
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     h.get_by_label("Hak Files (0)");
     h.get_by_label_contains("names its hak, older, in the older single field (Mod_Hak)");
@@ -609,7 +609,7 @@ fn a_hak_s_name_is_its_file_s_bytes() {
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     h.get_by_label("Hak Files (1)");
     h.get_by_label("mg_ñhak");
@@ -666,7 +666,7 @@ fn a_hak_named_in_another_case_is_not_found_on_linux() {
     assert!(said.contains("exact name") && said.contains("mg_plain.hak"), "{said}");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     h.get_by_label("not found: the file is mg_plain.hak");
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -734,7 +734,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     let chosen = |h: &Harness<'_, Moonglow>| -> Vec<usize> {
         h.state().hak_list.selected.iter().copied().collect()
     };
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     set(&mut h, &["alpha", "bravo", "charlie", "gone"]);
     h.get_by_label("Hak Files (4)");
@@ -888,7 +888,7 @@ fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
         h.get_by_label("Add Haks and Talk Table…").click();
         h.run();
     };
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
 
     // The 7z: listed from it, the second hak moved up, attached.
@@ -948,7 +948,7 @@ fn add_hak_takes_the_arrow_keys() {
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let add = |h: &Harness<'_, Moonglow>| {
@@ -1010,7 +1010,7 @@ fn add_hak_filters_a_long_list() {
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let add = |h: &Harness<'_, Moonglow>| {
@@ -1127,7 +1127,7 @@ fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1524,7 +1524,7 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     h.run();
     // Edit › Undo is the hak's, the pointer gone from the editor to the
     // menu, and names its step; so is the toolbar's.
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label_contains("Undo Add files").click();
     h.run();
@@ -1794,7 +1794,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     h.get_by_label("Add Haks and Talk Table…").click();
     h.run();

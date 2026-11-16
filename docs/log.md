@@ -1,5 +1,16 @@
 # Update log
 
+## 2026-11-16
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U9's review ([05](manual/05-blueprints.md#the-editors)).
+  * Blueprint windows open 980 wide and Module and Area Properties 930 (as much as the screen allows), so a placeable's or door's model stands beside its Basic page again, a creature's slots each on one line, an encounter's creatures whole.
+  * The header's title gives way in a narrow window: the ResRef first, then the name cut short with an ellipsis. The page list and header stand flush with the window's edges.
+  * Tab from the page list goes into the page at the top; a page above the one in view that grows (an inventory filling) moves nothing in view, and a page brought to the top stays there as it fills; Area Properties of several areas keep their page by the whole set.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U9, blueprint pages: the list and one scroll**, as the Creature board draws them ([05](manual/05-blueprints.md#the-editors), [03](manual/03-modules.md#module-properties), [04](manual/04-areas.md#area-properties); [parity](parity/checklists.md)).
+  * **A blueprint's pages are listed at its left**, each with its icon, and **stand one after another on one scroll**, each under a bar with its name: a page clicked in the list (or Up and Down there) comes to the top, the list fills in the page at the top and marks the others in view. Only the pages in view are drawn.
+  * **The header shows the blueprint's kind, name and ResRef, with OK and Cancel at its right end.** Module Properties and Area Properties are laid out the same way.
+  * Tab goes from field to field down the pages; a field typed in keeps the keyboard and what is typed when another page comes to the top. A window too narrow for the list's words lists the pages as icons.
+  * Every page of every kind, walked whole at four window sizes, draws nothing over anything else.
+
 ## 2026-11-15
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U7 and U8's review ([04](manual/04-areas.md)).
   * Handles are lit, named and given the hand only where a press would take them (not while a blueprint, an appearance or a light is placed, nor an outline redrawn); the press and the hover ask one decision.

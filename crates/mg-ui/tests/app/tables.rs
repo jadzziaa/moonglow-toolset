@@ -527,7 +527,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // (The line is added at OK: Cancel leaves the table as it was, with
     // no line that nothing names. The review of November 2026, S27.)
     for answer in ["Cancel", "OK"] {
-        h.get_by_label("…").click();
+        in_page(&h, "Basic").get_by_label("…").click();
         h.run();
         h.get_by_label("Add Text").click();
         h.run();
@@ -1329,7 +1329,7 @@ fn a_rebound_undo_key_reaches_a_table_s_grid() {
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), None, "redone");
     // Edit › Undo is the table's, names its step, and takes it.
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     let undo = h.get_by_label_contains("Undo ").accesskit_node().label().unwrap_or_default();
     assert!(undo.starts_with("Undo Empty 1 cell"), "{undo}");

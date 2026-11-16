@@ -967,7 +967,7 @@ impl Moonglow {
             Tab::Instance { area, path } => page(git(area), path.clone()),
             Tab::Instances { area, paths } => page(git(area), paths.first()?.clone()),
             Tab::AreaProperties(r) => page(are(r), GffPath::root()),
-            Tab::AreasProperties(rs) => page(are(rs.first()?), GffPath::root().field("several")),
+            Tab::AreasProperties(rs) => page(are(rs.first()?), crate::area_props::several_page(rs)),
             Tab::TalkTable => {
                 Some(View { line: Some(self.talk_view.selected?), ..Default::default() })
             }

@@ -114,7 +114,7 @@ fn multi_line_text_keeps_its_line_ends() {
     app.open_module(&path);
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run();
     // Shown with plain line breaks in a multi-line box.
     let is_input = |n: &egui_kittest::Node<'_>| {
@@ -169,7 +169,7 @@ fn module_description_harness(
     app.open_module(&path);
     let mut h = harness(app, size.x, size.y);
     h.run();
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run();
     h
 }
@@ -342,19 +342,19 @@ fn a_blueprint_s_fields_take_aurora_s_line_ends() {
     // The Tag, shown with a plain line end, typed in: its CRLF kept.
     click(&mut h, egui::accesskit::Role::TextInput, "AB\nCD");
     typed(&mut h, "X");
-    h.get_by_label("Comments").click();
+    page(&mut h, "Comments");
     h.run_steps(3);
     assert_eq!(field(&mut h, &key).string("Tag"), Some(&b"AB\r\nCDX"[..]));
     // The comment: CRLF.
     click(&mut h, egui::accesskit::Role::MultilineTextInput, "One");
     typed(&mut h, "\nTwo");
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run_steps(3);
     assert_eq!(field(&mut h, &key).string("Comment"), Some(&b"One\r\nTwo"[..]));
     // The description: plain.
     click(&mut h, egui::accesskit::Role::MultilineTextInput, "Desc");
     typed(&mut h, "\nTwo");
-    h.get_by_label("Comments").click();
+    page(&mut h, "Comments");
     h.run_steps(3);
     let desc = field(&mut h, &key).locstring("Description").cloned().unwrap();
     assert_eq!(desc.get(Language::ENGLISH, Gender::Male), Some(&b"Desc\nTwo"[..]));
@@ -368,7 +368,7 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
         return;
     };
     h.run();
-    h.get_by_label("Statistics").click();
+    page(&mut h, "Statistics");
     h.run();
     let strength = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Str").unwrap();
     let was = strength(&mut h);
@@ -407,7 +407,7 @@ fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
         return;
     };
     h.run();
-    h.get_by_label("Statistics").click();
+    page(&mut h, "Statistics");
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
     let was = int(&mut h, "Str");
@@ -466,7 +466,7 @@ fn a_placeable_s_numbers_have_arrows() {
     }
     h.run();
     assert_eq!(int(&mut h, "Hardness"), hardness + 1);
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run();
     // (Each of the lock's DCs, on its row: Open and Close.)
     for dc in ["Open lock DC", "Close lock DC"] {
@@ -600,14 +600,14 @@ fn a_resref_field_takes_letters_digits_and_underscores_alone() {
         h.run_steps(2);
         h.key_press(egui::Key::End);
     };
-    h.get_by_label("Scripts").click();
+    page(&mut h, "Scripts");
     h.run_steps(3);
     click(&mut h, "nw_o2_classlow");
     h.event(egui::Event::Text("<>!@#$%^&*".into()));
     h.event(egui::Event::Text("X-1 ".into()));
     h.run_steps(2);
     assert!(h.query_all(input("nw_o2_classlowx1")).next().is_some(), "as typed");
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run_steps(4);
     let scripts = ["OnOpen", "OnDeath"].map(|l| field(&mut h, &key).resref(l).unwrap().to_string());
     assert!(scripts.contains(&"nw_o2_classlowx1".to_string()), "set: {scripts:?}");
@@ -646,14 +646,14 @@ fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
     h.event(egui::Event::Text("_X".into()));
     h.run_steps(2);
     assert_eq!(field(&mut h, &key).string("Tag"), Some(tag.as_bytes()), "not set while typed");
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run_steps(4);
     let now = format!("{tag}_X");
     assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tag"));
     // A script's name, typed in, and another page clicked: it was lost
     // (the script fields kept no part of the fix above).
-    h.get_by_label("Scripts").click();
+    page(&mut h, "Scripts");
     h.run_steps(3);
     let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::TextInput
@@ -667,15 +667,15 @@ fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
     h.key_press(egui::Key::End);
     h.event(egui::Event::Text("_x".into()));
     h.run_steps(2);
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run_steps(4);
     let scripts = ["OnOpen", "OnDeath"].map(|l| field(&mut h, &key).resref(l).unwrap().to_string());
     assert!(scripts.contains(&"nw_o2_classlow_x".to_string()), "kept: {scripts:?}");
     // The description, typed in, and the window closed.
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run_steps(3);
     let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
-    let at = h.get(memo).rect().center();
+    let at = in_page(&h, "Description").get(memo).rect().center();
     h.hover_at(at);
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);
@@ -719,7 +719,7 @@ fn text_typed_is_kept_while_another_program_has_the_keyboard() {
         h.event(egui::Event::WindowFocused(focused));
         h.run_steps(3);
     }
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run_steps(4);
     let now = format!("{tag}_X");
     assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
@@ -979,7 +979,7 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     // What the General page shows (Total Cost, Required Level and Lore
     // among it).
     let shown = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("General").click();
+        page(h, "General");
         h.run();
         let label = egui_kittest::kittest::by().role(egui::accesskit::Role::Label);
         let values = h.query_all(label).filter_map(|n| n.accesskit_node().value());
@@ -991,14 +991,14 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
         h.get_all_by_label(kind).next().unwrap().click();
         h.run();
         // (Under the list, below the window's edge until scrolled to.)
-        h.get_by_label("Add").scroll_to_me();
+        in_page(h, "Properties").get_by_label("Add").scroll_to_me();
         settle(h);
-        h.get_by_label("Add").click();
+        in_page(h, "Properties").get_by_label("Add").click();
         h.run();
     };
     h.run();
     // Keen added and kept (OK): the item has two properties.
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     add(&mut h, "Keen");
     h.get_by_label("OK").click();
@@ -1010,17 +1010,17 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     assert_eq!(before.list("PropertiesList").map_or(0, <[_]>::len), 2, "Enhancement and Keen");
     let was_shown = shown(&mut h);
     // Tried: Keen removed, the Enhancement +1 made +3, Attack Bonus added.
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     // (The item's properties are under the ones to add, below the
-    // window's edge until it is scrolled: a click there is on Cancel. The
-    // wheel over their heading scrolls the window.)
+    // window's edge until it is scrolled: the page's part in sight ends
+    // there. The wheel over their heading scrolls the window.)
     let assigned = |h: &mut Harness<'_, Moonglow>, name: &str| {
         let bottom = |h: &Harness<'_, Moonglow>| {
             h.get_all_by_label_contains(name).last().unwrap().rect().bottom()
         };
         let deadline = std::time::Instant::now() + SETTLE_TIME;
-        while bottom(h) > h.get_by_label("Cancel").rect().top() - 8.0 {
+        while bottom(h) > in_page(h, "Properties").rect().bottom() - 8.0 {
             assert!(std::time::Instant::now() < deadline, "{name} comes into sight");
             h.hover_at(h.get_by_label("Assigned Properties").rect().center());
             h.event(egui::Event::MouseWheel {
@@ -1044,14 +1044,8 @@ fn an_item_s_properties_tried_are_set_back_by_cancel() {
     h.run();
     h.get_by_label("+3").click();
     h.run();
-    // (The window scrolled back to its top, the properties to add.)
-    h.hover_at(h.get_by_label("Assigned Properties").rect().center());
-    h.event(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, 10_000.0),
-        phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
-    });
+    // (The page brought back to its top, the properties to add.)
+    page(&mut h, "Properties");
     settle(&mut h);
     add(&mut h, "Attack Bonus");
     let tried = props(&mut h);
@@ -1084,13 +1078,13 @@ fn an_item_s_properties_tried_are_set_back_by_its_close_when_asked() {
     let tab = Tab::Blueprint(key);
     h.run();
     let before = field(&mut h, &key);
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     h.get_all_by_label("Attack Bonus").next().unwrap().scroll_to_me();
     h.run();
     h.get_all_by_label("Attack Bonus").next().unwrap().click();
     h.run();
-    h.get_by_label("Add").click();
+    in_page(&h, "Properties").get_by_label("Add").click();
     h.run();
     let tried = field(&mut h, &key);
     assert_ne!(tried.list("PropertiesList"), before.list("PropertiesList"), "added");
@@ -1104,10 +1098,12 @@ fn an_item_s_properties_tried_are_set_back_by_its_close_when_asked() {
     assert_eq!(field(&mut h, &key), tried, "Undo brings it back");
 }
 
-/// A text field typed in whose page goes away other than by a press of
-/// the pointer (a key, the window's page kept for it) sets its text as
-/// it goes (`Moonglow::held_text`), and that is among what the window's
-/// Cancel sets back.
+/// A text field typed in whose page is left other than by a press of
+/// the pointer (a page asked for from elsewhere) keeps the keyboard and
+/// what is typed: on the window's one scroll (M4's U9) the page with the
+/// keyboard stays drawn wherever the scroll goes, so nothing typed is
+/// lost (one page at a time, the page went away and set its text as it
+/// went). The window's Cancel drops what was typed and closes it.
 #[test]
 fn cancel_sets_back_text_set_as_its_page_went() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_held", ResType::UTP) else {
@@ -1132,7 +1128,14 @@ fn cancel_sets_back_text_set_as_its_page_went() {
     // The page changes with the field still holding the keyboard.
     h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Lock");
     h.run_steps(3);
-    assert_eq!(tag(&mut h), format!("{original}_K"), "set as the field went");
+    let lock = page_row(&h, "Lock").unwrap().accesskit_node().toggled();
+    assert_eq!(lock, Some(egui::accesskit::Toggled::True), "the Lock page at the top");
+    let typed = format!("{original}_K");
+    let field_now = (h.get_all_by_value(&typed))
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+        .expect("the field, what is typed in it");
+    assert!(field_now.accesskit_node().is_focused(), "the field keeps the keyboard");
+    assert_eq!(tag(&mut h), original, "and what is typed, not yet set");
     h.get_by_label("Cancel").click();
     h.run_steps(4);
     assert_eq!(tag(&mut h), original, "and set back by Cancel");
@@ -1294,8 +1297,10 @@ fn module_properties_and_the_journal_fields_are_a_form_s() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(tag(&mut h).chars().count(), 32, "{}", tag(&mut h));
-    // Typed, and its page gone with the field holding the keyboard: set,
-    // and set back by Cancel with the rest.
+    // Typed, and another page brought to the top with the field holding
+    // the keyboard: the field's page stays drawn on the one scroll (M4's
+    // U9), the keyboard and what is typed with it; Cancel drops what is
+    // typed and sets back the rest.
     let long = tag(&mut h);
     click_field(&mut h, &long);
     h.key_press(egui::Key::Home);
@@ -1303,7 +1308,9 @@ fn module_properties_and_the_journal_fields_are_a_form_s() {
     h.run_steps(2);
     h.state_mut().module_page = mg_ui::module_props::Page::Description;
     h.run_steps(3);
-    assert_eq!(tag(&mut h).chars().count(), 31, "set as the field went");
+    assert_eq!(h.state().module_page, mg_ui::module_props::Page::Description, "at the top");
+    assert!(h.ctx.memory(|m| m.focused().is_some()), "the field keeps the keyboard");
+    assert_eq!(tag(&mut h).chars().count(), 32, "what is typed not yet set");
     h.get_by_label("Cancel").click();
     h.run_steps(4);
     assert_eq!(tag(&mut h), "SAMPLE", "set back");
@@ -1341,7 +1348,7 @@ fn module_properties_and_the_journal_fields_are_a_form_s() {
     // A journal category's tag: 32 characters too.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
     h.run_steps(4);
-    h.get_by_label("Add").click();
+    h.get_all_by_label("Add").last().unwrap().click();
     h.run_steps(4);
     let jrl = ResKey::parse("module", ResType::JRL).unwrap();
     let cat_tag = |h: &mut Harness<'_, Moonglow>| {
@@ -1661,7 +1668,7 @@ fn editors_set_back(close: bool) {
     h.key_press(egui::Key::End);
     h.event(egui::Event::Text("_X".into()));
     h.run_steps(2);
-    h.get_by_label("Basic").click();
+    page(&mut h, "Basic");
     h.run_steps(3);
     assert_eq!(module_tag(&mut h), "SAMPLE_X");
     cancel(&mut h, &Tab::ModuleProperties);
@@ -1711,7 +1718,7 @@ fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run_steps(3);
     let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
     let at = h.get(memo.clone()).rect().center();
@@ -1741,7 +1748,7 @@ fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
     // And when a key does it: Save, with more typed in and the field not
     // left, saves that too; then the key that closes the tab keeps it.
     let type_more = |h: &mut Harness<'_, Moonglow>, text: &str| {
-        h.get_by_label("Description").click();
+        page(h, "Description");
         h.run_steps(3);
         let at = h.get(memo.clone()).rect().center();
         h.hover_at(at);
@@ -2125,7 +2132,7 @@ fn a_number_field_is_dragged_to_a_new_value() {
         return;
     };
     h.run();
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run();
     let was = field(&mut h, &key).integer("OpenLockDC").unwrap();
     let spin =
@@ -2458,7 +2465,7 @@ fn arrow_keys_step_through_a_creature_s_alignments() {
         return;
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run_steps(2);
     let axes = |h: &mut Harness<'_, Moonglow>| {
         let s = field(h, &key);
@@ -2733,7 +2740,7 @@ fn escape_in_a_field(mode: Mode) {
     // A number typed into, on the Statistics page: the same.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     h.run_steps(3);
-    h.get_by_label("Statistics").click();
+    page(&mut h, "Statistics");
     h.run();
     let was = field(&mut h, &key).integer("Str").unwrap();
     h.get_all_by_value(&was.to_string()).next().expect("Strength's field").click();
@@ -2748,7 +2755,7 @@ fn escape_in_a_field(mode: Mode) {
     // The Inventory page's Find: Escape clears it, and the window stays.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     h.run_steps(3);
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run();
     type_into_hint(&mut h, "Find", "torch");
     assert!(h.query_all_by_value("torch").next().is_some());

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T22:13:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
 ---
 
 # Areas
@@ -1739,7 +1739,11 @@ instead.
 ## Area Properties
 
 Right-click the area in the module tree › **Properties**, or **Area
-Properties** on the viewer's header:
+Properties** on the viewer's header. Its pages are listed at its left
+and stand one after another on one scroll, as a blueprint's do ([the
+editors](05-blueprints.md#the-editors)): a page clicked in the list
+comes to the top. **OK** and **Cancel** are at the right end of its
+header, which shows the area's name and ResRef:
 
 - **Basic**: name, the tileset (fixed once made) and the size.
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
@@ -1902,8 +1906,8 @@ ticked, shown as the first of them:
   (each area's tiles get its lights) and environment, fog, weather, day
   and night, the ambient sounds and music, the event scripts, the check
   modifiers, player vs. player, the loading screen and No Rest.
-- **Give Every Area This Page's Settings** sets what the page shows (the
-  first area's) on all the others, whether changed here or not: to make
+- **Give Every Area This Page's Settings**, at the top of each page,
+  sets what the page shows (the first area's) on all the others, whether changed here or not: to make
   the areas alike in what they already have. On the Visual page, an area
   whose lighting scheme was another also gets its tiles' lights from the
   first's scheme, as choosing the scheme gives them (with the game's

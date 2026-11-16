@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T17:57:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T02:56:52Z }
 ---
 
 # Blueprints
@@ -515,9 +515,24 @@ A name or description whose text is the talk table's (a StrRef, as the
 game's blueprints have) shows in blue with its StrRef beside it; typing
 there gives the blueprint text of its own.
 
-Each blueprint opens as a tab with Aurora's pages. Every change takes
-effect at once and is one undoable step. Under the pages are **OK** and
-**Cancel**: OK closes the window (what was changed is the module's
+Each blueprint opens as a tab with Aurora's pages. Its header shows
+the blueprint's kind, its name and its ResRef (in a narrow window the
+ResRef goes first, then the name is cut short), and at its right end
+**OK** and **Cancel**. Its window opens 980 points wide where the
+screen has the room (Module and Area Properties 930), enough for the
+page list and a page's widest layout beside it. The pages are listed at the left, each with its
+icon: they stand one after another on one scroll, each under a bar with
+its name, so the wheel goes from one page into the next. Click a page in
+the list (or press Up and Down there) to bring its bar to the top; the
+list fills in the page at the top and marks the others in view with a
+line at their left. Tab goes from field to field down the pages, each
+field brought into view as the keyboard comes to it. In a window too
+narrow for the list's words, the pages are a column of icons (their
+names in their tooltips). Only the pages in view are drawn, so a
+creature's fourteen pages cost what the few in view do.
+
+Every change takes effect at once and is one undoable step. **OK**
+closes the window (what was changed is the module's
 already, as it is when the window is closed by its tab's close button); Cancel closes it
 and sets back the fields that were changed in it since it was opened, as
 one step that Undo takes back. What was changed somewhere else meanwhile
@@ -538,16 +553,19 @@ only closed.) A placed object's Properties
 have the two as well, and so do several blueprints or objects edited
 together; the game's own
 blueprint, shown to look at, has **Close**. Module Properties, Area
-Properties (of one area or several), the conversation editor, the
-journal, the faction editor and the raw fields view have the same two
-under them. There Cancel sets back the fields and lists the window
+Properties (of one area or several) have them at their header's right
+end too, over their pages listed the same way; the conversation editor,
+the journal, the faction editor and the raw fields view have the same
+two under them. There Cancel sets back the fields and lists the window
 changed (a conversation's lines, a journal's categories), each field
 alone (an area's music, not its sounds with it); a file the window made
 (`module.jrl`, `repute.fac`) is gone again, and where a faction was
 removed, the objects renumbered for it are numbered back, keeping what
-else was changed in them meanwhile. A text field typed in and left by a
-key (its page or window gone with it) is set as it goes, and Cancel sets
-that back too. Fields Moonglow does not show are kept as they are.
+else was changed in them meanwhile. A text field typed in keeps the
+keyboard and what is typed when another page is brought to the top (its
+page stays drawn while it has the keyboard); left by a click elsewhere,
+or with its window closed, it is set as it goes, and Cancel sets that
+back too. Fields Moonglow does not show are kept as they are.
 
 The editors of files saved when asked (a 2DA, a hak, a tileset, the
 talk table, a script) have **OK** and **Cancel** too: OK saves (a new

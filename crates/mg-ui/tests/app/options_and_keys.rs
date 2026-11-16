@@ -615,7 +615,7 @@ fn menus_by_the_keyboard() {
     h.get_by_label("File").click();
     h.run();
     assert!(shown(&h, "Save As"));
-    h.get_by_label("Edit").hover();
+    menu(&h, "Edit").hover();
     h.run();
     h.run();
     h.run();

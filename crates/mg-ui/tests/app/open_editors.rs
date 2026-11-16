@@ -330,15 +330,29 @@ fn click_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     h.step();
 }
 
-/// The text field showing `value` on the row of a label `label`.
+/// The text field showing `value` on the row of a label `label`: a point
+/// of it no window stands over.
 fn field_at(h: &Harness<'_, Moonglow>, label: &str, value: &str) -> egui::Pos2 {
     let rows: Vec<f32> = h.get_all_by_label(label).map(|n| n.rect().center().y).collect();
     let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
     };
+    // (Its first point no window stands over, from its left end: the
+    // windows open as wide as their page lists need.)
+    // (Of its points, one in the layer furthest back: a window over the
+    // rest of it is in front.)
+    let order: Vec<egui::LayerId> = h.ctx.memory(|m| m.layer_ids().collect());
+    let rank = |p: egui::Pos2| {
+        let l = h.ctx.layer_id_at(p);
+        l.and_then(|l| order.iter().position(|o| *o == l)).unwrap_or(0)
+    };
+    let clear = |r: egui::Rect| {
+        let xs = (0..).map(|k| r.left() + 12.0 + 16.0 * k as f32).take_while(|x| *x < r.right());
+        xs.map(|x| egui::pos2(x, r.center().y)).min_by_key(|p| rank(*p))
+    };
     (h.query_all(egui_kittest::kittest::by().predicate(is)))
-        .map(|n| n.rect().center())
-        .find(|c| rows.iter().any(|y| (c.y - y).abs() < 8.0))
+        .filter(|n| rows.iter().any(|y| (n.rect().center().y - y).abs() < 8.0))
+        .find_map(|n| clear(n.rect()))
         .unwrap_or_else(|| panic!("the {label} field showing {value}"))
 }
 
@@ -360,6 +374,18 @@ fn edit_tag(h: &mut Harness<'_, Moonglow>) {
         open(h, &Tab::ModuleProperties);
     }
     click_tab(h, &Tab::ModuleProperties);
+    settle(h);
+    // (A blueprint's window put beside it, off its Tag field: beside their
+    // page lists, the waypoint's window came to lie over it.)
+    let windows: Vec<_> = (h.state().dock.iter_all_tabs())
+        .filter(|(p, t)| !p.surface.is_main() && matches!(t, Tab::Blueprint(_)))
+        .map(|(p, _)| p.surface)
+        .collect();
+    for surface in windows {
+        if let Some(w) = h.state_mut().dock.get_window_state_mut(surface) {
+            w.set_position(egui::pos2(900.0, 120.0));
+        }
+    }
     settle(h);
     let now = tag(h);
     let at = field_at(h, "Tag", &now);
@@ -546,7 +572,11 @@ fn follows(mode: Mode) {
     let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("wp_a")
     };
-    h.get(egui_kittest::kittest::by().predicate(is)).focus();
+    // (The Tag field on its Basic page: the Advanced page beside it in
+    // view shows the blueprint's ResRef, wp_a too.)
+    (h.get_by_label(mg_ui::blueprint::WINDOW_GROUP).get_by_label("Basic page"))
+        .get(egui_kittest::kittest::by().predicate(is))
+        .focus();
     until(&mut h, "the waypoint's field with the keys", |h| {
         h.ctx.memory(|m| m.focused().is_some())
     });

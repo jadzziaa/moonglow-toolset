@@ -1145,9 +1145,16 @@ pub(crate) fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &s
     let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.placeholder() == Some(hint) && (hint != "Filter" || list_filter(n))
     };
-    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    // (The first: a form's pages on one scroll show several, the page at
+    // the top first.)
+    let first = |h: &'_ Harness<'_, Moonglow>| {
+        let found = h.query_all(egui_kittest::kittest::by().predicate(by_hint)).next();
+        found.unwrap_or_else(|| panic!("no field with the hint {hint}")).accesskit_node().id()
+    };
+    let id = first(h);
+    h.get(egui_kittest::kittest::by().predicate(|n| n.id() == id)).click();
     settle(h);
-    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
+    h.get(egui_kittest::kittest::by().predicate(|n| n.id() == id)).type_text(text);
     settle(h);
 }
 
@@ -2165,4 +2172,57 @@ pub(crate) fn quick_open_chosen(h: &Harness<'_, Moonglow>) -> Option<String> {
         )
         .next()?;
     chosen.accesskit_node().label()
+}
+
+/// The row of the page `name` in the page list of the form in front:
+/// the window's ("Pages", the blueprints' and Module Properties'; "Area
+/// Properties pages"; the Properties panel's rail is "Pages" too), the
+/// last drawn where there are several.
+pub(crate) fn page_row<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> Option<egui_kittest::Node<'t>> {
+    let mut found = None;
+    for list in [mg_uikit::pages::PAGES, "Area Properties pages"] {
+        for group in h.query_all_by_label(list) {
+            if let Some(row) = group.query_by_label(name) {
+                found = Some(row);
+            }
+        }
+    }
+    found
+}
+
+/// Brings the page `name` of the form in front to the top of its one
+/// scroll (M4's U9): its row in the page list clicked, then waits until
+/// it is the page at the top (its row selected), the page drawn.
+pub(crate) fn page(h: &mut Harness<'_, Moonglow>, name: &str) {
+    page_row(h, name).unwrap_or_else(|| panic!("no page {name} in a page list")).click();
+    let started = std::time::Instant::now();
+    loop {
+        h.run();
+        let on = page_row(h, name)
+            .is_some_and(|r| r.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True));
+        if on {
+            return;
+        }
+        assert!(started.elapsed() < SETTLE_TIME, "the page {name} never came to the top");
+    }
+}
+
+/// The page `name` of the form in front, as drawn on its one scroll (a
+/// group named "Basic page"): what a test looks for on that page alone,
+/// the pages beside it in view too.
+pub(crate) fn in_page<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
+    // (Leaked: a query holds its label as long as what it finds.)
+    let group: &'static str = format!("{name}{}", mg_uikit::pages::PAGE_GROUP).leak();
+    h.get_all_by_label(group).last().unwrap_or_else(|| panic!("no {group} drawn"))
+}
+
+/// The Top Bar's menu `name` ("Edit"), not a control of the same name a
+/// form in view shows (a script field's Edit).
+pub(crate) fn menu<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_all_by_label(name)
+        .find(|n| n.rect().top() < mg_uikit::metrics::TOP_BAR)
+        .unwrap_or_else(|| panic!("no menu {name} in the Top Bar"))
 }

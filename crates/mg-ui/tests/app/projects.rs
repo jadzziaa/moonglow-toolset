@@ -1338,7 +1338,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1402,7 +1402,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
 
     // No code: as Aurora again, and the rest of the file kept.
     std::fs::write(dir.join(".moonglow/user.toml"), "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1581,7 +1581,7 @@ fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1649,7 +1649,7 @@ fn a_module_in_one_file_has_no_builder_code() {
     app.open_module(&sample_module(&dir));
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     assert!(h.get_by_label("Builder Code…").accesskit_node().is_disabled());
 }
@@ -2093,7 +2093,7 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
         claimed_project("ui-claims-table", "[claims]\nfile = \"claims.2da\"\n", &table);
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Claims Table…").click();
     h.run();

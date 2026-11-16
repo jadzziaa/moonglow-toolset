@@ -32,6 +32,7 @@ pub mod dialog_view;
 pub mod dialogs;
 mod dock_look;
 pub mod faction_view;
+mod form_pages;
 mod gff_view;
 pub mod hak_view;
 mod icons;

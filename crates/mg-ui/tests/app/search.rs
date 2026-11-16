@@ -1013,7 +1013,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
     let mut h = window_harness(app);
     settle(&mut h);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Advanced Search…").click();
     h.run_steps(2);

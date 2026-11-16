@@ -567,7 +567,7 @@ fn side_editor_undo_in_the_edit_menu() {
     h.run_steps(2);
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run_steps(2);
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     shoot(&mut h, &dir, "edit-menu-over-a-hak");
     eprintln!("{}", dir.join("edit-menu-over-a-hak.png").display());
 }
@@ -1773,7 +1773,7 @@ fn project_commands_and_team_prefix() {
     shoot(&mut h, &dir, "project-commands-keyboard");
     h.state_mut().options = None;
     h.run();
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     shoot(&mut h, &dir, "team-prefix-builder-code");
@@ -2869,6 +2869,8 @@ fn hover_list_row(
     };
     let at = h
         .get_all_by(|n| n.label().is_some_and(|l| rows(&l)) && n.role() != combo)
+        // (Drawn: a group of what is not, a value's text run, has no place.)
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
         .filter(|n| in_sight(n.rect()))
         .nth(row)
         .map(|n| n.rect().center())
@@ -4226,7 +4228,7 @@ fn script_edit_menu_undo() {
     h.run();
     h.key_press(egui::Key::Enter);
     h.run();
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "script-edit-menu-undo");
 }
@@ -5554,7 +5556,7 @@ fn areas_edited_together() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Edit Areas Together…").click();
     at_rest(&mut h, |h| h.get_by_label("Tick Shown").rect());
@@ -7897,7 +7899,7 @@ fn edit_areas_together() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Edit Areas Together…").click();
     h.run_steps(3);
@@ -8441,7 +8443,7 @@ fn claims_and_project_commands() {
     }
     h.state_mut().builder_code = None;
     // Edit › Claims Table…: the table whole, Take Over… asked, Hand To….
-    h.get_by_label("Edit").click();
+    top_menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Claims Table…").click();
     h.run_steps(3);
@@ -9298,6 +9300,18 @@ fn main_window_log_and_tree() {
     shoot(&mut h, &dir, "w3-tree-module-properties");
     let utc = |name: &str| ResKey::parse(name, ResType::UTC).unwrap();
     open(&mut h, mg_ui::Tab::Blueprints(vec![utc("attendant"), utc("bertrand")]));
+    // (The windows off the tree, its Filter and Clear Filter: at their
+    // first widths, beside their page lists, they reached over them.)
+    let windows: Vec<_> = (h.state().dock.iter_all_tabs())
+        .filter(|(p, _)| !p.surface.is_main())
+        .map(|(p, _)| p.surface)
+        .collect();
+    for surface in windows {
+        if let Some(w) = h.state_mut().dock.get_window_state_mut(surface) {
+            w.set_position(egui::pos2(300.0, 70.0));
+        }
+    }
+    h.run_steps(3);
     shoot(&mut h, &dir, "w3-tree-several");
     // The Filter typed: placed objects found, then a script it hides
     // chosen.
@@ -12676,11 +12690,11 @@ fn gizmo_states_on(ground: &str, tileset: &str) {
     hover(&mut h, "hover_start_tip", false, start + Vec3::new(0.0, 0.75, 0.05), start);
 }
 
-/// Creature.png: Faribeth's Properties As Tabs, on Basic. Today the pages
-/// are a wrapped row of selectables over one page at a time, OK and
-/// Cancel at the foot; the board's page list at the left, the pages on
-/// one scroll in sections and columns, and the Preview panel showing the
-/// open blueprint are M4's; the Right Dock shows the palette.
+/// Creature.png: Faribeth's Properties As Tabs, on Basic: the header with
+/// OK and Cancel at its right end, the page list at the left, the pages
+/// on one scroll (M4's U9); the pages' sections and columns (U10) and the
+/// Preview panel showing the open blueprint (U11) are to come; the Right
+/// Dock shows the palette.
 #[test]
 #[ignore]
 fn board_creature() {
@@ -12713,8 +12727,9 @@ fn pictures_shown(h: &mut Harness<'_, Moonglow>) {
 }
 
 /// WideCreature.png at 3440 by 1440: Faribeth's Properties As Tabs. Today
-/// one page at a time, not the board's columns of every page side by
-/// side; the Right Dock's wide layout holds the palette and the Preview.
+/// the pages one after another on one scroll beside their list (M4's U9),
+/// not the board's columns of every page side by side (U10); the Right
+/// Dock's wide layout holds the palette and the Preview.
 #[test]
 #[ignore]
 fn board_creature_wide() {
@@ -13617,4 +13632,89 @@ fn shell_tab_dragged_alone() {
         h.step();
     }
     shoot(&mut h, &dir, "shell_tab_dragged_alone");
+}
+
+/// The Top Bar's menu `name` ("Edit"), not a control of the same name in a
+/// form in view (a script field's Edit on Module Properties' Events page).
+fn top_menu<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    h.get_all_by_label(name)
+        .find(|n| n.rect().top() < mg_uikit::metrics::TOP_BAR)
+        .unwrap_or_else(|| panic!("no menu {name} in the Top Bar"))
+}
+
+/// U9's review: the form windows at their first sizes beside the page list
+/// (`Tab::window_size`, 980 for a blueprint's, 930 for Module and Area
+/// Properties), or with `U9_OLD` set at the sizes before (820 and 760):
+/// a placeable's Basic page (the model beside its fields), a creature's
+/// Inventory, a store's Inventory, an encounter's Creature List, Module
+/// Properties' Custom Content; and a long name in a header 440 wide.
+#[test]
+#[ignore]
+fn form_windows_first_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let old = std::env::var_os("U9_OLD").is_some();
+    let when = if old { "before" } else { "after" };
+    let screen = egui::vec2(1600.0, 900.0);
+    for (name, t, page) in [
+        ("plc_chest1", ResType::UTP, "Basic"),
+        ("nw_bandit001", ResType::UTC, "Inventory"),
+        ("nw_storebar01", ResType::UTM, "Inventory"),
+        ("nw_verminbeet", ResType::UTE, "Creature List"),
+    ] {
+        let mut h = pictured_blueprint(&root, &dir, (name, t), page, screen);
+        h.run_steps(4);
+        let key = ResKey::parse(name, t).unwrap();
+        let tab = mg_ui::Tab::Blueprint(key);
+        let w = if old { 820.0 } else { 980.0 };
+        place(&mut h, &tab, (20.0, 40.0), (w, 760.0));
+        h.run_steps(30);
+        let page_name = page.to_lowercase().replace(' ', "-");
+        shoot(&mut h, &dir, &format!("first-size-{when}-{name}-{page_name}"));
+    }
+    // Module Properties' Custom Content in a window of its own.
+    let path = dir.join("first-size-module.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.palette_dock = false;
+    app.module_page = mg_ui::module_props::Page::CustomContent;
+    let mut h = Harness::builder()
+        .with_size(screen)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let tab = mg_ui::Tab::ModuleProperties;
+    let at = h.state().dock.find_tab(&tab).unwrap();
+    let rect = egui::Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(800.0, 600.0));
+    h.state_mut().dock.detach_tab(at, rect);
+    h.run_steps(3);
+    let w = if old { 760.0 } else { 930.0 };
+    place(&mut h, &tab, (20.0, 40.0), (w, 640.0));
+    h.run_steps(10);
+    shoot(&mut h, &dir, &format!("first-size-{when}-module-properties"));
+    // A long name in a header 440 wide.
+    let mut h = pictured_blueprint(&root, &dir, ("plc_chest1", ResType::UTP), "Basic", screen);
+    h.run_steps(4);
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let name = "The Chest of the Seventh Sorrowful Bandit King of the Misty Moor";
+    let title =
+        mg_core::LocString::from_text(mg_core::Language::ENGLISH, mg_core::Gender::Male, name);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "name",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: "LocName".into(),
+            value: Some(mg_gff::Value::LocString(title)),
+        }],
+    )));
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (440.0, 600.0));
+    h.run_steps(10);
+    shoot(&mut h, &dir, &format!("first-size-{when}-long-name-440"));
 }

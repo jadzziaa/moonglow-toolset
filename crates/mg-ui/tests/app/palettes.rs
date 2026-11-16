@@ -359,7 +359,7 @@ fn palette_edit_copy_and_delete() {
     let tag = draft.tag.expect("a waypoint has a tag");
     h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
     h.get_by_label("Create Copy").click();
-    h.run();
+    settle(&mut h);
     // A copy in the module, shown in the Custom palette.
     let copy = ResKey::parse("wp_tavern001", ResType::UTW).unwrap();
     let gff = h.state_mut().ws.as_mut().unwrap().doc(&copy).unwrap().clone();

@@ -104,6 +104,9 @@ enum Pointer {
     /// Rests at the point with the key pressed every so many frames, as a
     /// key held down repeats (E turning the selection, in an area's view).
     Keys(egui::Pos2, egui::Key, usize),
+    /// Rests at the point with the wheel turning down by so many points a
+    /// frame (a form's pages on one scroll, top to bottom).
+    Down(egui::Pos2, f32),
 }
 
 struct Report {
@@ -264,6 +267,15 @@ fn frames(
                         modifiers: egui::Modifiers::NONE,
                     });
                 }
+            }
+            Pointer::Down(at, by) => {
+                input.events.push(egui::Event::PointerMoved(at));
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -by),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
             }
             Pointer::Drags(from, to) => {
                 let at = from.lerp(to, n as f32 / (count - 1).max(1) as f32);
@@ -779,6 +791,40 @@ fn palette_view(h: &mut App<'_>, r: &mut Report, what: &str) {
     let rect = palette_rect(h);
     view_in(h, r, what, rect, |_, _| {});
     fold_palette(h);
+}
+
+/// A blueprint's pages on their one scroll (M4's U9), scrolled from the
+/// first to the last by the wheel over the pages: each frame draws the
+/// pages in sight, and those come into sight measured as they come.
+fn pages_scrolled(h: &mut App<'_>, r: &mut Report, what: &str, key: ResKey) {
+    let what = format!("{what}, its pages scrolled top to bottom");
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) || r.shots {
+        return;
+    }
+    let tab = Tab::Blueprint(key);
+    open(h, tab.clone());
+    let rect = rect_of(h.state(), &tab).expect("the blueprint's window");
+    let pages = mg_ui::blueprint::pages(key.restype);
+    let at = |h: &App<'_>| h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied();
+    // (Over the pages, in their left margin beside the list, the
+    // window's own margin before it: a list on a page takes the wheel
+    // over it.)
+    let over = egui::pos2(rect.left() + mg_uikit::pages::PAGE_LIST + 12.0, rect.center().y);
+    // (Enough frames to reach the last page, at 120 points a frame.)
+    let mut f = frames(h, rect, Pointer::Down(over, 120.0), 4, |_, _| {});
+    let mut more = 0;
+    while at(h) != pages.last().copied() && more < 40 {
+        let g = frames(h, rect, Pointer::Down(over, 120.0), r.count, |_, _| {});
+        f.ui.extend(g.ui);
+        f.tessellate.extend(g.tessellate);
+        f.gpu.extend(g.gpu);
+        f.vertices = f.vertices.max(g.vertices);
+        f.passes = f.passes.max(g.passes);
+        more += 1;
+    }
+    assert_eq!(at(h), pages.last().copied(), "{what}: the wheel reached the last page");
+    said(r, &what, "wheel", &f);
+    close(h, &tab);
 }
 
 fn tab(h: &mut App<'_>, r: &mut Report, what: &str, tab: Tab) {
@@ -1953,6 +1999,9 @@ fn frames_at_144() {
     {
         if let Some(k) = k {
             tab(&mut h, &mut r, &format!("{what} {}", k.resref), Tab::Blueprint(k));
+            if what == "creature" {
+                pages_scrolled(&mut h, &mut r, &format!("creature {}", k.resref), k);
+            }
             tab(&mut h, &mut r, &format!("{what} {} as GFF", k.resref), Tab::Gff(k));
         }
     }
@@ -2034,7 +2083,10 @@ fn frames_at_144_in_a_persistent_world() {
 
     let store = Tab::Blueprint(ResKey::parse("pw_store", ResType::UTM).unwrap());
     open(&mut h, store.clone());
-    h.get_by_label("Inventory").click();
+    h.state_mut().blueprint_pages.insert(
+        (ResKey::parse("pw_store", ResType::UTM).unwrap(), mg_edit::GffPath::root()),
+        "Inventory",
+    );
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     // Its picker on the custom palette, searched for what all 8,000 have:

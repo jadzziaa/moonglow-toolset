@@ -188,6 +188,12 @@ pub(crate) fn page_icon(page: &str) -> mg_uikit::Icon {
         "Restrictions" => Icon::Filter,
         "Positioning" => Icon::Compass,
         "Properties" => Icon::Properties,
+        // (Module and Area Properties' own.)
+        "Events" => Icon::Bolt,
+        "Custom Content" => Icon::Hak,
+        "Visual" => Icon::Light,
+        "Grass" => Icon::Grass,
+        "Audio" => Icon::Sound,
         _ => Icon::Properties,
     }
 }
@@ -299,6 +305,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
         held,
         is_viewed,
         heading: Some((page, readout)),
+        all: None,
     };
     // (Its fields' ids follow their objects as a window's do, should an
     // edit renumber them while one is typed in: `follow::window_id`.)

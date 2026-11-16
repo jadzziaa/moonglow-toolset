@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T02:56:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1426,10 +1426,12 @@ log.
   system: his word that it places would settle it. (a builder's report,
   October 2026)
 - **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page is checked for widgets drawn over each other at
-  four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
-  and none are. A screenshot, or the page and the interface size, would
-  find it. (S) (a senior builder's review, October 2026)
+  reproduced: every page of every kind is walked whole, top to bottom on
+  the window's one scroll, at four window sizes at 100% interface size
+  (`blueprint_editor_pages_draw_nothing_over_anything_else`, since M4's
+  U9) and none draws over another. A screenshot, or the page and the
+  interface size, would find it. (S) (a senior builder's review, October
+  2026)
 - **A drag on a number field moving objects in the area behind:**
   reported, not reproduced
   (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the

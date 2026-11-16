@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T13:01:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
 ---
 
 # Modules
@@ -1463,7 +1463,10 @@ has the same module open. As in Aurora, open conversations are also backed up as
 ## Module Properties
 
 **Edit › Module Properties** (or the top of the module tree), with
-Aurora's pages:
+Aurora's pages, listed at its left and standing one after another on
+one scroll as a blueprint's do ([the editors](05-blueprints.md#the-editors)):
+a page clicked in the list comes to the top. **OK** and **Cancel** are
+at the right end of its header, which shows the module's name.
 
 - **Basic**: name, tag (up to 32 characters, as every tag), and the
   start area and location (the start location marker in the area viewer

@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -132,8 +132,8 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) |
-| The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll |
+| The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) ✓ M4 U9 (the header: the kind's icon, the name, the resref quieter, OK and Cancel at its right end; Module and Area Properties the same) |
+| The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll ✓ M4 U9 (each page with its icon, the page at the top filled, the others in view marked; each page under its bar, drawn only where in sight; a window too narrow for the words lists them as the Properties panel's icon rail) |
 | Basic: First name, Last name (languages button, Random name), Tag | Identity section |
 | Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section |
 | Challenge rating, Category | Palette section |
@@ -142,7 +142,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Description with its language button | Description section, full width |
 | Preview window: info line, Animation, Pause, Frame, Lights, Shadow, Shaders, Export Files… | Right Dock, Preview panel, one header row over the 3D view |
 | The Appearance page's own preview | The same Preview panel |
-| OK, Cancel | Editor header, right end, meaning unchanged |
+| OK, Cancel | Editor header, right end, meaning unchanged ✓ M4 U9 |
 
 
 #### At 3440 by 1440

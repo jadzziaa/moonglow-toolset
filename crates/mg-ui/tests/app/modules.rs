@@ -1266,7 +1266,7 @@ fn module_name_in_every_language_and_variables() {
     };
 
     // String Edit: add a German name.
-    h.get_by_label("…").click();
+    in_page(&h, "Basic").get_by_label("…").click();
     h.run();
     h.get_by_label("Add Text").click();
     h.run();
@@ -1286,11 +1286,11 @@ fn module_name_in_every_language_and_variables() {
     assert_eq!(name.strref.0, 12);
 
     // Variables on the Advanced tab (scrolled to: below the edge).
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     click_in_sight(&mut h, "Variables (0)…");
     h.run();
-    h.get_by_label("Add").click();
+    h.get_all_by_label("Add").last().unwrap().click();
     h.run();
     {
         let v = h.state_mut().var_edit.as_mut().unwrap();
@@ -2428,7 +2428,7 @@ fn a_field_typed_in_sets_its_text_before_files_changed_outside_are_read() {
     app.open_module(&folder);
     let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
-    h.get_by_label("Description").click();
+    page(&mut h, "Description");
     h.run_steps(3);
     let memo = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
     let at = h.get(memo).rect().center();

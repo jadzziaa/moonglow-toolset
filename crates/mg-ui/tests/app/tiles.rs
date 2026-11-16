@@ -97,7 +97,7 @@ fn undo_over_a_tileset_editor_is_the_tileset_s() {
     assert_eq!(terrains(&h), 1, "redone");
     // From the Edit menu: plain Undo, the tileset's.
     over(&mut h);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     // (The menu's entry is the one with its key: the editor's own button
     // and the toolbar's say "Undo" with no more, or after a glyph.)
@@ -1150,7 +1150,7 @@ fn resize_and_rotate_area_from_the_edit_menu() {
         (are.root.integer("Width").unwrap(), are.root.integer("Height").unwrap(), tiles)
     };
     assert_eq!(size(&mut h), (4, 4, 16));
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Resize Area…").click();
     h.run_steps(2);
@@ -1173,7 +1173,7 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     };
     assert_eq!(waypoints(&mut h).len(), 2);
     // A quarter turn counter-clockwise: 3 by 6, (20, 20) to (10, 20).
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Rotate Area…").click();
     h.run_steps(2);
@@ -1190,7 +1190,7 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     // At the south and west edges: two columns come at the west, a row
     // goes at the south, and the waypoints keep their places against the
     // north and east edges: (20, 20) to (40, 10).
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Resize Area…").click();
     h.run_steps(2);
@@ -1221,7 +1221,7 @@ fn change_tileset_from_the_edit_menu() {
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
     };
     let before = are(&mut h);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Change Tileset…").click();
     h.run_steps(2);
@@ -1265,7 +1265,7 @@ fn change_tileset_from_the_edit_menu() {
 /// Resize Area from the Edit menu to `columns` by `rows` (the new ground
 /// at the north and east), the camera then over all of it.
 fn resize_area_to(h: &mut Harness<'_, Moonglow>, area: ResRef, columns: u32, rows: u32) {
-    h.get_by_label("Edit").click();
+    menu(h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Resize Area…").click();
     h.run_steps(2);

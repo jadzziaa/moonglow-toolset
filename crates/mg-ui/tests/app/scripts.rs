@@ -498,7 +498,7 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     h.run();
     assert_eq!(script(&h), edited, "and Redo gives it again");
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Z", "not the module's step");
     h.get_by_label("Undo Ctrl+Z").click();
@@ -506,7 +506,7 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     assert_eq!(script(&h), text, "the new line is taken back");
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
     assert!(script_has_keys(&h, key), "the keys back in the editor");
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     let redo = edit_row(&h, "Redo");
     h.get_by_label(&redo).click();
@@ -535,7 +535,7 @@ fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     h.get_by_label("Areas (1)").click();
     h.run_steps(2);
     assert!(!script_has_keys(&h, key));
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     assert_eq!(edit_row(&h, "Undo"), "Undo Earlier Ctrl+Z", "the module's step named");
     h.key_press(egui::Key::Escape);
@@ -576,7 +576,7 @@ fn replace_all_and_replace_are_steps_of_the_script_s_undo() {
         |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
     let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
     let menu_undo = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("Edit").click();
+        menu(h, "Edit").click();
         h.run_steps(2);
         assert_eq!(edit_row(h, "Undo"), "Undo Ctrl+Z", "the script's step, not the module's");
         h.get_by_label("Undo Ctrl+Z").click();
@@ -621,7 +621,7 @@ fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
     // of its own, cursor and all: one Undo still takes it back, not
     // only the cursor.)
     h.run_steps(8);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label(&edit_row(&h, "Undo")).click();
     h.run_steps(2);
@@ -656,7 +656,7 @@ fn a_rebound_undo_key_is_the_script_s_in_its_editor() {
     assert_eq!(script(&h), edited, "and given again");
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     // The menu names the new key, and its Undo is the script's still.
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Alt+U");
 }
@@ -671,7 +671,7 @@ fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
         |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
     let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
     // Closed by Escape.
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     assert!(!script_has_keys(&h, key), "the click on the menu took the keys");
     h.key_press(egui::Key::Escape);
@@ -693,7 +693,7 @@ fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
     // Closed by a click outside the editor (the module tree): nowhere.
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Areas (1)").click();
     h.run_steps(2);
@@ -919,7 +919,7 @@ fn tab_indents_as_the_script_does() {
 
     // Converted from the Edit menu: one step to undo.
     let mut h = open(two);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Convert Indentation to Tabs").click();
     h.run_steps(3);
@@ -939,7 +939,7 @@ fn tab_indents_as_the_script_does() {
     // Taken back with the editor's Undo, Tab indents as before it (two
     // spaces), not as converted.
     let mut h = open(two);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Convert Indentation to Tabs").click();
     h.run_steps(3);

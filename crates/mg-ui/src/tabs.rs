@@ -229,14 +229,22 @@ impl Tab {
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal => (780.0, 632.0),
             Tab::Gff(_) => (780.0, 600.0),
-            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
+            // (Room for the page list's 150 points and a page's margins
+            // beside the form as wide as the 760 before it gave: the hak
+            // list's commands on one row; M4's U9.)
+            Tab::ModuleProperties | Tab::AreaProperties(_) | Tab::AreasProperties(_) => {
+                (930.0, 612.0)
+            }
             Tab::Options => crate::options::WINDOW_SIZE.into(),
             Tab::PluginPanel { .. } => (380.0, 560.0),
-            // (Each with OK and Cancel under it: 32 points of its height.)
+            // (Its header with OK and Cancel over the pages, the page list
+            // at their left: wide enough beside the list for a placeable's
+            // model beside its Basic page's fields, a creature's slots beside
+            // their palette and an encounter's creatures whole; M4's U9.)
             Tab::Blueprint(_)
             | Tab::Blueprints(_)
             | Tab::Instance { .. }
-            | Tab::Instances { .. } => (820.0, 672.0),
+            | Tab::Instances { .. } => (980.0, 672.0),
             _ => (820.0, 640.0),
         };
         // (The heights were found for controls of 18 points with 3
@@ -693,6 +701,11 @@ impl TabViewer for Viewer<'_> {
         // margin, `Moonglow::ui`, and takes its tabs' from that: without
         // this they sat flush against their pane's edge.)
         let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        // (A form window's header and page list stand flush with its
+        // pane's edges, as the Creature board draws them: M4's U9; its
+        // foot keeps the room the rest have over the Status Bar.)
+        let flush = egui::Margin { bottom: margin.bottom, ..egui::Margin::ZERO };
+        let margin = if form_window(tab) { flush } else { margin };
         // In a window of its own, a drag on what isn't a control is the
         // tab's, behind all it shows, not the window's (egui_dock's windows
         // have no title bar, so egui moves them by any part): the window
@@ -1469,6 +1482,22 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// Whether a tab fits its pane, scrolling within itself, or scrolls in it
 /// when wider or taller ([`TabViewer::ui`]).
+/// Whether `tab` is a form window with its header and page list
+/// (`crate::form_pages`): a blueprint's or placed object's Properties,
+/// Module Properties, Area Properties.
+fn form_window(tab: &Tab) -> bool {
+    matches!(
+        tab,
+        Tab::ModuleProperties
+            | Tab::AreaProperties(_)
+            | Tab::AreasProperties(_)
+            | Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. }
+    )
+}
+
 fn fits(tab: &Tab) -> bool {
     {
         matches!(

@@ -44,7 +44,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
     // read-only: its Properties are looked at, gray.)
     let held = areas().find_map(|a| crate::claims::read_only(app, a));
     let viewed = held.is_some();
-    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], viewed));
+    let pressed = match app.ws.is_some() {
+        true => {
+            let by_name = app.settings.area_names;
+            let name = match &app.ws {
+                Some(ws) => app.area_names.label(ws, app.game.as_deref(), area, by_name),
+                None => area.to_string(),
+            };
+            let sub = match others {
+                [] => area.to_string(),
+                _ => format!("{area} and {} more", others.len()),
+            };
+            let title = crate::blueprint::Title {
+                header: "Area Properties header".into(),
+                icon: mg_uikit::Icon::AreaProperties,
+                name: &name,
+                sub: if name == sub { "" } else { &sub },
+            };
+            crate::blueprint::ok_cancel_header(ui, &title, viewed, crate::blueprint::OK_CANCEL_TIPS)
+        }
+        false => None,
+    };
     let pending = app.actions.len();
     crate::claims::banner(app, ui, area);
     let refused_id = egui::Id::new(("area-refused", area));
@@ -80,7 +100,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
         [] => crate::Tab::AreaProperties(area),
         _ => crate::Tab::AreasProperties(areas().collect()),
     };
-    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed);
 }
 
 /// The window's pages (only looked at, `viewed`): where they were drawn.
@@ -120,31 +140,31 @@ fn pages(
     let others = others.as_slice();
     let several = !others.is_empty();
     let pages: &[&'static str] = if several { &SHARED_PAGES } else { &PAGES };
-    // (Several areas keep a page of their own: a path no document has.)
-    let page_key = (are, if several { GffPath::root().field("several") } else { GffPath::root() });
+    // (Several areas keep a page of their own, each set of them its own: a
+    // path no document has.)
+    let set: Vec<ResRef> = std::iter::once(area).chain(others.iter().copied()).collect();
+    let page_key = match several {
+        true => (are, several_page(&set)),
+        false => (are, GffPath::root()),
+    };
     let tab = match several {
         true => crate::Tab::AreasProperties([&[area], others].concat()),
         false => crate::Tab::AreaProperties(area),
     };
-    let mut page = (app.blueprint_pages.get(&page_key).copied())
-        .or_else(|| app.open_tabs.page(&tab, pages))
-        .unwrap_or(pages[0]);
-    if !pages.contains(&page) {
-        page = pages[0];
-    }
-    ui.horizontal_wrapped(|ui| {
-        // (Named, for a screen reader and the tests: "Audio" is also the
-        // area header's popover.)
-        mg_uikit::name_group(ui, PAGES_ROW);
-        for p in pages {
-            ui.selectable_value(&mut page, *p, *p);
-        }
-    });
-    app.blueprint_pages.insert(page_key, page);
-    ui.separator();
+    let asked = app.blueprint_pages.get(&page_key).copied();
+    let page = asked.or_else(|| app.open_tabs.page(&tab, pages)).unwrap_or(pages[0]);
+    let mut top = pages.iter().position(|p| *p == page).unwrap_or(0);
+    // (The pages one after another on one scroll, the list at their left,
+    // named for a screen reader and the tests: "Audio" is also the area
+    // header's popover. `blueprint_pages` keeps the page at the top.)
+    // (Kept by the whole set of areas: another set has its own place.)
+    let id = egui::Id::new(("area-properties-pages", area, others));
+    let mut listed = crate::form_pages::list(ui, id, PAGES_ROW, pages, &mut top);
+    let ui = &mut listed.body;
+    let mut names = Vec::new();
     if several {
         let by_name = app.settings.area_names;
-        let names: Vec<String> = std::iter::once(&area)
+        names = std::iter::once(&area)
             .chain(others)
             .map(|a| match &app.ws {
                 Some(ws) => app.area_names.label(ws, app.game.as_deref(), *a, by_name),
@@ -158,26 +178,33 @@ fn pages(
         ))
         .on_hover_text(names.join("\n"));
         ui.weak("Names, tags and comments are edited one area at a time.");
-        // What the page shows is the first area's, and only what is changed
-        // is set on the others: this gives them the rest of it too.
-        if ui
-            .add_enabled(
-                !viewed,
-                egui::Button::new(format!("Give Every Area This Page's {page} Settings")),
-            )
-            .on_hover_text(format!(
-                "Sets every other area to what this page shows ({}'s), changed here or not",
-                names[0]
-            ))
-            .clicked()
-        {
-            give_page(app, area, others, page, true);
-        }
     }
     let also: Vec<(ResKey, GffPath)> =
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
-    let shown = egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+    let narrow = crate::form_pages::narrow(ui.available_width());
+    let scroll = crate::form_pages::scroll(id, pages, !narrow, listed.chosen);
+    let shown = scroll.show(ui, &mut top, |ui, i| {
+        let page = pages[i];
+        if several {
+            // What the page shows is the first area's, and only what is
+            // changed is set on the others: this gives them the rest of it
+            // too.
+            if ui
+                .add_enabled(
+                    !viewed,
+                    egui::Button::new(format!("Give Every Area This Page's {page} Settings")),
+                )
+                .on_hover_text(format!(
+                    "Sets every other area to what this page shows ({}'s), changed here or not",
+                    names[0]
+                ))
+                .clicked()
+            {
+                give_page(app, area, others, page, true);
+            }
+            ui.add_space(6.0);
+        }
         crate::blueprint::read_only_if(ui, viewed, |ui| {
             if page == "Audio" {
                 audio(app, ui, area, others);
@@ -191,8 +218,8 @@ fn pages(
                 app,
                 key: are,
                 path: GffPath::root(),
-                also,
-                root,
+                also: also.clone(),
+                root: root.clone(),
                 together: Default::default(),
             };
             match page {
@@ -205,7 +232,21 @@ fn pages(
             }
         })
     });
-    Some(shown.inner_rect)
+    // (Unless a page asked for another while it was drawn: brought to the
+    // top in the next frame.)
+    match app.blueprint_pages.get(&page_key).copied() == asked {
+        true => _ = app.blueprint_pages.insert(page_key, pages[top]),
+        false => ui.ctx().request_repaint(),
+    }
+    Some(shown.viewport)
+}
+
+/// Where the page at the top of Area Properties of several areas `set`
+/// is kept (with the first area's ARE): a path no document has, its own
+/// for each set.
+pub(crate) fn several_page(set: &[ResRef]) -> GffPath {
+    let names: Vec<String> = set.iter().map(ResRef::to_string).collect();
+    GffPath::root().field(&format!("several {}", names.join(" ")))
 }
 
 /// The Visual page's fields ([`mg_module::lighting::VISUAL_FIELDS`]).

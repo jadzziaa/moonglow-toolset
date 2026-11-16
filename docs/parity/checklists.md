@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T14:27:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -33,7 +33,8 @@ unless their file (under `crates/`) follows the name.
 | Custom Content: hak list, Add (from hak folders), Remove, Move Up, Move Down | same; changes apply when the module is reopened | ✅ |
 | Custom Content: Check for Conflicts… (TdlgHakPak) | report window (the text of `mg haks`) | ◐ report text only; Aurora's dialog lists conflicts in a grid |
 | Custom Content: Custom Tlk File (tlk folder) | list of `.tlk` in the user's `tlk/`; the chosen table is loaded for StrRef lookups | ✅ |
-| OK / Cancel | the same: every change applies as it is made, one undoable step, and Cancel sets back what the window changed since it was opened, as one step | ✅ [the_editors_cancel_sets_back_what_they_changed] |
+| OK / Cancel | the same: every change applies as it is made, one undoable step, and Cancel sets back what the window changed since it was opened, as one step; at the right end of the window's header (M4 U9) | ✅ [the_editors_cancel_sets_back_what_they_changed, module_and_area_properties_list_their_pages_under_their_header] |
+| The tabs Basic … Custom Content | the pages listed at the left with icons, one after another on one scroll (a page clicked comes to the top; M4 U9) | ✅ [module_and_area_properties_list_their_pages_under_their_header] |
 
 ## String Edit (`TdlgLocString`, `TdlgNewEditStringExternal`)
 
@@ -209,7 +210,14 @@ field takes the type the game's files give it), fields the editor does not
 show are kept, and a stored value outside a field's range is shown as it is
 (only edits are clamped). The window's OK and Cancel are Aurora's: Cancel
 sets back what the window changed since it was opened, as one step
-([a_properties_window_s_cancel_sets_back_what_it_changed]).
+([a_properties_window_s_cancel_sets_back_what_it_changed]); they stand
+at the right end of the window's header (the blueprint's kind, name and
+ResRef), and the dialog's tabs are a list of the pages at the left with
+icons, the pages one after another on one scroll, drawn only where in
+sight, a page clicked in the list brought to the top (M4 U9;
+[a_creature_s_pages_stand_on_one_scroll_beside_their_list,
+the_keyboard_goes_down_the_pages_and_along_the_list,
+blueprint_editor_pages_draw_nothing_over_anything_else]).
 A placed object's (or several of one type's) pages also show in the area
 editor's Properties panel, the Right Dock's lower section, without OK or
 Cancel: each change one Undo step (M4 U6, the UI redesign's S2;

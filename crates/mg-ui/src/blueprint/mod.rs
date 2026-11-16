@@ -329,12 +329,14 @@ pub(crate) enum Pressed {
 /// alone. Drawn before the window's pages, of whose room it takes the
 /// foot.
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
-    let tips = [
-        "Close the window: its changes are kept",
-        "Close the window and set back its changes, as one Undo step",
-    ];
-    ok_cancel_saying(ui, egui::Id::new(first), viewed, tips)
+    ok_cancel_saying(ui, egui::Id::new(first), viewed, OK_CANCEL_TIPS)
 }
+
+/// [`ok_cancel`]'s tips: OK's and Cancel's.
+pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
+    "Close the window: its changes are kept",
+    "Close the window and set back its changes, as one Undo step",
+];
 
 /// [`ok_cancel`] for a window that says what its two buttons do itself
 /// (`tips`: OK's and Cancel's).
@@ -366,6 +368,106 @@ pub(crate) fn ok_cancel_saying(
             });
         });
     pressed
+}
+
+/// What a form window's header shows at its left (the Creature board's
+/// `.bp-title`): its kind's icon, its name and, quieter, its resref (or
+/// what stands for one).
+pub(crate) struct Title<'t> {
+    /// The header's accessible name ("Creature blueprint header").
+    pub header: String,
+    pub icon: mg_uikit::Icon,
+    pub name: &'t str,
+    pub sub: &'t str,
+}
+
+/// [`ok_cancel_saying`]'s `in_header` form (the proposal's M4 Part 2,
+/// decision 4): the window's header row (`mg_uikit::header`, 30 px of
+/// `bar`) with its title at the left and OK and Cancel (Close alone where
+/// only looked at) in its end slot, at the right end; the same tips and
+/// the same [`Pressed`]. Drawn first, at the window's top.
+pub(crate) fn ok_cancel_header(
+    ui: &mut Ui,
+    title: &Title<'_>,
+    viewed: bool,
+    tips: [&str; 2],
+) -> Option<Pressed> {
+    use mg_uikit::KitButton;
+    let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    let measure = |text: &str| {
+        let galley =
+            ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
+        galley.size().x
+    };
+    const GAP: f32 = 8.0;
+    let buttons: Vec<KitButton> = match viewed {
+        true => vec![KitButton::new(None, "Close")],
+        false => vec![
+            KitButton::new(None, "OK").tip(tips[0]),
+            KitButton::new(None, "Cancel").tip(tips[1]),
+        ],
+    };
+    let gap = mg_uikit::header::HEADER_GAP;
+    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len() as f32 - 1.0).max(0.0);
+    // The title yields where the row is short (the style guide's
+    // ellipsis): the resref first, then the name cut short, the icon kept;
+    // its accessible name the whole of it.
+    let room = (ui.available_width()
+        - 2.0 * mg_uikit::header::HEADER_PADDING
+        - end_width
+        - 2.0 * gap
+        - 2.0)
+        .max(0.0);
+    let frame = 4.0 + mg_uikit::metrics::ICON + GAP + 4.0;
+    let name_w = measure(title.name);
+    let sub_w = if title.sub.is_empty() { 0.0 } else { GAP + measure(title.sub) };
+    let (shown_sub, name_room) = match frame + name_w + sub_w <= room {
+        true => (title.sub.to_string(), name_w),
+        false => (String::new(), (room - frame).min(name_w).max(0.0)),
+    };
+    let width = frame + name_room + if shown_sub.is_empty() { 0.0 } else { sub_w };
+    let (icon, name, sub) = (title.icon, title.name.to_string(), shown_sub);
+    let whole = match title.sub.is_empty() {
+        true => title.name.to_string(),
+        false => format!("{} {}", title.name, title.sub),
+    };
+    let item = mg_uikit::header::Item::custom("Title", width.ceil(), move |ui| {
+        ui.spacing_mut().item_spacing.x = GAP;
+        ui.add_space(4.0);
+        let t = mg_uikit::tokens(ui.ctx());
+        let (rect, response) = ui
+            .allocate_exact_size(egui::Vec2::splat(mg_uikit::metrics::ICON), egui::Sense::hover());
+        icon.paint(ui.painter(), rect, t.text);
+        // (Painted; one accessible label, the whole title, on the icon.)
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole));
+        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+        let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
+        let galley = ui.painter().layout_job(job);
+        let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+        ui.painter().galley(rect.min, galley, t.text);
+        if !sub.is_empty() {
+            let galley = ui.painter().layout_no_wrap(sub, font, t.text_3);
+            let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+            ui.painter().galley(rect.min, galley, t.text_3);
+        }
+    });
+    let out = mg_uikit::header::EditorHeader::new(title.header.clone())
+        .left(item)
+        .end_separator(false)
+        .show_with_end(ui, end_width, |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let mut pressed = None;
+            for b in buttons {
+                let words = b.accessible_name().to_string();
+                if ui.add(b).clicked() {
+                    pressed = Some(if words == "Cancel" { Pressed::Cancel } else { Pressed::Ok });
+                }
+            }
+            pressed
+        });
+    out.end
 }
 
 /// After a window with [`ok_cancel`] is drawn: notes what it asked for
@@ -2166,28 +2268,110 @@ pub(crate) fn edit_many(
     // (Named, for a screen reader and the tests: the Properties panel
     // draws the same fields.)
     mg_uikit::name_group(ui, WINDOW_GROUP);
-    let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
+    let (name, sub) = title_of(app, &key, &path, &root, also.len());
+    let kind = kind_name(restype);
+    let header = match path.0.is_empty() {
+        true => format!("{kind} blueprint header"),
+        false => format!("{kind} properties header"),
+    };
+    let title = Title { header, icon: crate::tabs::icon(&tab), name: &name, sub: &sub };
+    let pressed = ok_cancel_header(ui, &title, is_viewed || held.is_some(), OK_CANCEL_TIPS);
     // (Every page, of several too: their lists are edited on each,
     // `docs/lists-together-proposal.md`.)
     let pages: Vec<&str> =
         if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     let page_key = (key, path.clone());
-    let mut page = (app.blueprint_pages.get(&page_key).copied())
-        .or_else(|| app.open_tabs.page(&tab, &pages))
-        .unwrap_or(pages[0]);
-    if !pages.contains(&page) {
-        page = pages[0];
+    let asked = app.blueprint_pages.get(&page_key).copied();
+    let page = asked.or_else(|| app.open_tabs.page(&tab, &pages)).unwrap_or(pages[0]);
+    let mut top = pages.iter().position(|p| *p == page).unwrap_or(0);
+    // (The pages one after another on one scroll, the list at their left:
+    // `blueprint_pages` keeps the page at the top, and a page put there
+    // from elsewhere, Inventory… or a test, is brought to the top.)
+    let id = window_state_id(app, key, &path, "pages");
+    let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &pages, &mut top);
+    let all = AllPages { id, pages: &pages, top: &mut top, bring: listed.chosen };
+    let shown = FormShown {
+        key,
+        path,
+        also,
+        root,
+        restype,
+        page,
+        held,
+        is_viewed,
+        heading: None,
+        all: Some(all),
+    };
+    let pending = form_ui(app, &mut listed.body, shown);
+    // (Unless a page asked for another while it was drawn: brought to the
+    // top in the next frame.)
+    match app.blueprint_pages.get(&page_key).copied() == asked {
+        true => _ = app.blueprint_pages.insert(page_key, pages[top]),
+        false => ui.ctx().request_repaint(),
     }
-    ui.horizontal_wrapped(|ui| {
-        for p in &pages {
-            ui.selectable_value(&mut page, *p, *p);
-        }
-    });
-    app.blueprint_pages.insert(page_key, page);
-    ui.separator();
-    let shown = FormShown { key, path, also, root, restype, page, held, is_viewed, heading: None };
-    let pending = form_ui(app, ui, shown);
     window_drawn(app, pending, &tab, &targets, pressed);
+}
+
+/// What a Properties window's header calls what it edits (its name, and
+/// quieter its resref): a blueprint by its name and resref, a placed
+/// object by its name and its blueprint's (else its tag), several by the
+/// first and how many more.
+fn title_of(
+    app: &Moonglow,
+    key: &ResKey,
+    path: &GffPath,
+    root: &Struct,
+    more: usize,
+) -> (String, String) {
+    let text = |s: &[u8]| String::from_utf8_lossy(s).into_owned();
+    let tag = root.string("Tag").map(text).unwrap_or_default();
+    let mut sub = match path.0.is_empty() {
+        true => key.resref.to_string(),
+        false => {
+            let template = ["TemplateResRef", "InventoryRes", "EquippedRes"]
+                .iter()
+                .find_map(|l| root.resref(l).filter(|r| !r.is_empty()));
+            template.map_or(tag.clone(), |r| r.to_lowercase().to_string())
+        }
+    };
+    let mut name = crate::tree::blueprint_name(app.game.as_deref(), root).trim().to_string();
+    if name.is_empty() {
+        name = if tag.is_empty() { std::mem::take(&mut sub) } else { tag };
+    }
+    if more > 0 {
+        sub = match sub.is_empty() {
+            true => format!("and {more} more"),
+            false => format!("{sub} and {more} more"),
+        };
+    }
+    (name, sub)
+}
+
+/// A blueprint type's kind, as a header names it.
+fn kind_name(t: ResType) -> &'static str {
+    match t {
+        ResType::UTC => "Creature",
+        ResType::UTI => "Item",
+        ResType::UTP => "Placeable",
+        ResType::UTD => "Door",
+        ResType::UTT => "Trigger",
+        ResType::UTE => "Encounter",
+        ResType::UTS => "Sound",
+        ResType::UTM => "Store",
+        ResType::UTW => "Waypoint",
+        _ => "Object",
+    }
+}
+
+/// A Properties window's pages on one scroll ([`FormShown::all`]): the
+/// scroll's id (the list beside it reads it by the same), the pages, the
+/// page at the top (asked for, then as shown), and whether the list chose
+/// it this frame.
+pub(crate) struct AllPages<'p> {
+    pub id: egui::Id,
+    pub pages: &'p [&'static str],
+    pub top: &'p mut usize,
+    pub bring: bool,
 }
 
 /// The name of a blueprint's or placed object's Properties window (or
@@ -2242,6 +2426,9 @@ pub(crate) struct FormShown<'p> {
     pub held: Option<String>,
     pub is_viewed: bool,
     pub heading: Option<(&'p str, Option<String>)>,
+    /// Every page on one scroll (the window's), not `page` alone (the
+    /// Properties panel's).
+    pub all: Option<AllPages<'p>>,
 }
 
 /// A Properties form's page, as a window (with OK and Cancel, over it)
@@ -2251,7 +2438,7 @@ pub(crate) struct FormShown<'p> {
 /// a change only the first would take dropped. Returns where the page's
 /// actions began in `app.actions` (what a window notes for its Cancel).
 pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> usize {
-    let FormShown { key, path, also, root, restype, page, held, is_viewed, heading } = shown;
+    let FormShown { key, path, also, root, restype, page, held, is_viewed, heading, all } = shown;
     let several = !also.is_empty();
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
@@ -2324,35 +2511,38 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     // in a narrow room, the panel's, down alone, its rows fitting it.)
     // (The Properties panel's always: it has no sideways scroll, at any
     // width the dock or its column is given.)
-    let narrow = ui.available_width() < NARROW_FORM || form.app.panel_form;
+    // (The window's pages judged on a page's own width, inside its
+    // margins: `form_pages::narrow`.)
+    let narrow = match all.is_some() {
+        true => crate::form_pages::narrow(ui.available_width()),
+        false => ui.available_width() < NARROW_FORM || form.app.panel_form,
+    };
     ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), narrow));
     let scroll = match narrow {
         true => egui::ScrollArea::vertical(),
         false => egui::ScrollArea::both(),
     };
-    // (Each page its own scroll: another page opens at its top.)
-    scroll.id_salt(("form-page", page)).auto_shrink([false, false]).show(ui, |ui| {
-        if let Some((title, readout)) = &heading {
-            mg_uikit::section_heading(ui, *title);
-            if let Some(readout) = readout {
-                ui.label(egui::RichText::new(readout).small().weak());
-            }
+    match all {
+        // (Each page its own scroll: another page opens at its top.)
+        None => {
+            scroll.id_salt(("form-page", page)).auto_shrink([false, false]).show(ui, |ui| {
+                if let Some((title, readout)) = &heading {
+                    mg_uikit::section_heading(ui, *title);
+                    if let Some(readout) = readout {
+                        ui.label(egui::RichText::new(readout).small().weak());
+                    }
+                }
+                read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, page));
+            });
         }
-        read_only_if(ui, viewed, |ui| match restype {
-            // (Every kind's, drawn alike.)
-            _ if page == "Variables" => form.variables_page(ui),
-            ResType::UTW => waypoint::page(&mut form, ui, page),
-            ResType::UTS => sound::page(&mut form, ui, page),
-            ResType::UTT => trigger::page(&mut form, ui, page),
-            ResType::UTE => encounter::page(&mut form, ui, page),
-            ResType::UTM => store::page(&mut form, ui, page),
-            ResType::UTD => door::page(&mut form, ui, page),
-            ResType::UTP => placeable::page(&mut form, ui, page),
-            ResType::UTI => item::page(&mut form, ui, page),
-            ResType::UTC => creature::page(&mut form, ui, page),
-            _ => {}
-        })
-    });
+        // (The window's: every page on one scroll, drawn where in sight.)
+        Some(AllPages { id, pages, top, bring }) => {
+            let scroll = crate::form_pages::scroll(id, pages, !narrow, bring);
+            scroll.show(ui, top, |ui, i| {
+                read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
+            });
+        }
+    }
     // (The form drawn: what is drawn after it judges its own room.)
     ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
     // The game's blueprint (or a read-only area's object) takes no
@@ -2400,6 +2590,24 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
         }
     }
     pending
+}
+
+/// A page of a blueprint's or placed object's form, by its name.
+fn page_ui(form: &mut Form<'_>, ui: &mut Ui, restype: ResType, page: &str) {
+    match restype {
+        // (Every kind's, drawn alike.)
+        _ if page == "Variables" => form.variables_page(ui),
+        ResType::UTW => waypoint::page(form, ui, page),
+        ResType::UTS => sound::page(form, ui, page),
+        ResType::UTT => trigger::page(form, ui, page),
+        ResType::UTE => encounter::page(form, ui, page),
+        ResType::UTM => store::page(form, ui, page),
+        ResType::UTD => door::page(form, ui, page),
+        ResType::UTP => placeable::page(form, ui, page),
+        ResType::UTI => item::page(form, ui, page),
+        ResType::UTC => creature::page(form, ui, page),
+        _ => {}
+    }
 }
 
 /// A form only looked at (the game's blueprint, opened by View; what an
