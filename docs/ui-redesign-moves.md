@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:28:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T01:53:04Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -119,13 +119,13 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Export and its formats, Import Lines… | Header, right ✓ M4 U14 |
 | Test | Header, right end; also in the Node panel header ✓ M4 U14 (the header's last before OK and Cancel, its end slot; the Node section's named "Test: click through the conversation", the board's) |
 | Data and Search tabs (bottom pane) | Right Dock, Node panel tabs ✓ M4 U14 ("Node" the section's title before them, the board's; a floating conversation's in its window's right pane) |
-| Bookmarks tab | Outliner, under the Module panel |
+| Bookmarks tab | Outliner, under the Module panel ✓ M4 U15 (a group "Bookmarks" with its count, a row a line, a click or Enter going to it; a floating conversation's at its window's left) |
 | Bookmark button | Node panel header ✓ M4 U14 |
 | Speaker tag, Text with its languages button and Token… | Node panel, Text section ✓ M4 U14 |
 | Text Appears When…, Actions Taken (script, Script Wizard…, parameters, preview) | Node panel, a section each ✓ M4 U14 (Script Wizard… at each section's heading; Add Parameter, Add Set and the sets' … menu on the Parameters row) |
 | Other Actions (animation, sound, journal), Comments | Node panel, a section each ✓ M4 U14 |
 | Current File (Normal end, Aborted, Stop camera zoom in, word count) | Right Dock, Conversation panel under Node ✓ M4 U14 (the word count in its header) |
-| Row context menu, drag to move, Ctrl+drag to link | Unchanged; the common ones are named in the Status Bar hints |
+| Row context menu, drag to move, Ctrl+drag to link | Unchanged; the common ones are named in the Status Bar hints ✓ M4 U15 (Drag Move line, Ctrl + Drag Link, Double Click Go to linked, with Ctrl + A Add, Alt + Up Move up, * Open branch, Ctrl + F Find and the word count) |
 
 
 ### Creature Blueprint

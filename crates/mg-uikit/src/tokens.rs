@@ -165,6 +165,17 @@ tokens! {
     switch_knob: "switch-knob" = hex(0xaab0ba), hex(0xffffff);
     /// A slider's thumb (dark: [`Tokens::text_2`]).
     slider_thumb: "slider-thumb" = hex(0xaab0ba), hex(0xffffff);
+    /// A tree's indent guides: the 1 px lines down the column of each
+    /// level's arrow (the Conversation board's `--guide`, `#2c3036`; the
+    /// light theme's not on a board, made as far from its panel).
+    guide: "guide" = hex(0x2c3036), hex(0xcdd2d8);
+    /// The same on a hovered row, over [`Tokens::hover_row`] (on no board:
+    /// made as far from it as `guide` is from the panel, so a guide stays
+    /// in sight under the pointer).
+    guide_hover: "guide-hover" = hex(0x3a3f47), hex(0xbcc2ca);
+    /// The same on the selected row, over [`Tokens::accent_fill`] (the
+    /// Conversation board's `rgba(255, 255, 255, 0.18)`).
+    guide_on_fill: "guide-on-fill" = rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.18);
     /// The ring around a slider's thumb (none in the dark theme).
     slider_thumb_ring: "slider-thumb-ring" = Color32::TRANSPARENT, hex(0x8d949e);
     /// The ring that carries the modified dot ([`Tokens::select`]) on a

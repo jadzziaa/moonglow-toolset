@@ -1337,7 +1337,9 @@ fn follow_selection(app: &mut Moonglow) {
     // dock's fold read as it is drawn, not as the builder's setting: in a
     // narrow window it is folded by its width with `hide_tree` false, and
     // unfolded by hand there with `hide_tree` true.)
-    let outliner = crate::shell::Panel::OUTLINER.available(app) && !crate::shell::left_folded(app);
+    // (The Outliner listing an area's objects: beside a conversation it
+    // lists bookmarks, and the tree follows as without it, M4's U15.)
+    let outliner = crate::outliner::area(app).is_some() && !crate::shell::left_folded(app);
     let seen = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
         Some((area, view.selection.clone()))
@@ -2615,13 +2617,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
 /// The row the letters typed this frame go to, as a type-ahead (the module
 /// tree's and the Outliner's, while they have the keys), from `cursor`:
 /// `seek` finds it from a row by what was typed in quick succession,
-/// which is kept under `typed_id` between frames.
-pub(crate) fn typed_row(
+/// which is kept under `typed_id` between frames. (Whatever a row is: a
+/// conversation's bookmarks in the Outliner are by their place, M4's U15.)
+pub(crate) fn typed_row<T: Copy>(
     ui: &Ui,
     typed_id: egui::Id,
-    cursor: Option<TreeAt>,
-    seek: &dyn Fn(Option<TreeAt>, &str) -> Option<TreeAt>,
-) -> Option<TreeAt> {
+    cursor: Option<T>,
+    seek: &dyn Fn(Option<T>, &str) -> Option<T>,
+) -> Option<T> {
     // Letters typed while the tree has the keys, wherever the pointer
     // is, go to the row whose name begins with them, as in Aurora's
     // (Windows') tree: a pause starts over. (The pointer in an area's

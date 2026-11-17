@@ -14,6 +14,7 @@ mod area_view;
 mod areas;
 mod bake;
 mod blueprints;
+mod conversation_outliner;
 mod conversation_panels;
 mod conversations;
 mod dialogs;

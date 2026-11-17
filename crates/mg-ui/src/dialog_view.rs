@@ -106,6 +106,11 @@ pub struct DialogView {
     /// Its Node section's bar drawn last: the pass, and whether Bookmark
     /// could be pressed ([`node_tools_enabled`]).
     bar_drawn: std::cell::Cell<Option<(u64, bool)>>,
+    /// What its keys did as the editor was drawn last, for the Status
+    /// Bar's hints (`shell::shown`): its commands' keys (Add, Move up,
+    /// Find: the pointer over it or its tree with the keys, nothing typed
+    /// in), and its tree's own (`*`: the tree with the keys).
+    pub(crate) keys_took: (bool, bool),
 }
 
 /// A change of a conversation, from one fingerprint to another: how it
@@ -1081,7 +1086,7 @@ fn usual_text(ui: &Ui, usual: Option<std::sync::Arc<egui::Style>>) {
 /// opened to read (`Workspace::is_viewed`), or held by another builder
 /// (`blueprint::looked_at`). Its header's commands that change it and its
 /// panels' fields are then read-only, and Close alone ends it.
-fn looked_at(app: &Moonglow, key: &ResKey) -> bool {
+pub(crate) fn looked_at(app: &Moonglow, key: &ResKey) -> bool {
     let (held, viewed) = crate::blueprint::looked_at(app, key);
     held.is_some() || viewed
 }
@@ -1104,6 +1109,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let tab = crate::Tab::Dialog(key);
     crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed);
     usual_text(ui, usual);
+    // (Its window's Outliner unfolded from its strip, over the tree: drawn
+    // after the editor, whose view is back in its place by then, at the
+    // window's text size, as the Outliner is.)
+    outliner_over(app, ui, key);
 }
 
 /// The conversation `key` as it is now, and its view with what is kept
@@ -1380,13 +1389,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     let keys_here = has_keys(ui.ctx(), key);
     let typing = ui.ctx().text_edit_focused();
     let choosing = crate::widgets::choice_has_keys(ui.ctx());
-    if keys_here
+    let tree_has_keys = keys_here
         && !typing
         && !choosing
         && view.input.is_none()
         && !egui::Popup::is_any_open(ui.ctx())
-        && !mg_uikit::popover::Popover::any_open(ui.ctx())
-    {
+        && !mg_uikit::popover::Popover::any_open(ui.ctx());
+    if tree_has_keys {
         // Escape hands them back (to the area's view, as the module tree's
         // does), unless it took the keyboard from a field or closes a
         // window over the editor.
@@ -1423,7 +1432,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     // (Aurora's control with the focus has them; a press in its panels
     // gives them to it too), and no text being typed: Options ›
     // Keyboard's, and the platform's Copy, Cut and Paste.
-    let here = (ui.ui_contains_pointer() || keys_here) && !typing;
+    // (Not with the pointer alone while another list holds the keys, the
+    // Outliner's bookmarks or the module tree: the list keeps them, and
+    // Delete there never deletes a line here. M4's U15 review.)
+    let other_list = crate::palette_view::a_list_has_the_keys(ui.ctx());
+    let here = ((ui.ui_contains_pointer() && !other_list) || keys_here) && !typing;
+    view.keys_took = (here, tree_has_keys);
     let keymap = &app.keymap;
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
     let asked = view.menu.take();
@@ -1644,6 +1658,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
         app.dialog_search_forward = Some(key);
     }
 
+    // A floating conversation's Outliner folded to a strip at the tree's
+    // left, under the header (M4's U15 review: the pane gives way before
+    // the header does), where its window has not the room for its pane.
+    if app.outliner.strips_now.contains(&key) {
+        outliner_strip(app, ui, key);
+    }
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
@@ -1657,7 +1677,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
             ui.scroll_with_delta(egui::vec2(0.0, -(view.scroll as f32) * pitch));
             view.scroll = 0;
         }
+        let fill_at = ui.painter().add(egui::Shape::Noop);
         let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
+        if view.selected.is_none() {
+            fill_row(ui, fill_at, root.rect);
+        }
         if root.clicked() {
             view.selected = None;
         }
@@ -1834,6 +1858,73 @@ fn dialog_of(editor: Option<&Tab>) -> Option<ResKey> {
         Some(Tab::Dialog(key)) => Some(*key),
         _ => None,
     }
+}
+
+/// The name of a floating conversation's window's Outliner's strip (its
+/// fold strip's dock, for a screen reader and the tests).
+pub const OUTLINER_STRIP: &str = "Window's Outliner";
+
+/// A floating conversation's Outliner folded to a strip at its tree's left
+/// (the docks' own fold strip, `mg_uikit::shell::FoldStrip`): its icon
+/// unfolds the Outliner over the tree, and folds it again; the strip's
+/// place noted for it ([`outliner_over`]).
+fn outliner_strip(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    use mg_uikit::shell::{FoldStrip, STRIP, Side, StripClick};
+    let t = mg_uikit::tokens(ui.ctx());
+    let open = app.outliner.strips_open.contains(&key);
+    let tip = match open {
+        true => "Fold the Outliner away",
+        false => "Show the Outliner: the conversation's bookmarks",
+    };
+    let shown = egui::Panel::left(egui::Id::new(("dlg-outliner-strip", key)))
+        .exact_size(STRIP)
+        .resizable(false)
+        .frame(egui::Frame::new().fill(t.bar))
+        .show(ui, |ui| {
+            let strip = FoldStrip::new(OUTLINER_STRIP, Side::Left).chevron(false);
+            strip.panel(mg_uikit::Icon::Outliner, crate::outliner::OUTLINER, tip).show(ui)
+        });
+    if matches!(shown.inner, Some(StripClick::Panel(_) | StripClick::Unfold)) {
+        match open {
+            true => _ = app.outliner.strips_open.remove(&key),
+            false => _ = app.outliner.strips_open.insert(key),
+        }
+        ui.ctx().request_repaint();
+    }
+    let strip = shown.response.rect;
+    app.outliner.strip_at = Some((key, strip));
+}
+
+/// A floating conversation's Outliner unfolded from its strip, over the
+/// tree from the strip's edge, as wide as the window's pane at first (or
+/// what the tree leaves), the whole height under the header; a press there
+/// reaches nothing under it.
+fn outliner_over(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    let Some((at, strip)) = app.outliner.strip_at.take() else { return };
+    if at != key || !app.outliner.strips_open.contains(&key) {
+        return;
+    }
+    let t = mg_uikit::tokens(ui.ctx());
+    let room = (ui.max_rect().right() - strip.right()).max(0.0);
+    let wide = crate::shell::WINDOW_LEFT_WIDE.min(room * 0.8);
+    let over = egui::Rect::from_min_size(
+        egui::pos2(strip.right(), strip.top()),
+        egui::vec2(wide, strip.height()),
+    );
+    let mut child =
+        ui.new_child(egui::UiBuilder::new().id_salt(("dlg-outliner-over", key)).max_rect(over));
+    child.set_style(ui.ctx().global_style());
+    child.set_clip_rect(over.intersect(ui.clip_rect()));
+    // (Over the tree: its fill and its edge, and the presses there its.)
+    child.interact(
+        over,
+        egui::Id::new(("dlg-outliner-over-ground", key)),
+        egui::Sense::click_and_drag(),
+    );
+    child.painter().rect_filled(over, 0.0, t.panel);
+    child.painter().vline(over.right(), over.y_range(), egui::Stroke::new(1.0, t.line));
+    app.window_bars_drawn.push(crate::shell::Panel::OUTLINER);
+    crate::outliner::window_ui(app, &mut child, key);
 }
 
 /// The width of the Node section's tools ([`node_tools`]).
@@ -2171,8 +2262,8 @@ fn data_body(
 
 /// The conversation's Search (M4's U14, the Node section's second tab):
 /// Find and Replace in this conversation or the module's, its results a
-/// click going to their lines; and, until M4's U15 puts them in the
-/// Outliner, its bookmarks under them.
+/// click going to their lines. (Its bookmarks are the Outliner's since
+/// M4's U15: [`bookmark_rows`].)
 pub(crate) fn node_search(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     let keys = crate::palette_view::Keys::NodeSearch;
     let Some((key, g, mut view, usual, viewed)) = begin_panel(app, ui, editor, keys) else {
@@ -2187,33 +2278,67 @@ pub(crate) fn node_search(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>)
         egui::Frame::new().inner_margin(PANEL_MARGIN).show(ui, |ui| {
             ui.set_width(ui.available_width());
             search_pane(app, ui, key, &g, &mut view, &mut actions, viewed);
-            ui.add_space(mg_uikit::form::SECTION_GAP);
-            panel_heading(ui, "Bookmarks", None);
-            if view.bookmarks.is_empty() {
-                ui.weak("No bookmarks: Bookmark on this bar marks the line chosen.");
-            }
-            mg_uikit::list_rows(ui);
-            for (kind, index) in view.bookmarks.clone() {
-                let Some(n) = node(&g, kind, index) else { continue };
-                let label = format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n));
-                let row = egui::Button::selectable(false, label).truncate();
-                if ui.add(row).clicked() {
-                    go_to_line(&mut view, &g, kind, index);
-                }
-            }
         });
     });
     end_panel(app, ui, (key, viewed), view, actions, usual);
 }
 
+/// Conversation `key`'s bookmarks as the Outliner lists them (M4's U15,
+/// the Conversation board's): each line's kind and number, and its row's
+/// words, "Entry 40: Welcome, <FullName>. …" (its kind, its number and the
+/// first line of its text shown, the talk table's where the line's is
+/// there), in the order they were set; followed to their lines first
+/// ([`begin`]: across a delete, its undo, a change made elsewhere). None
+/// where the conversation cannot be read. (No stamp for the editor's
+/// redraw: what changes them after the Outliner is drawn, the Node bar's
+/// Bookmark, is a click, after which egui draws a frame anyway; an edit
+/// and an outside change ask for their own. M4's U15 review.)
+pub(crate) fn bookmark_rows(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    key: ResKey,
+) -> Option<Vec<((Kind, u32), String)>> {
+    let (g, view) = begin(app, ctx, key).ok()?;
+    let rows = (view.bookmarks.iter())
+        .filter_map(|&(kind, index)| {
+            let n = node(&g, kind, index)?;
+            let text = line_text(app.game.as_deref(), n);
+            let first = text.lines().next().unwrap_or_default();
+            Some(((kind, index), format!("{kind:?} {index}: {first}")))
+        })
+        .collect();
+    app.dialog_views.insert(key, view);
+    Some(rows)
+}
+
+/// A bookmark of conversation `key` chosen in the Outliner (a click on its
+/// row, Enter): its line selected in the tree, the lines over it opened
+/// out, and scrolled to ([`go_to_line`]), as the old Bookmarks list did.
+pub(crate) fn go_to_bookmark(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    key: ResKey,
+    (kind, index): (Kind, u32),
+) {
+    let Ok((g, mut view)) = begin(app, ctx, key) else { return };
+    go_to_line(&mut view, &g, kind, index);
+    app.dialog_views.insert(key, view);
+    ctx.request_repaint();
+}
+
 /// The Conversation panel's header's detail (the board's "3834 words in
 /// the file"): its words, as the file counts them.
 pub(crate) fn words_detail(app: &Moonglow, editor: Option<&Tab>) -> Option<String> {
-    let key = dialog_of(editor)?;
+    let words = file_words(app, dialog_of(editor)?)?;
+    Some(format!("{words} words in the file"))
+}
+
+/// Conversation `key`'s words, as the file counts them (`NumWords`): the
+/// Conversation panel's header and the Status Bar's count.
+pub(crate) fn file_words(app: &Moonglow, key: ResKey) -> Option<u32> {
     let ws = app.ws.as_ref()?;
     let g = ws.loaded(&key).or_else(|| ws.viewed_doc(&key))?;
-    let words = g.root.dword("NumWords").unwrap_or(0);
-    Some(format!("{words} words in the file"))
+    Some(g.root.dword("NumWords").unwrap_or(0))
 }
 
 /// The Conversation panel (M4's U14, under the Node section): the
@@ -2358,7 +2483,14 @@ fn form_row_least<R>(ui: &mut Ui, label: &str, least: f32, add: impl FnOnce(&mut
     let font = egui::TextStyle::Body.resolve(ui.style());
     let words = ui.painter().layout_no_wrap(label.to_string(), font, Color32::WHITE).size().x;
     let width = LABEL_WIDTH.max((words + 8.0).ceil());
-    if ui.available_width() - width < least {
+    // (The room the field is given beside the label: the row's, less the
+    // label's column and the gap the row puts after it. Tested with the
+    // gap left out, the field had 4 points less than was tested, and a
+    // resref row then put its Edit onto a line of its own: Data taller
+    // where wider, which never came to rest beside its scroll bar. M4's
+    // U15 review.)
+    let beside = ui.available_width() - width - ui.spacing().item_spacing.x;
+    if beside < least {
         if !label.is_empty() {
             crate::widgets::field_label(ui, label);
         }
@@ -2489,6 +2621,58 @@ fn link_key(ui: &Ui) -> bool {
     ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd)
 }
 
+/// How far a line of the conversation tree stands in from the one it is
+/// under.
+const INDENT: f32 = 16.0;
+/// The room a row with no lines under it keeps where another has its
+/// arrow.
+const ARROW_ROOM: f32 = 18.0;
+
+/// The indent guides of a row `depth` levels under Root drawn at `row`
+/// (the Conversation board's `.gd`): a 1 px line in the theme's `guide`
+/// down the middle of the arrow of each line it is under, Root's place
+/// too, as high as the row and the room between rows, so that a branch's
+/// lines join; lighter on the selected row (`guide_on_fill`) and on the
+/// row under the pointer (`guide_hover`). Only where the row is in sight: the tree lays out every
+/// open row, and what is out of sight costs nothing more.
+fn guides(ui: &Ui, row: egui::Rect, depth: usize, selected: bool) {
+    let half = ui.spacing().item_spacing.y / 2.0;
+    let span = egui::Rangef::new(row.top() - half, row.bottom() + half);
+    if depth == 0 || !ui.is_rect_visible(row.expand2(egui::vec2(0.0, half))) {
+        return;
+    }
+    // (Lighter on the selected row's fill, the board's; on a row under
+    // the pointer, its own, so that they stay in sight there too.)
+    let t = mg_uikit::tokens(ui.ctx());
+    let color = match (selected, ui.rect_contains_pointer(row)) {
+        (true, _) => t.guide_on_fill,
+        (false, true) => t.guide_hover,
+        (false, false) => t.guide,
+    };
+    let stroke = egui::Stroke::new(1.0, color);
+    let painter = ui.painter();
+    for level in 0..depth {
+        // (Down the middle of the arrow of the line at `level`; on a whole
+        // pixel, so that it stays 1 px.)
+        let x = row.left() + level as f32 * INDENT + mg_uikit::metrics::ICON_BUTTON / 2.0;
+        let x = painter.round_to_pixel_center(x);
+        painter.vline(x, span, stroke);
+    }
+}
+
+/// The selected row's fill (the board's `.dl-row.sel`: `accent-fill` the
+/// tree's whole width, from its left edge to what is in sight at its
+/// right, the room between rows halved into it), at `at`, under the row.
+fn fill_row(ui: &Ui, at: egui::layers::ShapeIdx, row: egui::Rect) {
+    let half = ui.spacing().item_spacing.y / 2.0;
+    let right = ui.clip_rect().right().max(row.right());
+    let x = egui::Rangef::new(ui.max_rect().left(), right);
+    let full =
+        egui::Rect::from_x_y_ranges(x, egui::Rangef::new(row.top() - half, row.bottom() + half));
+    let fill = mg_uikit::tokens(ui.ctx()).accent_fill;
+    ui.painter().set(at, egui::Shape::rect_filled(full, 0.0, fill));
+}
+
 /// Draws the rows under a parent of conversation `key`; `path` stops
 /// cycles through owning links.
 #[allow(clippy::too_many_arguments)]
@@ -2535,8 +2719,11 @@ fn tree(
             let found = mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3);
             rich = rich.background_color(found);
         }
-        ui.horizontal(|ui| {
-            ui.add_space(depth as f32 * 16.0);
+        // (The selected row filled the whole width of the tree, the board's
+        // `.dl-row.sel`, under what the row draws.)
+        let fill_at = ui.painter().add(egui::Shape::Noop);
+        let row_shown = ui.horizontal(|ui| {
+            ui.add_space(depth as f32 * INDENT);
             if children {
                 // (Named with its line, said open or not: a screen reader's
                 // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
@@ -2555,7 +2742,7 @@ fn tree(
                     }
                 }
             } else {
-                ui.add_space(18.0);
+                ui.add_space(ARROW_ROOM);
             }
             let r =
                 ui.selectable_label(view.selected == Some(row), rich).interact(egui::Sense::drag());
@@ -2634,12 +2821,25 @@ fn tree(
             if look.scripts {
                 let marks = markers(l, n);
                 if !marks.is_empty() {
-                    ui.label(RichText::new(marks.join("  ")).weak().small());
+                    // (On the selected row's fill, `on-fill`, the board's.)
+                    let words = RichText::new(marks.join("  ")).small();
+                    let words = match view.selected == Some(row) {
+                        true => {
+                            words.color(mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85))
+                        }
+                        false => words.weak(),
+                    };
+                    ui.label(words);
                 }
             } else if cond.is_some() {
                 ui.weak("?");
             }
         });
+        let chosen = view.selected == Some(row);
+        if chosen {
+            fill_row(ui, fill_at, row_shown.response.rect);
+        }
+        guides(ui, row_shown.response.rect, depth, chosen);
         // (Once, as `shown_rows` has it.)
         if children && open && path.insert((kind, index)) {
             let under = Parent::Node(kind, index);
@@ -2944,7 +3144,11 @@ fn script_with_params(
         let popup = egui::Id::new(("dlg-add-set", key, salt, path.to_string()));
         let open = egui::Popup::is_id_open(ui.ctx(), popup);
         let tip = "Add a saved set's parameters and script. Same names take its values.";
-        let add_set = ui.add(mg_uikit::KitButton::new(None, "Add Set").opens(open).tip(tip));
+        // (At the editor's text size, as its neighbors: panel content, the
+        // coordinator's ruling at U14's review.)
+        let size = egui::TextStyle::Button.resolve(ui.style()).size;
+        let add_set = mg_uikit::KitButton::new(None, "Add Set").opens(open).tip(tip);
+        let add_set = ui.add(add_set.text_size(size));
         let menu = egui::Popup::menu(&add_set).id(popup).style(mg_uikit::menu_style);
         menu.show(|ui| {
             mg_uikit::menu_rows(ui);

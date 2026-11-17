@@ -29,11 +29,26 @@
 //! kind, Enter goes to an object, letters go to a row by its name, Delete
 //! deletes the object (those chosen with it), Escape hands them back, as
 //! the module tree's.
+//!
+//! Beside a conversation (M4's U15, the Conversation board's) it lists the
+//! conversation's **Bookmarks** ([`bookmarks`]): its header names the
+//! conversation, one group "Bookmarks" with its icon and count holds a row
+//! for each bookmarked line ("Entry 40: Welcome, <FullName>. I r…", cut to
+//! the panel's width), in the order they were set, each following its line
+//! across a delete, its undo and a change made elsewhere
+//! (`dialog_view::bookmark_rows`). A click on a row, or Enter, goes to the
+//! line in the tree, opening out what hides it. With none, the group is a
+//! quiet row with no arrow and its count 0, as an area's kind with nothing
+//! placed. A floating conversation brings it into its window, at its left
+//! ([`window_ui`]): the main window's Outliner follows the docked editor
+//! (M3's T13: a floating window never counts there), and a kind that floats
+//! takes what it brings into its window (U2), the Outliner too.
 
 use std::collections::BTreeSet;
 
 use egui::Ui;
 use mg_core::ResRef;
+use mg_resman::ResKey;
 
 use crate::Moonglow;
 use crate::palette_view::{Keys, give_keys, keys_are};
@@ -76,6 +91,59 @@ pub(crate) struct Outliner {
     /// The area listed last: its rows' state (the keys' row, the anchor,
     /// what the keys open) is let go of with another area in front.
     listed_area: Option<ResRef>,
+    /// The conversation whose bookmarks have the keys (`Keys::Marks`): the
+    /// Outliner's, or a floating conversation's window's.
+    pub(crate) marks_keys: Option<ResKey>,
+    /// The keys' row among those bookmarks, with its conversation (0 the
+    /// group's own row, then each bookmark's): of no other conversation.
+    marks_cursor: Option<(ResKey, usize)>,
+    /// The keys' row of this conversation's list has just moved: brought
+    /// into sight by that list alone (a docked one and a floating one's
+    /// can both be drawn).
+    marks_moved: Option<ResKey>,
+    /// The group of bookmarks the keys open or close.
+    marks_fold: Option<(ResKey, bool)>,
+    /// The lists of bookmarks drawn this frame, each with whether it is in
+    /// a window (in the order the windows' panes are drawn), and those of
+    /// the frame before (F6's stops, the keys left where none is drawn).
+    pub(crate) marks_now: Vec<(ResKey, bool)>,
+    pub(crate) marks_last: Vec<(ResKey, bool)>,
+    /// The floating conversations whose window's Outliner is folded to a
+    /// strip at their tree's left this frame (`shell::window_panes`: the
+    /// tree would keep less than its room beside the pane).
+    pub(crate) strips_now: std::collections::HashSet<ResKey>,
+    /// Those whose strip's Outliner is unfolded over the tree.
+    pub(crate) strips_open: std::collections::HashSet<ResKey>,
+    /// Where the strip was drawn this frame, with its conversation.
+    pub(crate) strip_at: Option<(ResKey, egui::Rect)>,
+}
+
+/// What the Outliner lists, by the active docked editor (the proposal's
+/// decision 3, S5): an area's objects (M3's T13), a conversation's
+/// bookmarks (M4's U15). Each later editor's Outliner is an arm here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Contents {
+    Area(ResRef),
+    Bookmarks(ResKey),
+}
+
+/// What the Outliner lists now: the active docked editor's
+/// (`shell::editor_brings`), where it brings one.
+pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
+    match app.active_editor() {
+        Some(crate::Tab::Area(area)) if app.ws.is_some() => Some(Contents::Area(*area)),
+        Some(crate::Tab::Dialog(key)) if app.ws.is_some() => Some(Contents::Bookmarks(*key)),
+        _ => None,
+    }
+}
+
+/// The keys of the Outliner as it lists now: an area's rows'
+/// (`Keys::Outliner`), a conversation's bookmarks' (`Keys::Marks`).
+pub(crate) fn keys_of(app: &Moonglow) -> Keys {
+    match contents(app) {
+        Some(Contents::Bookmarks(_)) => Keys::Marks,
+        _ => Keys::Outliner,
+    }
 }
 
 /// The area a row of the Outliner (or the module tree) is in.
@@ -89,8 +157,8 @@ fn area_of(at: TreeAt) -> Option<ResRef> {
 /// The area the Outliner lists: the active editor's, where it is an
 /// area's tab (`shell::editor_brings`).
 pub(crate) fn area(app: &Moonglow) -> Option<ResRef> {
-    match app.active_editor() {
-        Some(crate::Tab::Area(area)) if app.ws.is_some() => Some(*area),
+    match contents(app) {
+        Some(Contents::Area(area)) => Some(area),
         _ => None,
     }
 }
@@ -98,6 +166,11 @@ pub(crate) fn area(app: &Moonglow) -> Option<ResRef> {
 /// The keys given to the Outliner (Next Pane, the folded strip's icon): at
 /// the row they were at, else its first.
 pub(crate) fn take_keys(app: &mut Moonglow, ctx: &egui::Context) {
+    if let Some(Contents::Bookmarks(key)) = contents(app) {
+        take_marks(app, ctx, key);
+        return;
+    }
+    app.outliner.marks_keys = None;
     give_keys(ctx, Keys::Outliner);
     if app.outliner.cursor.is_none() {
         app.outliner.to_first = true;
@@ -110,10 +183,18 @@ pub(crate) fn take_keys(app: &mut Moonglow, ctx: &egui::Context) {
 /// area's, Expand All and Collapse All) over its rows, which scroll; a
 /// group of its own, named [`OUTLINER`].
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
-    if area(app).is_none() {
-        return;
+    match contents(app) {
+        Some(Contents::Area(_)) => _ = ui.scope(|ui| panel(app, ui)),
+        Some(Contents::Bookmarks(key)) => _ = ui.scope(|ui| bookmarks(app, ui, key, false)),
+        None => {}
     }
-    ui.scope(|ui| panel(app, ui));
+}
+
+/// A floating conversation's Outliner, in its window (`shell::window_panes`,
+/// a left pane): its bookmarks, as the main window's Outliner lists those of
+/// a docked one.
+pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    ui.scope(|ui| bookmarks(app, ui, key, true));
 }
 
 fn panel(app: &mut Moonglow, ui: &mut Ui) {
@@ -358,4 +439,229 @@ fn made_here(app: &mut Moonglow, area: ResRef) {
     app.outliner.chosen = selection.iter().copied().collect();
     app.outliner.seen = Some((area, selection));
     app.outliner.reveal = false;
+}
+
+/// The keys given to conversation `key`'s bookmarks (a click on a row,
+/// F6, the strip's icon): at the row they were at, else the group's.
+pub(crate) fn take_marks(app: &mut Moonglow, ctx: &egui::Context, key: ResKey) {
+    give_keys(ctx, Keys::Marks);
+    let o = &mut app.outliner;
+    o.marks_keys = Some(key);
+    if o.marks_cursor.is_none_or(|(k, _)| k != key) {
+        o.marks_cursor = Some((key, 0));
+    }
+    o.marks_moved = Some(key);
+    ctx.request_repaint();
+}
+
+/// Whether the keys are conversation `key`'s bookmarks'.
+fn marks_have_keys(app: &Moonglow, ctx: &egui::Context, key: ResKey) -> bool {
+    keys_are(ctx, Keys::Marks) && app.outliner.marks_keys == Some(key)
+}
+
+/// The Bookmarks group's name for a screen reader, as the Outliner names
+/// an area's kinds ("46 creatures"): "5 bookmarks", "1 bookmark".
+fn marks_label(count: usize) -> String {
+    match count {
+        1 => "1 bookmark".to_string(),
+        n => format!("{n} bookmarks"),
+    }
+}
+
+/// The Bookmarks' group's tip, where it has none.
+const NO_BOOKMARKS: &str = "No bookmarks: Bookmark on the Node section's bar marks the line chosen";
+
+/// Conversation `key`'s bookmarks as the Outliner lists them (M4's U15,
+/// the Conversation board's left dock): the header, "Outliner" and the
+/// conversation's name, over the group "Bookmarks" with its icon and count
+/// and a row for each bookmark (`dialog_view::bookmark_rows`), which
+/// scroll; in the Left Dock, or in its window where it floats (`window`).
+/// A click on a row goes to its line and gives the list the keys: Up and
+/// Down from row to row, Page Up and Down, Home and End, Right and Left
+/// open and close the group (Left from a row goes to the group), Enter
+/// goes to the line (or opens and closes the group), Escape hands them
+/// back. A group of its own, named [`OUTLINER`].
+fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
+    let ctx = ui.ctx().clone();
+    mg_uikit::name_group(ui, OUTLINER);
+    app.outliner.marks_now.push((key, window));
+    let header = mg_uikit::shell::PanelHeader::new(OUTLINER)
+        .detail(key.resref.to_string())
+        .name(OUTLINER_HEADER);
+    header.show(ui, |_| ());
+    // (Folded to its header in a dock too short for its rows.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
+    let Some(rows) = crate::dialog_view::bookmark_rows(app, &ctx, key) else { return };
+    // (The keys' row of another conversation: none here.)
+    let mut cursor = match app.outliner.marks_cursor {
+        Some((k, at)) if k == key => Some(at.min(rows.len())),
+        _ => None,
+    };
+    let here = marks_have_keys(app, &ctx, key) && tree::keys_free(ui);
+    // (Taken by its own list, whichever is drawn first.)
+    let moved = here && app.outliner.marks_moved == Some(key);
+    if moved {
+        app.outliner.marks_moved = None;
+    }
+    let fold = match app.outliner.marks_fold.take() {
+        Some((k, open)) if k == key => Some(open),
+        other => {
+            app.outliner.marks_fold = other;
+            None
+        }
+    };
+    let mut clicked = None;
+    let mut gone_to = None;
+    let mut open = false;
+    let scroll =
+        egui::ScrollArea::vertical().id_salt(("outliner-marks", key, window)).auto_shrink(false);
+    let shown = scroll.show(ui, |ui| {
+        mg_uikit::list_rows(ui);
+        // (Its row's arrow 2 px under the header, as the board has it.)
+        ui.add_space(2.0);
+        let count = rows.len();
+        let marked = |at: usize| here && cursor == Some(at);
+        if rows.is_empty() {
+            // (None: a quiet row, no arrow, as an area's kind with nothing
+            // placed.)
+            let row = mg_uikit::TreeRow::new("Bookmarks")
+                .icon(mg_uikit::Icon::Bookmark)
+                .count(0)
+                .label(marks_label(0))
+                .dim()
+                .show(ui)
+                .on_hover_text(NO_BOOKMARKS);
+            if moved && cursor == Some(0) {
+                row.scroll_to_me(None);
+            }
+            return;
+        }
+        let group = mg_uikit::TreeGroup::new(("outliner-bookmarks", key, window), "Bookmarks")
+            .icon(mg_uikit::Icon::Bookmark)
+            .count(count)
+            .label(marks_label(count))
+            .default_open(true)
+            .open(fold)
+            .marked(marked(0));
+        let shown = group.show(ui, |ui| {
+            for (i, (line, words)) in rows.iter().enumerate() {
+                let row = mg_uikit::TreeRow::new(words.as_str()).fit().selected(marked(i + 1));
+                let row = row.show(ui);
+                if row.clicked() {
+                    clicked = Some(i + 1);
+                    gone_to = Some(*line);
+                }
+                if moved && cursor == Some(i + 1) {
+                    row.scroll_to_me(None);
+                }
+            }
+        });
+        open = shown.body_returned.is_some();
+        if shown.header_response.clicked() {
+            clicked = Some(0);
+        }
+        if moved && cursor == Some(0) {
+            shown.header_response.scroll_to_me(None);
+        }
+    });
+    if here {
+        crate::palette_view::keys_outline(ui, shown.inner_rect, Keys::Marks);
+    }
+    if let Some(at) = clicked {
+        cursor = Some(at);
+        app.outliner.marks_cursor = Some((key, at));
+        app.outliner.marks_keys = Some(key);
+        give_keys(&ctx, Keys::Marks);
+    }
+    // The keys, while they are this list's.
+    if here {
+        use egui::Key;
+        let keys = [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+            Key::ArrowRight,
+            Key::ArrowLeft,
+            Key::Enter,
+        ];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.outliner.marks_cursor = None;
+            app.outliner.marks_keys = None;
+            crate::palette_view::give_arrows(&ctx, false);
+            cursor = None;
+        }
+        // (The rows listed: the group's, then its bookmarks' while open.)
+        let last = if open { rows.len() } else { 0 };
+        let page = ((shown.inner_rect.height() / mg_uikit::row_pitch(ui)) as usize).max(1);
+        let at = cursor.unwrap_or(0).min(last);
+        let to = match pressed {
+            Some(Key::ArrowDown) => Some((at + 1).min(last)),
+            Some(Key::ArrowUp) => Some(at.saturating_sub(1)),
+            Some(Key::PageDown) => Some((at + page).min(last)),
+            Some(Key::PageUp) => Some(at.saturating_sub(page)),
+            Some(Key::Home) => Some(0),
+            Some(Key::End) => Some(last),
+            Some(Key::ArrowRight) if at == 0 && !open && !rows.is_empty() => {
+                app.outliner.marks_fold = Some((key, true));
+                Some(0)
+            }
+            Some(Key::ArrowRight) if at == 0 && open && !rows.is_empty() => Some(1),
+            Some(Key::ArrowLeft) if at == 0 && open => {
+                app.outliner.marks_fold = Some((key, false));
+                Some(0)
+            }
+            Some(Key::ArrowLeft) => Some(0),
+            Some(Key::Enter) if at == 0 && !rows.is_empty() => {
+                app.outliner.marks_fold = Some((key, !open));
+                Some(0)
+            }
+            // (A bookmark's row; on the quiet row of none, nothing.)
+            Some(Key::Enter) => {
+                gone_to = at.checked_sub(1).and_then(|i| rows.get(i)).map(|r| r.0);
+                Some(at)
+            }
+            _ => None,
+        };
+        // Letters go to the bookmark whose line's text begins with them,
+        // as the Outliner's rows of an area go by their names.
+        let texts: Vec<String> = (rows.iter())
+            .map(|(_, words)| words.split_once(": ").map_or(words.as_str(), |w| w.1))
+            .map(mg_core::text::fold)
+            .collect();
+        let seek = |from: Option<usize>, typed: &str| {
+            // (Its rows' places from 1, after the group's own row.)
+            // (From the group's own row, or none: from the first, itself
+            // first.)
+            let last = texts.len().saturating_sub(1);
+            let from = from.filter(|at| *at > 0).map_or(last, |at| at - 1);
+            let found = crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))?;
+            Some(found + 1)
+        };
+        let typed = (open && !rows.is_empty())
+            .then(|| {
+                crate::tree::typed_row(
+                    ui,
+                    egui::Id::new(("outliner-marks-typed", key)),
+                    cursor,
+                    &seek,
+                )
+            })
+            .flatten();
+        let to = to.or(typed);
+        if let Some(to) = to {
+            app.outliner.marks_cursor = Some((key, to));
+            app.outliner.marks_moved = Some(key);
+            ctx.request_repaint();
+        }
+    }
+    if let Some(line) = gone_to {
+        crate::dialog_view::go_to_bookmark(app, &ctx, key, line);
+    }
 }

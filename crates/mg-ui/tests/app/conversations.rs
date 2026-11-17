@@ -2020,12 +2020,15 @@ fn bookmarks_and_folded_lines_follow_their_lines_across_a_delete() {
     // (Who has nothing under it now: the conversation ends there.)
     h.get_by_label("Who are you? [END DIALOGUE]");
     assert!(h.query_by_label("Who are you?").is_none(), "the link still hidden");
-    // (Its bookmarks under its Search, until M4's U15 puts them in the
-    // Outliner.)
-    h.state_mut().show_conversation_search(key);
-    h.run_steps(3);
-    h.get_by_label("Entry 1: Go away.");
-    h.get_by_label("Reply 1: Bye.");
+    // (Its bookmarks in the Outliner, M4's U15: their rows follow them;
+    // its window too narrow for the pane, folded to its strip: unfolded.)
+    settle(&mut h);
+    crate::conversation_outliner::unfold_window_outliner(&mut h);
+    let rows = |h: &Harness<'_, Moonglow>| {
+        let rows = crate::conversation_outliner::outliner_rows(h);
+        rows.into_iter().map(|(name, _)| name).collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&h), ["Entry 1: Go away.", "Reply 1: Bye."]);
     assert!(h.query_by_label_contains("Farewell").is_none());
     // Undone: as they were, in their order; redone: as after the delete.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
@@ -2034,7 +2037,8 @@ fn bookmarks_and_folded_lines_follow_their_lines_across_a_delete() {
     assert_eq!(dialog_lines(&mut h, key), BRANCHING);
     assert_eq!(marks(&h), [(e, 2), (r, 1), (r, 2)]);
     assert_eq!(folds(&h), [(e, 2)].into());
-    h.get_by_label("Reply 1: Farewell.");
+    settle(&mut h);
+    assert_eq!(rows(&h), ["Entry 2: Go away.", "Reply 1: Farewell.", "Reply 2: Bye."]);
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
     h.run();
     h.run();

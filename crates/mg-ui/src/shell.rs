@@ -148,7 +148,8 @@ pub enum Panel {
     /// neighbor on the Right Dock's tab bar.
     Preview,
     /// What the active editor holds, under the Left Dock's tabs (T13): an
-    /// area's placed objects by kind, each kind with an eye
+    /// area's placed objects by kind, each kind with an eye; a
+    /// conversation's bookmarks (M4's U15), in its window where it floats
     /// (`outliner.rs`).
     Outliner,
     /// The log: the Bottom Dock's global panel, whatever the editor in
@@ -196,8 +197,8 @@ pub enum Panel {
     /// tab "Data" (`dialog_view::node_data`).
     NodeData,
     /// A conversation's Find and Replace (M4's U14): the Node section's
-    /// tab "Search", beside Data; and, until U15 puts them in the
-    /// Outliner, its bookmarks (`dialog_view::node_search`).
+    /// tab "Search", beside Data (`dialog_view::node_search`). Its
+    /// bookmarks are the Outliner's (U15).
     NodeSearch,
     /// A conversation's own settings (M4's U14), under the Node section:
     /// Normal end, Aborted and Stop camera zoom in, the word count in its
@@ -415,7 +416,7 @@ impl Panel {
             Panel::Resources => "Resources: the resource browser",
             Panel::Palette => "Palette: the blueprint and tile palettes",
             Panel::Preview => "Preview: the model of the blueprint open or chosen in the palette",
-            Panel::Outliner => "Outliner: what the area in front holds",
+            Panel::Outliner => "Outliner: what the editor in front holds",
             Panel::Log => "Log: what Moonglow reports",
             Panel::TileProperties => "Tile Properties: the tiles selected",
             Panel::Properties => "Properties: the objects selected",
@@ -782,6 +783,7 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         // stays while the conversation's group has the focus, as a
         // script's does.)
         crate::Tab::Dialog(_) => Brings {
+            outliner: true,
             right: DIALOG_RIGHT,
             folded: DIALOG_FOLDED,
             shares: DIALOG_SHARES,
@@ -1153,6 +1155,42 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
             keep_front(app, kind, &brings, panel);
         }
     }
+    // (Its Outliner, where it brings one and floats: a floating
+    // conversation's bookmarks, M4's U15. At its left, the whole height,
+    // after the right pane, so that what the Node section's bar did this
+    // frame is listed; drawn only where the tree keeps the room it had
+    // before (`WINDOW_TREE_AT_FIRST`: the window opens that much wider
+    // where the screen allows, `Moonglow::open_window`), as wide as the
+    // Left Dock or narrower, down to `WINDOW_LEFT_LEAST`. Elsewhere the
+    // pane gives way before the header does (the coordinator's ruling at
+    // U15's review): folded to a strip at the left of the tree, under the
+    // header, its Outliner's icon unfolding it over the tree
+    // (`dialog_view::outliner_strip`), so the bookmarks stay in reach.)
+    let room = ui.available_width();
+    let most = (room - WINDOW_TREE_AT_FIRST - 1.0).min(room * 0.4).floor();
+    if let crate::Tab::Dialog(key) = tab
+        && brings.outliner
+        && brings.floats
+    {
+        let key = *key;
+        if most >= WINDOW_LEFT_LEAST {
+            egui::Panel::left(pane.with("window-left"))
+                .resizable(true)
+                .default_size(WINDOW_LEFT_WIDE.min(most))
+                .size_range(WINDOW_LEFT_LEAST..=most)
+                .frame(egui::Frame::new().fill(t.panel))
+                .show(ui, |ui| {
+                    if pressed(ui, ui.max_rect()) {
+                        app.plugins.pane =
+                            plugin_pane(app, Panel::OUTLINER, Some(tab)).or(app.plugins.pane);
+                    }
+                    app.window_bars_drawn.push(Panel::OUTLINER);
+                    crate::outliner::window_ui(app, ui, key);
+                });
+        } else {
+            app.outliner.strips_now.insert(key);
+        }
+    }
     if !bottom.is_empty() {
         // (Brought to the front in the run, else as kept for the kind,
         // else its first.)
@@ -1307,6 +1345,16 @@ pub(crate) fn window_editor_least(tab: &crate::Tab) -> f32 {
 /// The name of an editor's window's right pane's tab bar (its first
 /// section's; [`window_panes`]).
 pub(crate) const WINDOW_RIGHT: &str = "Window's Right Pane";
+/// A floating conversation's window's Outliner's width at first, where the
+/// window has the room (the Conversation board's Left Dock's 260).
+pub(crate) const WINDOW_LEFT_WIDE: f32 = 260.0;
+/// The room a floating conversation's tree keeps beside its window's
+/// Outliner at first: what its window's first size gave it beside the
+/// right pane before the Outliner came into it (920, less the pane's 280
+/// and the lines), so that its header yields no sooner.
+pub(crate) const WINDOW_TREE_AT_FIRST: f32 = 638.0;
+/// The least of it: a bookmark's kind, number and a few words.
+pub(crate) const WINDOW_LEFT_LEAST: f32 = 150.0;
 /// The name of an editor's window's bottom pane's tab bar.
 pub(crate) const WINDOW_BOTTOM: &str = "Window's Bottom Pane";
 
@@ -1408,8 +1456,11 @@ pub(crate) const BOTH_DOCKS_UNDER: f32 =
 pub(crate) fn frame_yields(app: &mut Moonglow, ctx: &egui::Context) {
     let window = ctx.content_rect().width();
     app.yields = Yields::of(window, app.dock_width.unwrap_or(window));
-    // (The windows' panes drawn at the last frame, for F6.)
+    // (The windows' panes drawn at the last frame, for F6; and the lists
+    // of bookmarks, docked and in windows.)
     app.window_bars = std::mem::take(&mut app.window_bars_drawn);
+    app.outliner.marks_last = std::mem::take(&mut app.outliner.marks_now);
+    app.outliner.strips_now.clear();
     if !app.yields.left_dock_folded {
         app.left_unfolded_here = false;
     }
@@ -1455,6 +1506,27 @@ pub(crate) fn right_folded(app: &Moonglow) -> bool {
 /// [`Moonglow::right_panel`], so the frame it changes moves no keys.)
 pub(crate) fn keys_leave_panels_not_drawn(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::palette_view::{give_keys, keys_are};
+    // (A conversation's bookmarks: drawn in the Outliner while the Left
+    // Dock is unfolded with that conversation in front, or in its window,
+    // as at the last frame.)
+    if keys_are(ctx, crate::palette_view::Keys::Marks) {
+        let key = app.outliner.marks_keys;
+        let docked = left_shown(app).is_some()
+            && !left_folded(app)
+            && key.is_some_and(|k| {
+                crate::outliner::contents(app) == Some(crate::outliner::Contents::Bookmarks(k))
+            });
+        let window = app.outliner.marks_last.iter().any(|(k, w)| *w && Some(*k) == key);
+        if !docked && !window {
+            app.outliner.marks_keys = None;
+            let (keys, table) = app.editor_keys();
+            give_keys(ctx, keys);
+            if let Some(id) = table {
+                crate::table_view::take_keys(ctx, id);
+            }
+        }
+        return;
+    }
     let Some(owner) = Panel::KEYED.into_iter().find(|p| keys_are(ctx, p.keys())) else { return };
     let held = owner.keys();
     let (front, drawn) = match owner.dock() {
@@ -1462,7 +1534,11 @@ pub(crate) fn keys_leave_panels_not_drawn(app: &mut Moonglow, ctx: &egui::Contex
         // that tab's panel, the tree's to the browser's list and back.)
         Dock::Left => {
             let left = left_shown(app).filter(|_| !left_folded(app));
-            let drawn = left.is_some() && (owner != Panel::OUTLINER || owner.available(app));
+            // (The Outliner's rows of an area: not where it lists a
+            // conversation's bookmarks, whose keys are their own.)
+            let outliner = owner.available(app)
+                && crate::outliner::keys_of(app) == crate::palette_view::Keys::Outliner;
+            let drawn = left.is_some() && (owner != Panel::OUTLINER || outliner);
             (None, drawn)
         }
         Dock::Right => {
@@ -1687,6 +1763,9 @@ pub(crate) const MODULE_PANEL_ID: &str = "module-panel";
 /// The least height of the Left Dock's upper panel over the Outliner: its
 /// tab bar, the Module panel's Filter and five rows.
 pub(crate) const MODULE_PANEL_LEAST: f32 = 180.0;
+/// The Outliner's height beside a conversation where the builder has not
+/// dragged its seam (the Conversation board's `.outliner-panel`, 166).
+pub(crate) const OUTLINER_BOOKMARKS_HIGH: f32 = 166.0;
 /// The Outliner's least height: its header and four rows.
 pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
@@ -2625,6 +2704,7 @@ pub(crate) fn shown(
             let hints = hints.into_iter().flatten().collect();
             Shown { hints, counts, note }
         }
+        Some(Tab::Dialog(key)) => dialog_shown(app, &k, ctx, *key),
         // (A blueprint's or a placed object's form with its own Preview
         // shown, M4's U11: the 3D view's ways, the Creature board's, after
         // Esc where an Escape would be its own; not Tab's, which the board
@@ -2683,6 +2763,50 @@ pub(crate) fn shown(
         shown.hints = hints;
     }
     shown
+}
+
+/// What the Status Bar shows beside a conversation (M4's U15, the
+/// Conversation board's): the tree's ways with the pointer, Drag Move
+/// line, Ctrl + Drag Link (Cmd on macOS) and Double Click Go to linked;
+/// the keys its commands take where they act (the pointer over the editor
+/// or its tree with the keys, nothing typed in, as the editor was drawn
+/// last): Add's and Find's as bound (none where unbound), Alt + Up Move
+/// up (Option on macOS: a fixed key, no command of its own), and `*` Open
+/// branch while the tree has the keys; and its words as the file counts
+/// them. Where it is only looked at, nothing that would change it. None
+/// while a modal, a dialog or a menu is in front, as beside an area.
+fn dialog_shown(
+    app: &Moonglow,
+    k: &HintKeys<'_>,
+    ctx: &egui::Context,
+    key: mg_resman::ResKey,
+) -> Shown {
+    use crate::keys::Cmd;
+    let (here, tree) = app.dialog_views.get(&key).map_or((false, false), |v| v.keys_took);
+    let edits = !crate::dialog_view::looked_at(app, &key);
+    let mut hints = Vec::new();
+    if !keys_blocked(ctx) {
+        if edits {
+            hints.push(Hint::keys(["Drag"], "Move line"));
+            hints.push(Hint::keys([k.ctrl(), "Drag"], "Link"));
+        }
+        hints.push(Hint::keys(["Double Click"], "Go to linked"));
+        if here && edits {
+            hints.extend(k.hint(Cmd::AddLine, "Add"));
+            hints.push(Hint::keys([k.alt(), "Up"], "Move up"));
+        }
+        if tree {
+            hints.push(Hint::keys(["*"], "Open branch"));
+        }
+        if here {
+            hints.extend(k.hint(Cmd::DialogFind, "Find"));
+        }
+    }
+    let counts = crate::dialog_view::file_words(app, key)
+        .map(|n| Count::new(if n == 1 { "1 word".to_string() } else { format!("{n} words") }))
+        .into_iter()
+        .collect();
+    Shown { hints, counts, note: None }
 }
 
 /// The widths at most of the Status Bar's module name and its note (the
@@ -2942,8 +3066,19 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
             let range = MODULE_PANEL_LEAST..=most;
             // (The board's seam where none is chosen: 496, 760 in a wide
             // window, GalleryWide's.)
-            let at_first = app.yields.module_panel_height;
-            let chosen = app.settings.module_panel_height.map_or(at_first, |h| h as f32);
+            // (Beside a conversation, the Conversation board's: the
+            // Outliner 166 high under it, its bookmarks a short list.)
+            // (Each kept apart, the areas' and a conversation's bookmarks':
+            // the coordinator's ruling at U15's review.)
+            let bookmarks = matches!(
+                crate::outliner::contents(app),
+                Some(crate::outliner::Contents::Bookmarks(_))
+            );
+            let (at_first, kept) = match bookmarks {
+                true => (whole - OUTLINER_BOOKMARKS_HIGH, app.settings.bookmarks_panel_height),
+                false => (app.yields.module_panel_height, app.settings.module_panel_height),
+            };
+            let chosen = kept.map_or(at_first, |h| h as f32);
             let tall = match (outliner, folded) {
                 (true, false) => chosen.clamp(*range.start(), *range.end()),
                 (true, true) => (whole - metrics::DOCK_TABS).max(0.0),
@@ -2965,7 +3100,11 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 upper_panel(app, ui, pane, &upper)
             });
             if seam_dragged {
-                app.settings.module_panel_height = Some(top.response.rect.height().round() as u32);
+                let high = Some(top.response.rect.height().round() as u32);
+                match bookmarks {
+                    true => app.settings.bookmarks_panel_height = high,
+                    false => app.settings.module_panel_height = high,
+                }
             }
             if outliner {
                 crate::outliner::ui(app, ui);

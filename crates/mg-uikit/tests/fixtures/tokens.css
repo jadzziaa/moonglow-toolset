@@ -8,7 +8,8 @@
    rules; then the 3D view's compass (M4's U4), and the area view's handles
    and their chips (the proposal's sections 11.3 and 11.5, M4's U7 and U8:
    the handles keep one value in both themes, the chips follow the
-   theme). */
+   theme); and a tree's indent guides (the Conversation board's --guide,
+   M4's U15: its light value made as far from the light panel). */
 
 .mg {
   --base: #15171a;
@@ -75,6 +76,9 @@
   --switch-off: #3b414a;
   --switch-knob: #aab0ba;
   --slider-thumb: #aab0ba;
+  --guide: #2c3036;
+  --guide-hover: #3a3f47;
+  --guide-on-fill: rgba(255, 255, 255, 0.18);
   --slider-thumb-ring: transparent;
   --select-ring: transparent;
   --compass-north: #e5484d;
@@ -166,6 +170,9 @@
   --switch-off: #a9b0b9;
   --switch-knob: #ffffff;
   --slider-thumb: #ffffff;
+  --guide: #cdd2d8;
+  --guide-hover: #bcc2ca;
+  --guide-on-fill: rgba(255, 255, 255, 0.18);
   --slider-thumb-ring: #8d949e;
   --select-ring: #a35c00;
   --compass-north: #b4232b;

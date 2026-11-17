@@ -2693,3 +2693,34 @@ fn the_module_tree_s_placed_objects_at_the_size_at_first() {
     h.key_press(egui::Key::Enter);
     until_tree(&mut h, "gone to", |h| h.state().area_views[&area].selection.len() == 1);
 }
+
+/// Beside a docked conversation the Outliner lists its bookmarks, not an
+/// area's objects, so the module tree follows an area's selection again,
+/// as where no Outliner is shown (M4's U15: `tree::follow_selection` read
+/// the Outliner's being there).
+#[test]
+fn the_module_tree_follows_the_selection_beside_a_docked_conversation() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-follows-beside-conversation") else { return };
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    h.state_mut().ws.as_mut().unwrap().view(key, mg_module::dialog::new_dialog());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let started = std::time::Instant::now();
+    while h.state().active_editor() != Some(&Tab::Dialog(key)) {
+        assert!(started.elapsed().as_secs() < 10, "never: the conversation in front");
+        h.step();
+    }
+    h.run_steps(4);
+    assert!(h.query_by_label(mg_ui::OUTLINER).is_some(), "the Outliner, its bookmarks");
+    assert!(h.query_all_by_label_contains("WAYPOINT").next().is_none(), "the area not opened out");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    let started = std::time::Instant::now();
+    while h.query_all_by_label_contains("WAYPOINT").next().is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the tree opened out to the waypoint");
+        h.step();
+    }
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
+}

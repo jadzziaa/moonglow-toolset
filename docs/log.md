@@ -1,6 +1,14 @@
 # Update log
 
 ## 2026-11-17
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U15's review ([06](manual/06-conversations.md#bookmarks), [02](manual/02-main-window.md)).
+  * A conversation's Data no longer redraws without end beside some lines in the default window (its Script rows now stand on one line where they fit).
+  * A conversation in a window too narrow for its Outliner folds it to a strip at the tree's left: its icon opens the bookmarks over the tree, and the header keeps its commands.
+  * While the bookmarks have the keys, Delete and the conversation's other keys do nothing with the pointer over the tree; letters go to a bookmark by its line; F6 reaches a window's Outliner first; the line selected is marked the tree's whole width; the Outliner's split beside a conversation is kept apart from the one beside an area; Add Set grows with the editor's text.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U15, the conversation's Outliner, guides and hints**, as the Conversation board draws them ([06](manual/06-conversations.md#bookmarks); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
+  * **A conversation's bookmarks are in the Outliner** under the Left Dock's tabs, a Bookmarks group with its count and a row a line ("Entry 40: Welcome, <FullName>. I r…"); a click or Enter goes to the line, opening out what hides it, and the arrows, Home, End, Page keys and F6 work there as in the Outliner's other lists. A conversation in a window of its own has them at the window's left. Search no longer lists them.
+  * **Indent guides**: thin lines down from each line's arrow past the lines under it.
+  * **The Status Bar** names the tree's ways (Drag Move line, Ctrl + Drag Link, Double Click Go to linked) and, while the conversation takes the keys, Ctrl + A Add, Alt + Up Move up, * Open branch and Ctrl + F Find as bound; and counts the conversation's words.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U14's review ([06](manual/06-conversations.md)).
   * A script's and a sound's names show whole in their fields (16 characters); where the panel is narrow, the label stands over the field.
   * A conversation only looked at can't be changed by a drag in its tree or by Script Wizard…; Find over a conversation in another group works for that one; the Conversation panel keeps room for its rows at the editor's larger text, and Data's headings grow with it.

@@ -2950,6 +2950,7 @@ impl Moonglow {
         self.settings.right_dock_width_wide = None;
         self.settings.bottom_dock_height = None;
         self.settings.module_panel_height = None;
+        self.settings.bookmarks_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3082,22 +3083,44 @@ impl Moonglow {
         // lines or a table's cells, else an area's; the Right Dock's the
         // palette.
         let mut panes = Vec::new();
+        // (A conversation's bookmarks, each list a stop of its own: the
+        // conversation whose they are. Docked, the one the Outliner lists;
+        // in windows, those drawn at the last frame, in their order.)
+        let mut marks: Vec<Option<ResKey>> = Vec::new();
         // (Only what is drawn: a folded dock, by the window's width or by
         // the builder, is passed by; its strip's buttons, View's rows and
         // their keys unfold it.)
         if let Some(panel) = self.left_dock_shows() {
             panes.push((panel.keys(), None));
+            marks.push(None);
             // (The Outliner under its tabs' panel, before the editor
             // area: left to right, then down.)
             if Panel::OUTLINER.available(self) {
-                panes.push((Panel::OUTLINER.keys(), None));
+                panes.push((outliner::keys_of(self), None));
+                marks.push(match outliner::contents(self) {
+                    Some(outliner::Contents::Bookmarks(key)) => Some(key),
+                    _ => None,
+                });
             }
+        }
+        // (A floating conversation's window's Outliner, its bookmarks: at
+        // the window's left, so before its editor and its right pane, left
+        // to right, then down, as T14 orders the docks.)
+        let in_windows =
+            self.outliner.marks_last.iter().filter(|(_, window)| *window).map(|(k, _)| *k);
+        for key in in_windows {
+            panes.push((Keys::Marks, None));
+            marks.push(Some(key));
         }
         // (The editor area's place among them.)
         let middle = panes.len();
         panes.push(self.editor_keys());
-        // (Each floating editor's window's panes after it.)
-        panes.extend(self.window_bars.iter().map(|p| (p.keys(), None)));
+        marks.push(None);
+        // (Each floating editor's window's other panes after it.)
+        for p in self.window_bars.iter().filter(|p| **p != Panel::OUTLINER) {
+            panes.push((p.keys(), None));
+            marks.push(None);
+        }
         // (The Right Dock's one stop: its panel in front's, the palette's
         // rows or the Preview's model.)
         if let Some(panel) = self.right_dock_shows() {
@@ -3115,11 +3138,22 @@ impl Moonglow {
         {
             panes.push((panel.keys(), None));
         }
-        let now = panes.iter().position(|p| palette_view::keys_are(ctx, p.0));
+        // (The Right Dock's and the Bottom Dock's stops have no bookmarks.)
+        marks.resize(panes.len(), None);
+        let now = panes.iter().zip(&marks).position(|(p, m)| {
+            palette_view::keys_are(ctx, p.0)
+                && (p.0 != Keys::Marks || *m == self.outliner.marks_keys)
+        });
         // (The keys anywhere else, a conversation's lines: as the middle's.)
         let now = now.unwrap_or(middle.min(panes.len() - 1));
-        let (next, table) = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
+        let at = (now as isize + by).rem_euclid(panes.len() as isize) as usize;
+        let (next, table) = panes[at];
         palette_view::give_keys(ctx, next);
+        if next == Keys::Marks
+            && let Some(key) = marks[at]
+        {
+            outliner::take_marks(self, ctx, key);
+        }
         if let Some(id) = table {
             table_view::take_keys(ctx, id);
             // (At its first cell, where none is selected: the arrows go
@@ -3298,8 +3332,13 @@ impl Moonglow {
         // that much wider, its pane beside the form's 980, M4's U11. A
         // window of the kind left at a size opens so, its pane drawn only
         // where the form keeps its least beside it.)
+        // (A conversation's, its Outliner at its left: that much wider,
+        // M4's U15, its tree keeping the room it had.)
         let first = match shell::own_preview(self, Some(&tab)) {
             Some(_) => tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0),
+            None if matches!(tab, Tab::Dialog(_)) => {
+                tab.window_size() + egui::vec2(shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
+            }
             None => tab.window_size(),
         };
         let want = left.map_or(first, |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));

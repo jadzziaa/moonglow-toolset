@@ -790,6 +790,14 @@ pub struct Settings {
     /// to what the dock's height allows, kept as chosen). `None`: not
     /// chosen, the board's split (`mg_uikit::metrics::MODULE_PANEL`).
     pub module_panel_height: Option<u32>,
+    /// The same seam beside a conversation, where the Outliner lists its
+    /// bookmarks (M4's U15 review: the coordinator's ruling, a seam per
+    /// what the Outliner lists, so a drag beside a conversation never moves
+    /// the areas' and theirs never loses the bookmarks' 166). `None`: not
+    /// chosen, the Conversation board's (the Outliner 166 high). Written
+    /// only once chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bookmarks_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart

@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:28:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T01:53:04Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -168,7 +168,7 @@ unless their file (under `crates/`) follows the name.
 | Comments (node comment; link comment on links) | same | ✅ |
 | Current File: end scripts normal/aborted, Stop Camera Zoom In | the Conversation panel under the Node section (M4 U14), the file's word count in its header | ✅ [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
 | Status bar: line letters/words, file words | over the line's Data: its letters and words (the talk table's text where that is shown: Aurora counts 0) and the file's words | ✅ improvement [a_talk_table_line_counts_the_text_shown] |
-| Bookmarks (list, double-click to go) | Bookmark on the Node section's bar toggles the selected line; the bookmarked lines are listed under Search's results (M4 U15 moves them to the Outliner), click selects | ✅ [conversation_search_bookmarks_and_test] |
+| Bookmarks (list, double-click to go) | Bookmark on the Node section's bar toggles the selected line; the bookmarked lines are listed in the Outliner under the Left Dock's tabs (M4 U15; a floating conversation's at its window's left), a click or Enter going to the line, the rows following their lines | ✅ [the_outliner_lists_the_conversation_s_bookmarks, bookmarks_follow_a_line_moved_by_another_program, conversation_search_bookmarks_and_test] |
 | Search: find, replace, match case, whole word, current file / all files in module | the Node section's Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one; Ctrl+F brings it to the front | ✅ (language and gender scopes: English only) [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
 | Test (click through the conversation) | Test window: greetings, then each line's next lines, Back, Done; conditions not run: each is taken to pass unless switched off in the window | ✅ |
 | Script Wizard (Text Appears When…: abilities, class and level, gender, race, alignment, feats, skills, skill checks, items, local variables, random; Actions Taken: rewards, take gold/XP/items, set locals, attack or open a store, faction change; name sc_NNN/at_NNN, start the editor) | same pages and lists; Finish writes, compiles and sets the script in one undoable command | ✅ (`aurora_script_wizard.rs`: Aurora's five captured scripts byte for byte, all compile) [script_wizard_writes_compiles_and_sets_scripts] |

@@ -13,7 +13,7 @@ use mg_ui::Panel;
 
 /// A conversation of two greetings, "Hello there." (its reply "Who are
 /// you?") and "Go away.".
-fn talk() -> mg_gff::Gff {
+pub(crate) fn talk() -> mg_gff::Gff {
     let mut g = new_dialog();
     let hello = add_node(&mut g, Parent::Root, "Hello there.");
     add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who are you?");
@@ -24,7 +24,7 @@ fn talk() -> mg_gff::Gff {
 /// A module with the conversations `names` (each [`talk`]), open in
 /// `mode` in a window `width` by 900, their tabs opened in their order
 /// (the last in front).
-fn dialogs_window(
+pub(crate) fn dialogs_window(
     mode: Mode,
     name: &str,
     names: &[&str],
@@ -55,7 +55,7 @@ fn dialogs_window(
 
 /// The rectangle `key`'s conversation is drawn in: its pane's (its tab's
 /// group, or its window's).
-fn leaf_rect(h: &Harness<'_, Moonglow>, key: ResKey) -> egui::Rect {
+pub(crate) fn leaf_rect(h: &Harness<'_, Moonglow>, key: ResKey) -> egui::Rect {
     let window = h.state().dock.find_tab(&Tab::Dialog(key)).expect("its tab").surface;
     h.state().dock.iter_leaves().find(|(p, _)| p.surface == window).unwrap().1.rect
 }
@@ -72,7 +72,7 @@ fn click_point(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
 
 /// The name of the tab bar the Node section's tools are on: the Right
 /// Dock's, or a floating conversation's window's right pane's.
-fn node_bar(mode: Mode) -> &'static str {
+pub(crate) fn node_bar(mode: Mode) -> &'static str {
     match mode {
         Mode::Tabs => mg_ui::RIGHT_DOCK,
         Mode::Floating => "Window's Right Pane",
@@ -94,13 +94,13 @@ fn field_of(h: &Harness<'_, Moonglow>, label: &str) -> egui::Rect {
 }
 
 /// Where a control named `name` is drawn, the first of the name.
-fn at(h: &Harness<'_, Moonglow>, name: &str) -> egui::Rect {
+pub(crate) fn at(h: &Harness<'_, Moonglow>, name: &str) -> egui::Rect {
     h.get_all_by_label(name).next().unwrap_or_else(|| panic!("{name}")).rect()
 }
 
 /// The Node section's tab `name` (Data, Search) or the Conversation
 /// panel's tab (where the dock folds them into one bar) clicked.
-fn tab(h: &mut Harness<'_, Moonglow>, name: &str) {
+pub(crate) fn tab(h: &mut Harness<'_, Moonglow>, name: &str) {
     let found =
         h.get_all_by_label(name).find(|n| n.accesskit_node().role() == egui::accesskit::Role::Tab);
     found.unwrap_or_else(|| panic!("the tab {name}")).click();
@@ -189,7 +189,8 @@ fn the_panels_follow_the_conversation_in_front() {
     let (mut h, keys) =
         dialogs_window(Mode::Tabs, "ui-dialog-follow", &["aaa", "bbb", "ccc"], 1600.0);
     // ccc floats; bbb in a second group beside aaa.
-    own_window(&mut h, &Tab::Dialog(keys[2]), egui::pos2(300.0, 150.0), egui::vec2(1000.0, 600.0));
+    // (Wide enough for its Outliner's pane beside the tree's room.)
+    own_window(&mut h, &Tab::Dialog(keys[2]), egui::pos2(20.0, 150.0), egui::vec2(1250.0, 600.0));
     click_tab(&mut h, &Tab::Dialog(keys[1]));
     settle(&mut h);
     h.get_by_label("Split Editor").click();
@@ -205,7 +206,13 @@ fn the_panels_follow_the_conversation_in_front() {
         let row = mg_ui::dialog_view::Row { parent, pos };
         h.state_mut().dialog_views.get_mut(key).unwrap().selected = Some(row);
     }
+    // (And each its own bookmark, for the Outliner: M4's U15.)
+    let marks = [(Kind::Entry, 0), (Kind::Entry, 1), (Kind::Reply, 0)];
+    for (key, mark) in keys.iter().zip(marks) {
+        h.state_mut().dialog_views.get_mut(key).unwrap().bookmarks = vec![mark];
+    }
     settle(&mut h);
+    let main = h.ctx.content_rect();
     let dock = |h: &Harness<'_, Moonglow>| right_dock_rect(h);
     let shows = |h: &Harness<'_, Moonglow>, room: egui::Rect, value: &str| {
         let fields = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput);
@@ -223,9 +230,28 @@ fn the_panels_follow_the_conversation_in_front() {
         assert!(shows(&h, dock(&h), own), "{own} in the dock");
         assert!(!shows(&h, dock(&h), other), "not {other}");
         assert!(!shows(&h, dock(&h), "Who are you?"), "nor the floating one's");
+        // Its bookmarks in the Outliner, not the other's, nor the floating
+        // one's (listed in its window).
+        let (mine, theirs) = match front == keys[0] {
+            true => ("Entry 0: Hello there.", "Entry 1: Go away."),
+            false => ("Entry 1: Go away.", "Entry 0: Hello there."),
+        };
+        let window = leaf_rect(&h, keys[2]);
+        let outside = |h: &Harness<'_, Moonglow>, row: &str| {
+            crate::conversation_outliner::outliner_rows(h)
+                .iter()
+                .any(|(name, at)| name == row && main.contains(*at) && !window.contains(*at))
+        };
+        assert!(outside(&h, mine), "{mine} in the Outliner");
+        assert!(!outside(&h, theirs), "not {theirs}");
+        assert!(!outside(&h, "Reply 0: Who are you?"), "nor the floating one's");
     }
     let window = leaf_rect(&h, keys[2]);
     assert!(shows(&h, window, "Who are you?"), "ccc's line in its window");
+    let in_window = crate::conversation_outliner::outliner_rows(&h);
+    let in_window =
+        in_window.iter().any(|(n, at)| n == "Reply 0: Who are you?" && window.contains(*at));
+    assert!(in_window, "ccc's bookmark in its window's Outliner");
 }
 
 /// A field typed in keeps to its own line: the line's text typed, then
@@ -398,6 +424,27 @@ fn a_conversation_only_looked_at_is_read_only() {
     assert!(log.iter().any(|l| l.contains("only looked at")), "{log:?}");
     let ws = h.state().ws.as_ref().unwrap();
     assert!(!ws.module.contains(&key) && ws.is_viewed(&key), "never given to the module");
+    // (M4's U15.) A bookmark is the view's, not the conversation's: set, it
+    // is listed in the Outliner, and a click there goes to its line. The
+    // Status Bar hints nothing that would change it.
+    h.get_by_label("Bookmark").click();
+    settle(&mut h);
+    let row = "Entry 1: Go away.";
+    // (Root chosen first: the click goes to the line.)
+    h.get_by_label("Root").click();
+    settle(&mut h);
+    assert_eq!(h.state().dialog_views[&key].selected, None);
+    crate::conversation_outliner::outliner_row(&h, row).expect("listed").click();
+    settle(&mut h);
+    assert_eq!(h.state().dialog_views[&key].bookmarks, [(Kind::Entry, 1)]);
+    let go_away = mg_ui::dialog_view::Row { parent: Parent::Root, pos: 1 };
+    assert_eq!(h.state().dialog_views[&key].selected, Some(go_away), "gone to its line");
+    let said = h.state().status_said();
+    assert!(said.iter().any(|s| s == "Double Click: Go to linked"), "{said:?}");
+    for not in ["Drag: Move line", "Ctrl, Drag: Link", "Ctrl, A: Add", "Alt, Up: Move up"] {
+        assert!(!said.iter().any(|s| s == not), "{not}: {said:?}");
+    }
+    assert_eq!(dialog_lines(&mut h, key), as_it_was, "nothing changed");
 }
 
 /// Every panel of a conversation fits the Right Dock from its least width
@@ -532,7 +579,7 @@ fn fits(h: &Harness<'_, Moonglow>, dock: egui::Rect, larger: Option<u8>, what: &
 
 /// A key pressed with the pointer over the conversation's tree, and the
 /// window let come to rest ([`settle`] fails where it keeps repainting).
-fn tree_key(h: &mut Harness<'_, Moonglow>, mods: egui::Modifiers, key: egui::Key) {
+pub(crate) fn tree_key(h: &mut Harness<'_, Moonglow>, mods: egui::Modifiers, key: egui::Key) {
     let over = at(h, "Root").center();
     h.hover_at(over);
     h.step();
@@ -542,7 +589,7 @@ fn tree_key(h: &mut Harness<'_, Moonglow>, mods: egui::Modifiers, key: egui::Key
 
 /// The text field of the panel in front that the case types in: the
 /// line's text (Data), Find What (Search), Normal end (Conversation).
-fn type_in_front(h: &mut Harness<'_, Moonglow>, front: &str) {
+pub(crate) fn type_in_front(h: &mut Harness<'_, Moonglow>, front: &str) {
     let field = match front {
         "Data" => h
             .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
@@ -680,6 +727,9 @@ fn records_naming_the_old_bottom_pane_read_without_error() {
         assert_eq!(h.state().right_dock_shows(), Some(front), "{fronts}");
         h.get_by_label_contains("words in the file");
         assert_eq!(h.state().dialog_views[&key].bookmarks, [(Kind::Entry, 1)], "{fronts}");
+        // (Kept across the restart, listed in the Outliner: M4's U15.)
+        let listed = crate::conversation_outliner::outliner_row(&h, "Entry 1: Go away.");
+        assert!(listed.is_some(), "{fronts}: listed in the Outliner");
     }
 }
 
@@ -962,5 +1012,75 @@ fn a_conversation_s_section_seam_is_kept_across_a_restart() {
         };
         let restored = share(&again, room);
         assert!((restored - first).abs() < 0.02, "{mode:?}: {first} again at {restored}");
+    }
+}
+
+/// The top of the Data heading `name` drawn in the Right Dock (its
+/// headings are named so elsewhere too: the highlight "Comments").
+fn heading_top(h: &Harness<'_, Moonglow>, name: &str) -> Option<f32> {
+    let dock = right_dock_rect(h);
+    let x = dock.x_range();
+    h.query_all_by_label(name).map(|n| n.rect()).find(|r| x.contains(r.center().x)).map(|r| r.top())
+}
+
+/// How tall Data's sections stand: from Text Appears When…'s heading to
+/// Comments' (both script sections, their resref rows, Other Actions),
+/// whatever Data is scrolled to.
+fn data_height(h: &Harness<'_, Moonglow>) -> f32 {
+    let top = heading_top(h, "Text Appears When…").expect("Text Appears When…");
+    heading_top(h, "Comments").expect("Comments") - top
+}
+
+/// Data never stands taller where it is wider (M4's U15 review: U14's
+/// `form_row_least` tested the room beside a label without the gap the
+/// row puts after it, so at 319 to 322 points a script's row put its Edit
+/// onto a line of its own, taller than at 311 with its label over it;
+/// beside its scroll bar such a Data never came to rest), and it comes
+/// to rest at every width: the Right Dock from 270 to 480 a point at a
+/// time, at the editor's own text, at 14 and at 20 points, beside an NPC
+/// line, a reply that ends the conversation and a greeting; around each
+/// width where its layout changes, at window heights from 820 to 976.
+#[test]
+fn data_is_never_taller_where_wider_and_comes_to_rest() {
+    let (mut h, _) = dialogs_window(Mode::Tabs, "ui-dialog-data-sweep", &["talk"], 1600.0);
+    for size in [None, Some(14u8), Some(20u8)] {
+        h.state_mut().settings.dialog_font_size = size;
+        for line in ["[OWNER] - Hello there.", "Who are you? [END DIALOGUE]", "[OWNER] - Go away."]
+        {
+            h.state_mut().settings.right_dock_width = None;
+            h.set_size(egui::vec2(1600.0, 900.0));
+            settle(&mut h);
+            h.get_by_label(line).click();
+            settle(&mut h);
+            let mut was: Option<(u32, f32)> = None;
+            let mut changes = Vec::new();
+            for w in 270..=480u32 {
+                h.state_mut().settings.right_dock_width = Some(w);
+                settle(&mut h);
+                let high = data_height(&h);
+                if let Some((at, before)) = was {
+                    assert!(
+                        high <= before + 0.5,
+                        "{size:?} {line}: {before} at {at}, {high} at {w}"
+                    );
+                    if (high - before).abs() > 0.5 {
+                        changes.push(w);
+                    }
+                }
+                was = Some((w, high));
+            }
+            // (Around each change, at window heights a few points apart:
+            // the viewport where the content's height lands.)
+            for w in changes {
+                for at in w.saturating_sub(2)..=w + 2 {
+                    h.state_mut().settings.right_dock_width = Some(at);
+                    for high in (820..=976).step_by(6) {
+                        h.set_size(egui::vec2(1600.0, high as f32));
+                        settle(&mut h);
+                    }
+                }
+                h.set_size(egui::vec2(1600.0, 900.0));
+            }
+        }
     }
 }

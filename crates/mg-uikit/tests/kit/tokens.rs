@@ -74,7 +74,7 @@ fn the_themes_differ_but_for_the_thumbnails() {
         // is the same in both themes.)
         let same = name.starts_with("thumb-")
             || name.starts_with("handle-")
-            || matches!(*name, "on-fill" | "syn-error" | "on-select");
+            || matches!(*name, "on-fill" | "syn-error" | "on-select" | "guide-on-fill");
         if same {
             assert_eq!(d, l, "{name} keeps one value");
         } else {

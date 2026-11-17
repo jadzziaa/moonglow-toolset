@@ -85,6 +85,8 @@ pub struct KitButton {
     drawn_as: Option<ButtonState>,
     corners: Option<egui::CornerRadius>,
     count: Option<String>,
+    /// Its words' size where not the body's ([`KitButton::text_size`]).
+    size: Option<f32>,
 }
 
 impl KitButton {
@@ -104,7 +106,21 @@ impl KitButton {
             drawn_as: None,
             corners: None,
             count: None,
+            size: None,
         }
+    }
+
+    /// Its words at `size` points, not the body's, and its height grown
+    /// with them: a button among a panel's content at an editor's own
+    /// larger text (the conversation editor's Add Set, M4's U15 review).
+    pub fn text_size(mut self, size: f32) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// How much larger than the body its words are, at least 1.
+    fn scale(&self) -> f32 {
+        self.size.map_or(1.0, |s| (s / metrics::BODY_SIZE).max(1.0))
     }
 
     /// With a weak count after its words (`.count-w`: `text-3`, 11 px;
@@ -198,12 +214,12 @@ impl KitButton {
         self.icon_only
     }
 
-    fn font() -> FontId {
-        FontId::proportional(metrics::BODY_SIZE)
+    fn font(&self) -> FontId {
+        FontId::proportional(metrics::BODY_SIZE * self.scale())
     }
 
     fn words_width(&self, ui: &Ui) -> f32 {
-        let galley = ui.painter().layout_no_wrap(self.words.clone(), Self::font(), Color32::WHITE);
+        let galley = ui.painter().layout_no_wrap(self.words.clone(), self.font(), Color32::WHITE);
         galley.size().x
     }
 
@@ -294,7 +310,7 @@ impl KitButton {
 impl egui::Widget for KitButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let width = self.width(ui);
-        let height = metrics::CONTROL_HEIGHT;
+        let height = metrics::CONTROL_HEIGHT * self.scale();
         let sense = if self.enabled { Sense::click() } else { Sense::hover() };
         let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
         let name = self.accessible_name().to_string();
@@ -343,7 +359,7 @@ impl egui::Widget for KitButton {
                     icon.paint(&painter, square, text);
                     x += metrics::ICON + BUTTON_GAP;
                 }
-                let galley = painter.layout_no_wrap(self.words.clone(), KitButton::font(), text);
+                let galley = painter.layout_no_wrap(self.words.clone(), self.font(), text);
                 let at = pos2(x, y - galley.size().y / 2.0);
                 x += galley.size().x;
                 painter.galley(at, galley, text);

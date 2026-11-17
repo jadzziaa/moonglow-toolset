@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Conversations
-description: Conversations - the editor's header and tree, a line's Data and the Search in the Right Dock's Node section, the Conversation panel, writing conversations elsewhere, the Script Wizard and backups.
+description: Conversations - the editor's header and tree, a line's Data and the Search in the Right Dock's Node section, the Conversation panel, the bookmarks in the Outliner, the Status Bar's hints, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T00:37:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T04:26:32Z }
 ---
 
 # Conversations
@@ -13,14 +13,18 @@ one in the module tree to open it in the **Conversation Editor**: its
 header (what you do to the lines, how they look, then OK and Cancel) over
 its tree; the line chosen, the conversation's Search and its own settings
 in the Right Dock beside it (in a window of its own, in the window's
-right pane).
+right pane), and its bookmarks in the Outliner under the Left Dock's
+tabs (in a window of its own, at the window's left).
 
 ## The tree
 
 The conversation is a tree under **Root**: the NPC's lines (red, headed
 `[OWNER]` or the speaker's tag) and the player's replies (blue). A gray
 line is a **link**: it stands for a line elsewhere in the tree, so
-branches can join and loop without copying text. Double-click a link, or
+branches can join and loop without copying text. Thin **guides** run
+down from each line's arrow past the lines under it, so you can see which
+line a reply belongs to deep in a branch; the line selected is marked the
+tree's whole width. Double-click a link, or
 right-click it for **Go to Linked**, to go to the line itself (the
 branches above it open out). Select a line to edit it in the Right
 Dock's **Node** section, its **Data** tab (see [a line's
@@ -40,12 +44,12 @@ Delete's keys). Delete deletes only the line: the whole conversation is
 deleted from the module tree (its menu's Delete…, which asks first).
 
 **The keyboard.** Opening a conversation (from the module tree, or
-bringing its tab to the front) gives its tree the keys, as Aurora does, and
-so does a click in the editor or in its panels in the Right Dock (a thin
-outline shows it has them), as a
-click gives them to the module tree; they stay its until you click another list, point at an
-area's view or press Escape (Aurora's Escape does nothing there; Moonglow's
-hands the keys back, as in the module tree). Then, as in Aurora's tree:
+bringing its tab to the front) gives its tree the keys, as Aurora does,
+and so does a click in the editor or in its panels in the Right Dock (a
+thin outline shows it has them), as a click gives them to the module tree;
+they stay its until you click another list, point at an area's view or
+press Escape (Aurora's Escape does nothing there; Moonglow's hands the
+keys back, as in the module tree). Then, as in Aurora's tree:
 
 | Key | Does |
 | --- | --- |
@@ -78,9 +82,9 @@ choose in it, and the tree's selection stays. The − above the letters
 folds too, as the keypad's does, and Shift+8 opens everything out as the
 keypad's * does (Moonglow can't tell them apart).
 
-Folding a branch with the arrow before its line (or Collapse All) while a line in it is
-selected selects the line folded, as Windows' tree does, so the
-selection stays in sight.
+Folding a branch with the arrow before its line (or Collapse All) while a
+line in it is selected selects the line folded, as Windows' tree does, so
+the selection stays in sight.
 
 The header has, at its left, **Add** with its word, then Copy, Cut,
 Paste, Paste As Link and Delete, Move Up and Move Down, Expand All and
@@ -112,15 +116,15 @@ With **Scripts** on (the default), each line names what it does besides
 its text: `if c_has_key` (its Text Appears When), `do a_give_gold` (its
 Actions Taken), `journal q_rats 20` and `sound vs_hello`.
 
-**Dragging** a line onto another moves it there: under a line of the
-other kind (a player's line under an NPC's), or above a line of its own
-kind, which is how lines change places and parents in one go; a frame or
-a line above shows which it will be. Ctrl + drag (Cmd on
-macOS) links it instead. **Right-click** a line for Add, Copy, Cut,
-Paste, Paste As Link and Delete on that line. Lines move only where they fit (an NPC line under
-a player line or Root, and the reverse). Options › Conversation Editor
-sets which way Paste As Link and Ctrl + drag link, and whether a new line
-first asks for its text in a popup.
+**Dragging** a line onto another moves it there: under a line of the other
+kind (a player's line under an NPC's), or above a line of its own kind,
+which is how lines change places and parents in one go; a frame or a line
+above shows which it will be. Ctrl + drag (Cmd on macOS) links it instead.
+**Right-click** a line for Add, Copy, Cut, Paste, Paste As Link and Delete
+on that line. Lines move only where they fit (an NPC line under a player
+line or Root, and the reverse). Options › Conversation Editor sets which
+way Paste As Link and Ctrl + drag link, and whether a new line first asks
+for its text in a popup.
 
 **The Right Dock.** Beside a conversation in front, the Right Dock holds
 its **Node** section (its tabs **Data** and **Search**, with
@@ -140,16 +144,66 @@ another line keeps what you typed in the first.
 every conversation in the module (match case, whole words, replace:
 without Match case, accents are set aside as case is, so `arbol` finds
 `Árbol`); **Bookmark**, on the Node section's bar, puts a bookmark on the
-line chosen or takes it off, and the bookmarked lines are listed under
-Search's results, a click going to the line. Bookmarks and folded branches stay with their lines when a
-delete numbers the lines after it anew (a bookmark on a line deleted goes,
-and Undo brings it back), and when something else changes the
-conversation (a plugin, or the file changed outside Moonglow): there they
-are found again by their text, speaker and the lines above them, and one
-whose line can't be found goes (the debug log says which). With the pointer over the editor, Ctrl+F (or Ctrl+R) brings
-Search to the front (unfolding the Right Dock if it was folded) and F3
-finds again, as in Aurora, from the conversation or from Search's Find
+line chosen or takes it off, and the bookmarked lines are listed in the
+**Outliner** (see [Bookmarks](#bookmarks)). Bookmarks and folded branches
+stay with their lines when a delete numbers the lines after it anew (a
+bookmark on a line deleted goes, and Undo brings it back), and when
+something else changes the conversation (a plugin, or the file changed
+outside Moonglow): there they are found again by their text, speaker and
+the lines above them, and one whose line can't be found goes (the debug
+log says which). With the pointer over the editor, Ctrl+F (or Ctrl+R)
+brings Search to the front (unfolding the Right Dock if it was folded) and
+F3 finds again, as in Aurora, from the conversation or from Search's Find
 What field.
+
+## Bookmarks
+
+Beside a conversation in front, the **Outliner** under the Left Dock's
+tabs names the conversation and lists its bookmarks in a **Bookmarks**
+group, its count beside it: each row the line's kind and number and the
+start of its text (`Entry 40: Welcome, <FullName>. I r…`), in the order
+you set them. A click on a row goes to its line in the tree, opening out
+the lines above it, and gives the list the keys: Up and Down go from row
+to row, Page Up, Page Down, Home and End as in the other lists, Right and
+Left open and close the group (Left from a row goes to the group), Enter
+goes to the line (on the group's row, opens or closes it), letters go to
+the bookmark whose line begins with them, and Escape hands the keys back.
+While the list has the keys, the conversation's own keys (Delete, Ctrl+A
+and the rest) do nothing with the pointer over the tree; a click in the
+tree gives them back to it. F6 comes to the list as to the Left Dock's
+other panels. With no bookmarks the group says 0 and has no arrow. The
+rows follow their lines as the bookmarks do (a delete, its Undo, a change
+made elsewhere). A bookmark set on a link's row is the line it links to.
+The list follows the conversation in front, and is kept with the
+conversation's other state when the module is opened again. Drag the line
+over the Outliner to give it the room you like: beside a conversation it
+is kept apart from the one beside an area.
+
+A conversation in a window of its own has its Outliner at the window's
+left, the main window's Outliner staying with the editor docked in front
+there. A new window opens that much wider where the screen has the room.
+Where the window is too narrow for it beside the conversation's own room,
+the Outliner folds to a strip at the left of the tree, under the header,
+so that the header keeps its commands: its icon opens the bookmarks over
+the tree, and closes them again. Drag the pane's edge to share the window
+as you like.
+
+## The Status Bar
+
+Beside a conversation in front, the Status Bar names the tree's ways:
+**Drag** Move line, **Ctrl + Drag** Link (Cmd on macOS), **Double Click**
+Go to linked; and, while the conversation takes the keys (its tree has
+them, or the pointer is over the editor with no other list holding them,
+and you are not typing in a field), **Ctrl + A** Add and **Ctrl + F** Find
+as Options › Keyboard binds them (a key you change shows changed; a
+command with no key has no hint), **Alt + Up** Move up (Option on macOS),
+and, while the tree has the keys, **\*** Open branch. At its right it
+counts the conversation's words, as the file counts them. A conversation
+only looked at shows none of what would change it; with a menu or a
+dialog open the hints go, and the count stays. Where the bar has no room
+for them all, the hints go from the last, as the bar makes room for
+anything else. A conversation in a window of its own leaves the main
+window's Status Bar to the editor docked in front.
 
 **Test** plays the conversation as the game does: the NPC says the first
 of its lines whose condition passes, and the player is offered the
@@ -157,9 +211,10 @@ replies whose conditions pass, numbered.
 - **Conditions:** Moonglow can't run the scripts, so each counts as TRUE
   until you click it to make it FALSE. Lines passed over show as not said
   or hidden.
-- **What happens:** each line's actions and journal updates are listed.
-  A transcript keeps what was said; **Back** goes back a turn. Drag the
-  window's edges or corners to make it larger: the transcript takes the room.
+- **What happens:** each line's actions and journal updates are listed. A
+  transcript keeps what was said; **Back** goes back a turn. Drag the
+  window's edges or corners to make it larger: the transcript takes the
+  room.
 
 (Aurora's Test shows every line, whatever its condition.)
 
@@ -229,14 +284,14 @@ its panels quiet and keeps nothing typed in them (the log says so); its
 header's commands that would change it are off, and **Close** alone ends
 it.
 
-**Tokens** (`<FirstName>`, `<Class>`, custom tokens…) go into the text from
-**Token…**; the game replaces them when the line is spoken. A language
-can have tokens of its own (the game's Polish has many English doesn't):
-Token… lists those of the language you edit (Options › General), and in
-the **…** window for a text in several languages each language's row has
-its own **Token…** (its list resizes with its window). A token goes in where the caret was last in the
-text, in place of what was selected (at the end, if the caret was never
-there).
+**Tokens** (`<FirstName>`, `<Class>`, custom tokens…) go into the text
+from **Token…**; the game replaces them when the line is spoken. A
+language can have tokens of its own (the game's Polish has many English
+doesn't): Token… lists those of the language you edit (Options › General),
+and in the **…** window for a text in several languages each language's
+row has its own **Token…** (its list resizes with its window). A token
+goes in where the caret was last in the text, in place of what was
+selected (at the end, if the caret was never there).
 
 ## Writing conversations elsewhere
 
@@ -244,13 +299,13 @@ there).
 - **Plain text**: a readable script, for proofreading or review.
 - **CSV**: one row per line (`E3` an NPC line, `R5` a reply) with its
   speaker, text, condition and action (each with its script parameters,
-  written as in Twine and Ink below: `c_has item=gold`) and comment, and a column for each
-  other language the lines have text in: `text_fr`, `text_de`,
-  `text_it`, `text_es`, `text_pl` (`text_fr_f` for a feminine text,
-  `text_en_f` English's). With another language chosen in Options ›
-  General, its column is there even while no line has text in it, ready
-  to be translated into; a column you add by its name is read too. Edit
-  the text in a spreadsheet or have it translated; **Import Lines…** then
+  written as in Twine and Ink below: `c_has item=gold`) and comment, and a
+  column for each other language the lines have text in: `text_fr`,
+  `text_de`, `text_it`, `text_es`, `text_pl` (`text_fr_f` for a feminine
+  text, `text_en_f` English's). With another language chosen in Options ›
+  General, its column is there even while no line has text in it, ready to
+  be translated into; a column you add by its name is read too. Edit the
+  text in a spreadsheet or have it translated; **Import Lines…** then
   reads back the speakers, texts and comments of the lines it names, as
   one undoable step (a language's cell left empty takes that language's
   text off the line). Lines whose text comes from the game's talk table
@@ -369,9 +424,10 @@ there gives or takes nothing. A float variable's value is a number: `nan`,
 
 ## Backups
 
-While a conversation with unsaved changes is open, Moonglow backs it up
-as `<name>.bak` every 5 minutes, as Aurora does (Options › Conversation
+While a conversation with unsaved changes is open, Moonglow backs it up as
+`<name>.bak` every 5 minutes, as Aurora does (Options › Conversation
 Editor), in a `conversation-backups/<module>` folder in Moonglow's data
-folder (see [Troubleshooting](13-troubleshooting.md#where-moonglow-keeps-its-files);
-without one, none are written). Moonglow's recovery copies (see [Modules](03-modules.md)) also
-keep the whole module safe.
+folder (see
+[Troubleshooting](13-troubleshooting.md#where-moonglow-keeps-its-files);
+without one, none are written). Moonglow's recovery copies (see
+[Modules](03-modules.md)) also keep the whole module safe.

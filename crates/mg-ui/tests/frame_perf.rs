@@ -1989,7 +1989,15 @@ fn frames_at_144() {
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
     if let Some(k) = dialog {
-        tab(&mut h, &mut r, &format!("conversation {}", k.resref), Tab::Dialog(k));
+        // (With five bookmarks, listed in the Outliner beside it since M4's
+        // U15, its tree open with its indent guides.)
+        let t = Tab::Dialog(k);
+        open(&mut h, t.clone());
+        let marks = (0..5).map(|i| (mg_module::dialog::Kind::Entry, i)).collect();
+        h.state_mut().dialog_views.entry(k).or_default().bookmarks = marks;
+        h.run_steps(3);
+        view(&mut h, &mut r, &format!("conversation {}", k.resref), Some(&t));
+        close(&mut h, &t);
     }
     if let Some(k) = script {
         tab(&mut h, &mut r, &format!("script {}", k.resref), Tab::Script(k));

@@ -13154,9 +13154,9 @@ fn board_help(h: &mut Harness<'_, Moonglow>, name: &str) {
 }
 
 /// Conversation.png: `m1q1faribeth.dlg` As Tabs, its second root line
-/// selected (Aribeth's "Welcome, <FullName>…"). Today the Data pane is
-/// the editor's bottom pane, not the board's Node and Data panels in the
-/// Right Dock; no Outliner of Bookmarks, no hints or word count.
+/// selected (Aribeth's "Welcome, <FullName>…"), the board's five
+/// bookmarks in the Outliner (M4's U15: with the indent guides, the
+/// Status Bar's hints and the word count).
 #[test]
 #[ignore]
 fn board_conversation() {
@@ -13168,8 +13168,17 @@ fn board_conversation() {
     frames_until(&mut h, "the conversation's view", |h| h.state().dialog_views.contains_key(&key));
     let row = mg_ui::dialog_view::Row { parent: mg_module::dialog::Parent::Root, pos: 1 };
     h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(row);
+    board_bookmarks(&mut h, key);
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_conversation");
+}
+
+/// The Conversation board's bookmarks of `m1q1faribeth`, in its order:
+/// Entry 40, Entry 51, Reply 192, Entry 17, Entry 0.
+fn board_bookmarks(h: &mut Harness<'_, Moonglow>, key: ResKey) {
+    use mg_module::dialog::Kind::{Entry, Reply};
+    let marks = vec![(Entry, 40), (Entry, 51), (Reply, 192), (Entry, 17), (Entry, 0)];
+    h.state_mut().dialog_views.get_mut(&key).unwrap().bookmarks = marks;
 }
 
 /// The conversation `m1q1faribeth` beside Conversation.png's state (its
@@ -13177,7 +13186,9 @@ fn board_conversation() {
 /// yielding into More, the Right Dock in one tab bar), at 1600 with the
 /// editor's larger text (Options › Conversation Editor, 18 points), and
 /// floating in a window of its own 1100 by 700, its panels in the
-/// window's right pane (`conversation-*`).
+/// window's right pane and its bookmarks in its Outliner at its left, and
+/// in a kept window of 920 by 700, the Outliner folded to its strip and
+/// unfolded (`conversation-*`).
 #[test]
 #[ignore]
 fn conversation_panels() {
@@ -13190,6 +13201,7 @@ fn conversation_panels() {
     let chosen = |h: &mut Harness<'_, Moonglow>| {
         frames_until(h, "the conversation's view", |h| h.state().dialog_views.contains_key(&key));
         h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(row);
+        board_bookmarks(h, key);
         h.run_steps(10);
     };
     for (name, size, larger) in
@@ -13207,6 +13219,19 @@ fn conversation_panels() {
     place(&mut h, &tab, (250.0, 110.0), (1100.0, 700.0));
     chosen(&mut h);
     shoot(&mut h, &dir, "conversation-floating");
+    // A window the kind kept at 920 by 700, too narrow for its Outliner's
+    // pane beside the tree's room: folded to its strip, then unfolded over
+    // the tree (M4's U15 review).
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_sizes = vec![("dialog".to_string(), [920, 700])];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    frames_until(&mut h, "the conversation drawn", |h| h.state().tab_rect(&tab).is_some());
+    chosen(&mut h);
+    shoot(&mut h, &dir, "conversation-floating-strip");
+    let strip = h.get_by_label(mg_ui::dialog_view::OUTLINER_STRIP);
+    strip.get_by_label(mg_ui::OUTLINER).click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "conversation-floating-strip-open");
 }
 
 /// Table.png: the game's `spells.2da` (a copy: Chapter1 has none of its

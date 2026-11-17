@@ -405,6 +405,10 @@ pub(crate) enum Keys {
     Preview,
     /// The Outliner's rows, under the Left Dock's tabs (`outliner.rs`).
     Outliner,
+    /// A conversation's bookmarks in the Outliner (M4's U15), under the
+    /// Left Dock's tabs or in its window where it floats: the conversation
+    /// `Outliner::marks_keys` names (`outliner::bookmarks`).
+    Marks,
     /// The Right Dock's Tile Properties (M4's U5): no arrows of its own;
     /// F6 gives its first control the keyboard's focus, and Tab goes on
     /// through its controls (`tile_select::panel`).
@@ -472,7 +476,9 @@ pub fn arrow_keys_are(ctx: &egui::Context) -> String {
 /// Escape, and the tree and the Outliner Enter, before the editor area
 /// sees them).
 pub(crate) fn a_list_has_the_keys(ctx: &egui::Context) -> bool {
-    [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Log].into_iter().any(|k| keys_are(ctx, k))
+    [Keys::Tree, Keys::Browser, Keys::Outliner, Keys::Marks, Keys::Log]
+        .into_iter()
+        .any(|k| keys_are(ctx, k))
 }
 
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
