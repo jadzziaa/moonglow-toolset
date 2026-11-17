@@ -671,3 +671,35 @@ fn an_icon_button_s_name_and_open_state_are_its_own() {
     h.run();
     assert!(width.get() <= 80.5, "{} wide", width.get());
 }
+
+/// A segmented control in an `Area` moved between frames (a floating
+/// window dragged): its radio group has this frame's rect, around its
+/// choices, not the last frame's (it named the group on `ui.response()`,
+/// the last frame's, and a group in a window moved since was off by the
+/// move: M4's U18).
+#[test]
+fn a_segmented_control_moved_has_this_frame_s_rect() {
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum Open {
+        Tabs,
+        Windows,
+    }
+    let choices = [(Open::Tabs, "As Tabs", ""), (Open::Windows, "As Windows", "")];
+    let at = Cell::new(egui::pos2(20.0, 20.0));
+    let mut h = Harness::new_ui(|ui| {
+        egui::Area::new(egui::Id::new("moved")).fixed_pos(at.get()).show(ui.ctx(), |ui| {
+            let mut v = Open::Tabs;
+            mg_uikit::segmented(ui, "Open", &mut v, &choices);
+        });
+    });
+    h.run();
+    for to in [egui::pos2(120.0, 80.0), egui::pos2(260.0, 200.0)] {
+        at.set(to);
+        h.step();
+        let group = h.get_by_label("Open").rect();
+        let tabs = h.get_by_label("As Tabs").rect();
+        let windows = h.get_by_label("As Windows").rect();
+        assert!(group.contains_rect(tabs) && group.contains_rect(windows), "{group:?} at {to:?}");
+        assert!((group.left() - to.x).abs() < 1.0, "{group:?} at {to:?}");
+    }
+}

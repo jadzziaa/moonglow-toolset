@@ -1,6 +1,16 @@
 # Update log
 
 ## 2026-11-17
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U18's review ([18](manual/18-nui-creator.md#design), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The NUI designer's docks stay on every page and in every Layout**: Components, Properties, Bindings and Layers on Bindings, Events & Variants and Images, in Preview only and Split source; the editor keeps its width as you switch.
+  * **Properties is the board's form**: labels beside their fields, bold section headings that fold, Width and Height on one row, Source with its plus, descriptions as tooltips; the adding buttons carry a drawn plus. The View popover's rows line up.
+  * What you type in a field is no longer set on another control when the window changes from elsewhere (it is let go), and is set when the designer closes or the module is saved; Components is usable in a floating designer of a 1280 by 720 screen.
+  * The Images page's buttons, the palette's groups and the variants' buttons in title case; Layers' Window row shows the window's title.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U18, the NUI designer: header and docks**, as the NUI board draws them ([18](manual/18-nui-creator.md#design), [02](manual/02-main-window.md#the-outliner), [10](manual/10-options.md); [moves](ui-redesign-moves.md)).
+  * **The designer's header is one row**: its pages as a switch (Design, Bindings, Events & Variants, Images), Build & Compile as the accented hammer, Export…, More with Import… and How to Open It…, Interact and Reset, View, and OK and Cancel at its end. Images moved out of Advanced into the switch; Event Script…, Advanced, the build's state and the checks' count stay on a row under it until the source gets a group of its own.
+  * **View is a popover** of how the canvas shows the window: Layout (Editor, Preview only, Split source), UI scale, State, Resources, Clean view, Preview on screen and Screen; its dropdowns open in it and Escape closes it alone.
+  * **Components, Properties and Bindings are the Right Dock's panels** (one bar of three tabs under 1400), and **Layers is the Outliner**, on the Design page in the Editor view; a designer in a window of its own keeps them in its window. In a narrow editor Properties is a panel, no longer a menu that closed when a dropdown in it opened. Element Actions is the Properties panel's `…`; Layer Actions, Expand All and Collapse All the Outliner's header.
+  * Layers lays out only the rows in sight and takes the arrow keys (F6 too), letters going to a control by its words; what you type in a Properties field is set on its own control when a row is clicked, the page switched or the dock folded meanwhile; the designer's text is in title case.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U17's review ([03](manual/03-modules.md#the-talk-table-editor)).
   * Two bursts of typing on one talk-table line are two steps of Undo: a burst ends as another line is chosen, the field is left, or Undo or Redo is pressed.
   * Find in the game's dialog.tlk takes its own numbers; a long Find costs a few milliseconds a frame however much it has found.

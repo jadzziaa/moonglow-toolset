@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T14:38:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T19:52:45Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -180,7 +180,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign | Done |
 |---|---|---|
 | Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons |
-| OK, Cancel | Editor header, right end |
+| OK, Cancel | Editor header, right end ✓ M4 U18 |
 | Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10; the hints ✓ M3 T12 (with Esc Cancel where an Escape would cancel it; Enter OK while the pointer is over it and nothing has the keys) |
 | Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10 (the columns are M4's) |
 | Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 |
@@ -280,31 +280,31 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Design, Bindings, Events & variants pages | Page switch in the design group: Design, Bindings, Events & Variants, Images |
+| Design, Bindings, Events & variants pages | Page switch in the design group: Design, Bindings, Events & Variants, Images ✓ M4 U18 (the header's switch, first on its row, into More last) |
 | Advanced › JUI source, Binding JSON | Page switch in the source group |
-| Advanced › Images | Images, in the design group's page switch |
+| Advanced › Images | Images, in the design group's page switch ✓ M4 U18 |
 | Advanced › Opener Script | Icon button in the source group's header |
 | Event Script… | Button in the source group's header |
-| Editor, Preview only, Split source | View popover. Split source is the second editor group |
-| Build & compile | Primary icon button, with a tooltip |
-| Export… | Icon button |
-| Import…, How to open it… | More menu |
-| OK, Cancel | Editor header, right end |
+| Editor, Preview only, Split source | View popover (✓ M4 U18: its Layout dropdown; the docks stay in each, as on every page, the coordinator's ruling in its review). Split source is the second editor group (U19) |
+| Build & compile | Primary icon button, with a tooltip ✓ M4 U18 (Build & Compile, the hammer's accented button; its tip counts the errors that hold it off) |
+| Export… | Icon button ✓ M4 U18 |
+| Import…, How to open it… | More menu ✓ M4 U18 (Import…, How to Open It…, a dialog of its code to copy) |
+| OK, Cancel | Editor header, right end ✓ M4 U18 |
 | "Not built", "Build failed" | Status Bar, in the warning color |
 | Checks toggle and its list | Checks switch with a count in the Status Bar, and the Checks panel in the Bottom Dock |
-| Interact, Reset | Header, right side |
-| UI scale, State, Resources, Clean view, Screen | View popover |
+| Interact, Reset | Header, right side ✓ M4 U18 (Interact the play toggle, Reset off outside it) |
+| UI scale, State, Resources, Clean view, Screen | View popover ✓ M4 U18 (UI scale, State and Screen dropdowns that open in it, Resources, Clean view and Preview on screen checks; Escape closes it alone) |
 | Zoom: Fit, 100%, "Game preview" label | Overlays in the canvas corners |
 | Canvas hint line | Status Bar key caps |
-| Components palette | Right Dock, top panel |
-| Layers with search, Expand All, Collapse All | Outliner in the Left Dock |
-| Properties: binding, Content, Size & layout, Behavior, Events, Element actions | Properties panel in the Right Dock |
-| Bindings, Create bind, Window identity, Client delivery | Bindings panel under Properties |
+| Components palette | Right Dock, top panel ✓ M4 U18 (Find a control…, the components by group in title case; added to the control chosen; on every page) |
+| Layers with search, Expand All, Collapse All | Outliner in the Left Dock ✓ M4 U18 (Find a layer or ID…, Expand All, Collapse All and Layer Actions on its header; the Window row's detail its title; only the rows in sight laid out; their keys; a floating designer's window's left pane or its strip) |
+| Properties: binding, Content, Size & layout, Behavior, Events, Element actions | Properties panel in the Right Dock ✓ M4 U18 (the board's form: each label beside its field, over it only where the row has no room; bold section headings that fold; Width and Height on one row; Source with the plus that makes a bind; descriptions as tooltips; Add Property and the other adding buttons with the kit's drawn plus, named by their words; Property Binding first; Element Actions its header's `…`; a panel, not a menu, under 760 points) |
+| Bindings, Create bind, Window identity, Client delivery | Bindings panel under Properties ✓ M4 U18 (as the Bindings page lists them, on the other pages; on the Bindings page the panel points to it; the table is U19's) |
 
 
 #### New
 
-- The View popover and the zoom overlay.
+- The View popover (✓ M4 U18) and the zoom overlay (U19).
 - The source as a second editor group with its own page switch.
 - A warning mark on the Outliner row, and IDs and bind names as weak text.
 - A bind chip on a bound property, and Bindings as a table.
@@ -456,7 +456,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Path and description memo | Details › File and Description |
 | Add Files…, Add Folder…, Remove, Extract…, Extract All…, Save, Save As…, Find | Editor header, same names |
 | Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
-| OK, Cancel | Editor header, right end |
+| OK, Cancel | Editor header, right end ✓ M4 U18 |
 | By name, By type, By size | Sortable column headers |
 | Name, size and "from path" in each row | Columns Name, Size and Source |
 | Click, Ctrl+click, Shift+click, double-click | Status Bar hints |

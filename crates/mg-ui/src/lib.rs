@@ -53,6 +53,14 @@ pub mod model_view;
 pub mod module_folder;
 pub mod module_props;
 mod nui_view;
+/// The NUI designer's header and panels' names (M4's U18), for the tests
+/// and plugins that find its controls.
+pub mod nui_names {
+    pub use crate::nui_view::panels::{ELEMENT_ACTIONS, LAYER_ACTIONS};
+    pub use crate::nui_view::{
+        BUILD, EXPORT, HOW_TO_OPEN, IMPORT, INTERACT, NUI_HEADER, PAGE, RESET, VIEW,
+    };
+}
 pub mod open_tabs;
 pub mod pipelines_kept;
 /// NUI windows drawn off the screen: `mg nui render` and `mg nui layout`.
@@ -2249,6 +2257,9 @@ impl Moonglow {
             self.window_bars(ui);
         });
         ui.set_clip_rect(whole_clip);
+        // (What a NUI designer's panels changed where its editor was not
+        // drawn after them, M4's U18.)
+        nui_view::follow(self, ui.ctx());
         // (What the Status Bar shows, made once a frame from the editor
         // area as this frame left it; the bar was drawn before it, so where
         // it changed, the next frame shows it.)
@@ -2933,6 +2944,37 @@ impl Moonglow {
         shell::right_shown(self)
     }
 
+    /// The control chosen in NUI window `key`'s designer, as a JSON pointer
+    /// into the window ("" the window itself): `None` where no designer of
+    /// it was drawn. For the tests (M4's U18).
+    #[doc(hidden)]
+    pub fn nui_chosen(&self, key: &ResKey) -> Option<String> {
+        self.nui_views.get(key).map(nui_view::chosen)
+    }
+
+    /// How many copies of NUI window `key` its designer made to edit (one
+    /// for each change of the module's bytes: none in a frame that changes
+    /// nothing). For the tests (M4's U18).
+    #[doc(hidden)]
+    pub fn nui_copies(&self, key: &ResKey) -> usize {
+        self.nui_views.get(key).map_or(0, nui_view::copies)
+    }
+
+    /// Where NUI window `key`'s designer keeps its working copy's words (the
+    /// window's, its root's, each variant's): the same from frame to frame
+    /// while nothing copies them. For the tests (M4's U18 review).
+    #[doc(hidden)]
+    pub fn nui_identity(&self, key: &ResKey) -> Option<Vec<usize>> {
+        self.nui_views.get(key).and_then(nui_view::identity)
+    }
+
+    /// NUI window `key`'s designer edits its variant `name` in its slot, as
+    /// Layers' row does. For the timing (`nui_perf`, M4's U18 review).
+    #[doc(hidden)]
+    pub fn nui_edit_variant(&mut self, key: &ResKey, name: &str) {
+        nui_view::edit_variant(self, *key, name);
+    }
+
     /// The panel the Left Dock shows (its tab selected; the Outliner where
     /// it holds the Outliner alone, `shell::outliner_alone`): `None` where
     /// the dock is folded, or holds no panel and is not drawn.
@@ -2993,6 +3035,7 @@ impl Moonglow {
         self.settings.module_panel_height = None;
         self.settings.bookmarks_panel_height = None;
         self.settings.columns_panel_height = None;
+        self.settings.layers_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3255,6 +3298,9 @@ impl Moonglow {
             // (And a talk table's String and Talk Table, M4's U17.)
             Keys::TalkString,
             Keys::TalkFile,
+            // (And a NUI designer's Components and Bindings, M4's U18.)
+            Keys::NuiComponents,
+            Keys::NuiBindings,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3411,7 +3457,7 @@ impl Moonglow {
             // (A table's, its Cell and References at its right and its
             // columns at its left, M4's U16: that much wider, its grid
             // keeping the room it had.)
-            None if matches!(tab, Tab::Table(_)) => {
+            None if matches!(tab, Tab::Table(_) | Tab::Nui(_)) => {
                 tab.window_size()
                     + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
@@ -3432,8 +3478,8 @@ impl Moonglow {
         // not to the room between the docks: it may stand over a dock, as a
         // window dragged there does, and its panes and header keep their
         // room. The coordinator's ruling at M4's U17 review.)
-        let panes =
-            matches!(tab, Tab::Dialog(_) | Tab::Table(_)) || talk_view::Which::of(&tab).is_some();
+        let panes = matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_))
+            || talk_view::Which::of(&tab).is_some();
         let wide = if tab == Tab::Options {
             room.width()
         } else if panes {
@@ -5295,6 +5341,8 @@ impl Moonglow {
         // and so is Q and E's turning.)
         area_view::commit_wheel_scales(self);
         area_view::commit_key_turns(self);
+        // (And a NUI designer's field still typed in.)
+        nui_view::store_typed(self);
         // Options > General: Build module on save.
         if self.settings.build_on_save && self.ws.is_some() {
             build_view::build_on_save(self);

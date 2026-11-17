@@ -1,10 +1,9 @@
-//! The Design page's editor view: the palette of controls, Layers (the
-//! window as a tree, to select, fold, drag and drop into), the canvas, and
-//! beside it the properties of what is selected, with their binds. Also
-//! where a new control goes ([`insert`], [`insert_at`]) and the Bindings
-//! page ([`bindings()`]).
+//! The Design page's parts the docked panels draw (`panels`): the
+//! properties of what is selected, with their binds ([`inspector`]), and
+//! the binds ([`bindings_in`], the Bindings page and panel). Also where a
+//! new control goes ([`insert`], [`insert_at`]), a drop on a Layers row
+//! ([`palette_target`]) and the controls' names ([`node_name`]).
 use super::*;
-use egui::{Sense, vec2};
 
 #[derive(Clone)]
 pub(super) struct Insert(pub(super) &'static str);
@@ -56,6 +55,12 @@ const PALETTE: &[ComponentGroup] = &[
         ],
     ),
 ];
+
+/// The palette's types, in its order (`panels::COMPONENTS`' test).
+#[cfg(test)]
+pub(super) fn palette_types() -> Vec<&'static str> {
+    PALETTE.iter().flat_map(|(_, items)| items.iter().map(|(ty, ..)| *ty)).collect()
+}
 
 fn title(ty: &str) -> &str {
     PALETTE
@@ -192,488 +197,7 @@ pub(super) fn insertion_parent(v: &Value, selected: &str) -> Option<String> {
     }
 }
 
-pub(super) fn editor(
-    ui: &mut Ui,
-    v: &mut Value,
-    s: &mut Settings,
-    state: &mut State,
-    keymap: &crate::keys::Keymap,
-    assets: &mut skin::Assets,
-) {
-    if v.pointer(&state.selected).is_none() {
-        state.selected.clear();
-    }
-    if !state.selected_many.contains(&state.selected) {
-        state.selected_many.clear();
-    }
-    let width = ui.available_width();
-    let compact = width < 760.0;
-    if compact {
-        ui.horizontal(|ui| {
-            // (The panels the wide window shows beside the preview, each a
-            // form in a menu: headings, fields and lists keep their gaps,
-            // and a click in them leaves the menu open.)
-            mg_uikit::form_menu_button(ui, "Add element", |ui| palette(ui, v, s, state));
-            mg_uikit::form_menu_button(ui, "Layers", |ui| layers(ui, v, s, state));
-            mg_uikit::form_menu_button(ui, "Properties", |ui| {
-                ui.set_width(260.0);
-                let height = ui.ctx().content_rect().height() * 0.8;
-                egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
-                    inspector(ui, v, s, state, keymap, assets);
-                });
-            });
-        });
-        preview::canvas(ui, v, s, state, assets);
-        structure::finish(v, state);
-        shortcuts::keys(ui, v, s, state, keymap);
-        return;
-    }
-    // Remembered panel widths must leave a usable canvas after the host window
-    // narrows. Otherwise even its toolbar can push into the inspector.
-    const MIN_CANVAS: f32 = 280.0;
-    // Properties is drawn before Layers: a field being typed in is still there,
-    // to be set, in the frame a click in Layers selects another control.
-    let inspector_max = (width - 170.0 - MIN_CANVAS).clamp(220.0, 360.0);
-    egui::Panel::right(ui.id().with("nui-inspector"))
-        .default_size(268.0)
-        .size_range(220.0..=inspector_max)
-        .resizable(true)
-        .frame(egui::Frame::NONE.inner_margin(14).fill(ui.visuals().panel_fill))
-        .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("nui-properties")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    inspector(ui, v, s, state, keymap, assets);
-                });
-        });
-    let palette_max = (ui.available_width() - MIN_CANVAS).clamp(170.0, 300.0);
-    egui::Panel::left(ui.id().with("nui-palette"))
-        .default_size(210.0)
-        .size_range(170.0..=palette_max)
-        .resizable(true)
-        .frame(egui::Frame::NONE.inner_margin(10).fill(ui.visuals().panel_fill))
-        .show(ui, |ui| {
-            widgets::section_heading(ui, "Components");
-            // (Ctrl+F with the pointer over the pane goes to it.)
-            let field = ui.id().with("nui-palette-filter");
-            widgets::SearchField::new(field, &mut state.search)
-                .hint("Find a control…")
-                .find_over()
-                .show(ui);
-            egui::ScrollArea::vertical()
-                .id_salt("nui-palette-scroll")
-                .max_height((ui.available_height() * 0.48).max(120.0))
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    mg_uikit::list_rows(ui);
-                    palette(ui, v, s, state);
-                });
-            ui.separator();
-            ui.horizontal(|ui| {
-                widgets::table_heading(ui, "Layers");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, "Layer Actions");
-                    let menu = more.menu(ui, |ui| {
-                        mg_uikit::menu_rows(ui);
-                        edit_actions(ui, v, s, state, keymap);
-                    });
-                    menu.response.on_hover_text("What can be done to the chosen layers");
-                });
-            });
-            egui::ScrollArea::vertical().id_salt("nui-layers").auto_shrink([false, false]).show(
-                ui,
-                |ui| {
-                    mg_uikit::list_rows(ui);
-                    layers(ui, v, s, state);
-                },
-            );
-        });
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.inner_margin(12).fill(ui.visuals().extreme_bg_color))
-        .show(ui, |ui| {
-            preview::canvas(ui, v, s, state, assets);
-        });
-    shortcuts::keys(ui, v, s, state, keymap);
-    structure::finish(v, state);
-}
-
-fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
-    let query = mg_core::text::Needle::new(&state.search);
-    let can_add = state.resize.is_none() && insertion_parent(v, &state.selected).is_some();
-    for (category, items) in PALETTE {
-        let matches: Vec<_> =
-            items.iter().filter(|(ty, name, _)| query.finds(&format!("{ty} {name}"))).collect();
-        if matches.is_empty() {
-            continue;
-        }
-        widgets::table_heading(ui, *category);
-        for (ty, name, description) in matches {
-            let response = ui
-                .add_enabled(
-                    can_add,
-                    // (A list's row: lit under the pointer, no fill at rest.)
-                    egui::Button::new(*name)
-                        .frame_when_inactive(false)
-                        .min_size(vec2(ui.available_width(), ui.spacing().interact_size.y))
-                        .sense(Sense::click_and_drag()),
-                )
-                .on_hover_text(format!(
-                    "{description}\nClick to add to the selected layout, or drag into Layers or \
-                     the preview."
-                ));
-            response.dnd_set_drag_payload(Insert(ty));
-            if response.clicked() {
-                if *ty == "swap" {
-                    layouts::insert_slot(v, s, state);
-                } else {
-                    insert(v, &mut state.selected, ty);
-                }
-            }
-        }
-    }
-    if !can_add {
-        ui.weak("Select a row, column or list to add controls.");
-    }
-}
-
-fn edit_actions(
-    ui: &mut Ui,
-    v: &mut Value,
-    s: &mut Settings,
-    state: &mut State,
-    keymap: &crate::keys::Keymap,
-) {
-    use crate::keys::Cmd;
-    if state.resize.is_some() {
-        mg_uikit::menu_note(ui, "Finish resizing to change elements.");
-        return;
-    }
-    for (label, op, cmd) in [
-        ("Move up", Op::MoveUp, Cmd::NuiMoveUp),
-        ("Move down", Op::MoveDown, Cmd::NuiMoveDown),
-        ("Duplicate element", Op::Duplicate, Cmd::NuiDuplicate),
-        ("Delete element", Op::Delete, Cmd::NuiDelete),
-    ] {
-        let keys = keymap.label(cmd, ui.ctx());
-        let enabled = shortcuts::can_edit(v, &state.selected, op);
-        let row = ui.add_enabled_ui(enabled, |ui| {
-            mg_uikit::menu_row_with_keys(ui, egui::Button::new(label), &keys)
-        });
-        if row.inner.clicked() {
-            if op == Op::Delete {
-                structure::delete_selected(v, state);
-            } else {
-                rearrange(v, &mut state.selected, op);
-            }
-            ui.close();
-        }
-    }
-    for (label, ty) in
-        [("Wrap in column", "col"), ("Wrap in row", "row"), ("Wrap in group", "group")]
-    {
-        if ui.add_enabled(!state.selected.is_empty(), egui::Button::new(label)).clicked() {
-            structure::wrap(v, &state.selected, ty);
-            ui.close();
-        }
-    }
-    mg_uikit::menu_separator(ui);
-    for (label, key, op, enabled) in [
-        ("Copy element", egui::Key::C, 0, !state.selected.is_empty()),
-        ("Cut element", egui::Key::X, 1, shortcuts::can_edit(v, &state.selected, Op::Delete)),
-        (
-            "Paste element",
-            egui::Key::V,
-            2,
-            insertion_parent(v, &state.selected).is_some() && shortcuts::has_clipboard(ui.ctx()),
-        ),
-    ] {
-        let shortcut =
-            ui.ctx().format_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key));
-        let row = ui.add_enabled_ui(enabled, |ui| {
-            mg_uikit::menu_row_with_keys(ui, egui::Button::new(label), &shortcut)
-        });
-        if row.inner.clicked() {
-            shortcuts::clipboard(ui.ctx(), v, s, &mut state.selected, op);
-            ui.close();
-        }
-    }
-}
-
-fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
-    let field = ui.id().with("nui-layers-filter");
-    widgets::SearchField::new(field, &mut state.layer_search).hint("Find a layer or ID…").show(ui);
-    if state.selected_many.len() > 1 {
-        ui.weak(format!("{} selected · Delete removes selection", state.selected_many.len()));
-    }
-    if state.tree_selection != state.selected {
-        state.collapsed.retain(|p| !p.is_empty() && !state.selected.starts_with(&format!("{p}/")));
-        state.tree_selection.clone_from(&state.selected);
-    }
-    ui.horizontal_wrapped(|ui| {
-        // (The layers' pair, found within it: the module tree has one too.)
-        mg_uikit::name_group(ui, "Layer tree");
-        if ui.small_button("Expand All").clicked() {
-            state.collapsed.clear();
-        }
-        if ui.small_button("Collapse All").clicked() {
-            state.collapsed.extend(tree_paths(v, &Default::default()));
-            state.selected.clear();
-        }
-    });
-    // While a variant is edited, the tree is still the window's own.
-    let main = state.edit_view.as_ref().and_then(|_| state.main_doc.take());
-    let tree = Tree { s, main: true, active_root: &v["root"] };
-    layer(ui, main.as_ref().unwrap_or(v), "", state, 0, tree);
-    if main.is_some() {
-        state.main_doc = main;
-    }
-    state.tree_selection.clone_from(&state.selected);
-}
-
-/// What the rows of one tree in Layers share.
-#[derive(Clone, Copy)]
-struct Tree<'a> {
-    s: &'a Settings,
-    /// The window's own tree, not that of a variant being edited under its
-    /// swap layout.
-    main: bool,
-    /// What is being edited: the window, or the variant in its place.
-    active_root: &'a Value,
-}
-
-/// Whether a control, or anything under it, has what Layers' filter looks
-/// for: in a property's name or in a value, as its JSON text had it (a
-/// control shows when one under it does), read where it is.
-fn holds(v: &Value, search: &mg_core::text::Needle) -> bool {
-    match v {
-        Value::Object(o) => o.iter().any(|(k, v)| search.finds(k) || holds(v, search)),
-        Value::Array(a) => a.iter().any(|v| holds(v, search)),
-        Value::String(text) => search.finds(text),
-        Value::Null => search.finds("null"),
-        Value::Bool(b) => search.finds(if *b { "true" } else { "false" }),
-        Value::Number(n) => search.finds(&n.to_string()),
-    }
-}
-
-/// A control in Layers with what is under it: its row, its draw layers,
-/// then its children (a swap layout: its first contents and its variants).
-fn layer(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize, tree: Tree<'_>) {
-    if depth > 64 {
-        return;
-    }
-    let search = mg_core::text::Needle::new(&state.layer_search);
-    // (With nothing typed every control is listed: each was written out
-    // as JSON text first, with everything under it, at every level of
-    // the tree, every frame.)
-    if !search.is_empty() && !holds(node, &search) {
-        return;
-    }
-    layer_row(ui, node, path, state, depth, tree);
-    if state.collapsed.contains(path) && search.is_empty() {
-        return;
-    }
-    draw_rows(ui, node, path, state, depth, tree.main);
-    if path.is_empty() {
-        layer(ui, &node["root"], "/root", state, depth + 1, tree);
-    }
-    if node["type"] == "group" && layouts::is_swap(tree.s, node) {
-        swap_rows(ui, node, path, state, depth, tree);
-        return;
-    }
-    if let Some(children) = node["children"].as_array() {
-        for (i, child) in children.iter().enumerate() {
-            layer(ui, child, &format!("{path}/children/{i}"), state, depth + 1, tree);
-        }
-    }
-    if let Some(cells) = node["row_template"].as_array() {
-        for (i, cell) in cells.iter().enumerate() {
-            layer(ui, &cell[0], &format!("{path}/row_template/{i}/0"), state, depth + 1, tree);
-        }
-    }
-}
-
-/// A control's own row: the arrow that folds what is under it, and its
-/// name, which selects it, is dragged to move it and takes what is dropped
-/// on it.
-fn layer_row(
-    ui: &mut Ui,
-    node: &Value,
-    path: &str,
-    state: &mut State,
-    depth: usize,
-    tree: Tree<'_>,
-) {
-    let Tree { s, main, active_root } = tree;
-    ui.push_id(path, |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space((depth as f32 * 14.0).min((ui.available_width() - 90.0).max(0.0)));
-            let name = if path.is_empty() {
-                "Window".into()
-            } else if layouts::is_swap(s, node) {
-                format!("Swap layout · {}", node["id"].as_str().unwrap_or_default())
-            } else {
-                node_name(node)
-            };
-            let branch =
-                path.is_empty() || node["children"].is_array() || node["row_template"].is_array();
-            if branch {
-                let closed = state.collapsed.contains(path);
-                let (icon, verb, tip) = match closed {
-                    true => (mg_uikit::Icon::ChevronRight, "Expand", "Show the controls in it"),
-                    false => (mg_uikit::Icon::ChevronDown, "Collapse", "Hide the controls in it"),
-                };
-                let button =
-                    crate::widgets::icon_only(icon, &format!("{verb} {name}")).expanded(!closed);
-                let arrow = ui.add(button).on_hover_text(tip);
-                if arrow.clicked() {
-                    if closed {
-                        state.collapsed.remove(path);
-                    } else {
-                        state.collapsed.insert(path.into());
-                        if path.is_empty() || state.selected.starts_with(&format!("{path}/")) {
-                            state.selected = path.into();
-                        }
-                    }
-                }
-            } else {
-                ui.add_space(18.0);
-            }
-            // The selected control gets the fill; the variant being edited only its colour.
-            let response = ui.add(
-                egui::Button::selectable(
-                    (!main || state.edit_view.is_none())
-                        && (state.selected == path || state.selected_many.contains(path)),
-                    &name,
-                )
-                .truncate()
-                .sense(Sense::click_and_drag()),
-            );
-            // (Made when a drag starts: every row copying its control each
-            // frame was a sixth of the frame.)
-            if !path.is_empty() && (!main || state.edit_view.is_none()) && response.drag_started() {
-                egui::DragAndDrop::set_payload(
-                    ui.ctx(),
-                    structure::Drag { path: path.into(), node: node.clone() },
-                );
-            }
-            if !main || state.edit_view.is_none() {
-                structure::drag_target(ui, &response, path, state, false);
-                palette_target(ui, &response, path, active_root, state);
-            }
-            if response.clicked() {
-                if main && state.edit_view.is_some() {
-                    layouts::edit(state, None);
-                }
-                structure::select(state, path, ui.input(|i| i.modifiers.command));
-            }
-            response.on_hover_text(match node["id"].as_str() {
-                Some(id) => format!("{name}\nElement ID: {id}"),
-                None => name,
-            });
-        });
-    });
-}
-
-/// The rows of a control's draw layers, each one to choose and then move or
-/// size on the canvas.
-fn draw_rows(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize, main: bool) {
-    if let Some(items) = node["draw_list"].as_array() {
-        for (i, item) in items.iter().enumerate() {
-            let kind =
-                draw::KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
-            let chosen = state.selected == path && state.draw_item == Some((path.to_owned(), i));
-            ui.horizontal(|ui| {
-                ui.add_space(
-                    ((depth + 1) as f32 * 14.0 + 18.0).min((ui.available_width() - 90.0).max(0.0)),
-                );
-                let text = format!("{kind} {}", i + 1);
-                // (Cut short at the pane's edge, as the control rows are.)
-                let row = ui.add(
-                    mg_uikit::IconButton::new(mg_uikit::Icon::Layers, text)
-                        .selectable(chosen)
-                        .truncate(),
-                );
-                row.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        true,
-                        format!("Draw layer {} · {kind}", i + 1),
-                    )
-                });
-                if row.clicked() {
-                    if main && state.edit_view.is_some() {
-                        layouts::edit(state, None);
-                    }
-                    structure::select(state, path, false);
-                    state.draw_item = Some((path.to_owned(), i));
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), i));
-                }
-            });
-        }
-    }
-}
-
-/// What is under a swap layout: its first contents, then its variants,
-/// the one being edited with its own tree.
-fn swap_rows(
-    ui: &mut Ui,
-    node: &Value,
-    path: &str,
-    state: &mut State,
-    depth: usize,
-    tree: Tree<'_>,
-) {
-    let Tree { s, main, active_root } = tree;
-    let group = node["id"].as_str().unwrap_or_default();
-    ui.push_id(("swap-variants", main, path), |ui| {
-        ui.horizontal(|ui| {
-            ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
-            if ui
-                .add(
-                    egui::Button::new("Initial Contents")
-                        .selected(state.edit_view.is_none())
-                        .frame(false),
-                )
-                .clicked()
-            {
-                layouts::edit(state, None);
-                state.selected = format!("{path}/children/0");
-            }
-        });
-        // What a swap layout holds sits under the contents it belongs to.
-        if let Some(children) = node["children"].as_array() {
-            for (i, child) in children.iter().enumerate() {
-                let child_path = format!("{path}/children/{i}");
-                layer(ui, child, &child_path, state, depth + 2, tree);
-            }
-        }
-        for name in layouts::variants(s, group) {
-            let active = state.edit_view.as_deref() == Some(name.as_str());
-            ui.horizontal(|ui| {
-                ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
-                if ui
-                    .add(
-                        egui::Button::new(format!("Variant · {name}"))
-                            .selected(active)
-                            .frame(false),
-                    )
-                    .clicked()
-                {
-                    state.layout_target = group.into();
-                    layouts::edit(state, Some(name.clone()));
-                }
-            });
-            if active && layouts::target_for(s, &name).as_deref() == Some(group) {
-                ui.push_id(("variant-tree", &name), |ui| {
-                    layer(ui, active_root, "/root", state, depth + 2, Tree { main: false, ..tree });
-                });
-            }
-        }
-    });
-}
-
-fn palette_target(
+pub(super) fn palette_target(
     ui: &mut Ui,
     response: &egui::Response,
     path: &str,
@@ -738,32 +262,37 @@ pub(super) fn tree_paths(v: &Value, collapsed: &std::collections::BTreeSet<Strin
     out
 }
 
-fn inspector(
+/// The Properties panel's body ([`panels::properties`]): the chosen
+/// control's binding (the board's Property Binding first), its properties
+/// (or the window's), its swap layout's variants, its list's rows, images,
+/// chart, Events, draw layers. Its fields'
+/// ids are designer `key`'s and the control's, so that what is typed for
+/// one is never shown or set in another's.
+pub(super) fn inspector(
     ui: &mut Ui,
     v: &mut Value,
     s: &mut Settings,
     state: &mut State,
-    keymap: &crate::keys::Keymap,
     assets: &mut skin::Assets,
+    key: ResKey,
 ) {
-    let Some(node) = v.pointer(&state.selected) else { return };
-    fields::of(ui.ctx(), egui::Id::new((&state.edit_view, &state.selected)));
-    let swap = layouts::is_swap(s, node);
-    let name = if state.selected.is_empty() {
-        "Window".into()
-    } else if swap {
-        format!("Swap layout · {}", node["id"].as_str().unwrap_or_default())
-    } else {
-        node_name(node)
+    let Some(node) = v.pointer(&state.selected) else {
+        ui.weak("Choose a control on the canvas or in Layers.");
+        return;
     };
-    widgets::section_heading(ui, name);
+    let whose = (key, &state.edit_view, &state.selected, state.typing);
+    fields::of(ui.ctx(), Some(egui::Id::new(whose)));
+    let swap = layouts::is_swap(s, node);
     // What the selection is first: a swap layout's variants, any control's
     // own properties; then how it changes (binds, events, drawing).
     if swap {
         ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
     }
-    let Some(node) = v.pointer_mut(&state.selected) else { return };
-    ui.add_enabled_ui(state.resize.is_none(), |ui| properties(ui, node, s));
+    // (Its binding first, the board's Property Binding over Content.)
+    ui.add_enabled_ui(state.resize.is_none(), |ui| bindings::inspector(ui, v, s, state));
+    if let Some(node) = v.pointer_mut(&state.selected) {
+        ui.add_enabled_ui(state.resize.is_none(), |ui| properties(ui, node, s));
+    }
     fields::list(ui, v, &state.selected, s);
     if !state.selected.is_empty()
         && let Some(node) = v.pointer_mut(&state.selected)
@@ -771,13 +300,13 @@ fn inspector(
         workflow::images(ui, node, s, state, assets);
         fields::chart(ui, node, s);
     }
-    ui.add_enabled_ui(state.resize.is_none(), |ui| bindings::inspector(ui, v, s, state));
     ui.add_enabled_ui(state.resize.is_none(), |ui| events::inspector(ui, v, s, state));
     if !state.selected.is_empty()
         && let Some(node) = v.pointer_mut(&state.selected)
     {
         // (The layer chosen in Layers goes where Up, Down and Remove
         // Drawing put it.)
+        draw::draw_owner(ui.ctx(), key, &state.selected);
         if let Some(moved) = draw::editor(ui, node, s, assets) {
             moved.follow(&mut state.draw_item, &state.selected);
         }
@@ -785,20 +314,45 @@ fn inspector(
     if !swap {
         ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
     }
-    if !state.selected.is_empty() {
-        ui.separator();
-        ui.add_enabled_ui(state.resize.is_none(), |ui| {
-            mg_uikit::menu_button(ui, "Element actions", |ui| {
-                mg_uikit::menu_rows(ui);
-                edit_actions(ui, v, s, state, keymap);
-            })
-        });
+    // (The pages' fields after it are no control's.)
+    fields::of(ui.ctx(), None);
+}
+
+/// The Bindings page: [`bindings_in`] with its heading.
+pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, state: &mut State) {
+    bindings_in(ui, s, v, state, true);
+}
+
+/// Whether a control, or anything under it, has what Layers' filter looks
+/// for: in a property's name or in a value, as its JSON text had it (a
+/// control shows when one under it does), read where it is.
+pub(super) fn holds(v: &Value, search: &mg_core::text::Needle) -> bool {
+    match v {
+        Value::Object(o) => o.iter().any(|(k, v)| search.finds(k) || holds(v, search)),
+        Value::Array(a) => a.iter().any(|v| holds(v, search)),
+        Value::String(text) => search.finds(text),
+        Value::Null => search.finds("null"),
+        Value::Bool(b) => search.finds(if *b { "true" } else { "false" }),
+        Value::Number(n) => search.finds(&n.to_string()),
     }
 }
 
-pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, state: &mut State) {
-    egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
-        widgets::section_heading(ui, "Bindings");
+/// The window's binds (the Bindings page, `titled` with its heading, and
+/// the Right Dock's Bindings panel): Create bind, each bind's initial
+/// value, watch, name and uses, Client delivery and Window identity.
+pub(super) fn bindings_in(
+    ui: &mut Ui,
+    s: &mut Settings,
+    v: Option<&mut Value>,
+    state: &mut State,
+    titled: bool,
+) {
+    // (The page's own scroll; the panel's is its own, round its margins.)
+    let scroll = egui::ScrollArea::vertical().id_salt("nui-bindings").auto_shrink([false, false]);
+    let body = |ui: &mut Ui| {
+        if titled {
+            widgets::section_heading(ui, "Bindings");
+        }
         ui.label("A bind is a named value the event script can change.");
         ui.weak("Made here, it is chosen for a control's property in Design.");
         workflow::create_bind(ui, &mut s.bindings);
@@ -859,7 +413,7 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, sta
         if let (Some(names), Some(doc)) = (renamed, v) {
             shortcuts::rename_binds(doc, &names);
         }
-        egui::CollapsingHeader::new("Client delivery").icon(mg_uikit::collapsing_icon).show(
+        egui::CollapsingHeader::new("Client Delivery").icon(mg_uikit::collapsing_icon).show(
             ui,
             |ui| {
                 ui.check_box(&mut s.from_resref, "Load JUI from the client by resource name");
@@ -879,7 +433,7 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, sta
                 );
             },
         );
-        egui::CollapsingHeader::new("Window identity").icon(mg_uikit::collapsing_icon).show(
+        egui::CollapsingHeader::new("Window Identity").icon(mg_uikit::collapsing_icon).show(
             ui,
             |ui| {
                 let mut custom = s.window_id.is_some();
@@ -895,7 +449,11 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, sta
                 );
             },
         );
-    });
+    };
+    match titled {
+        true => _ = scroll.show(ui, body),
+        false => body(ui),
+    }
 }
 
 /// Where a bind is used: whether anywhere, the paths of the window's
@@ -1031,31 +589,28 @@ mod tests {
         }
     }
 
+    /// The Right Dock's Properties beside the canvas, as the shell lays
+    /// them out (M4's U18): the panel `widths`' right width (the dock's
+    /// least, 280, where none is given; the left is the Outliner's, not
+    /// drawn here).
     fn show(ui: &mut Ui, f: &mut Fixture) {
-        if let Some((left, right)) = f.widths.take() {
-            for (name, width) in [("nui-palette", left), ("nui-inspector", right)] {
-                let id = ui.id().with(name);
-                ui.ctx().data_mut(|d| {
-                    d.insert_persisted(
-                        id,
-                        egui::containers::panel::PanelState {
-                            outer_rect: egui::Rect::from_min_size(
-                                egui::Pos2::ZERO,
-                                egui::vec2(width, 700.0),
-                            ),
-                        },
-                    )
-                });
-            }
-        }
-        editor(
+        let key = ResKey::parse("fixture", ResType::JUI).unwrap();
+        fields::begin(ui.ctx(), key);
+        let right = f.widths.map_or(280.0, |(_, right)| right);
+        egui::Panel::right(ui.id().with("nui-inspector")).exact_size(right).resizable(false).show(
             ui,
-            &mut f.doc,
-            &mut f.settings,
-            &mut f.state,
-            &crate::keys::Keymap::default(),
-            &mut f.assets,
+            |ui| {
+                egui::ScrollArea::vertical().id_salt("nui-properties").auto_shrink(false).show(
+                    ui,
+                    |ui| {
+                        inspector(ui, &mut f.doc, &mut f.settings, &mut f.state, &mut f.assets, key)
+                    },
+                );
+            },
         );
+        egui::CentralPanel::default().show(ui, |ui| {
+            preview::canvas(ui, &mut f.doc, &f.settings, &mut f.state, &mut f.assets);
+        });
     }
 
     /// Properties stays in its panel: what it shows (found by its labels) is
@@ -1067,13 +622,13 @@ mod tests {
         let mut seen = 0;
         for label in [
             "Content",
-            "Size & layout",
-            "+ Add property",
+            "Size & Layout",
+            "Add Property",
             "Option 1 label",
             "Option 2 label",
-            "+ Add Option",
-            "Property binding",
-            "Bind formatting",
+            "Add Option",
+            "Property Binding",
+            "Bind Formatting",
             "Events",
         ] {
             for rect in h.query_all_by_label(label).map(|n| n.rect()) {
@@ -1094,8 +649,10 @@ mod tests {
         h.run();
         assert_inspector_fits(&h);
         let before = h.state().doc.clone();
+        // (The Right Dock's widths: its least, beside the canvas in a
+        // narrow window, and wider.)
         for (width, left, right) in
-            [(1130.0, 300.0, 220.0), (800.0, 300.0, 360.0), (1380.0, 300.0, 360.0)]
+            [(1130.0, 0.0, 280.0), (800.0, 0.0, 340.0), (1380.0, 0.0, 440.0)]
         {
             h.state_mut().widths = Some((left, right));
             h.set_size(egui::vec2(width, 760.0));
@@ -1124,11 +681,11 @@ mod tests {
                 ..Default::default()
             },
         );
-        f.widths = Some((170.0, 220.0));
+        f.widths = Some((0.0, 280.0));
         let mut h = Harness::builder().with_size(egui::vec2(800.0, 760.0)).build_ui_state(show, f);
         h.run();
         assert_inspector_fits(&h);
-        h.get_by_label("Bind formatting").click();
+        h.get_by_label("Bind Formatting").click();
         h.run();
         assert_inspector_fits(&h);
     }
@@ -1141,7 +698,7 @@ mod tests {
             let mut h =
                 Harness::builder().with_size(egui::vec2(1130.0, 760.0)).build_ui_state(show, f);
             h.run();
-            h.get_by_label("+ Add Option").click();
+            h.get_by_label("Add Option").click();
             h.run();
             let elements = &h.state().doc["root"]["children"][0]["children"][0]["elements"];
             assert_eq!(elements[0][1], 0);
@@ -1261,7 +818,7 @@ mod tests {
         h.run();
         let headers = |h: &Harness<'_, Fixture>, what: &str| {
             let all = h.query_all_by_label_contains(what);
-            // ("Row 12", not "Row data".)
+            // ("Row 12", not "Row Data".)
             let numbered =
                 |l: String| l.strip_prefix(what).is_some_and(|n| n.parse::<usize>().is_ok());
             all.filter(|n| n.accesskit_node().label().is_some_and(numbered)).count()

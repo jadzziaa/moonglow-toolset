@@ -102,7 +102,7 @@ pub(super) fn create_bind(
     ui.push_id("create-bind", |ui| {
         let id = ui.make_persistent_id("create-bind-draft");
         let mut draft = ui.ctx().data_mut(|d| d.get_temp::<BindDraft>(id));
-        if ui.button("+ Create Bind").clicked() && draft.is_none() {
+        if ui.add(form::plus("Create Bind")).clicked() && draft.is_none() {
             draft = Some(BindDraft::new());
         }
         let mut finish = false;
@@ -177,7 +177,7 @@ pub(super) fn ui(
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
         widgets::section_heading(ui, "Swap Layout Variants");
         ui.label(
-            "A Swap layout is added in Design; its variants are made and edited in Properties \
+            "A Swap Layout is added in Design; its variants are made and edited in Properties \
              or Layers.",
         );
         let (mut remove, mut rename) = (None, None);

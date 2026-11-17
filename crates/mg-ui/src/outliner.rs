@@ -101,7 +101,7 @@ pub(crate) struct Outliner {
     /// The keys' row of this editor's list has just moved: brought into
     /// sight by that list alone (a docked one and a floating one's can
     /// both be drawn).
-    marks_moved: Option<Owner>,
+    pub(crate) marks_moved: Option<Owner>,
     /// The group the keys open or close.
     marks_fold: Option<(Owner, bool)>,
     /// The lists drawn this frame, each with whether it is in a window (in
@@ -146,6 +146,8 @@ const COLUMNS_TOP: f32 = 2.0;
 pub(crate) enum Owner {
     Dialog(ResKey),
     Table(u32),
+    /// A NUI designer's Layers (M4's U18): its window's key.
+    Nui(ResKey),
 }
 
 impl Owner {
@@ -154,6 +156,7 @@ impl Owner {
         match tab {
             crate::Tab::Dialog(key) => Some(Owner::Dialog(*key)),
             crate::Tab::Table(id) => Some(Owner::Table(*id)),
+            crate::Tab::Nui(key) => Some(Owner::Nui(*key)),
             _ => None,
         }
     }
@@ -163,6 +166,7 @@ impl Owner {
         match self {
             Owner::Dialog(key) => Contents::Bookmarks(key),
             Owner::Table(id) => Contents::Columns(id),
+            Owner::Nui(key) => Contents::Layers(key),
         }
     }
 }
@@ -176,6 +180,8 @@ pub(crate) enum Contents {
     Bookmarks(ResKey),
     /// A table's columns (M4's U16): the table's id.
     Columns(u32),
+    /// A NUI designer's Layers (M4's U18): its window's key.
+    Layers(ResKey),
 }
 
 impl Contents {
@@ -186,6 +192,7 @@ impl Contents {
             Contents::Area(_) => None,
             Contents::Bookmarks(key) => Some(Owner::Dialog(key)),
             Contents::Columns(id) => Some(Owner::Table(id)),
+            Contents::Layers(key) => Some(Owner::Nui(key)),
         }
     }
 }
@@ -198,6 +205,9 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
         Some(crate::Tab::Dialog(key)) if app.ws.is_some() => Some(Contents::Bookmarks(*key)),
         // (A table's, whatever is open: a table is no module's alone.)
         Some(crate::Tab::Table(id)) => Some(Contents::Columns(*id)),
+        // (A NUI designer's Layers, where it brings its panels: its Design
+        // page in the Editor view, M4's U18.)
+        Some(crate::Tab::Nui(key)) if app.ws.is_some() => Some(Contents::Layers(*key)),
         _ => None,
     }
 }
@@ -206,7 +216,7 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
 /// (`Keys::Outliner`), a conversation's bookmarks' (`Keys::Marks`).
 pub(crate) fn keys_of(app: &Moonglow) -> Keys {
     match contents(app) {
-        Some(Contents::Bookmarks(_) | Contents::Columns(_)) => Keys::Marks,
+        Some(Contents::Bookmarks(_) | Contents::Columns(_) | Contents::Layers(_)) => Keys::Marks,
         _ => Keys::Outliner,
     }
 }
@@ -252,6 +262,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Contents::Area(_)) => _ = ui.scope(|ui| panel(app, ui)),
         Some(Contents::Bookmarks(key)) => _ = ui.scope(|ui| bookmarks(app, ui, key, false)),
         Some(Contents::Columns(id)) => _ = ui.scope(|ui| columns(app, ui, id, false)),
+        Some(Contents::Layers(key)) => _ = ui.scope(|ui| layers(app, ui, key, false)),
         None => {}
     }
 }
@@ -318,6 +329,7 @@ pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
     match owner {
         Owner::Dialog(key) => _ = ui.scope(|ui| bookmarks(app, ui, key, true)),
         Owner::Table(id) => _ = ui.scope(|ui| columns(app, ui, id, true)),
+        Owner::Nui(key) => _ = ui.scope(|ui| layers(app, ui, key, true)),
     }
 }
 
@@ -792,6 +804,15 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
     }
 }
 
+/// NUI designer `key`'s Layers as the Outliner lists them (M4's U18, the
+/// NUI board's Left Dock): `nui_view::panels::layers`, a group of its own,
+/// named [`OUTLINER`]. In the Left Dock, or in its window where it floats
+/// (`window`).
+fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
+    mg_uikit::name_group(ui, OUTLINER);
+    crate::nui_view::panels::layers(app, ui, key, window);
+}
+
 /// The Columns' tip on a column's eye, shown or hidden (the Table board's).
 const HIDE_TIP: &str =
     "Hide Column: hide it while the table is open. Its cells are kept and saved.";
@@ -1004,6 +1025,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         (true, _) => "Fold the Outliner away",
         (false, Owner::Dialog(_)) => "Show the Outliner: the conversation's bookmarks",
         (false, Owner::Table(_)) => "Show the Outliner: the table's columns",
+        (false, Owner::Nui(_)) => "Show the Outliner: the window's layers",
     };
     let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
         .exact_size(STRIP)

@@ -128,7 +128,8 @@ fn a_nui_window_s_scripts_go_into_a_nasher_project() {
     // (The Right Dock's palettes beside it, their groups opening: settled,
     // not a count of frames.)
     settle(&mut h);
-    h.get_by_label("Build & compile").click();
+    // (The designer's header's, M4's U18.)
+    h.get_by_label(mg_ui::nui_names::NUI_HEADER).get_by_label(mg_ui::nui_names::BUILD).click();
     h.run();
     let log = format!("{:?}", h.state().log.entries);
     assert!(log.contains("Built zz_win"), "{log}");

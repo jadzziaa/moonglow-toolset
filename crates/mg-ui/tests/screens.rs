@@ -7438,6 +7438,40 @@ fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static,
     h
 }
 
+/// The NUI designer's header's control `name` clicked (M4's U18), and the
+/// frames run.
+fn nui_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    h.get_by_label(mg_ui::nui_names::NUI_HEADER).get_by_label(name).click();
+    h.run();
+}
+
+/// The NUI designer's page `name` chosen in its header's switch.
+fn nui_page(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let header = h.get_by_label(mg_ui::nui_names::NUI_HEADER);
+    header.get_by_label(mg_ui::nui_names::PAGE).get_by_label(name).click();
+    h.run();
+}
+
+/// In the NUI designer's View popover (opened, then closed with Escape):
+/// `choice` chosen in the combo box `row`, or with no `choice` the check
+/// row `row` clicked.
+fn nui_view(h: &mut Harness<'_, Moonglow>, row: &str, choice: Option<&str>) {
+    nui_click(h, mg_ui::nui_names::VIEW);
+    match choice {
+        Some(choice) => {
+            let combo =
+                egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox).label(row);
+            h.get(combo).click();
+            h.run();
+            h.get_all_by_label(choice).last().unwrap().click();
+        }
+        None => h.get_all_by_label(row).last().unwrap().click(),
+    }
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+}
+
 /// The NUI Creator's list of problems (`nui-problems.png`): a window with
 /// many findings, a few of them long and some with a fix beside them, a
 /// line each; and a narrow one (`nui-problems-narrow.png`).
@@ -7569,24 +7603,15 @@ fn nui_creator() {
     // not the editor's: Resources says where each came from, and what
     // was not found.
     assert!(h.query_by_label_contains("resource issue").is_none(), "the skin and fonts found");
-    apart(&h, "Resources").click();
-    h.run();
+    nui_view(&mut h, "Resources", None);
     for found in ["fnt_maintext.ttf —", "nui_button_a."] {
         assert!(h.query_all_by_label_contains(found).next().is_some(), "{found} found");
     }
-    apart(&h, "Resources").click();
-    h.run();
+    nui_view(&mut h, "Resources", None);
     shoot(&mut h, &dir, "nui-editor");
-    h.get_by_label_contains("State: ").click();
-    h.run();
-    h.get_by_label("Hover").click();
-    h.run();
-    h.get_by_label("UI scale 100%").click();
-    h.run();
-    h.get_by_label("150%").click();
-    h.run();
-    h.get_by_label("Clean view").click();
-    h.run();
+    nui_view(&mut h, "State", Some("Hover"));
+    nui_view(&mut h, "UI scale", Some("150%"));
+    nui_view(&mut h, "Clean view", None);
     shoot(&mut h, &dir, "nui-hover-150");
 
     // A list and controls that take input.
@@ -7616,19 +7641,14 @@ fn nui_creator() {
         Binding { value: json!([true, false, false, true, false]), ..Default::default() },
     );
     set(h.state_mut(), &window, &settings);
-    h.get_by_label("UI scale 150%").click();
-    h.run();
-    h.get_all_by_label("100%").last().unwrap().click();
-    h.run();
-    h.get_by_label("Clean view").click();
-    h.run();
+    nui_view(&mut h, "UI scale", Some("100%"));
+    nui_view(&mut h, "Clean view", None);
     h.get_by_label("Canvas List").click();
     h.run();
     h.get_by_label("Collapse List").click();
     h.run();
     shoot(&mut h, &dir, "nui-list");
-    h.get_by_label("Interact").click();
-    h.run();
+    nui_click(&mut h, mg_ui::nui_names::INTERACT);
     h.get_by_label("Canvas Checkbox · Active · row 1").click();
     h.run();
     shoot(&mut h, &dir, "nui-interact");
@@ -7665,8 +7685,7 @@ fn nui_creator() {
     h.get_by_label("Canvas Button · Show details").click();
     h.run();
     shoot(&mut h, &dir, "nui-controls");
-    h.get_by_label("Events & variants").click();
-    h.run();
+    nui_page(&mut h, "Events & Variants");
     shoot(&mut h, &dir, "nui-events");
     // Draw layers deep in the tree, in Layers' pane: their rows cut short
     // at the pane's edge, not past it.
@@ -7686,7 +7705,7 @@ fn nui_creator() {
     }
     window["root"]["children"] = json!([deep]);
     set(h.state_mut(), &window, &mg_nui::Settings::default());
-    h.get_by_label("Design").click();
+    nui_page(&mut h, "Design");
     h.run_steps(3);
     h.get_by_label("Draw layer 11 · Text").scroll_to_me();
     h.run_steps(3);
@@ -7694,8 +7713,9 @@ fn nui_creator() {
 
     // One GPU device at a time: this harness goes before the next is made.
     drop(h);
+    // (Its Properties the window's right pane, a panel, not a menu: M4's
+    // U18.)
     let mut compact = nui_harness(new(None), key, (640.0, 720.0));
-    apart(&compact, "Properties").click();
     compact.run();
     shoot(&mut compact, &dir, "nui-compact");
 }
@@ -7729,10 +7749,7 @@ fn nui_fields() {
     h.get_by_label_contains("Canvas Dropdown").click();
     h.run();
     shoot(&mut h, &dir, "nui-hints-options");
-    h.get_by_value("Editor").click();
-    h.run();
-    h.get_by_label("Split source").click();
-    h.run();
+    nui_view(&mut h, "Layout", Some("Split source"));
     let typed = json!({"version":1,"title":"Typed, not yet left","geometry":{"x":-1.0,"y":-1.0,"w":360.0,"h":220.0},
         "root":{"type":"col","children":[{"type":"label","value":"Shown as it is typed","height":40.0},
         {"type":"button","id":"mg_close","label":"Close","height":30.0}]}});
@@ -13542,21 +13559,119 @@ fn board_nui() {
     let key = ResKey::parse("crier", ResType::JUI).unwrap();
     let jui = std::fs::read(data.join("crier.jui")).unwrap();
     h.state_mut().ws.as_mut().unwrap().module.set(key, jui);
+    // (With its settings, the board's three binds: M4's U18.)
+    let txt = std::fs::read(data.join("crier.txt")).unwrap();
+    let settings = ResKey::parse("crier", ResType::TXT).unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.set(settings, txt);
     board_front(&mut h, &mg_ui::Tab::Nui(key));
-    // (Split source, chosen in its dropdown: the view's state is the
-    // editor's own.)
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let editor =
-        |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Editor");
-    if let Some(mode) = h.query_all(combo).find(editor) {
-        mode.click();
-    }
+    // (The board's design group: the Design page in the Editor view, its
+    // Components, Properties and Bindings in the Right Dock and its Layers
+    // in the Outliner, M4's U18; Button · Send chosen in Layers. The source
+    // group beside it is U19's.)
     h.run_steps(3);
-    if let Some(split) = h.query_by_label("Split source") {
-        split.click();
+    if let Some(send) = h.query_all_by_label("Button · Send").next() {
+        send.click();
     }
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_nui");
+}
+
+/// The NUI designer's pages and panels (M4's U18; the NUI board): the
+/// crier (`crates/mg-nui/tests/data`) As Tabs at 1600 on each page
+/// (`nui-design`, `nui-bindings`, `nui-events`, `nui-images`), its View
+/// popover open (`nui-view`), Preview only and Split source with the docks
+/// (`nui-preview-only`, `nui-split`), the Right Dock at its least (`nui-280`), at 1280 (`nui-1280`: the Right Dock's one
+/// bar), in a window of 1000 whose editor is under 760 points
+/// (`nui-narrow`: Properties a panel, not a menu), and floating in a
+/// screen of 1600 by 900 and of 1280 by 720 (`nui-floating`,
+/// `nui-floating-720`), Button · Send chosen.
+#[test]
+#[ignore]
+fn nui_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data");
+    let key = ResKey::parse("crier", ResType::JUI).unwrap();
+    let tab = mg_ui::Tab::Nui(key);
+    let crier = |h: &mut Harness<'static, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.module.set(key, std::fs::read(data.join("crier.jui")).unwrap());
+        let settings = ResKey::parse("crier", ResType::TXT).unwrap();
+        ws.module.set(settings, std::fs::read(data.join("crier.txt")).unwrap());
+    };
+    // (Its row in Layers, or on the canvas where Layers are folded away.)
+    let send = |h: &mut Harness<'static, Moonglow>| {
+        h.run_steps(3);
+        match h.query_all_by_label("Button · Send").next() {
+            Some(row) => row.click(),
+            None => h.get_by_label("Canvas Button · Send").click(),
+        }
+        h.run_steps(10);
+    };
+    let page = |h: &mut Harness<'static, Moonglow>, name: &str| {
+        let header = h.get_by_label(mg_ui::nui_names::NUI_HEADER);
+        header.get_by_label(mg_ui::nui_names::PAGE).get_by_label(name).click();
+        h.run_steps(10);
+    };
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    crier(&mut h);
+    board_front(&mut h, &tab);
+    send(&mut h);
+    shoot(&mut h, &dir, "nui-design");
+    for (name, shot) in [
+        ("Bindings", "nui-bindings"),
+        ("Events & Variants", "nui-events"),
+        ("Images", "nui-images"),
+    ] {
+        page(&mut h, name);
+        shoot(&mut h, &dir, shot);
+    }
+    page(&mut h, "Design");
+    h.get_by_label(mg_ui::nui_names::NUI_HEADER).get_by_label(mg_ui::nui_names::VIEW).click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "nui-view");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // (Preview only and Split source, the docks kept: the fix round.)
+    for (layout, shot) in [("Preview only", "nui-preview-only"), ("Split source", "nui-split")] {
+        nui_view(&mut h, "Layout", Some(layout));
+        h.run_steps(10);
+        shoot(&mut h, &dir, shot);
+    }
+    nui_view(&mut h, "Layout", Some("Editor"));
+    h.run_steps(3);
+    // (The Right Dock at its least, 280: every panel fits it.)
+    h.state_mut().settings.right_dock_width = Some(280);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "nui-280");
+    for (name, width) in [("nui-1280", 1280.0), ("nui-narrow", 1000.0)] {
+        let mut h = board_window(&root, egui::vec2(width, 900.0));
+        crier(&mut h);
+        board_front(&mut h, &tab);
+        send(&mut h);
+        // (Narrow: Properties chosen on the Right Dock's one bar.)
+        let tab =
+            |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Tab;
+        let found = h.query_all_by_label("Properties").find(tab).is_some();
+        if found {
+            h.query_all_by_label("Properties").find(tab).unwrap().click();
+            h.run_steps(10);
+        }
+        shoot(&mut h, &dir, name);
+    }
+    let sizes = [
+        ("nui-floating", egui::vec2(1600.0, 900.0)),
+        ("nui-floating-720", egui::vec2(1280.0, 720.0)),
+    ];
+    for (name, size) in sizes {
+        let mut h = shell_with_area(&root, size);
+        crier(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(&mut h, "the designer drawn", |h| h.state().tab_rect(&tab).is_some());
+        send(&mut h);
+        shoot(&mut h, &dir, name);
+    }
 }
 
 /// Tileset.png: the game's `tcn01.set` (a copy) in the tileset editor As
@@ -14053,9 +14168,10 @@ fn menus_area_harness(
     (h, area)
 }
 
-/// The NUI designer narrower than 760 px with its Properties menu open
-/// (the whole inspector in a menu), and wide, Layer Actions open with
-/// its first row under the pointer (a row's keys, lit).
+/// The NUI designer wide, Layer Actions (the Outliner's, M4's U18) open
+/// with its first row under the pointer (a row's keys, lit), and narrower
+/// than 760 px, its Properties its window's right pane (a menu that held
+/// the whole inspector before U18).
 #[test]
 #[ignore]
 fn menus_nui_properties_and_layer_actions() {
@@ -14074,29 +14190,27 @@ fn menus_nui_properties_and_layer_actions() {
         ]
     }]);
     app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
-    let mut h = nui_harness(app, key, (1130.0, 760.0));
+    // (Wide enough for its Layers' pane, where Layer Actions is.)
+    let mut h = nui_harness(app, key, (1400.0, 760.0));
     themed(&mut h);
     h.get_by_label_contains("Canvas Button").click();
     h.run_steps(3);
     h.get_by_label("Layer Actions").click();
     h.run_steps(3);
-    h.get_by_label_contains("Move up").hover();
+    h.get_by_label_contains("Move Up").hover();
     h.run_steps(3);
     shoot(&mut h, &dir, "menu-nui-layer-actions");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
+    // (Narrower than 760, its Properties are its window's right pane, a
+    // panel, not a menu: M4's U18.)
     place(&mut h, &mg_ui::Tab::Nui(key), (20.0, 90.0), (700.0, 760.0));
-    h.run_steps(4);
-    // (The menu's button, beside Add element and Layers: the main
-    // toolbar has a Properties too.)
-    let button = h.get_all_by_label("Properties").find(|n| !in_toolbar(n));
-    button.unwrap().click();
     h.run_steps(4);
     shoot(&mut h, &dir, "menu-nui-properties");
 }
 
-/// The NUI preview's Screen menu: a check box, rows to choose from and a
-/// note.
+/// The NUI designer's View popover (M4's U18) with its Screen combo box
+/// open: the sizes to choose from (the canvas's Screen menu before).
 #[test]
 #[ignore]
 fn menus_nui_screen() {
@@ -14108,7 +14222,10 @@ fn menus_nui_screen() {
     app.run(mg_ui::Action::NewNui("screen".into()));
     let mut h = nui_harness(app, key, (1130.0, 760.0));
     themed(&mut h);
-    h.get_by_label("Screen").click();
+    // (In the View popover since M4's U18: its Screen row's combo box.)
+    nui_click(&mut h, mg_ui::nui_names::VIEW);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox).label("Screen");
+    h.get(combo).click();
     h.run_steps(4);
     shoot(&mut h, &dir, "menu-nui-screen");
 }

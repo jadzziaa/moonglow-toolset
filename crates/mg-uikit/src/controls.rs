@@ -232,9 +232,8 @@ fn segmented_in<T: PartialEq + Copy>(
     let builder = egui::UiBuilder::new()
         .id_salt(("mg-segmented-group", name))
         .layout(egui::Layout::left_to_right(egui::Align::Center));
+    let enabled = ui.is_enabled();
     let mut inner = ui.scope_builder(builder, |ui| {
-        let enabled = ui.is_enabled();
-        ui.response().widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
         ui.spacing_mut().item_spacing.x = if theme.is_some() { 1.0 } else { 2.0 };
         for (i, (choice, words, tip)) in choices.iter().enumerate() {
             let on = *value == *choice;
@@ -252,6 +251,10 @@ fn segmented_in<T: PartialEq + Copy>(
             }
         }
     });
+    // (Named on the scope's response of this frame, not on `ui.response()`
+    // within it, which is the last frame's: a group in a window moved since
+    // was said to be where it was. M4's U18.)
+    inner.response.widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
     if changed {
         inner.response.mark_changed();
     }

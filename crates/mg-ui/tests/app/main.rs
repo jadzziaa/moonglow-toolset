@@ -33,6 +33,7 @@ mod looks;
 mod menus;
 mod module_panel;
 mod modules;
+mod nui_panels;
 mod open_editors;
 mod options_and_keys;
 mod outliner;

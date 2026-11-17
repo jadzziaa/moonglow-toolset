@@ -222,6 +222,16 @@ pub enum Panel {
     /// language, feminine table and file, and Module's Table for a module
     /// with none (`talk_view::panels::file`).
     TalkFile,
+    /// A NUI designer's palette of controls (M4's U18, the NUI board's
+    /// Right Dock, its top section): Find a control… and the components by
+    /// group, a click adding one to the control chosen, a drag putting one
+    /// where it is dropped (`nui_view::panels::components`). A designer's
+    /// properties are [`Panel::Properties`], under it.
+    Components,
+    /// A NUI designer's binds (M4's U18), under Properties: Create bind,
+    /// each bind's value, watch and uses, Client delivery and Window
+    /// identity (`nui_view::panels::bindings`).
+    Bindings,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -279,7 +289,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 20] = [
+    pub(crate) const KEYED: [Panel; 22] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -300,6 +310,8 @@ impl Panel {
         Panel::References,
         Panel::String,
         Panel::TalkFile,
+        Panel::Components,
+        Panel::Bindings,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -327,7 +339,9 @@ impl Panel {
             | Panel::Cell
             | Panel::References
             | Panel::String
-            | Panel::TalkFile => Dock::Right,
+            | Panel::TalkFile
+            | Panel::Components
+            | Panel::Bindings => Dock::Right,
             Panel::Log | Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
@@ -359,6 +373,8 @@ impl Panel {
             Panel::References => "References",
             Panel::String => "String",
             Panel::TalkFile => "Talk Table",
+            Panel::Components => "Components",
+            Panel::Bindings => "Bindings",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -389,6 +405,8 @@ impl Panel {
             Panel::References,
             Panel::String,
             Panel::TalkFile,
+            Panel::Components,
+            Panel::Bindings,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -422,6 +440,8 @@ impl Panel {
             Panel::References => Icon::References,
             Panel::String => Icon::Description,
             Panel::TalkFile => Icon::TalkTable,
+            Panel::Components => Icon::Nui,
+            Panel::Bindings => Icon::Link,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -443,6 +463,8 @@ impl Panel {
             Panel::NodeData | Panel::NodeSearch => 2,
             // (A talk table's String: Copy the StrRef, M4's U17.)
             Panel::String => 1,
+            // (A NUI designer's Properties: Element Actions, M4's U18; the
+            // area's: Open in Tab, drawn by its own code.)
             // (The others' from their list; the Outliner's Expand All and
             // Collapse All are on its own header.)
             _ => self.header_tools().len(),
@@ -459,7 +481,7 @@ impl Panel {
             Panel::Outliner => "Outliner: what the editor in front holds",
             Panel::Log => "Log: what Moonglow reports",
             Panel::TileProperties => "Tile Properties: the tiles selected",
-            Panel::Properties => "Properties: the objects selected",
+            Panel::Properties => "Properties: what is selected",
             Panel::Reference => {
                 "Reference: the functions, variables, constants and templates a script can use"
             }
@@ -474,6 +496,8 @@ impl Panel {
             Panel::References => "References: what names the table's row or line chosen",
             Panel::String => "String: the talk table's line chosen",
             Panel::TalkFile => "Talk Table: the talk table's lines, language and file",
+            Panel::Components => "Components: the controls to add to the NUI window",
+            Panel::Bindings => "Bindings: the NUI window's binds",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -529,6 +553,9 @@ impl Panel {
     fn detail(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<String> {
         match self {
             Panel::TileProperties => Some(crate::tile_select::detail(app, editor)),
+            Panel::Properties if crate::nui_view::panels::nui_of(editor).is_some() => {
+                crate::nui_view::panels::detail(app, editor, self)
+            }
             Panel::Properties => Some(crate::properties_panel::detail(app, editor)),
             // (From the first frame, before the view is made: its bar keeps
             // its form.)
@@ -550,6 +577,11 @@ impl Panel {
             }
             Panel::References => crate::table_view::panels::detail(app, editor, true),
             Panel::String | Panel::TalkFile => crate::talk_view::panels::detail(app, editor, self),
+            // (A NUI designer's: the control chosen, "Button · Send"; the
+            // binds' count, "3 binds". The board's.)
+            Panel::Bindings if crate::nui_view::panels::nui_of(editor).is_some() => {
+                crate::nui_view::panels::detail(app, editor, self)
+            }
             _ => None,
         }
     }
@@ -611,7 +643,9 @@ impl Panel {
             | Panel::Cell
             | Panel::References
             | Panel::String
-            | Panel::TalkFile => brings.has(self),
+            | Panel::TalkFile
+            | Panel::Components
+            | Panel::Bindings => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             Panel::SearchResults => true,
@@ -654,6 +688,10 @@ impl Panel {
             // Talk Table panel's first control the focus.)
             Panel::String => Keys::TalkString,
             Panel::TalkFile => Keys::TalkFile,
+            // (A NUI designer's, M4's U18: F6 gives Find a control… and
+            // the Bindings panel's first field the focus.)
+            Panel::Components => Keys::NuiComponents,
+            Panel::Bindings => Keys::NuiBindings,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -795,6 +833,20 @@ const TALK_SHARES: &[u16] = &[700, 306, 994];
 /// high: M4's U17 review).
 const TALK_WINDOW_SHARES: &[u16] = &[1100, 300, 600];
 
+/// A NUI designer's Right Dock (M4's U18, the NUI board's): Components over
+/// Properties over Bindings, each a section with its header; one tab bar of
+/// the three under 1400; with the designer into its window where it floats,
+/// its Layers the Outliner. The board's heights: Components 166 and
+/// Bindings 222 of the dock's 811, Properties the rest.
+const NUI_RIGHT: &[Section] = &[&[Panel::Components], &[Panel::Properties], &[Panel::Bindings]];
+const NUI_FOLDED: &[Panel] = &[Panel::Components, Panel::Properties, Panel::Bindings];
+const NUI_SHARES: &[u16] = &[410, 1042, 548];
+/// In its own window, shorter, each keeps something usable at the window's
+/// first size in a 1280 by 720 screen (M4's U18 review): Components its
+/// search and a row of its components, Properties the chosen control's
+/// binding and its Content whole, Bindings its first words and Create Bind.
+const NUI_WINDOW_SHARES: &[u16] = &[440, 1040, 520];
+
 /// The talk table an editor's tab is, if it is one's.
 pub(crate) fn talk_of(editor: Option<&crate::Tab>) -> Option<crate::talk_view::Which> {
     crate::talk_view::Which::of(editor?)
@@ -891,6 +943,19 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             folded: TALK_FOLDED,
             shares: TALK_SHARES,
             window_shares: TALK_WINDOW_SHARES,
+            floats: true,
+            ..Brings::default()
+        },
+        // (A NUI designer's Components, Properties and Bindings and its
+        // Layers in the Outliner, M4's U18, with a module open, on its
+        // Design page in the Editor view as its three panes were; with it
+        // into its window where it floats.)
+        crate::Tab::Nui(_) if app.ws.is_some() => Brings {
+            outliner: true,
+            right: NUI_RIGHT,
+            folded: NUI_FOLDED,
+            shares: NUI_SHARES,
+            window_shares: NUI_WINDOW_SHARES,
             floats: true,
             ..Brings::default()
         },
@@ -1282,6 +1347,8 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     let room = ui.available_width();
     let keeps = match tab {
         crate::Tab::Table(_) => WINDOW_GRID_AT_FIRST,
+        // (A NUI designer's canvas and header, M4's U18.)
+        crate::Tab::Nui(_) => WINDOW_CANVAS_AT_FIRST,
         _ => WINDOW_TREE_AT_FIRST,
     };
     let most = (room - keeps - 1.0).min(room * 0.4).floor();
@@ -1443,6 +1510,9 @@ pub(crate) fn pane_halves(tab: &crate::Tab) -> bool {
             | crate::Tab::Table(_)
             | crate::Tab::TalkTable
             | crate::Tab::GameTalkTable
+            // (And a NUI designer's Components, Properties and Bindings,
+            // M4's U18: a control's properties are nowhere else.)
+            | crate::Tab::Nui(_)
     )
 }
 
@@ -1488,6 +1558,10 @@ pub(crate) const WINDOW_LEFT_LEAST: f32 = 150.0;
 /// window opens wider by its right pane and the Outliner's where the
 /// screen allows (`Moonglow::open_window`).
 pub(crate) const WINDOW_GRID_AT_FIRST: f32 = 1038.0;
+/// The room a floating NUI designer's canvas keeps beside its window's
+/// Outliner (M4's U18): what its window gives the editor before its panes
+/// come into it (760, its lines less), so that its header yields no sooner.
+pub(crate) const WINDOW_CANVAS_AT_FIRST: f32 = 758.0;
 /// The name of an editor's window's bottom pane's tab bar.
 pub(crate) const WINDOW_BOTTOM: &str = "Window's Bottom Pane";
 
@@ -1919,6 +1993,10 @@ pub(crate) const OUTLINER_BOOKMARKS_HIGH: f32 = 166.0;
 /// is dragged (M4's U16, the Table board's `.res-panel`: 254 high), the
 /// Outliner's columns the rest.
 pub(crate) const OVER_COLUMNS_HIGH: f32 = 254.0;
+/// The Left Dock's panel over the Outliner beside a NUI designer until its
+/// seam is dragged (M4's U18, the NUI board's `.module-panel`: 416 high),
+/// its Layers the rest.
+pub(crate) const OVER_LAYERS_HIGH: f32 = 416.0;
 /// The Outliner's least height: its header and four rows.
 pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
@@ -3244,6 +3322,11 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 Some(crate::outliner::Contents::Columns(_)) => {
                     (OVER_COLUMNS_HIGH, app.settings.columns_panel_height)
                 }
+                // (Beside a NUI designer, the NUI board's: the panel over
+                // its Layers 416 high; kept apart, M4's U18.)
+                Some(crate::outliner::Contents::Layers(_)) => {
+                    (OVER_LAYERS_HIGH, app.settings.layers_panel_height)
+                }
                 _ => (app.yields.module_panel_height, app.settings.module_panel_height),
             };
             let chosen = kept.map_or(at_first, |h| h as f32);
@@ -3275,6 +3358,9 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     Some(crate::outliner::Contents::Columns(_)) => {
                         app.settings.columns_panel_height = high;
+                    }
+                    Some(crate::outliner::Contents::Layers(_)) => {
+                        app.settings.layers_panel_height = high;
                     }
                     _ => app.settings.module_panel_height = high,
                 }
@@ -3852,7 +3938,10 @@ fn section_bar<R>(
         let mut opened = false;
         let inner = header
             .show(ui, |ui| {
-                if *one == Panel::Properties {
+                // (A NUI designer's Element Actions there, M4's U18.)
+                if *one == Panel::Properties && crate::nui_view::panels::nui_of(editor).is_some() {
+                    crate::nui_view::panels::actions(app, ui, editor);
+                } else if *one == Panel::Properties {
                     opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
                 }
                 // (A talk table's Copy the StrRef at String's header's end,
@@ -4211,6 +4300,7 @@ pub(crate) fn panel_body(
         // panel's edge.)
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
         Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
+        Panel::Components | Panel::Bindings => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -4267,7 +4357,24 @@ pub(crate) fn panel_body(
                 let builder = LateSlot::salted(builder, host, "properties", pane);
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
-                crate::properties_panel::panel(app, &mut body, editor, titled);
+                // (A NUI designer's, M4's U18.)
+                match crate::nui_view::panels::nui_of(editor) {
+                    Some(_) => crate::nui_view::panels::properties(app, &mut body, editor, titled),
+                    None => crate::properties_panel::panel(app, &mut body, editor, titled),
+                }
+            }
+            // (A NUI designer's, M4's U18.)
+            Panel::Components | Panel::Bindings => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::Components => {
+                        crate::nui_view::panels::components(app, &mut body, editor)
+                    }
+                    _ => crate::nui_view::panels::bindings(app, &mut body, editor),
+                }
             }
             Panel::Reference | Panel::Help => {
                 let builder = egui::UiBuilder::new().max_rect(room);

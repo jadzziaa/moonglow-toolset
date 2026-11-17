@@ -483,7 +483,7 @@ fn insert_menu(ui: &mut Ui, handler: &mg_nui::Handler, s: &Settings) -> Option<S
                     }
                 }
                 for group in &groups {
-                    if ui.button(format!("Initial contents · {group}")).clicked() {
+                    if ui.button(format!("Initial Contents · {group}")).clicked() {
                         let function = mg_nui::initial_function(WINDOW, group);
                         code = Some(format!(
                             "        NuiSetGroupLayout(oPlayer, nToken, {}, {function}());\n",
@@ -503,11 +503,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     } else {
         Target::Control(state.selected.clone())
     };
-    egui::CollapsingHeader::new("Events")
-        .icon(mg_uikit::collapsing_icon)
-        .default_open(true)
-        .show(ui, |ui| editor(ui, doc, s, state, Some(target)));
-    ui.separator();
+    form::section(ui, "nui-events", "Events", true, None, None, |ui| {
+        editor(ui, doc, s, state, Some(target));
+    });
 }
 
 pub(super) fn editor(
@@ -693,7 +691,7 @@ fn editor_of(
                     }
                 },
             );
-            if ui.button("+ Add Handler").on_hover_text(explanation(&event)).clicked() {
+            if ui.add(form::plus("Add Handler")).on_hover_text(explanation(&event)).clicked() {
                 let (element, id) = element(t, &event, doc, s, state);
                 new_id = id;
                 s.handlers.push(mg_nui::Handler::new(event.clone(), element, mg_nui::Action::Code));

@@ -99,6 +99,89 @@ fn close_script(h: &mut Harness<'_, Moonglow>, script: ResKey) {
     h.run();
 }
 
+/// Clicks the first widget labeled `label`, brought into its scroll
+/// area's sight first: the Right Dock's sections (or a floating designer's
+/// right pane) scroll, and a click out of sight lands on whatever is drawn
+/// there.
+#[track_caller]
+fn click_seen(h: &mut Harness<'_, Moonglow>, label: &str) {
+    h.get_all_by_label(label).next().unwrap().scroll_to_me();
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let rect = h.get_all_by_label(label).next().unwrap().rect();
+        still = if last == Some(rect) { still + 1 } else { 0 };
+        assert!(started.elapsed().as_secs() < 30, "{label} never came to rest in sight");
+        last = Some(rect);
+    }
+    h.get_all_by_label(label).next().unwrap().click();
+    h.run();
+}
+
+/// The editor's `label` where the Right Dock has one too (Properties'
+/// Add Handler beside the Bindings page's): the leftmost.
+fn leftmost<'t>(h: &'t Harness<'_, Moonglow>, label: &'t str) -> egui_kittest::Node<'t> {
+    h.get_all_by_label(label).min_by(|a, b| a.rect().left().total_cmp(&b.rect().left())).unwrap()
+}
+
+/// The designer's header's control `name` (M4's U18: the kit's header,
+/// `mg_ui::nui_names`), through More where it went there (opened for it).
+#[track_caller]
+fn nui_tool<'t>(h: &'t mut Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let header_name = mg_ui::nui_names::NUI_HEADER;
+    let records = header::records(&h.ctx, header_name);
+    let rec = records.into_iter().next().expect("the designer's header");
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    let more: &'static str = Box::leak(header::more_name(header_name).into_boxed_str());
+    if place == Some(Place::More) && h.query_by_label(more).is_none() {
+        h.get_by_label(header_name).get_by_label(header::MORE).click();
+        h.run();
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(more).get_by_label(name),
+        Some(Place::Row | Place::Icon) => h.get_by_label(header_name).get_by_label(name),
+        other => panic!("{name} in the designer's header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// Clicks the header's control `name` ([`nui_tool`]) and runs the frames
+/// that follow.
+#[track_caller]
+fn nui_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    nui_tool(h, name).click();
+    h.run();
+}
+
+/// The page `name` chosen in the header's switch.
+#[track_caller]
+fn page(h: &mut Harness<'_, Moonglow>, name: &str) {
+    nui_tool(h, mg_ui::nui_names::PAGE).get_by_label(name).click();
+    h.run();
+}
+
+/// The View popover opened (the header's).
+#[track_caller]
+fn view(h: &mut Harness<'_, Moonglow>) {
+    nui_click(h, mg_ui::nui_names::VIEW);
+}
+
+/// `choice` chosen in the View popover's combo box `row` (Layout, UI
+/// scale, State, Screen), the popover then closed with Escape.
+#[track_caller]
+fn view_choose(h: &mut Harness<'_, Moonglow>, row: &str, choice: &str) {
+    view(h);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox).label(row);
+    h.get(combo).click();
+    h.run();
+    h.get_all_by_label(choice).last().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+}
+
 /// The window `nui_test`, new, in an editor with room for its three panes.
 fn harness() -> Harness<'static, Moonglow> {
     creator(app(), [1200, 850])
@@ -112,11 +195,9 @@ fn a_control_duplicated_from_its_menu_is_one_undo_step() {
     let before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Element actions").scroll_to_me();
+    h.get_by_label("Element Actions").click();
     h.run();
-    h.get_by_label("Element actions").click();
-    h.run();
-    h.get_by_label_contains("Duplicate element").click();
+    h.get_by_label_contains("Duplicate Element").click();
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     let doc = mg_nui::parse(ws.module.get(&key).unwrap()).unwrap();
@@ -126,14 +207,15 @@ fn a_control_duplicated_from_its_menu_is_one_undo_step() {
     assert_eq!(ws.module.get(&key).unwrap(), before);
 }
 
-/// The pages' buttons stay in one row, of one height, in a narrow window.
+/// The pages' switch stays in one row, of one height, in a narrow window
+/// (the header's, M4's U18: Design, Bindings, Events & Variants, Images).
 #[test]
 fn the_pages_stay_in_one_row_in_a_narrow_window() {
     for width in [1200, 820, 640] {
-        let h = creator(app(), [width, 850]);
-        let first = h.get_by_label("Design").rect();
-        for label in ["Bindings", "Events & variants", "Event Script…", "Advanced"] {
-            let rect = h.get_by_label(label).rect();
+        let mut h = creator(app(), [width, 850]);
+        let first = nui_tool(&mut h, mg_ui::nui_names::PAGE).get_by_label("Design").rect();
+        for label in ["Bindings", "Events & Variants", "Images"] {
+            let rect = nui_tool(&mut h, mg_ui::nui_names::PAGE).get_by_label(label).rect();
             assert!((rect.center().y - first.center().y).abs() < 0.1, "{width}: {label}: {rect:?}");
             assert!((rect.height() - first.height()).abs() < 0.1, "{width}: {label}: {rect:?}");
         }
@@ -147,20 +229,27 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_by_label("Canvas Label · Label").click();
     h.run();
     let before = document(&h);
-    h.get_by_label("+ New Bind for Property").click();
-    h.run();
-    // (The dialog's Cancel, drawn after the one under the editor.)
-    h.get_all_by_label("Cancel").last().unwrap().click();
+    click_seen(&mut h, "New Bind for Property");
+    // (The dialog's Cancel, beside its Create: the header's is the
+    // editor's.)
+    let create = h.get_by_label("Create").rect().center();
+    let cancel = h
+        .get_all_by_label("Cancel")
+        .min_by(|a, b| {
+            let (a, b) = (a.rect().center().distance(create), b.rect().center().distance(create));
+            a.total_cmp(&b)
+        })
+        .unwrap();
+    cancel.click();
     h.run();
     assert_eq!(document(&h), before);
-    h.get_by_label("+ New Bind for Property").click();
-    h.run();
+    click_seen(&mut h, "New Bind for Property");
     h.get_by_label("Create").click();
     h.run();
     assert_eq!(document(&h)["root"]["children"][0]["value"], json!({"bind":"label_value"}));
     // A bound value offers its change first. (The button is at the foot
     // of the properties' pane, below its edge until scrolled to.)
-    click_last_in_sight(&mut h, "+ Add Handler");
+    click_last_in_sight(&mut h, "Add Handler");
     h.run();
     assert_eq!(settings(&h).bindings["label_value"].value, json!("Label"));
     assert!(settings(&h).handlers.iter().any(|r| r.event == "watch"
@@ -173,7 +262,7 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.run();
     assert_eq!(document(&h), before);
     assert!(!settings(&h).bindings.contains_key("label_value"));
-    h.get_by_label("Property binding");
+    h.get_by_label("Property Binding");
     h.get_by_label("Canvas Label · Label");
 }
 
@@ -185,11 +274,9 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     let script = |h: &Harness<'_, Moonglow>| text(h.state(), script_key);
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit Code").click();
-    h.run();
+    click_seen(&mut h, "Edit Code");
     close_script(&mut h, script_key);
-    h.get_by_label("Element ID").click();
-    h.run();
+    click_seen(&mut h, "Element ID");
     h.get_by_label("Element ID").type_text("_x");
     h.run();
     // (Set when the field is left.)
@@ -203,9 +290,8 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     assert!(!script(&h).contains(r#""mg_close""#));
     assert!(!mg_nui::edited_outside("nui_test", &script(&h)));
     // Deleting the control takes its handler away; its code stays.
+    // (Its row in Layers: they have the keys.)
     h.get_all_by_label("Button · Close").next().unwrap().click();
-    h.run();
-    h.hover_at(h.get_by_label("Layers").rect().center());
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
@@ -311,10 +397,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     app.run(Action::NewNui("pictures".into()));
     let mut h = creator(app, [1100, 900]);
     h.run();
-    h.get_by_label("Advanced").click();
-    h.run();
-    h.get_by_label("Images").click();
-    h.run();
+    page(&mut h, "Images");
     let key = ResKey::parse("my_bg", ResType::TGA).unwrap();
     h.get_by_label("Add Images from Disk…").click();
     h.run();
@@ -335,7 +418,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
         (back["image"].clone(), back["image_aspect"].clone(), back["order"].clone()),
         (json!("my_bg"), json!(5), json!(-1))
     );
-    h.get_by_label("Move module images into a new hak").click();
+    h.get_by_label("Move Module Images into a New Hak").click();
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     assert!(!ws.module.contains(&key), "the picture left the module");
@@ -357,7 +440,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     h.run();
     h.get_by_label("nui_images.hak").click();
     h.run();
-    h.get_by_label("Add images to nui_images.hak…").click();
+    h.get_by_label("Add Images to nui_images.hak…").click();
     h.run();
     let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
     let icon = ResKey::parse("my_icon", ResType::TGA).unwrap();
@@ -375,7 +458,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     let frame = ResKey::parse("my_frame", ResType::TGA).unwrap();
     h.state_mut().dialogs =
         Box::new(NoDialogs { open_many: vec![vec![third.clone()]], ..Default::default() });
-    h.get_by_label("Add images to nui_images.hak…").click();
+    h.get_by_label("Add Images to nui_images.hak…").click();
     h.run();
     let has = |h: &Harness<'_, Moonglow>, k: ResKey| {
         h.state().haks[0].hak.items().iter().any(|i| i.key == k)
@@ -392,7 +475,7 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     std::fs::write(&fourth, &tga).unwrap();
     h.state_mut().dialogs =
         Box::new(NoDialogs { open_many: vec![vec![fourth]], ..Default::default() });
-    h.get_by_label("Add images to nui_images.hak…").click();
+    h.get_by_label("Add Images to nui_images.hak…").click();
     h.run();
     assert!(has(&h, ResKey::parse("my_glow", ResType::TGA).unwrap()));
     assert!(h.state().haks[0].hak.is_dirty());
@@ -414,8 +497,7 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     // Edit code writes the handlers' sections and opens the script at this one.
-    h.get_by_label("Edit Code").click();
-    h.run();
+    click_seen(&mut h, "Edit Code");
     let text = script(&h);
     assert!(text.contains("// mg:begin click mg_close"));
     assert!(h.state().dock.find_tab(&Tab::Script(script_key)).is_some());
@@ -446,8 +528,7 @@ fn edit_code_leaves_a_script_written_by_hand_as_it_is() {
     let mut h = creator(app, [1200, 850]);
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit Code").click();
-    h.run();
+    click_seen(&mut h, "Edit Code");
     assert_eq!(text(h.state(), script), manual);
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
 }
@@ -461,8 +542,7 @@ fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed
     let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit Code").click();
-    h.run();
+    click_seen(&mut h, "Edit Code");
     let written = text(h.state(), script);
     let at = mg_nui::handler_offset(&written, "click mg_close").unwrap();
     h.state_mut().script_tools.jump = Some((script, at));
@@ -493,8 +573,7 @@ fn a_color_picked_is_set_when_its_picker_closes() {
     let mut h = harness();
     h.get_by_label("Canvas Label · Label").click();
     h.run();
-    h.get_by_label("+ Add property").click();
-    h.run();
+    click_seen(&mut h, "Add Property");
     h.get_by_label("Foreground color").click();
     h.run();
     let white = json!({"r":255,"g":255,"b":255,"a":255});
@@ -524,8 +603,7 @@ fn add_property_adds_a_color_and_a_window_s_size_limits() {
     h.get_by_label("Canvas Label · Label").click();
     h.run();
     let before = document(&h);
-    h.get_by_label("+ Add property").click();
-    h.run();
+    click_seen(&mut h, "Add Property");
     h.get_by_label("Foreground color").click();
     h.run();
     assert!(h.query_by_label("Foreground color").is_some(), "new color field must be expanded");
@@ -539,17 +617,16 @@ fn add_property_adds_a_color_and_a_window_s_size_limits() {
     h.run();
     h.get_by_label("Window").click();
     h.run();
-    h.get_by_label("+ Add property").scroll_to_me();
+    h.get_by_label("Add Property").scroll_to_me();
     h.run();
-    h.get_by_label("+ Add property").click();
-    h.run();
+    click_seen(&mut h, "Add Property");
     h.query_all_by_label("Window size limits")
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Label)
         .expect("Add window limits menu entry")
         .click();
     h.run();
     assert!(h.query_by_label("Minimum width").is_some(), "new limits must be expanded");
-    assert!(h.query_by_label("Advanced properties").is_none());
+    assert!(h.query_by_label("Advanced Properties").is_none());
     let limited = document(&h);
     assert_eq!(limited["size_constraint"], json!({"x":0.0,"y":0.0,"w":0.0,"h":0.0}));
     assert!(
@@ -565,13 +642,13 @@ fn draw_layers_start_unclipped_and_clipping_written_by_hand_is_turned_off() {
     h.run();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Draw layers").scroll_to_me();
+    h.get_by_label("Draw Layers").scroll_to_me();
     h.run();
-    h.get_by_label("Draw layers").click();
+    h.get_by_label("Draw Layers").click();
     h.run();
-    h.get_by_label("+ Draw primitive").scroll_to_me();
+    h.get_by_label("Draw Primitive").scroll_to_me();
     h.run();
-    h.get_by_label("+ Draw primitive").click();
+    h.get_by_label("Draw Primitive").click();
     h.run();
     h.get_by_label("Rectangle").click();
     h.run();
@@ -600,7 +677,7 @@ fn opening_draw_layers_changes_nothing() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     let before = document(&h);
-    h.get_by_label("Draw layers").click();
+    h.get_by_label("Draw Layers").click();
     h.run();
     assert_eq!(document(&h), before, "Opening Draw layers must not add null draw_list");
     h.get_by_label("Canvas Label · Label").click();
@@ -619,8 +696,7 @@ fn add_property_offers_hover_properties_on_controls_only() {
         h.get_by_label("Canvas Button · Close").click();
         h.run();
         let before = document(&h);
-        h.get_by_label("+ Add property").click();
-        h.run();
+        click_seen(&mut h, "Add Property");
         h.query_by_label(label)
             .expect("Supported element property missing from Add property")
             .click();
@@ -630,7 +706,7 @@ fn add_property_offers_hover_properties_on_controls_only() {
         if key == "disabled_tooltip" {
             assert!(h.query_by_label("Tooltips").is_some());
             assert!(h.query_by_label(label).is_some(), "Added tooltip must be visible immediately");
-            assert!(h.query_by_label("Advanced properties").is_none());
+            assert!(h.query_by_label("Advanced Properties").is_none());
         }
         assert!(
             !mg_nui::validate(&authored, &Settings::default())
@@ -642,8 +718,7 @@ fn add_property_offers_hover_properties_on_controls_only() {
         h.run();
         h.get_by_label("Window").click();
         h.run();
-        h.get_by_label("+ Add property").click();
-        h.run();
+        click_seen(&mut h, "Add Property");
         assert!(h.query_by_label(label).is_none(), "Element-only property on Window");
     }
 }
@@ -652,18 +727,16 @@ fn add_property_offers_hover_properties_on_controls_only() {
 fn interact_still_adds_duplicates_and_deletes_controls() {
     let mut h = harness();
     h.run();
-    h.get_by_label("Interact").click();
+    nui_click(&mut h, "Interact");
     h.run();
     let original = document(&h);
-    h.get_by_label("Button").click();
-    h.run();
+    // (The Components panel's, scrolled into its section's sight.)
+    click_seen(&mut h, "Button");
     let added = document(&h);
     assert_eq!(added["root"]["children"].as_array().unwrap().len(), 3);
-    h.get_by_label("Element actions").scroll_to_me();
+    h.get_by_label("Element Actions").click();
     h.run();
-    h.get_by_label("Element actions").click();
-    h.run();
-    h.get_by_label_contains("Duplicate element").click();
+    h.get_by_label_contains("Duplicate Element").click();
     h.run();
     assert_eq!(document(&h)["root"]["children"].as_array().unwrap().len(), 4);
     // Delete over the simulated controls must never delete a design element.
@@ -672,7 +745,9 @@ fn interact_still_adds_duplicates_and_deletes_controls() {
     h.key_press(egui::Key::Delete);
     h.run();
     assert_eq!(document(&h)["root"]["children"].as_array().unwrap().len(), 4);
-    h.hover_at(h.get_by_label("Layers").rect().center());
+    // (The copy's row in Layers, after the control it is a copy of: they
+    // have the keys, the copy chosen.)
+    h.get_all_by_label("Button · Button").last().unwrap().click();
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
@@ -689,12 +764,9 @@ fn a_window_resized_on_the_canvas_is_one_undo_step() {
     for live in [false, true] {
         let mut h = harness();
         h.run();
-        h.get_by_label("UI scale 100%").click();
-        h.run();
-        h.get_by_label("150%").click();
-        h.run();
+        view_choose(&mut h, "UI scale", "150%");
         if live {
-            h.get_by_label("Interact").click();
+            nui_click(&mut h, "Interact");
             h.run();
         }
         h.get_by_label("Canvas window").click();
@@ -785,11 +857,11 @@ fn a_control_selected_on_the_canvas_is_revealed_in_collapsed_layers() {
             .any(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
     );
     // (The layers': the module tree has the same pair.)
-    h.get_by_label("Layer tree").get_by_label("Collapse All").click();
+    h.get_by_label("Outliner Header").get_by_label("Collapse All").click();
     h.run();
     assert!(h.query_by_label("Collapse Column").is_none());
     assert!(h.query_by_label("Expand Column").is_none());
-    h.get_by_label("Layer tree").get_by_label("Expand All").click();
+    h.get_by_label("Outliner Header").get_by_label("Expand All").click();
     h.run();
     assert!(
         h.get_all_by_label("Button · Close")
@@ -961,8 +1033,7 @@ fn deleting_a_window_says_its_script_s_unsaved_text_and_undo_brings_it_back() {
     let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Edit Code").click();
-    h.run();
+    click_seen(&mut h, "Edit Code");
     h.state_mut().script_tools.jump = Some((script, 0));
     h.run();
     h.event(egui::Event::Text("// typed\n".into()));
@@ -1221,7 +1292,7 @@ fn keys_are_left_to_a_text_field_a_menu_and_what_is_outside_the_editor() {
     assert_eq!(document(&h), before);
     h.get_by_label("Canvas Button · Close").click();
     h.run();
-    h.get_by_label("Element actions").click();
+    h.get_by_label("Element Actions").click();
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
@@ -1265,7 +1336,7 @@ fn a_control_dragged_from_the_palette_lands_where_it_is_dropped_in_layers() {
             let mut h = harness();
             h.run();
             if live {
-                h.get_by_label("Interact").click();
+                nui_click(&mut h, "Interact");
                 h.run();
             }
             let before = document(&h);
@@ -1300,7 +1371,7 @@ fn a_control_dragged_from_the_palette_onto_the_canvas_joins_that_container() {
         let mut h = creator(app(), [1200, 850]);
         h.run();
         if live {
-            h.get_by_label("Interact").click();
+            nui_click(&mut h, "Interact");
             h.run();
         }
         let from = h.get_by_label("Row").rect().center();
@@ -1329,7 +1400,7 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
     let before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
     h.get_by_label("Advanced").click();
     h.run();
-    h.get_by_label("JUI source").click();
+    h.get_by_label("JUI Source").click();
     h.run();
     h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap().click();
     h.run();
@@ -1353,9 +1424,8 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
     assert_eq!(ws.module.get(&key).unwrap(), before);
     ws.redo().unwrap();
     assert_eq!(ws.module.get(&key).unwrap(), draft);
-    h.get_by_label("Design").click();
-    h.run();
-    h.get_by_label_contains("The window's JSON doesn't read");
+    page(&mut h, "Design");
+    assert!(h.query_all_by_label_contains("The window's JSON doesn't read").next().is_some());
 }
 
 /// Split source's canvas shows the window as it is typed, where it reads,
@@ -1363,10 +1433,7 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
 #[test]
 fn split_source_shows_on_the_canvas_what_is_typed() {
     let mut h = harness();
-    h.get_by_value("Editor").click();
-    h.run();
-    h.get_by_label("Split source").click();
-    h.run();
+    view_choose(&mut h, "Layout", "Split source");
     let before = document(&h);
     let mut typed = before.clone();
     typed["root"]["children"][0]["value"] = json!("Typed live");
@@ -1427,8 +1494,7 @@ fn a_sixteen_letter_name_and_settings_that_do_not_read_open() {
     module.set(ResKey::new(key.resref, ResType::TXT), b"unrelated text".to_vec());
     app.actions.push(Action::OpenTab(Tab::Nui(key)));
     let mut h = creator(app, [1200, 850]);
-    h.get_by_label("Bindings").click();
-    h.run();
+    page(&mut h, "Bindings");
 }
 
 /// Code typed into the window's event script is built without saving it
@@ -1675,13 +1741,9 @@ fn windows_written_by_hand_reach_every_page_and_interact() {
         ws.module.set(ResKey::parse("nui_test", ResType::TXT).unwrap(), settings.bytes());
         let mut h = creator(app, [1200, 850]);
         h.run();
-        if let Some(interact) = h.query_by_label("Interact") {
-            interact.click();
-            h.run();
-        }
-        for page in ["Bindings", "Events & variants", "Design"] {
-            h.get_by_label(page).click();
-            h.run();
+        nui_click(&mut h, "Interact");
+        for name in ["Bindings", "Events & Variants", "Images", "Design"] {
+            page(&mut h, name);
         }
     }
 }
@@ -1862,6 +1924,20 @@ fn a_number_dragged_is_one_undo_step() {
     h.run();
     let (before, at) = (document(&h), revision(&h));
     let height = before["root"]["children"][1]["height"].as_f64().expect("a button's height");
+    // (Brought into the Properties panel's sight: its Property Binding is
+    // over it since M4's U18.)
+    let spin =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::SpinButton;
+    h.get_all_by_label("Height").find(spin).unwrap().scroll_to_me();
+    let started = std::time::Instant::now();
+    let (mut last, mut still) = (None, 0);
+    while still < 4 {
+        h.run_steps(1);
+        let rect = h.get_all_by_label("Height").find(spin).unwrap().rect();
+        still = if last == Some(rect) { still + 1 } else { 0 };
+        assert!(started.elapsed().as_secs() < 30, "Height never came to rest in sight");
+        last = Some(rect);
+    }
     let field = h
         .get_all_by_label("Height")
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::SpinButton)
@@ -1891,17 +1967,16 @@ fn a_number_dragged_is_one_undo_step() {
 #[test]
 fn a_selection_undo_takes_away_is_cleared() {
     let mut h = harness();
-    h.get_by_label("Toggle button").click();
-    h.run();
+    click_seen(&mut h, "Toggle Button");
     // (Added last, and selected: Properties shows its ID.)
     assert_eq!(document(&h)["root"]["children"].as_array().unwrap().len(), 3);
     h.get_by_label("Element ID");
     // (Its heading is below the properties' pane's edge until scrolled to.)
-    click_last_in_sight(&mut h, "Draw layers");
+    click_last_in_sight(&mut h, "Draw Layers");
     h.run();
-    h.get_by_label("+ Draw primitive").scroll_to_me();
+    h.get_by_label("Draw Primitive").scroll_to_me();
     h.run();
-    h.get_by_label("+ Draw primitive").click();
+    h.get_by_label("Draw Primitive").click();
     h.run();
     h.get_by_label("Rectangle").click();
     h.run();
@@ -1916,9 +1991,8 @@ fn a_selection_undo_takes_away_is_cleared() {
     assert!(h.query_by_label("Element ID").is_none(), "no control's properties");
     assert!(h.query_by_label("Draw layer 1 · Rectangle").is_none());
     // The pages that don't show the selection draw too.
-    for page in ["Bindings", "Events & variants", "Design"] {
-        h.get_by_label(page).click();
-        h.run();
+    for name in ["Bindings", "Events & Variants", "Images", "Design"] {
+        page(&mut h, name);
     }
 }
 
@@ -1931,17 +2005,15 @@ fn events_harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
     };
     app.ws.as_mut().unwrap().module.set(ResKey::new(key().resref, ResType::TXT), settings.bytes());
     let mut h = creator(app, [1100, 1100]);
-    h.get_by_label("Events & variants").click();
-    h.run();
+    page(&mut h, "Events & Variants");
     h
 }
 
 #[test]
 fn the_bindings_page_adds_a_bind_s_change_handler() {
     let mut h = events_harness(mg_nui::Action::Close);
-    h.get_by_label("Bindings").click();
-    h.run();
-    h.get_by_label("+ Create Bind").click();
+    page(&mut h, "Bindings");
+    h.get_by_label("Create Bind").click();
     h.run();
     h.get_by_label("Bind name").click();
     h.run();
@@ -1950,7 +2022,7 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
     h.get_by_label("Create").click();
     h.run();
     let before = settings(&h);
-    h.get_by_label("+ Add Handler").click();
+    leftmost(&h, "Add Handler").click();
     h.run();
     let after = settings(&h);
     assert!(
@@ -1966,9 +2038,8 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
 #[test]
 fn binds_are_renamed_and_deleted_with_their_handlers() {
     let mut h = events_harness(mg_nui::Action::Close);
-    h.get_by_label("Bindings").click();
-    h.run();
-    h.get_by_label("+ Create Bind").click();
+    page(&mut h, "Bindings");
+    h.get_by_label("Create Bind").click();
     h.run();
     h.get_by_label("Bind name").click();
     h.run();
@@ -1976,7 +2047,7 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
     h.run();
     h.get_by_label("Create").click();
     h.run();
-    h.get_by_label("+ Add Handler").click();
+    leftmost(&h, "Add Handler").click();
     h.run();
     h.get_by_label("Name").click();
     h.run();
@@ -2000,7 +2071,8 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
 fn a_drag_in_the_editor_does_not_move_its_window() {
     let mut h = events_harness(mg_nui::Action::Close);
     let place = |h: &Harness<'_, Moonglow>| {
-        (h.get_by_label("Swap Layout Variants").rect(), h.get_by_label("Bindings").rect())
+        let pages = h.get_by_label(mg_ui::nui_names::NUI_HEADER);
+        (h.get_by_label("Swap Layout Variants").rect(), pages.get_by_label("Bindings").rect())
     };
     let before = place(&h);
     let from = before.0.center();
@@ -2013,9 +2085,8 @@ fn a_drag_in_the_editor_does_not_move_its_window() {
     h.drop_at(from + egui::vec2(60.0, 30.0));
     h.run();
     assert_eq!(place(&h), before);
-    h.get_by_label("Bindings").click();
-    h.run();
-    h.get_by_label("+ Create Bind");
+    page(&mut h, "Bindings");
+    h.get_by_label("Create Bind");
 }
 
 /// The Creator's Import… brings windows in from the files chosen, as `mg
@@ -2041,7 +2112,7 @@ fn import_brings_windows_into_the_module_from_the_creator() {
         ..Default::default()
     };
     let mut h = creator(app_with("nui_test", dialogs), [1300, 900]);
-    h.get_by_label("Import…").click();
+    nui_click(&mut h, "Import…");
     h.run_steps(3);
     let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
     let m = module(&h);
@@ -2086,9 +2157,8 @@ fn import_brings_windows_into_the_module_from_the_creator() {
 #[test]
 fn the_event_function_is_chosen_under_client_delivery() {
     let mut h = harness();
-    h.get_by_label("Bindings").click();
-    h.run();
-    h.get_by_label("Client delivery").click();
+    page(&mut h, "Bindings");
+    h.get_by_label("Client Delivery").click();
     h.run();
     assert!(!settings(&h).event_function);
     h.get_by_label("Events go to the module's event script (a function to call)").click();
@@ -2657,10 +2727,7 @@ fn the_layout_off_the_screen_is_the_canvas_s() {
     app.actions.push(Action::OpenTab(Tab::Nui(ResKey::parse("crier", ResType::JUI).unwrap())));
     let mut h = creator(app, [1300, 900]);
     h.run_steps(3);
-    h.get_by_value("Editor").click();
-    h.run();
-    h.get_by_label("Preview only").click();
-    h.run();
+    view_choose(&mut h, "Layout", "Preview only");
     h.get_by_label("100%").click();
     h.run_steps(3);
     let window = h.get_by_label("Canvas window").rect().min;

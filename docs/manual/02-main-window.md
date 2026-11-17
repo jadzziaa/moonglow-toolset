@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T12:31:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T19:52:45Z }
 ---
 
 # The main window
@@ -301,7 +301,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation or a 2DA is in front (a conversation's bookmarks, a table's columns; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's or table's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA or a NUI window is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -790,6 +790,14 @@ tab that says no area is open, the Left Dock is its tab's panel alone,
 the whole height. A tool in a window of its own (with **Open editors:
 As Floating Windows**) leaves it as the area under it has it. The
 module tree keeps each area's objects too, under its row: both stay.
+
+**Beside a NUI window** on its Design page in the Editor view, the
+Outliner is its **Layers**, the window as a tree (see [NUI
+Creator](18-nui-creator.md)): its header names the window and has
+Expand All, Collapse All and Layer Actions, over Find a layer or ID… and
+the rows. Its seam is its own, 416 points from the dock's top at first
+and kept apart from the area's and the conversation's. The Right Dock
+holds the window's Components over Properties over Bindings meanwhile.
 
 ## Tabs and windows
 

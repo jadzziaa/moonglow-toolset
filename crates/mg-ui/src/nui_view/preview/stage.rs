@@ -262,54 +262,18 @@ pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
         // Wrap whole controls, never their labels. Nested enabled UIs here can
         // inherit the remaining canvas height and create a very tall wrapped row.
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        // (A control's height, as the row was with its buttons: the canvas
+        // under it stays at whole pixels.)
+        ui.set_min_height(ui.spacing().interact_size.y);
         ui.strong(if assets.loaded { "Game preview" } else { "Preview · game skin unavailable" });
-        if ui.toggle_value(&mut state.preview_interactive, "Interact").changed() {
-            state.runtime = None;
-            state.resize = None;
-            state.forget_scrolls();
-        }
-        if state.preview_interactive && ui.button("Reset").clicked() {
-            state.runtime = None;
-            state.forget_scrolls();
-        }
-        mg_uikit::menu_button(ui, format!("UI scale {:.0}%", state.preview_scale * 100.0), |ui| {
-            for (label, scale) in [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("200%", 2.0)] {
-                if ui.selectable_value(&mut state.preview_scale, scale, label).clicked() {
-                    ui.close();
-                }
-            }
-        });
-        const STATES: [&str; 5] = ["Follow pointer", "Normal", "Hover", "Pressed", "Disabled"];
-        let shown = STATES.get(state.preview_state).copied().unwrap_or("Follow pointer");
-        let states = ui
-            .add_enabled(!state.preview_interactive, egui::Button::new(format!("State: {shown}")));
-        egui::Popup::menu(&states).style(mg_uikit::menu_style).show(|ui| {
-            for (i, label) in STATES.iter().enumerate() {
-                if ui.selectable_value(&mut state.preview_state, i, *label).clicked() {
-                    ui.close();
-                }
-            }
-        });
+        // (Interact and Reset are the header's, UI scale, State, Resources,
+        // Clean view and Screen its View popover's, M4's U18; the zoom and
+        // "Game preview" stay here until U19 puts them in the canvas's
+        // corners.)
         ui.weak("Zoom");
         for (label, zoom) in [("Fit", 0.0), ("100%", 1.0)] {
             ui.selectable_value(&mut state.zoom, zoom, label);
         }
-        ui.toggle_value(&mut state.preview_info, "Resources");
-        ui.toggle_value(&mut state.preview_clean, "Clean view");
-        mg_uikit::menu_button(ui, "Screen", |ui| {
-            mg_uikit::menu_rows(ui);
-            mg_uikit::menu_check(ui, &mut state.screen_preview, "Preview on screen");
-            for (w, h) in [(1280.0, 720.0), (1920.0, 1080.0), (2560.0, 1440.0)] {
-                if ui
-                    .selectable_value(&mut state.screen_size, vec2(w, h), format!("{w} × {h}"))
-                    .clicked()
-                {
-                    state.screen_preview = true;
-                    ui.close();
-                }
-            }
-            mg_uikit::menu_note(ui, "Drag the window title to set its position.");
-        });
     });
     if state.preview_info {
         egui::ScrollArea::vertical().id_salt("nui-resource-info").max_height(120.0).show(ui,|ui| {

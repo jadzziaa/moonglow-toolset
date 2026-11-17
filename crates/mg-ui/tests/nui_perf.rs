@@ -76,6 +76,8 @@ fn open(
 
     let mut app =
         Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    // (Docked, as the boards draw it: the designer's panels in the docks.)
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
     app.open_module(&path);
     app.actions.push(Action::OpenTab(Tab::Nui(key)));
 
@@ -93,6 +95,15 @@ fn open(
         t.elapsed()
     };
     (app, key, frame)
+}
+
+/// The designer of `key` drawn with its panels docked (M4's U18): the Right
+/// Dock showing its Components (over Properties and Bindings), the Left
+/// Dock its Module panel over the Outliner's Layers.
+fn docked(app: &Moonglow, key: ResKey) {
+    assert!(app.nui_chosen(&key).is_some(), "the designer drawn");
+    assert_eq!(app.right_dock_shows(), Some(mg_ui::Panel::Components), "its panels docked");
+    assert_eq!(app.left_dock_shows(), Some(mg_ui::Panel::Module), "the Left Dock open");
 }
 
 /// A window of text: `labels` rows of four labels of a sentence each and a
@@ -130,6 +141,7 @@ fn a_window_of_text() {
     let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
     let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
     println!("text opening: {opening:?}");
+    docked(&app, ResKey::parse("texty", ResType::JUI).unwrap());
     report("text-heavy idle frame", (0..count).map(|_| frame(&mut app)).collect());
 }
 
@@ -151,6 +163,7 @@ fn a_chart_of_a_million_samples() {
     let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(30);
     let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
     println!("chart opening: {opening:?}");
+    docked(&app, ResKey::parse("chart", ResType::JUI).unwrap());
     report(
         "a chart of 1,000,000 samples, idle frame",
         (0..count).map(|_| frame(&mut app)).collect(),
@@ -167,6 +180,7 @@ fn a_large_window() {
     let timed = |name: &str| phase.as_deref().is_none_or(|p| p == name);
     let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
     println!("opening: {opening:?}");
+    docked(&app, key);
     if timed("idle") {
         report("idle frame", (0..count).map(|_| frame(&mut app)).collect());
     }
@@ -199,4 +213,35 @@ fn a_large_window() {
     if timed("elsewhere") {
         report("frame after an edit elsewhere in the module", frames);
     }
+}
+
+/// The large window with a swap layout whose variant (the large window's
+/// rows again) is edited in its slot: idle frames.
+#[test]
+#[ignore]
+fn a_variant_edited() {
+    let root = mg_testkit::corpus!();
+    let mut w = window(12, 120.0);
+    let variant = w["root"].clone();
+    w["root"]["children"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"group","id":"content","width":900.0,"height":300.0,
+            "children":[{"type":"col","children":[{"type":"label","value":"Initial"}]}]}));
+    let (mut app, key, frame) = open(&root, "swapped", &w);
+    let mut s = mg_nui::Settings::default();
+    s.variants.insert("details".into(), variant);
+    s.variant_targets.insert("details".into(), "content".into());
+    let txt = ResKey::parse("swapped", ResType::TXT).unwrap();
+    app.actions.push(Action::Apply(Command::new(
+        "Settings",
+        vec![Edit::SetResource { key: txt, data: Some(s.bytes()) }],
+    )));
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    app.nui_edit_variant(&key, "details");
+    let editing: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("variant opening: {opening:?} {editing:?}");
+    assert_eq!(app.nui_chosen(&key).as_deref(), Some("/root"), "the variant edited");
+    report("variant edited, idle frame", (0..count).map(|_| frame(&mut app)).collect());
 }

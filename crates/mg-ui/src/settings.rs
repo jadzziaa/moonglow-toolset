@@ -804,6 +804,12 @@ pub struct Settings {
     /// Written only once chosen, so files stay as they were.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub columns_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a NUI
+    /// designer, its Layers (M4's U18: a seam of its own, as the columns').
+    /// `None`: not chosen, the NUI board's (416). Written only once chosen,
+    /// so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layers_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart

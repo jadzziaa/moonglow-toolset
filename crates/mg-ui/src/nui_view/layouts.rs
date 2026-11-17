@@ -264,7 +264,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
     let id = ui.make_persistent_id("new-layout-draft");
     let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(id));
     ui.horizontal_wrapped(|ui| {
-        let empty = ui.button("+ Add Variant").clicked();
+        let empty = ui.add(form::plus("Add Variant")).clicked();
         let copied = copy.filter(|_| ui.button("Copy Initial Contents").clicked()).cloned();
         if draft.is_none() && (empty || copied.is_some()) {
             draft = Some(Draft {
@@ -352,7 +352,7 @@ pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
         state.layout_target.clone_from(&target);
         ui.horizontal_wrapped(|ui| {
             if !target.is_empty() && target != "_window_" {
-                if ui.button(format!("Swap layout · {target}")).clicked() {
+                if ui.button(format!("Swap Layout · {target}")).clicked() {
                     select_host(state, s, &target);
                 }
                 ui.label("/");
@@ -376,7 +376,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     {
         widgets::table_heading(ui, format!("Editing variant: {name}"));
         if let Some(target) = target_for(s, &name) {
-            ui.label(format!("Belongs to Swap layout · {target}"));
+            ui.label(format!("Belongs to Swap Layout · {target}"));
             if ui.button("Swap Layout Properties").clicked() {
                 select_host(state, s, &target);
             }
@@ -402,11 +402,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     if ty == "group" {
         let contents = node["children"].get(0).cloned();
         let mut group = node["id"].as_str().unwrap_or_default().to_owned();
-        egui::CollapsingHeader::new("Variants")
-            .icon(mg_uikit::collapsing_icon)
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.weak("One area with several contents. Its position and size stay the same.");
+        let tip = "One area with several contents: its position and size stay the same";
+        form::section(ui, "nui-variants", "Variants", true, None, Some(tip), |ui| {
+            {
                 if group.is_empty() {
                     ui.weak("It gets an ID when its first variant is made.");
                 } else {
@@ -416,7 +414,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
                     state.selected = format!("{path}/children/0");
                 }
                 for name in variants(s, &group) {
-                    if ui.button(format!("Edit variant · {name}")).clicked() {
+                    if ui.button(format!("Edit Variant · {name}")).clicked() {
                         state.layout_target = group.clone();
                         edit(state, Some(name));
                     }
@@ -440,7 +438,8 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
                 ui.weak(
                 "To show a variant: add a handler (a button's Clicked) and Insert… › Show variant.",
             );
-            });
+            }
+        });
         ui.separator();
     }
 }
@@ -572,7 +571,8 @@ mod tests {
         ws.module.set(ResKey::parse("swap_test", ResType::TXT).unwrap(), settings.bytes());
         Harness::builder().with_size(egui::vec2(1300.0, 1200.0)).build_ui_state(
             |ui, app: &mut Moonglow| {
-                super::super::ui(app, ui, ResKey::parse("swap_test", ResType::JUI).unwrap());
+                let key = ResKey::parse("swap_test", ResType::JUI).unwrap();
+                super::super::panels::test_frame(app, ui, key);
                 app.run_actions();
             },
             app,
@@ -595,7 +595,7 @@ mod tests {
     fn swap_palette_adds_native_group_without_implicit_event() {
         let mut h = harness(Settings::default());
         h.run();
-        h.get_by_label("Swap layout").click();
+        h.get_by_label("Swap Layout").click();
         h.run();
         let (doc, s) = read(&h);
         let slot = doc["root"]["children"].as_array().unwrap().last().unwrap();
@@ -612,27 +612,28 @@ mod tests {
         h.run();
         assert!(h.query_by_label("Layouts…").is_none());
         assert!(h.query_by_value("Editing layout:").is_none());
-        h.get_all_by_label("Group").last().unwrap().click();
+        // (The Layers row, drawn before the Components panel's Group.)
+        h.get_all_by_label("Group").next().unwrap().click();
         h.run();
         assert!(
-            h.query_by_label("+ Add Variant").is_none(),
+            h.query_by_label("Add Variant").is_none(),
             "Plain Group must not masquerade as a Swap layout"
         );
         h.get_by_label("Canvas Button · Close").click();
         h.run();
-        h.get_by_label("Swap layout").click();
+        h.get_by_label("Swap Layout").click();
         h.run();
         let initial = read(&h);
         let slot = initial.0["root"]["children"].as_array().unwrap().last().unwrap();
         let id = slot["id"].as_str().unwrap();
         assert!(is_swap(&initial.1, slot));
-        h.get_by_label("+ Add Variant").click();
+        h.get_by_label("Add Variant").click();
         h.run();
         // (The dialog's Cancel, drawn after the one under the editor.)
         h.get_all_by_label("Cancel").last().unwrap().click();
         h.run();
         assert_eq!(read(&h), initial);
-        h.get_by_label("+ Add Variant").click();
+        h.get_by_label("Add Variant").click();
         h.run();
         h.get_by_label("Horizontal").click();
         h.run();
@@ -648,7 +649,7 @@ mod tests {
         );
         h.get_by_label("Swap Layout Properties").click();
         h.run();
-        h.get_by_label("Edit variant · variant");
+        h.get_by_label("Edit Variant · variant");
         assert_eq!(read(&h), authored, "Returning to the slot must not edit its contents");
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
@@ -900,8 +901,8 @@ mod tests {
         h.run();
         let before = read(&h);
         // The Group's canvas centre belongs to its child Column; select the
-        // explicit Layers row (the earlier Group button is the palette).
-        h.get_all_by_label("Group").last().unwrap().click();
+        // explicit Layers row (drawn before the Components panel's Group).
+        h.get_all_by_label("Group").next().unwrap().click();
         h.run();
         h.get_by_label("Convert to Swap Layout").click();
         h.run();

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:41:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T17:03:59Z }
 ---
 
 # Options
@@ -647,7 +647,8 @@ what you type (a command's name, or its group's).
   the rest of Options, OK keeps them.
 - **Conflicts:** a key two commands share where both work is named above
   the list. (A key of the whole window wins over the editors' own.)
-- **NUI Creator** holds the keys of its Design page: Delete Element
+- **NUI Creator** holds the keys of its Design page (over its canvas, and
+  in its Layers while they have the arrow keys): Delete Element
   (Delete), Duplicate Element (Ctrl+D), Move Element Up and Down
   (Alt+Up, Alt+Down), Select Previous and Next Element (Up, Down). See
   [NUI Creator](18-nui-creator.md).

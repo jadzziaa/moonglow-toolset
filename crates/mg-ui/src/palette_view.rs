@@ -445,6 +445,12 @@ pub(crate) enum Keys {
     /// are a table's, [`Keys::TableReferences`].
     TalkString,
     TalkFile,
+    /// A NUI designer's Components and Bindings panels (M4's U18): no
+    /// arrows of their own; F6 gives Components' Find and the Bindings
+    /// panel's first field the keyboard's focus (`nui_view::panels`). Its
+    /// Properties are [`Keys::Properties`], its Layers [`Keys::Marks`].
+    NuiComponents,
+    NuiBindings,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

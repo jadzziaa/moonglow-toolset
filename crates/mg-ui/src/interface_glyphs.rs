@@ -99,9 +99,16 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/nui_view/preview/stage.rs",
         '×',
-        2,
+        1,
         Proportional,
-        "the screen's size (\"1920 × 1080\"), data",
+        "the window's size (\"420 × 300\"), data",
+    ),
+    (
+        "crates/mg-ui/src/nui_view.rs",
+        '×',
+        1,
+        Proportional,
+        "the screen's size in the View popover (\"1920 × 1080\"), data",
     ),
     (
         "crates/mg-ui/src/tile_select.rs",

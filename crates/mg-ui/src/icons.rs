@@ -154,8 +154,6 @@ pub(crate) mod editor {
         FRAME = Frame;
         LIGHTS = Light;
         POP_OUT = OpenInTab;
-        BUILD = Hammer;
-        HOW_TO_OPEN = Help;
     }
 }
 
@@ -455,7 +453,9 @@ mod tests {
                 e::SCRIPTS,
             ],
             &[e::PLAY, e::PAUSE, e::FRAME, e::LIGHTS, SHADOWS, SHADERS, e::POP_OUT, e::EXPORT],
-            &[e::IMPORT, e::EXPORT, e::BUILD, e::HOW_TO_OPEN],
+            // (The NUI designer's header, M4's U18: Build & Compile,
+            // Export…, Import…, How to Open It…, Interact, Reset.)
+            &[e::IMPORT, e::EXPORT, Icon::Compile, Icon::Help, e::PLAY, Icon::Restart],
         ];
         for icons in editors {
             assert_eq!(alike(icons), [], "one icon for two of an editor's buttons");

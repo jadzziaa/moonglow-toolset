@@ -225,7 +225,11 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
-            Tab::Nui(_) => (1140.0, 792.0),
+            // (The canvas and the header whole: its Components, Properties
+            // and Bindings at its right and its Layers at its left are
+            // added where it opens in a window, M4's U18,
+            // `Moonglow::open_window`.)
+            Tab::Nui(_) => (760.0, 792.0),
             Tab::Manual | Tab::Resource(_) | Tab::ResourceCopy { .. } => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
