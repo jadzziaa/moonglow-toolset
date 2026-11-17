@@ -138,8 +138,7 @@ fn the_modified_dot_follows_each_tab_s_own_unsaved_changes() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     settle(&mut h);
     assert!(!said_modified(&h, "Talk Table"));
-    h.get_all_by_label("Add Line").last().unwrap().click();
-    settle(&mut h);
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     assert!(said_modified(&h, "Talk Table"));
     h.state_mut().talk.as_mut().unwrap().save().unwrap();
     until(&mut h, "the talk table saved", |h| !said_modified(h, "Talk Table"));

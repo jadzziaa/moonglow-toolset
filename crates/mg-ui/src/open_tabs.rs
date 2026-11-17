@@ -421,6 +421,7 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::Factions => "factions".into(),
         Tab::Journal => "journal".into(),
         Tab::TalkTable => "talk-table".into(),
+        Tab::GameTalkTable => "game-talk-table".into(),
         Tab::Manual => "manual".into(),
         Tab::AdvancedSearch => "advanced-search".into(),
         Tab::Options => "options".into(),
@@ -478,6 +479,7 @@ fn parse_tab(text: &str) -> Option<Want> {
         "factions" => Tab::Factions,
         "journal" => Tab::Journal,
         "talk-table" => Tab::TalkTable,
+        "game-talk-table" => Tab::GameTalkTable,
         "manual" => Tab::Manual,
         "advanced-search" => Tab::AdvancedSearch,
         "options" => Tab::Options,
@@ -970,6 +972,10 @@ impl Moonglow {
             Tab::AreasProperties(rs) => page(are(rs.first()?), crate::area_props::several_page(rs)),
             Tab::TalkTable => {
                 Some(View { line: Some(self.talk_view.selected?), ..Default::default() })
+            }
+            Tab::GameTalkTable => {
+                let line = self.game_talk.as_ref()?.view.selected?;
+                Some(View { line: Some(line), ..Default::default() })
             }
             Tab::ModuleProperties => {
                 let page = crate::module_props::PAGES.iter().find(|p| p.0 == self.module_page);

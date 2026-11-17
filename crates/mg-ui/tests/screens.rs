@@ -1476,7 +1476,7 @@ fn talk_table_crlf_line() {
 }
 
 /// The Talk Table editor on a line with a long text: plain, and with a
-/// feminine table.
+/// feminine table (its two text columns, String's two boxes).
 #[test]
 #[ignore]
 fn talk_table_editor() {
@@ -1504,7 +1504,7 @@ fn talk_table_editor() {
         }
         h.state_mut().talk = Some(table);
         h.state_mut().talk_view.outside = true;
-        h.state_mut().talk_view.selected = Some(27);
+        h.state_mut().talk_view.go_to_line(27);
         h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
         // (The list's height settles over a few frames.)
         h.run_steps(8);
@@ -1512,13 +1512,8 @@ fn talk_table_editor() {
         // The pointer over a line: the whole row shows it.
         h.hover_at(egui::pos2(520.0, 472.0));
         shoot(&mut h, &dir, &format!("talk-table-{name}-hover"));
-        // The split dragged up, the pointer resting on it.
-        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("talk-split"), 0.7f32));
-        h.run_steps(2);
-        let strref = Table::strref(27).0;
-        let line = h.get_by_label(&format!("StrRef {strref}")).rect().top() - 5.0;
-        h.hover_at(egui::pos2(520.0, line));
-        shoot(&mut h, &dir, &format!("talk-table-{name}-split"));
+        // (Its line's text in the String panel since M4's U17: the
+        // splitter's picture is gone with it.)
         narrow(&mut h, &mg_ui::Tab::TalkTable);
         shoot(&mut h, &dir, &format!("talk-table-{name}-narrow"));
     }
@@ -13402,31 +13397,133 @@ fn no_module_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static
     h
 }
 
-/// Talk.png: the game's `dialog.tlk`, opened as a table the game ships
-/// (read-only: nothing opens it so today, so the case reads it as a
-/// layer's), line 18608 chosen (its fields shown; the list is not
-/// scrolled to it). Today two rows of tools, the line's fields under the
-/// list on a splitter, not the board's String, References and Talk Table
-/// panels in the Right Dock.
+/// Talk.png: the game's `dialog.tlk` in its own tab (read-only, M4's U17),
+/// line 18608 chosen and in sight, its References found (Faribeth's
+/// conversation names it).
 #[test]
 #[ignore]
 fn board_talk() {
-    use mg_module::talk::{Found, Source, Table};
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    let data = std::fs::read(root.join("lang/en/data/dialog.tlk")).unwrap();
-    let found = Found { source: Source::Layer("dialog.tlk".into()), data };
-    let table = Table::open("dialog", found, None).unwrap();
-    assert!(!table.editable(), "the game's table read-only");
-    h.state_mut().talk = Some(table);
-    // (A table not the module's own, as the talk table editor's Open
-    // File… makes it.)
-    h.state_mut().talk_view.outside = true;
-    h.state_mut().talk_view.selected = Some(18608);
-    board_front(&mut h, &mg_ui::Tab::TalkTable);
+    board_user_folder(&mut h);
+    board_front(&mut h, &mg_ui::Tab::GameTalkTable);
+    h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
+    mg_ui::talk_view::take_keys(&h.ctx, mg_ui::talk_view::Which::Game);
+    h.run_steps(5);
+    h.get_by_label(mg_ui::talk_view::FIND_REFERENCES).click();
+    h.run_steps(2);
+    frames_until(&mut h, "its references found", |h| h.state().under_way().is_none());
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_talk");
+}
+
+/// A user folder of the pictures' own (a scratch one: never the real
+/// one), where Module's Table would make a talk table: its form drawn.
+fn board_user_folder(h: &mut Harness<'_, Moonglow>) {
+    let user = mg_testkit::scratch_dir("screens-talk-user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    h.state_mut().install.as_mut().unwrap().user_dir = Some(user);
+}
+
+/// The module's own talk table for the pictures (M4's U17): `mg_board`, 40
+/// lines of our own, some with a sound, two empty, saved in a scratch
+/// folder and open in the editor as the table the module names (as one
+/// found in the user folder's tlk is).
+fn board_own_talk(h: &mut Harness<'_, Moonglow>) {
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("screens-talk-own");
+    let mut t = Table::create("mg_board", &dir, mg_core::Language::ENGLISH, false);
+    for n in 0..40 {
+        let (text, sound) = match n {
+            12 | 13 => (String::new(), String::new()),
+            n if n % 3 == 0 => {
+                (format!("The watch asks for line {n}, <FirstName>."), format!("vs_watch_{n:03}"))
+            }
+            n => (
+                format!("Line {n} of the harbor's talk: the gulls, the tide and the ropes."),
+                String::new(),
+            ),
+        };
+        let line = Line {
+            text,
+            feminine: None,
+            sound_length: if sound.is_empty() { 0.0 } else { 2.5 },
+            sound,
+        };
+        t.add_line(&line).unwrap();
+    }
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let mut info = ws.module.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_board".to_vec()));
+    ws.module.set_info(&info).unwrap();
+    t.save().unwrap();
+    h.state_mut().talk = Some(t);
+}
+
+/// The talk table editor beside the Talk board (M4's U17, `talk-*`): the
+/// module's own table As Tabs at 1600 and at 1280, floating (a window in
+/// a screen of 1920 by 1080, and in one of 1280 by 720), and a module with
+/// no talk table of its own.
+#[test]
+#[ignore]
+fn talk_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let tab = mg_ui::Tab::TalkTable;
+    for (name, size) in [("talk-own", 1600.0), ("talk-1280", 1280.0)] {
+        let mut h = board_window(&root, egui::vec2(size, 900.0));
+        board_own_talk(&mut h);
+        board_front(&mut h, &tab);
+        h.state_mut().talk_view.go_to_line(7);
+        h.run_steps(10);
+        shoot(&mut h, &dir, name);
+    }
+    let sizes = [
+        ("talk-floating", egui::vec2(1920.0, 1080.0)),
+        ("talk-floating-720", egui::vec2(1280.0, 720.0)),
+    ];
+    for (name, size) in sizes {
+        let mut h = shell_with_area(&root, size);
+        board_own_talk(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(&mut h, "the talk table drawn", |h| h.state().tab_rect(&tab).is_some());
+        h.state_mut().talk_view.go_to_line(7);
+        h.run_steps(10);
+        shoot(&mut h, &dir, name);
+    }
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_user_folder(&mut h);
+    board_front(&mut h, &tab);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "talk-no-table");
+}
+
+/// A floating editor of panes at its first size in a 1280 by 720 screen
+/// (the coordinator's ruling at M4's U17 review: clipped to the main
+/// window, not to the room between the docks): a 2DA's (spells.2da) and
+/// a conversation's (Faribeth's) windows, `table-floating-720` and
+/// `conversation-floating-720` (the talk table's is `talk_panels`').
+#[test]
+#[ignore]
+fn floating_first_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
+    let id = board_spells(&mut h);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-floating-720");
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
+    let key = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    let tab = mg_ui::Tab::Dialog(key);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    frames_until(&mut h, "the conversation drawn", |h| h.state().tab_rect(&tab).is_some());
+    h.run_steps(10);
+    shoot(&mut h, &dir, "conversation-floating-720");
 }
 
 /// Nui.png: the NUI designer As Tabs on `crier.jui` (mg-nui's test

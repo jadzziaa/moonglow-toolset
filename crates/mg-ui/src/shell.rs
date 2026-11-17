@@ -213,6 +213,15 @@ pub enum Panel {
     /// Row N and what it found, the game's tables' cells and the module's
     /// fields and scripts (`table_view::panels::references`).
     References,
+    /// A talk table's line chosen (M4's U17, the Talk board's Right Dock):
+    /// its text, feminine text, sound and length, typed in or, for a table
+    /// only looked at, read-only (`talk_view::panels::string`). A talk
+    /// table's References are [`Panel::References`], under it.
+    String,
+    /// A talk table's facts (M4's U17), under References: its lines,
+    /// language, feminine table and file, and Module's Table for a module
+    /// with none (`talk_view::panels::file`).
+    TalkFile,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -270,7 +279,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 18] = [
+    pub(crate) const KEYED: [Panel; 20] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -289,6 +298,8 @@ impl Panel {
         Panel::Conversation,
         Panel::Cell,
         Panel::References,
+        Panel::String,
+        Panel::TalkFile,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -314,7 +325,9 @@ impl Panel {
             | Panel::NodeSearch
             | Panel::Conversation
             | Panel::Cell
-            | Panel::References => Dock::Right,
+            | Panel::References
+            | Panel::String
+            | Panel::TalkFile => Dock::Right,
             Panel::Log | Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
@@ -344,6 +357,8 @@ impl Panel {
             Panel::Conversation => "Conversation",
             Panel::Cell => "Cell",
             Panel::References => "References",
+            Panel::String => "String",
+            Panel::TalkFile => "Talk Table",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -372,6 +387,8 @@ impl Panel {
             Panel::Conversation,
             Panel::Cell,
             Panel::References,
+            Panel::String,
+            Panel::TalkFile,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -403,6 +420,8 @@ impl Panel {
             Panel::Conversation => Icon::Conversation,
             Panel::Cell => Icon::Column,
             Panel::References => Icon::References,
+            Panel::String => Icon::Description,
+            Panel::TalkFile => Icon::TalkTable,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -422,6 +441,8 @@ impl Panel {
             // (The Node section's Bookmark and Test, its own: drawn by
             // `dialog_view::node_tools`.)
             Panel::NodeData | Panel::NodeSearch => 2,
+            // (A talk table's String: Copy the StrRef, M4's U17.)
+            Panel::String => 1,
             // (The others' from their list; the Outliner's Expand All and
             // Collapse All are on its own header.)
             _ => self.header_tools().len(),
@@ -450,7 +471,9 @@ impl Panel {
             Panel::NodeSearch => "Search: find and replace in the conversation",
             Panel::Conversation => "Conversation: the conversation's own settings",
             Panel::Cell => "Cell: the table's cell chosen",
-            Panel::References => "References: what names the table's row chosen",
+            Panel::References => "References: what names the table's row or line chosen",
+            Panel::String => "String: the talk table's line chosen",
+            Panel::TalkFile => "Talk Table: the talk table's lines, language and file",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -521,7 +544,12 @@ impl Panel {
             // (The Table board's "Row 9, TargetType" and "Row 9,
             // Bulls_Strength".)
             Panel::Cell => crate::table_view::panels::detail(app, editor, false),
+            // (A talk table's "Talk-table line 18608", the Talk board's.)
+            Panel::References if talk_of(editor).is_some() => {
+                crate::talk_view::panels::detail(app, editor, self)
+            }
             Panel::References => crate::table_view::panels::detail(app, editor, true),
+            Panel::String | Panel::TalkFile => crate::talk_view::panels::detail(app, editor, self),
             _ => None,
         }
     }
@@ -581,7 +609,9 @@ impl Panel {
             | Panel::NodeSearch
             | Panel::Conversation
             | Panel::Cell
-            | Panel::References => brings.has(self),
+            | Panel::References
+            | Panel::String
+            | Panel::TalkFile => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             Panel::SearchResults => true,
@@ -620,6 +650,10 @@ impl Panel {
             // the keyboard's focus.)
             Panel::Cell => Keys::Cell,
             Panel::References => Keys::TableReferences,
+            // (A talk table's, M4's U17: F6 gives String's Text and the
+            // Talk Table panel's first control the focus.)
+            Panel::String => Keys::TalkString,
+            Panel::TalkFile => Keys::TalkFile,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -748,6 +782,23 @@ const DIALOG_WINDOW_SHARES: &[u16] = &[1600, 400];
 const TABLE_RIGHT: &[Section] = &[&[Panel::Cell], &[Panel::References]];
 const TABLE_FOLDED: &[Panel] = &[Panel::Cell, Panel::References];
 const TABLE_SHARES: &[u16] = &[918, 1082];
+/// A talk table's Right Dock (M4's U17, the Talk board's): String over
+/// References over Talk Table, each a section with its header; one tab bar
+/// of the three under 1400; with the table into its window where it
+/// floats. The board's shares: String's 284 points of the dock's 811,
+/// References' 124, Talk Table the rest.
+const TALK_RIGHT: &[Section] = &[&[Panel::String], &[Panel::References], &[Panel::TalkFile]];
+const TALK_FOLDED: &[Panel] = &[Panel::String, Panel::References, Panel::TalkFile];
+const TALK_SHARES: &[u16] = &[700, 306, 994];
+/// In its own window, shorter, String keeps the room for every field at
+/// the window's first size (Text, Sound and Length whole in a window 600
+/// high: M4's U17 review).
+const TALK_WINDOW_SHARES: &[u16] = &[1100, 300, 600];
+
+/// The talk table an editor's tab is, if it is one's.
+pub(crate) fn talk_of(editor: Option<&crate::Tab>) -> Option<crate::talk_view::Which> {
+    crate::talk_view::Which::of(editor?)
+}
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
 /// `editor_brings` by kind): an area's tab the Outliner (with a module
@@ -832,6 +883,17 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         // (A table's Cell and References and its columns in the
         // Outliner, whatever is open (a table is no module's alone); with
         // it into its window where it floats.)
+        // (A talk table's String, References and Talk Table, the game's
+        // dialog.tlk's too, whatever is open; with it into its window
+        // where it floats.)
+        crate::Tab::TalkTable | crate::Tab::GameTalkTable => Brings {
+            right: TALK_RIGHT,
+            folded: TALK_FOLDED,
+            shares: TALK_SHARES,
+            window_shares: TALK_WINDOW_SHARES,
+            floats: true,
+            ..Brings::default()
+        },
         crate::Tab::Table(_) => Brings {
             outliner: true,
             right: TABLE_RIGHT,
@@ -1372,7 +1434,16 @@ pub(crate) fn pane_halves(tab: &crate::Tab) -> bool {
     // field of its lines is there, as its bottom pane had them.)
     // (And a table's Cell and References, M4's U16: its cell's choosers
     // were under its grid.)
-    matches!(tab, crate::Tab::Script(_) | crate::Tab::Dialog(_) | crate::Tab::Table(_))
+    // (And a talk table's String, M4's U17: its line's fields were under
+    // its list.)
+    matches!(
+        tab,
+        crate::Tab::Script(_)
+            | crate::Tab::Dialog(_)
+            | crate::Tab::Table(_)
+            | crate::Tab::TalkTable
+            | crate::Tab::GameTalkTable
+    )
 }
 
 /// The least room an editor keeps in a window of its own beside its
@@ -2789,6 +2860,12 @@ pub(crate) fn shown(
         Some(Tab::Dialog(key)) => dialog_shown(app, &k, ctx, *key),
         // (A table's, M4's U16: the Table board's.)
         Some(Tab::Table(id)) => crate::table_view::panels::shown(app, &k, ctx, *id),
+        Some(Tab::TalkTable) => {
+            crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::Module)
+        }
+        Some(Tab::GameTalkTable) => {
+            crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::Game)
+        }
         // (A table only looked at, the game's or a hak's copy in the
         // resource view: its counts, and none of the keys that change it.)
         Some(Tab::Resource(key)) if key.restype == mg_core::ResType::TWODA => {
@@ -3499,9 +3576,14 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 let pass = ui.ctx().cumulative_pass_nr();
                 let enabled =
                     node && crate::dialog_view::node_tools_enabled(app, editor.as_ref(), pass);
+                let string = bar_panels.contains(&Panel::String);
                 let bar = tabs.show(ui, &mut tab, |ui| {
                     let clicked =
                         node.then(|| crate::dialog_view::node_tools(ui, enabled)).flatten();
+                    // (A talk table's Copy the StrRef, String's, M4's U17.)
+                    if string {
+                        crate::talk_view::panels::copy_tool(app, ui, editor.as_ref());
+                    }
                     (clicked, kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked())
                 });
                 let (clicked, folded) = bar.inner;
@@ -3772,6 +3854,11 @@ fn section_bar<R>(
             .show(ui, |ui| {
                 if *one == Panel::Properties {
                     opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
+                }
+                // (A talk table's Copy the StrRef at String's header's end,
+                // the Talk board's.)
+                if *one == Panel::String {
+                    crate::talk_view::panels::copy_tool(app, ui, editor);
                 }
                 tools(ui)
             })
@@ -4123,7 +4210,7 @@ pub(crate) fn panel_body(
         // (A conversation's: their scroll's own room, its bar at the
         // panel's edge.)
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
-        Panel::Cell | Panel::References => Margin::ZERO,
+        Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -4205,13 +4292,20 @@ pub(crate) fn panel_body(
                 }
             }
             // (A table's, M4's U16.)
-            Panel::Cell | Panel::References => {
+            Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => {
                 let builder = egui::UiBuilder::new().max_rect(room);
                 let builder = LateSlot::salted(builder, host, panel.name(), pane);
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
+                // (A talk table's, M4's U17: its References too.)
+                let talk = talk_of(editor).is_some();
                 match panel {
                     Panel::Cell => crate::table_view::panels::cell(app, &mut body, editor),
+                    Panel::References if talk => {
+                        crate::talk_view::panels::references(app, &mut body, editor)
+                    }
+                    Panel::String => crate::talk_view::panels::string(app, &mut body, editor),
+                    Panel::TalkFile => crate::talk_view::panels::file(app, &mut body, editor),
                     _ => crate::table_view::panels::references(app, &mut body, editor),
                 }
             }

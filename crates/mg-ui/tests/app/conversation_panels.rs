@@ -1053,21 +1053,27 @@ fn data_is_never_taller_where_wider_and_comes_to_rest() {
             h.get_by_label(line).click();
             settle(&mut h);
             let mut was: Option<(u32, f32)> = None;
+            let mut least: Option<(u32, f32)> = None;
             let mut changes = Vec::new();
             for w in 270..=480u32 {
                 h.state_mut().settings.right_dock_width = Some(w);
                 settle(&mut h);
                 let high = data_height(&h);
-                if let Some((at, before)) = was {
-                    assert!(
-                        high <= before + 0.5,
-                        "{size:?} {line}: {before} at {at}, {high} at {w}"
-                    );
-                    if (high - before).abs() > 0.5 {
-                        changes.push(w);
-                    }
+                // (Held to the least height at any narrower width, M4's
+                // U17 review: step to step, a growth of a quarter point a
+                // step went through.)
+                if let Some((at, low)) = least {
+                    assert!(high <= low + 0.5, "{size:?} {line}: {low} at {at}, {high} at {w}");
+                }
+                if let Some((_, before)) = was
+                    && (high - before).abs() > 0.5
+                {
+                    changes.push(w);
                 }
                 was = Some((w, high));
+                if least.is_none_or(|(_, low)| high < low) {
+                    least = Some((w, high));
+                }
             }
             // (Around each change, at window heights a few points apart:
             // the viewport where the content's height lands.)

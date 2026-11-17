@@ -1192,6 +1192,114 @@ pub(crate) fn dialog_click(h: &mut Harness<'_, Moonglow>, name: &str) {
     settle(h);
 }
 
+/// The talk table header's More's popover (M4's U17).
+pub(crate) const TALK_MORE: &str = "More in Talk table header";
+
+/// The talk table header's control `name` (M4's U17, the kit's header
+/// `talk_view::TALK_HEADER`), wherever it is at this width: on the row, or
+/// in More, which is opened for it. The first talk table header's (or
+/// `nth`'s: two side by side).
+#[track_caller]
+pub(crate) fn talk_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    talk_tool_nth(h, 0, name)
+}
+
+/// [`talk_tool`] for the `nth` talk table header.
+#[track_caller]
+pub(crate) fn talk_tool_nth<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    nth: usize,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let header_name = mg_ui::talk_view::TALK_HEADER;
+    let records = header::records(&h.ctx, header_name);
+    let count = records.len();
+    let rec = records.into_iter().nth(nth).unwrap_or_else(|| panic!("{count} talk headers"));
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    assert_eq!(header::more_name(header_name), TALK_MORE);
+    if place == Some(Place::More) && h.query_by_label(TALK_MORE).is_none() {
+        let headers = h.query_all_by_label(header_name).nth(nth).expect("the talk header");
+        headers.get_by_label(header::MORE).click();
+        settle(h);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(TALK_MORE).get_by_label(name),
+        Some(Place::Row | Place::Icon) => {
+            h.query_all_by_label(header_name).nth(nth).expect("the talk header").get_by_label(name)
+        }
+        other => panic!("{name} in the talk header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// Clicks the talk table header's control `name` ([`talk_tool`]: through
+/// More where it is there) and runs the frames that follow.
+#[track_caller]
+pub(crate) fn talk_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    talk_tool(h, name).click();
+    settle(h);
+    // (A toggle's check row leaves More open: closed, as a click elsewhere
+    // would close it, taking that click.)
+    if h.query_by_label(TALK_MORE).is_some() {
+        h.key_press(egui::Key::Escape);
+        settle(h);
+    }
+}
+
+/// How many talk table headers hold `name` (on the row or in More), as
+/// their records say; only the headers drawn now count: with none drawn,
+/// it fails.
+#[track_caller]
+pub(crate) fn talk_headers_with(h: &Harness<'_, Moonglow>, name: &str) -> usize {
+    use mg_uikit::header::{self, Place};
+    let drawn = h.query_all_by_label(mg_ui::talk_view::TALK_HEADER).count();
+    assert!(drawn > 0, "no talk header drawn now");
+    let records = header::records(&h.ctx, mg_ui::talk_view::TALK_HEADER);
+    let held =
+        |r: &header::HeaderRecord| r.places.iter().any(|(n, p)| n == name && *p != Place::Cut);
+    records.iter().take(drawn).filter(|r| held(r)).count()
+}
+
+/// The talk table header's Export's row `row` ("Export CSV…", "Export
+/// JSON…") clicked: Export's menu opened on the row, or its rows in More.
+#[track_caller]
+pub(crate) fn talk_export(h: &mut Harness<'_, Moonglow>, row: &str) {
+    use mg_uikit::header::{self, Place};
+    let records = header::records(&h.ctx, mg_ui::talk_view::TALK_HEADER);
+    let rec = records.into_iter().next().expect("the talk header");
+    let place = rec.places.iter().find(|(n, _)| n == "Export").map(|(_, p)| *p);
+    match place {
+        Some(Place::More) => {
+            talk_tool(h, "Export");
+            h.get_by_label(TALK_MORE).get_by_label(row).click();
+        }
+        _ => {
+            talk_tool(h, "Export").click();
+            settle(h);
+            h.get_by_label(row).click();
+        }
+    }
+    settle(h);
+}
+
+/// The String panel's field named `name` ("Text", "Feminine", "Sound"): the
+/// text input, not its label (M4's U17).
+#[track_caller]
+pub(crate) fn string_field<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use egui::accesskit::Role;
+    let mut found = h.query_all_by_label(name).filter(|n| {
+        matches!(n.accesskit_node().role(), Role::TextInput | Role::MultilineTextInput)
+    });
+    found.next().unwrap_or_else(|| panic!("no field {name} in String"))
+}
+
 /// The control `name` of a conversation's Data under its section's
 /// heading `heading` (M4's U14: Text Appears When… and Actions Taken each
 /// have a Script, Add Set and the rest): the first of the name below the

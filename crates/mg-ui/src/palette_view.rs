@@ -439,6 +439,12 @@ pub(crate) enum Keys {
     /// focus (`table_view::panels`).
     Cell,
     TableReferences,
+    /// A talk table's String and Talk Table panels (M4's U17): no arrows of
+    /// their own; F6 gives String's Text and the Talk Table panel's first
+    /// control the keyboard's focus (`talk_view::panels`). Its References
+    /// are a table's, [`Keys::TableReferences`].
+    TalkString,
+    TalkFile,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

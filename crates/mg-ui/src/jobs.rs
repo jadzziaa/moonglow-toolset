@@ -216,6 +216,11 @@ impl Moonglow {
         if self.tables.iter().any(crate::table_view::TableDoc::looking) {
             return Some("a table's row's references being found");
         }
+        let mut talk =
+            std::iter::once(&self.talk_view).chain(self.game_talk.as_ref().map(|g| &g.view));
+        if talk.any(crate::talk_view::TalkView::under_way) {
+            return Some("a talk table being looked through, or a line's references found");
+        }
         None
     }
 

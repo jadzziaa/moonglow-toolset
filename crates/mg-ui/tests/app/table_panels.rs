@@ -633,18 +633,27 @@ fn never_taller(h: &mut Harness<'_, Moonglow>, id: u32, cells: &[(usize, usize)]
         h.set_size(egui::vec2(1600.0, 900.0));
         select(h, id, cell);
         let mut was: Option<(u32, f32)> = None;
+        // (Held to the least height at any narrower width, M4's U17
+        // review: step to step, a growth of a quarter point a step went
+        // through.)
+        let mut least: Option<(u32, f32)> = None;
         let mut changes = Vec::new();
         for w in 270..=480u32 {
             h.state_mut().settings.right_dock_width = Some(w);
             settle(h);
             let high = cell_height(h);
-            if let Some((at, before)) = was {
-                assert!(high <= before + 0.5, "{cell:?}: {before} at {at}, {high} at {w}");
-                if (high - before).abs() > 0.5 {
-                    changes.push(w);
-                }
+            if let Some((at, low)) = least {
+                assert!(high <= low + 0.5, "{cell:?}: {low} at {at}, {high} at {w}");
+            }
+            if let Some((_, before)) = was
+                && (high - before).abs() > 0.5
+            {
+                changes.push(w);
             }
             was = Some((w, high));
+            if least.is_none_or(|(_, low)| high < low) {
+                least = Some((w, high));
+            }
         }
         for w in changes {
             for at in w.saturating_sub(2)..=w + 2 {
@@ -1210,12 +1219,14 @@ fn the_table_header_holds_every_control_from_420_to_1600() {
 }
 
 /// A floating table whose window has not the room for its Outliner's pane
-/// beside the grid's room (a screen of 1600): its columns fold to a strip
+/// beside the grid's room (a screen of 1300: since M4's U17 review a
+/// window's first size is clipped to the main window, and in one of 1600
+/// it has the room): its columns fold to a strip
 /// at the grid's left, whose icon unfolds them over the grid, a click on a
 /// column there going to it, and folds them again.
 #[test]
 fn a_floating_table_s_columns_fold_to_a_strip() {
-    let (mut h, id) = table_window(Mode::Floating, "ui-table-strip", 1600.0);
+    let (mut h, id) = table_window(Mode::Floating, "ui-table-strip", 1300.0);
     select(&mut h, id, (1, LABEL));
     assert!(h.query_all_by_label_contains("Kind, ").next().is_none(), "no pane");
     let strip = h.get_by_label(mg_ui::dialog_view::OUTLINER_STRIP);
@@ -1353,7 +1364,9 @@ fn the_grid_s_keys_are_the_active_editor_s() {
     keys_do_nothing(&mut h, id, "String Edit open");
     // Floating: the table in its window, Module Properties docked; a press
     // in the main window's editor ends the grid's keys.
-    let (mut h, id) = table_window(Mode::Floating, "ui-table-active", 1600.0);
+    // (A screen of 2400: the window, as wide as it asks since M4's U17
+    // review, leaves Module Properties in sight beside it.)
+    let (mut h, id) = table_window(Mode::Floating, "ui-table-active", 2400.0);
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
     settle(&mut h);
@@ -1712,7 +1725,9 @@ fn the_outliner_lays_out_only_the_columns_in_sight() {
 fn a_floating_table_s_header_beside_its_panes() {
     use mg_uikit::header::Place;
     let cases = [
-        ("new", egui::vec2(1280.0, 720.0), None, Place::Icon),
+        // (Add Row with its words in the new window too since M4's U17
+        // review: its first size is the main window's, less a margin.)
+        ("new", egui::vec2(1280.0, 720.0), None, Place::Row),
         ("kept", egui::vec2(1600.0, 900.0), Some([1100u32, 700]), Place::Row),
     ];
     for (case, screen, kept, add_row) in cases {

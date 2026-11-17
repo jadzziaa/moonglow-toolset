@@ -282,9 +282,10 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     h.state_mut().talk_view.new_name = "MG_New".into();
     h.run();
     h.get_by_label_contains("Made in the project as src/mg_new.tlk.json");
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
-    h.run();
-    h.run();
+    settle(&mut h);
     let json = project.join("src/mg_new.tlk.json");
     let t = h.state().talk.as_ref().expect("the new table is open");
     assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
@@ -292,8 +293,7 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     let cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
     assert!(cfg.contains("file = \"mg_new.tlk\"") && cfg.contains("exclude = \"**/*.tlk.json\""));
     // The module names it; a line added and saved goes into its JSON.
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     type_into_hint(&mut h, "the line's text", "Fresh");
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -351,8 +351,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Hello"));
     // A line added and typed, saved with the module: the JSON as nwn_tlk
     // writes it, the lines there kept as they were.
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     type_into_hint(&mut h, "the line's text", "Greetings");
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -381,8 +380,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     h.run();
     assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "Servus");
     assert!(!h.state().talk.as_ref().unwrap().is_dirty());
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Grüß Gott"}]}"#).unwrap();
     h.state_mut().reload_resources(false);
     h.run();
@@ -1297,6 +1295,8 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         // in Moonglow's editor, and the external editor gets a copy.
         h.state_mut().new_script = Some("fresh".into());
         h.run_steps(2);
+        h.get_by_label("Create").scroll_to_me();
+        settle(&mut h);
         h.get_by_label("Create").click();
         h.run_steps(4);
         let fresh = ResKey::parse("fresh", ResType::NSS).unwrap();
@@ -1381,6 +1381,8 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     h.run();
     h.get_by_label("Small").click();
     h.run();
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
@@ -1423,6 +1425,8 @@ fn the_names_typed_for_new_resources_start_with_the_builder_code() {
     assert_eq!(h.state().new_script.as_deref(), Some("ab_"));
     typed_name(&h, "ab_").type_text("gate");
     h.run();
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
@@ -1465,6 +1469,8 @@ fn the_names_typed_for_new_resources_start_with_the_builder_code() {
     typed_name(&h, "_ab").type_text("gate");
     h.run();
     assert_eq!(h.state().new_dialog.as_deref(), Some("gate_ab"));
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();

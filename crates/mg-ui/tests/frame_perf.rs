@@ -1988,6 +1988,7 @@ fn frames_at_144() {
     tab(&mut h, &mut r, "Journal Editor", Tab::Journal);
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
+    talk_table(&mut h, &mut r);
     if let Some(k) = dialog {
         // (With five bookmarks, listed in the Outliner beside it since M4's
         // U15, its tree open with its indent guides.)
@@ -2038,6 +2039,94 @@ fn frames_at_144() {
         }
     }
     r.end();
+}
+
+/// The game's `dialog.tlk` (M4's U17), docked As Tabs: its 112,228 lines
+/// scrolled by the wheel (the rows in sight alone laid out), line 18608
+/// chosen, String, References and Talk Table in the Right Dock beside it.
+/// The rows in sight before and after are printed: the wheel scrolls them.
+fn talk_table(h: &mut App<'_>, r: &mut Report) {
+    let what = "talk table dialog.tlk, docked";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let t = Tab::GameTalkTable;
+    open(h, t.clone());
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.go_to_line(18608);
+    }
+    // (Its panels in the Right Dock, unfolded on String: loudly.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::String));
+    h.run_steps(5);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::String), "String not shown");
+    let seen = |h: &App<'_>| {
+        let id = egui::Id::new(("talk-rows-seen", mg_ui::talk_view::Which::Game));
+        h.ctx.data(|d| d.get_temp::<(usize, usize)>(id))
+    };
+    let lines = h.state().game_talk.as_ref().map_or(0, |g| g.table.len());
+    let panels = h.state().right_dock_rect().is_some();
+    println!("  ({lines} lines; the Right Dock drawn: {panels}; rows in sight {:?})", seen(h));
+    view(h, r, what, Some(&t));
+    println!("  (rows in sight after the wheel: {:?})", seen(h));
+    // Only lines with text switched each frame (the list made anew of
+    // 112,228 lines each time), and Find looking for "the" and "and" by
+    // turns (begun again each frame: its slice of a frame every frame):
+    // what a frame costs at their worst.
+    let switch = |app: &mut mg_ui::Moonglow, n: usize| {
+        if let Some(g) = app.game_talk.as_mut() {
+            g.view.only_text = n.is_multiple_of(2);
+        }
+    };
+    view_with(h, r, "talk table dialog.tlk, Only lines with text switched", Some(&t), switch);
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = false;
+    }
+    let find = |app: &mut mg_ui::Moonglow, n: usize| {
+        if let Some(g) = app.game_talk.as_mut() {
+            g.view.filter = if n.is_multiple_of(2) { "the".into() } else { "and".into() };
+        }
+    };
+    view_with(h, r, "talk table dialog.tlk, Find begun again each frame", Some(&t), find);
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.filter.clear();
+    }
+    // Find "e" with Only lines with text on (M4's U17 review): each frame
+    // of it, from its first to its last (its last fifth, where the lines
+    // found so far are most), a frame (`step`: its pass, tessellated)
+    // timed on its own.
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = true;
+        g.view.filter = "e".into();
+    }
+    let sweeping = |h: &App<'_>| h.state().game_talk.as_ref().is_some_and(|g| g.view.sweeping());
+    let mut times = Vec::new();
+    let began = Instant::now();
+    loop {
+        let at = Instant::now();
+        h.step();
+        times.push(at.elapsed());
+        if (!sweeping(h) && times.len() > 1) || began.elapsed() > Duration::from_secs(60) {
+            break;
+        }
+    }
+    let late = times[times.len() * 4 / 5..].to_vec();
+    let worst = times.iter().max().copied().unwrap_or_default();
+    println!(
+        "  talk table dialog.tlk, Find \"e\" with Only lines with text: {} frames, the last fifth's median {:.2} ms (worst {:.2}), the worst of all {:.2} ms",
+        times.len(),
+        ms(pick(late.clone(), 0.5)),
+        ms(late.iter().max().copied().unwrap_or_default()),
+        ms(worst),
+    );
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = false;
+        g.view.filter.clear();
+    }
+    close(h, &t);
+    fold_palette(h);
+    h.state_mut().settings.open_editors = was;
 }
 
 /// The persistent world's views (`world/mod.rs`): the lists at the sizes

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T09:44:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T14:38:20Z }
 ---
 
 # Modules
@@ -1707,48 +1707,69 @@ module and 143 haks (29.5 GB) it takes about 5 seconds.
 ### The talk table editor
 
 **Tools › Talk Table** (or **Edit…** beside Custom TLK) edits the
-module's talk table:
-- **The lines** are listed by the StrRef the game knows them by
-  (16777216 and up), with the feminine text beside them when there's a
-  feminine table. **Find** finds lines by words or by StrRef. **Go to**
-  takes a StrRef or a line's number: press Enter and the list goes to
-  that line, among all the others, and it is chosen. **Find References**
-  lists where the module names the chosen line (as does a number typed
-  in the References tab's field): its blueprints', areas',
-  conversations' and journal's strings, a palette's category, a
-  soundset's entries, its 2DAs' cells in the columns known to hold a
-  line, and a script's call with the number written in it
-  (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
-  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
-  argument, `SetTlkOverride`…; a number kept in a variable or a constant
-  isn't followed), which opens at its line. Under them, **In the haks'
-  2DAs** lists the cells of the module's haks' tables that name it, each
-  hak's own copy.
+module's talk table. Its header holds **Find** and **Go to**, then **Add
+Line**, **Remove Last Line** and **Save**, then **Find References**; at
+its right **Only lines with text**, **Export** (CSV and JSON) and **More**
+(**Import CSV…**, **Import JSON…**, **Open File…**, **New File…** and,
+where another table is shown, **Module's Table**); then **OK** and
+**Cancel**, or **Close** for a table only looked at. In a narrow editor
+the commands lose their words, then go into More, Find and Go to last.
+The chosen line's fields are the Right Dock's **String** panel, what
+names it its **References** panel and the table's own facts its **Talk
+Table** panel (in its window's right pane where the editor floats; in one
+tab bar of the three in a window under 1400 points):
+- **The lines** are listed under a header row (StrRef, Text, the
+  feminine text where there's a feminine table, Sound) by the StrRef the
+  game knows them by (16777216 and up), only the lines in sight laid out:
+  a table of a hundred thousand lines scrolls as one of ten. **Find**
+  finds lines by words or by StrRef (the table's own numbers: a custom
+  table's from 16777216, `dialog.tlk`'s from 0); in a long table it looks through
+  them a part at a time, the window going on, the lines found so far
+  listed, and what you type meanwhile begins it again. **Go to** takes a
+  StrRef or a line's number: press Enter and the list goes to that line,
+  among all the others, and it is chosen.
 - **Choosing a line:** click anywhere on its row. The keys are the
   list's from then: Up and Down (Page Up and Page Down, Home and End)
-  choose a line, and Enter, or a double click, goes to its text.
-- **A line**: choose it to edit its text, its feminine text, and the
-  sound spoken with it and its length. **Copy** copies its StrRef, to put
-  in a 2DA or a script. The text boxes take the room under the list; a
-  text longer than its box scrolls in it, and the sound's row stays in
-  sight. A larger window gives them more, and the line between the list
-  and them is dragged up and down to share the room otherwise: the boxes
-  keep three lines, and the list three tenths of the editor. Each table
-  keeps where its line was dragged to (with a feminine table, its own),
-  from one session to the next.
+  choose a line, Enter or a double click goes to its text in String, and
+  Escape leaves the list. The Status Bar says them, and how many lines the
+  table has.
+- **String** shows the chosen line's **Text** (**Text (masculine)** and
+  **Feminine** with a feminine table), its **Sound** and the sound's
+  **Length (s)**, each typed in and set as you type: each burst of typing
+  is one step of Undo, a burst ending where you leave the field, choose
+  another line, or Undo or Redo. A text longer than its box scrolls in it. The copy
+  button at the panel's header copies the line's StrRef, to put in a 2DA
+  or a script. What you type stays with its line: choose another line, add
+  one or remove the last, and the field you typed in goes with its own
+  line.
+- **References** (or **Find References** in the header) lists where the
+  module names the chosen line, as does a number typed in the References
+  tab's field: its blueprints', areas', conversations' and journal's
+  strings, a palette's category, a soundset's entries, its 2DAs' cells in
+  the columns known to hold a line, and a script's call with the number
+  written in it (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
+  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
+  argument, `SetTlkOverride`…; a number kept in a variable or a constant
+  isn't followed), each a link that opens it, and the cells of the
+  module's haks' tables that name it. It looks on a thread of its own:
+  the window goes on, and choosing another line stops it.
+- **Talk Table** says how many lines the table has, its language (where
+  a nasher project keeps it in several languages, the box there chooses
+  the one edited, with no unsaved changes), whether it has a feminine
+  table and its file.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
-- **Undo** and **Redo** in its toolbar undo the table's changes, as do
-  Ctrl+Z and Ctrl+Y with the pointer over the editor, and the Top Bar's
-  and Edit › Undo after you last worked in it. (The table is a file of
-  its own: elsewhere, Undo is the module's: see Undo and redo in
+- **Undo** and **Redo** are the Top Bar's (and Ctrl+Z and Ctrl+Y) after you
+  last worked in the editor or its panels, with the pointer over them, or
+  with the list's keys. (The table is a file of its own: elsewhere, Undo
+  is the module's: see Undo and redo in
   [The main window](02-main-window.md#tabs-and-windows).)
-- **Export CSV…** writes the lines to a file for a spreadsheet or a
-  translator: each line's StrRef, text (and feminine text), sound and
-  sound length. **Import CSV…** reads such a file back: each row sets
-  the line of its StrRef, which keeps what the file has no column for;
-  rows past the table's end add lines. Nothing changes unless every row
-  can be read, and one Undo takes the import back.
+- **Export › Export CSV…** writes the lines to a file for a spreadsheet or
+  a translator: each line's StrRef, text (and feminine text), sound and
+  sound length. **More › Import CSV…** reads such a file back: each row
+  sets the line of its StrRef, which keeps what the file has no column
+  for; rows past the table's end add lines. Nothing changes unless every
+  row can be read, and one Undo takes the import back.
 - **Export JSON…** and **Import JSON…** do the same with the JSON that
   neverwinter.nim's `nwn_tlk` writes and a nasher repository keeps: the
   table's language and the lines that have text or a sound, each with
@@ -1768,10 +1789,13 @@ module's talk table:
   if a file named with an `f` after its name is beside it) and **New
   File…** makes an empty one: with or without a module open. **Module's
   Table** goes back to the table the module names.
-- **Saving**: **Save** saves the table, as does saving the module.
+- **Saving**: **Save** saves the table, as does saving the module; **OK**
+  saves it and closes the editor, **Cancel** closes it, asking first
+  about unsaved changes.
 
-With no talk table, the editor makes one in the user folder's `tlk` (with
-a feminine table if you ask) and names it in Module Properties. Its name,
+With no talk table, the editor says so and the Talk Table panel's
+**Module's Table** makes one in the user folder's `tlk` (with a feminine
+table if you ask) and names it in Module Properties. Its name,
 as every name Moonglow makes for a resource (a new tileset, a hak's file,
 a line's sound, here or from a plugin), is 1 to 16 letters, digits, `_`
 and `-`, kept in lower case: the game takes more (any 16 characters), but
@@ -1779,11 +1803,30 @@ the name is a file's too, on every system. A table
 kept in the module (a `.tlk` among its files) is edited there and saved
 into it: its Save puts it into the module, and the module's Save writes
 it. A table in a hak, or one the game ships (a premium campaign's, in
-`data/tlk`) or a Workshop item's, is shown read-only: change it where
-it is built.
-A nasher project's table kept as JSON is edited in its file, and where
-the project keeps it in several languages, the box beside its name
-chooses the one edited (with no unsaved changes).
+`data/tlk`) or a Workshop item's, is shown read-only (String says where it
+is): change it where it is built.
+A nasher project's table kept as JSON is edited in its file.
+
+**The game's own `dialog.tlk`** opens read-only in a tab of its own: its
+row in the Resources panel (`dialog.tlk`, in the layer `lang:en`, the
+language the game data is read in) or "dialog.tlk" in Quick Open. It is
+the table the game data reads: the install's `lang/<language>/data/
+dialog.tlk` (the masculine one: Moonglow shows a line by the masculine
+table, as Aurora does), not a copy in the user folder or `override`. Its
+lines are numbered by their own StrRefs, from 0, as 2DAs and the game's
+files name them (line 18608 is StrRef 18608). Nothing changes it: Add
+Line, Remove Last Line, Save and the imports are off, String's fields
+are read-only (their text can be chosen and copied), the header's end
+has Close alone and the Status Bar says "112228 lines, read-only". Find,
+Go to, Only lines with text and the exports work as in the module's
+table, by its own numbers; References looks through the module and its
+haks, not the game's own 2DAs (the panel says so). Undo with it in front
+is the module's: the table has no steps of its own. One copy of its
+112,228 lines is made as the tab opens, shared from then on, and let go
+of as the tab closes. A hak's own resource named `dialog.tlk` is listed
+in the Resources panel beside it and opens as the hak's resources do:
+the game reads its talk table from the install alone. Where the module has no talk table of its own, its
+Talk Table panel holds Module's Table too.
 
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its

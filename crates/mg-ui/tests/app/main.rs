@@ -58,6 +58,7 @@ mod status_bar;
 mod status_hints;
 mod table_panels;
 mod tables;
+mod talk_panels;
 mod tile_edges;
 mod tile_properties;
 mod tiles;

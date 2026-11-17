@@ -1,6 +1,16 @@
 # Update log
 
 ## 2026-11-17
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U17's review ([03](manual/03-modules.md#the-talk-table-editor)).
+  * Two bursts of typing on one talk-table line are two steps of Undo: a burst ends as another line is chosen, the field is left, or Undo or Redo is pressed.
+  * Find in the game's dialog.tlk takes its own numbers; a long Find costs a few milliseconds a frame however much it has found.
+  * A talk table, a 2DA or a conversation in a window of its own opens as wide as it asks where the main window has the room (it may stand over a dock), its header whole and String's fields in sight.
+  * String's read-only Sound and Length can be chosen and copied; a References row quotes the line; the file's path breaks at its separators; a hak's own dialog.tlk is listed beside the game's.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U17, the talk table editor**, as the Talk board draws it ([03](manual/03-modules.md#the-talk-table-editor), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The talk table editor's two rows of buttons are one header row**: Find and Go to, Add Line, Remove Last Line and Save, Find References; Only lines with text, Export (CSV, JSON) and More (Import CSV…, Import JSON…, Open File…, New File…, Module's Table) at the right; OK and Cancel at its end, or Close for a table only looked at. Its own Undo and Redo are gone: the Top Bar's and Ctrl+Z reach the table.
+  * **The list has a header row** (StrRef, Text, Feminine, Sound) and lays out only the lines in sight; Find looks through a long table a part at a time, the window going on.
+  * **The chosen line is edited in the Right Dock's String panel** (Text, Feminine, Sound, Length; the copy button for its StrRef): the splitter under the list is gone. **References** finds what names the line without holding up the window; **Talk Table** says the table's lines, language, feminine table and file, and for a module with none makes one (Module's Table).
+  * **The game's dialog.tlk opens read-only** in a tab of its own, from its row in the Resources panel or from Quick Open, its lines numbered by their own StrRefs; the Status Bar says "112228 lines, read-only".
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U16's review ([03](manual/03-modules.md#the-2da-editor), [02](manual/02-main-window.md)).
   * The grid's keys (Tab, the arrows, Delete, typing) are its table's only while that table is the editor in front: a press in another editor, a dock's panel or a dialog takes them away, a read-only table's too.
   * The grid is drawn as the Table board draws it: the cell with the keys filled in the accent color and ringed, the cells chosen with it tinted, the column's name over it in the accent color, the row numbers in the gutter at the right.

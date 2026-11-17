@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T06:50:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T14:38:20Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -253,28 +253,28 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Find, Go to, Add Line, Find References | Header |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
-| Remove Last Line, Save | Header, icon buttons |
-| Only lines with text | Header, icon toggle |
-| Export CSV…, Export JSON… | Export menu |
-| Import CSV…, Import JSON…, Open File…, New File…, Module's Table | More menu |
-| OK and Cancel (Close when read-only) | Close in the header |
-| Info line | Talk Table panel and Status Bar |
-| Line editor under the list | Right Dock, String panel |
-| Draggable splitter | Gone, no longer needed |
-| The page for a module with no talk table | Right Dock, Talk Table panel |
+| Find, Go to, Add Line, Find References | Header ✓ M4 U17 (Find and Go to first, into More last; Add Line with its word; Find References runs the References panel's look) |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) ✓ M4 U17 (the editor's own gone; the Top Bar's, Edit's and Ctrl+Z reach the list's and the String panel's steps, docked and floating) |
+| Remove Last Line, Save | Header, icon buttons ✓ M4 U17 (minus and disk, named and tipped; off for a table only looked at) |
+| Only lines with text | Header, icon toggle ✓ M4 U17 (the filter icon, at the right) |
+| Export CSV…, Export JSON… | Export menu ✓ M4 U17 (its rows Export CSV… and Export JSON…; the game's dialog.tlk by its own numbers) |
+| Import CSV…, Import JSON…, Open File…, New File…, Module's Table | More menu ✓ M4 U17 (More with its words; Module's Table where another table is shown; the imports off for a table only looked at) |
+| OK and Cancel (Close when read-only) | Close in the header ✓ M4 U17 (the end slot: Close for a table only looked at, OK and Cancel otherwise) |
+| Info line | Talk Table panel and Status Bar ✓ M4 U17 (Lines, Language, Feminine and File in the panel; "30 lines", "112228 lines, read-only" in the Status Bar) |
+| Line editor under the list | Right Dock, String panel ✓ M4 U17 (Text, Feminine, Sound and Length; each burst of typing one step; the copy button at its header; read-only for a table only looked at; a floating table's in its window's right pane) |
+| Draggable splitter | Gone, no longer needed ✓ M4 U17 (its kept shares, `talk_splits`, read without a fault and no longer written) |
+| The page for a module with no talk table | Right Dock, Talk Table panel ✓ M4 U17 (its section Module's Table; the tab says where to make one) |
 
 
 #### New
 
-- A header row on the list.
-- dialog.tlk opened read-only and numbered by its own StrRefs.
-- The Talk Table panel as a home for the no-table page.
+- A header row on the list. ✓ M4 U17 (StrRef, Text, Feminine where there is one, Sound; only the rows in sight laid out)
+- dialog.tlk opened read-only and numbered by its own StrRefs. ✓ M4 U17 (a tab of its own, from the Resources panel's row and Quick Open; its lines one copy made as the tab opens, shared after, let go of with the tab)
+- The Talk Table panel as a home for the no-table page. ✓ M4 U17 (Module's Table, its section)
 
 #### Not Drawn
 
-- The Language dropdown (nasher projects only), which would sit in the Talk Table panel.
+- The Language dropdown (nasher projects only), which would sit in the Talk Table panel. ✓ M4 U17 (the panel's Language row, a dropdown where the project keeps several)
 
 ### NUI Designer
 

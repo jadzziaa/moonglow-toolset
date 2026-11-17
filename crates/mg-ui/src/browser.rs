@@ -114,10 +114,11 @@ impl Browser {
         Browser { stale: true, show_copies: true, ..Default::default() }
     }
 
-    fn refresh(&mut self, app_resman: Option<&mg_resman::ResMan>) {
+    fn refresh(&mut self, game: Option<&mg_rules::GameData>) {
         if !self.stale {
             return;
         }
+        let app_resman = game.map(|g| &g.resman);
         self.stale = false;
         self.query = None;
         self.entries = match app_resman {
@@ -137,6 +138,14 @@ impl Browser {
             }
             None => Vec::new(),
         };
+        // (The game's own dialog.tlk, which is no resource of the load
+        // order: read-only in its tab, M4's U17.)
+        // (Whatever the load order holds: a hak's own `dialog.tlk` is a
+        // resource of its own, listed and opened as every other.)
+        if let Some(g) = game {
+            let key = crate::talk_view::dialog_key();
+            self.entries.push(Row { key, layer: game_talk_layer(g.language), over: None });
+        }
         self.resources = self.entries.iter().filter(|r| r.over.is_none()).count();
         let mut types: Vec<ResType> = self.entries.iter().map(|r| r.key.restype).collect();
         types.sort_by_key(|t| t.extension().unwrap_or_default());
@@ -199,7 +208,7 @@ pub(crate) struct Asked {
 /// [`Header`].
 pub(crate) fn header(app: &mut Moonglow) -> Header {
     let Moonglow { browser, game, .. } = app;
-    browser.refresh(game.as_ref().map(|g| &g.resman));
+    browser.refresh(game.as_deref());
     let count = browser.filtered().len();
     let found = count - browser.shown_copies;
     Header { found, narrowed: found > 0 && found < browser.resources, game: game.is_some() }
@@ -238,7 +247,10 @@ pub(crate) fn run_tools(app: &mut Moonglow, asked: Asked) {
         browser.stale = true;
     }
     if asked.export {
+        // (Not the game's dialog.tlk, no resource of the load order: its
+        // tab's Export writes it.)
         let keys = (browser.shown.iter().map(|&i| &browser.entries[i]))
+            .filter(|r| !is_game_talk(r))
             .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.clone())))
             .collect();
         app.actions.push(Action::SaveResources(keys));
@@ -501,7 +513,7 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     use crate::palette_view::{Keys, give_keys, keys_are};
     let Moonglow { browser, game, ws, actions, resources_here, .. } = app;
-    browser.refresh(game.as_ref().map(|g| &g.resman));
+    browser.refresh(game.as_deref());
     let t = mg_uikit::tokens(ui.ctx());
     if game.is_none() {
         egui::Frame::new().inner_margin(8).show(ui, |ui| {
@@ -636,7 +648,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 // layer's (opened as that layer has it).
                 let r = list_row(ui, row, at_cursor, &fonts);
                 let copy = over.as_ref().map(|_| layer.clone());
-                let tab = || tab_of(*k, copy.clone(), in_module(k));
+                let game_talk = is_game_talk(row);
+                let tab = || match game_talk {
+                    true => Tab::GameTalkTable,
+                    false => tab_of(*k, copy.clone(), in_module(k)),
+                };
                 if r.clicked() {
                     clicked = Some(at);
                 }
@@ -659,7 +675,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                         };
                         actions.push(Action::OpenTab(tab));
                     }
-                    if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
+                    if !game_talk
+                        && ui.button("Save As…").on_hover_text("As a file, as it is").clicked()
+                    {
                         actions.push(Action::SaveResource(*k, copy.clone()));
                     }
                     if k.restype == ResType::MDL
@@ -679,6 +697,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         give_keys(ui.ctx(), Keys::Browser);
     }
     crate::palette_view::keys_outline(ui, out.inner_rect, Keys::Browser);
+}
+
+/// The layer the game's `dialog.tlk` is listed in (`lang:en`): the
+/// install's language's folder, no layer of the load order.
+pub(crate) fn game_talk_layer(language: mg_core::Language) -> String {
+    format!("lang:{}", language.short_code().unwrap_or("en"))
+}
+
+/// Whether a row of the list is the game's `dialog.tlk`.
+fn is_game_talk(row: &Row) -> bool {
+    row.key == crate::talk_view::dialog_key() && row.layer.starts_with("lang:")
 }
 
 /// The tab a resource of the load order opens in from the Resources

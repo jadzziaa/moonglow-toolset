@@ -368,6 +368,9 @@ pub enum Action {
     TalkCsv(bool),
     /// Find References for a talk-table line, by its StrRef.
     FindStrRef(u32),
+    /// The game's `dialog.tlk` written out (M4's U17): as JSON, else CSV.
+    GameTalkExport(bool),
+
     /// The resource browser's Save As: a resource of the load order to a
     /// file (the copy the game reads, or the one a layer has, by its
     /// label).
@@ -783,6 +786,9 @@ pub struct Moonglow {
     /// The module's talk table, open for editing (Tools › Talk Table).
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
+    /// The game's `dialog.tlk`, read-only in its tab (M4's U17), once
+    /// opened.
+    pub game_talk: Option<talk_view::GameTalk>,
     /// The talk-table lines typed for the module's fields, kept with the
     /// steps that set them, and the question asked of a text the table
     /// has already (`talk_typed`).
@@ -1556,6 +1562,7 @@ impl Moonglow {
             talk: None,
             typed: Default::default(),
             talk_view: Default::default(),
+            game_talk: None,
             haks_layered: Vec::new(),
             keymap: Default::default(),
             keymap_from: Default::default(),
@@ -2151,6 +2158,9 @@ impl Moonglow {
         }
         self.keep_middle();
         table_view::follow_looks(self, ui.ctx());
+        // (And a talk table's Find and Find References, M4's U17, whether
+        // its tab or panels are drawn or not.)
+        talk_view::follow(self, ui.ctx());
         self.tab_number_keys(ui.ctx());
         // (Flush with the bars and the docks, as the boards draw it: no
         // margin of egui's round the editor area, whose width the boards'
@@ -3094,7 +3104,7 @@ impl Moonglow {
     pub(crate) fn editor_keys(&self) -> (palette_view::Keys, Option<u32>) {
         use palette_view::Keys;
         match self.tabs_recent.first() {
-            Some(Tab::TalkTable) => (Keys::Talk, None),
+            Some(Tab::TalkTable | Tab::GameTalkTable) => (Keys::Talk, None),
             Some(Tab::Table(id)) => (Keys::Table, Some(*id)),
             _ => (Keys::Area, None),
         }
@@ -3189,6 +3199,12 @@ impl Moonglow {
         if let Some(focused) = ctx.memory(|m| m.focused()) {
             ctx.memory_mut(|m| m.surrender_focus(focused));
         }
+        // (A talk table's lines: the tab's, M4's U17.)
+        if next == Keys::Talk
+            && let Some(which) = self.tabs_recent.first().and_then(talk_view::Which::of)
+        {
+            talk_view::take_keys(ctx, which);
+        }
         if next == Keys::Marks
             && let Some(key) = marks[at]
         {
@@ -3236,6 +3252,9 @@ impl Moonglow {
             Keys::Conversation,
             Keys::Cell,
             Keys::TableReferences,
+            // (And a talk table's String and Talk Table, M4's U17.)
+            Keys::TalkString,
+            Keys::TalkFile,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3356,6 +3375,9 @@ impl Moonglow {
     /// screen, centered over the main pane, each a little below and right
     /// of the last.
     fn open_window(&mut self, tab: Tab) {
+        // (Kept from the main window's edges by a window of panes' first
+        // size.)
+        const WINDOW_MARGIN: f32 = 24.0;
         let screen = self
             .screen
             .unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0)));
@@ -3393,14 +3415,29 @@ impl Moonglow {
                 tab.window_size()
                     + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
+            // (A talk table's, its String, References and Talk Table at
+            // its right, M4's U17: that much wider, its list keeping the
+            // room it had.)
+            None if talk_view::Which::of(&tab).is_some() => {
+                tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0)
+            }
             None => tab.window_size(),
         };
         let want = left.map_or(first, |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
         let remembered = left.is_some();
         // Some of the main pane (the area view) shows beside it.
         // (The Options need their width, and aren't worked in beside it.)
+        // (An editor that brings its panels into its window, a talk table,
+        // a 2DA, a conversation: clipped to the main window, less a margin,
+        // not to the room between the docks: it may stand over a dock, as a
+        // window dragged there does, and its panes and header keep their
+        // room. The coordinator's ruling at M4's U17 review.)
+        let panes =
+            matches!(tab, Tab::Dialog(_) | Tab::Table(_)) || talk_view::Which::of(&tab).is_some();
         let wide = if tab == Tab::Options {
             room.width()
+        } else if panes {
+            (room.width() - 2.0 * WINDOW_MARGIN).max(420.0).min(room.width())
         } else {
             (main.width() * 0.85).max(420.0).min(room.width())
         };
@@ -5053,6 +5090,8 @@ impl Moonglow {
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
             Action::TalkFile(new) => talk_view::file(self, new),
+            Action::GameTalkExport(json) => talk_view::export_game(self, json),
+
             Action::SaveResource(key, layer) => {
                 browser::save_as(self, key, layer.as_deref(), false)
             }
