@@ -216,8 +216,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
 
     // Take Rows from the other hak's copy (the first offered): its row 0,
     // changed in both against the game's, ticked and taken.
-    h.get_by_label("Take Rows…").click();
-    h.run_steps(3);
+    table_click(&mut h, "Take Rows…");
     // (mg_top's copy has one row: nothing new.)
     h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
     h.get_by_label("Row 0").click();

@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T01:53:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T06:50:38Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -224,29 +224,29 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Save, Add Row with its count | Header, left |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
-| Empty Row, Delete Row, Add Column… | Header, icon buttons |
-| Find, Go to, "N cells are wrong" | Header |
-| Values as names, Strings as text | Header, right, icon toggles |
-| Save As File…, Take Rows…, Compact, Show Hidden Columns | More menu |
-| OK, Cancel | Header, right end |
-| Info line: rows, columns, where it is kept | Status Bar |
-| "Described by …" line | Note in the Cell panel |
-| Cell inspector under the grid (value, list or flags choice, kind words) | Right Dock, Cell panel |
-| Find References to Row N and its results | Right Dock, References panel |
-| Column right-click menu | Stays on the column header. Hide Column is also the Outliner's eye |
-| Keys | Status Bar hints |
+| Save, Add Row with its count | Header, left ✓ M4 U16 (Save with its word, the first command, into More last; Add Row and its count joined, named "Add Row" whatever its count says) |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) ✓ M4 U16 (the editor's own gone; the Top Bar's, Edit's and Ctrl+Z reach the grid's and the Cell panel's steps, docked and floating) |
+| Empty Row, Delete Row, Add Column… | Header, icon buttons ✓ M4 U16 (eraser, trash and column, named and tipped) |
+| Find, Go to, "N cells are wrong" | Header ✓ M4 U16 (Find and Go to into More after the rest, before Save; the wrong cells a warning button) |
+| Values as names, Strings as text | Header, right, icon toggles ✓ M4 U16 (joined as "How cells show"; Values as names where a description names values) |
+| Save As File…, Take Rows…, Compact, Show Hidden Columns | More menu ✓ M4 U16 (More with its words; Show Hidden Columns says how many, and Reset All Widths with them, as the board's More names it) |
+| OK, Cancel | Header, right end ✓ M4 U16 (the end slot, never yielding) |
+| Info line: rows, columns, where it is kept | Status Bar ✓ M4 U16 ("840 rows, 59 columns, in the module"; in a hak, in a file; a table only looked at, whose copy, read-only) |
+| "Described by …" line | Note in the Cell panel ✓ M4 U16 (at its foot: "Described by Moonglow (the game's spells.2da): 34 of 59 columns. A description of yours comes first."; with none, how to give one) |
+| Cell inspector under the grid (value, list or flags choice, kind words) | Right Dock, Cell panel ✓ M4 U16 (Value typed in, kept by its cell; a list's values and the flags as rows of their own; the column's name and kind words as its heading; a floating table's in its window's right pane) |
+| Find References to Row N and its results | Right Dock, References panel ✓ M4 U16 (under Cell; looked for on a thread of its own, stopped as another row is chosen; In the game's tables, In the module, each a link) |
+| Column right-click menu | Stays on the column header. Hide Column is also the Outliner's eye ✓ M4 U16 |
+| Keys | Status Bar hints ✓ M4 U16 (Enter Type, Shift + Click Select to, Delete Empty, Ctrl + C Copy, Ctrl + V Paste, Tab Next column, Esc Leave grid, while the grid has the keys; Tab now the grid's, not the first control's) |
 
 
 #### New
 
-- An Outliner of the columns with kind icon, kind words and a show or hide eye.
-- The selection count ("6 cells") in the Status Bar.
+- An Outliner of the columns with kind icon, kind words and a show or hide eye. ✓ M4 U16 (a click or Enter going to the column, the keys and letters along the columns, F6; a floating table's at its window's left, or a strip where the grid has not the room)
+- The selection count ("6 cells") in the Status Bar. ✓ M4 U16
 
 #### Not Drawn
 
-- Talk Table, Choose String…, New Line…, Choose Model… and the row chooser, which appear in the Cell panel only for those column kinds.
+- Talk Table, Choose String…, New Line…, Choose Model… and the row chooser, which appear in the Cell panel only for those column kinds. ✓ M4 U16 (each under the column's heading, at the panel's width)
 - The read-only resource view with Copy to Module and Save As….
 
 ### Talk Table Editor

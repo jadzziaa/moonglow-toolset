@@ -515,10 +515,25 @@ fn editing_a_large_table() {
     std::fs::write(&file, t.to_bytes(game.codepage()).unwrap()).unwrap();
     drop(game);
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    // (Docked, As Tabs, a cell of a talk-table string's column chosen, so
+    // that the docks' panels a table brings are drawn beside its grid each
+    // frame where it brings them: M4's U16's Cell, References and the
+    // Outliner's columns; and the Left Dock's Module panel over them.)
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    // (A module open, as the board's: the Left Dock's Module panel over
+    // the Outliner; without one the dock holds the Outliner alone.)
+    let module = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &module).unwrap();
+    app.settings.no_last_area = true;
+    app.open_module(&module);
     let id = mg_ui::table_view::open_path(&mut app, &file).unwrap();
+    let strings = t.column("STRING_REF").unwrap();
+    app.tables.iter_mut().find(|d| d.id == id).unwrap().selected = Some((9, strings));
     let ctx = egui::Context::default();
     let input = || egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))),
+        // (The Table board's 1600 by 900: from 1400 the Right Dock stands
+        // in its sections, Cell over References, beside the Outliner.)
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))),
         ..Default::default()
     };
     let frames = |app: &mut Moonglow, n: usize, edit: bool| {
@@ -537,6 +552,7 @@ fn editing_a_large_table() {
         (out[n / 2], *out.last().unwrap())
     };
     let _ = frames(&mut app, 5, false);
+    assert_eq!(app.active_editor(), Some(&Tab::Table(id)), "the table docked, in front");
     println!("{} rows: idle {:?}", t.len(), frames(&mut app, 20, false));
     app.tables.iter_mut().find(|d| d.id == id).unwrap().filter = "dragon".into();
     println!("Find typed, idle: {:?}", frames(&mut app, 20, false));

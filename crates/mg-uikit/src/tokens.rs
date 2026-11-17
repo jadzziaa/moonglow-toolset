@@ -134,6 +134,9 @@ tokens! {
     cell_line: "cell-line" = hex(0x25292e), hex(0xd3d7dc);
     /// A table's selected cell, under an accent outline (`#1a2a3a`).
     cell_select: "cell-select" = hex(0x1a2a3a), hex(0xd3e2f2);
+    /// A table's cells chosen together (the Table board's `.c.rng`,
+    /// `accent-fill` at 45% over the panel; light, as far from its panel).
+    cell_range: "cell-range" = rgba(29, 84, 136, 0.45), rgba(39, 101, 161, 0.22);
     /// Text on a status badge (error, warn, ok, info fills; dark
     /// `#15171a`, light white).
     on_status: "on-status" = hex(0x15171a), hex(0xffffff);

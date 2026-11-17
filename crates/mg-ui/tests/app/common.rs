@@ -1060,6 +1060,127 @@ pub(crate) fn dialog_tool<'t>(
     }
 }
 
+/// The 2DA editor's header's control `name` (M4's U16, the kit's header
+/// `table_view::TABLE_HEADER`), wherever it is at this width: on the row
+/// (a joined group's toggle, "How cells show"'s, by its own name), or in
+/// More, which is opened for it. The first table header's (or `nth`'s:
+/// [`table_tool_nth`]).
+#[track_caller]
+pub(crate) fn table_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    table_tool_nth(h, 0, name)
+}
+
+/// [`table_tool`] for the `nth` table header (two tables side by side).
+#[track_caller]
+pub(crate) fn table_tool_nth<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    nth: usize,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let header_name = mg_ui::table_view::TABLE_HEADER;
+    let records = header::records(&h.ctx, header_name);
+    let count = records.len();
+    let rec = records.into_iter().nth(nth).unwrap_or_else(|| panic!("{count} table headers"));
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    // (A toggle of "How cells show" is in its group's place.)
+    let how = [mg_ui::table_view::VALUES_AS_NAMES, mg_ui::table_view::STRINGS_AS_TEXT];
+    let place = place.or_else(|| {
+        let group = rec.places.iter().find(|(n, _)| n == mg_ui::table_view::HOW_CELLS_SHOW);
+        group.map(|(_, p)| *p).filter(|_| how.contains(&name))
+    });
+    let more = header::more_name(header_name);
+    if place == Some(Place::More) && h.query_by_label(&more).is_none() {
+        let headers = h.query_all_by_label(header_name).nth(nth).expect("the table header");
+        headers.get_by_label(header::MORE).click();
+        settle(h);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(TABLE_MORE).get_by_label(name),
+        Some(Place::Row | Place::Icon) => {
+            h.query_all_by_label(header_name).nth(nth).expect("the table header").get_by_label(name)
+        }
+        other => panic!("{name} in the table header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// How many table headers hold `name` (on the row or in More: where it
+/// is at their width), as their records say; only the headers drawn now
+/// count (the kit keeps the records of the last pass that drew one): with
+/// none drawn, it fails.
+#[track_caller]
+pub(crate) fn table_headers_with(h: &Harness<'_, Moonglow>, name: &str) -> usize {
+    use mg_uikit::header::{self, Place};
+    let drawn = h.query_all_by_label(mg_ui::table_view::TABLE_HEADER).count();
+    assert!(drawn > 0, "no table header drawn now");
+    let records = header::records(&h.ctx, mg_ui::table_view::TABLE_HEADER);
+    let held =
+        |r: &header::HeaderRecord| r.places.iter().any(|(n, p)| n == name && *p != Place::Cut);
+    records.iter().take(drawn).filter(|r| held(r)).count()
+}
+
+/// The Cell panel's Value field (M4's U16): the text input named so, not
+/// its label.
+#[track_caller]
+pub(crate) fn cell_value<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    let mut found = h
+        .query_all_by_label("Value")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+    let first = found.next().expect("the Cell panel's Value");
+    assert!(found.next().is_none(), "one Value field");
+    first
+}
+
+/// A table's column's name `label` over its grid (or a read-only view's),
+/// not its row in the Outliner (M4's U16: the Outliner lists the columns).
+#[track_caller]
+pub(crate) fn column_name<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    label: &'t str,
+) -> egui_kittest::Node<'t> {
+    let mut found = h.query_all_by_label(label).filter(|n| !in_group(n, mg_ui::OUTLINER));
+    let first = found.next().unwrap_or_else(|| panic!("no column {label} over the grid"));
+    assert!(found.next().is_none(), "one column {label} over the grid");
+    first
+}
+
+/// A cell of the grid showing `text` (a Label of the grid's, not a field
+/// or a choice of the Cell panel's).
+#[track_caller]
+pub(crate) fn grid_cell<'t>(h: &'t Harness<'_, Moonglow>, text: &'t str) -> egui_kittest::Node<'t> {
+    let mut found = h
+        .query_all_by_label(text)
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
+        .filter(|n| !in_group(n, mg_ui::OUTLINER));
+    found.next().unwrap_or_else(|| panic!("no cell {text}"))
+}
+
+/// The Cell panel's row of a list's or flags' choice `name` (its check box
+/// or radio button, not a cell of the grid showing the same name).
+#[track_caller]
+pub(crate) fn choice<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_kittest::Node<'t> {
+    use egui::accesskit::Role;
+    let mut found = h
+        .query_all_by_label(name)
+        .filter(|n| matches!(n.accesskit_node().role(), Role::CheckBox | Role::RadioButton));
+    found.next().unwrap_or_else(|| panic!("no choice {name}"))
+}
+
+/// The table header's More's popover.
+pub(crate) const TABLE_MORE: &str = "More in 2DA table header";
+
+/// Clicks the table header's control `name` ([`table_tool`]: through More
+/// where it is there) and runs the frames that follow.
+#[track_caller]
+pub(crate) fn table_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    table_tool(h, name).click();
+    settle(h);
+}
+
 /// The conversation header's More's popover.
 pub(crate) const DIALOG_MORE: &str = "More in Conversation header";
 

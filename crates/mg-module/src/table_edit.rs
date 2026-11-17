@@ -42,6 +42,29 @@ pub struct Editing {
     /// Bumped at every change, an Undo and a Redo too: what is worked out
     /// from the table (the rows a Find shows) is kept until it moves.
     changes: u64,
+    /// How rows and columns were numbered anew, each with the change it
+    /// came with ([`Editing::changes`]): what [`Editing::follow`] takes a
+    /// cell through. The last [`MOVES_KEPT`] alone.
+    moves: std::collections::VecDeque<(u64, Move)>,
+}
+
+/// How many of the latest renumberings [`Editing::follow`] can go back
+/// through.
+const MOVES_KEPT: usize = 1024;
+
+/// A renumbering of rows or columns, as a change or its Undo made it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Move {
+    /// A row taken away: those after it one lower.
+    RowOut(usize),
+    /// A row put in at its place: those from it on one higher.
+    RowIn(usize),
+    /// The rows from this number on taken away (rows added, undone).
+    RowsTo(usize),
+    ColumnOut(usize),
+    ColumnIn(usize),
+    /// From which place to which.
+    ColumnMoved(usize, usize),
 }
 
 /// Why a row of another copy is offered.
@@ -131,7 +154,79 @@ pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Cand
 impl Editing {
     pub fn new(table: TwoDa) -> Editing {
         let table = Arc::new(table);
-        Editing { table, undo: Vec::new(), redo: Vec::new(), saved: Some(0), changes: 0 }
+        Editing {
+            table,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            saved: Some(0),
+            changes: 0,
+            moves: Default::default(),
+        }
+    }
+
+    /// Where the cell `(row, column)` of the table as it was at `since`
+    /// ([`Editing::changes`]) is now: its row and column followed through
+    /// every row and column taken away, put back or moved since (a Delete
+    /// Row, its Undo, a column moved). `None` where its row or column is
+    /// gone, or where `since` is older than what is kept. What is typed
+    /// for a cell is kept by it across such a change (the 2DA editor's
+    /// Cell panel), never set in the cell that took its number.
+    pub fn follow(&self, (row, column): (usize, usize), since: u64) -> Option<(usize, usize)> {
+        if since > self.changes {
+            return None;
+        }
+        // (Older than the oldest kept: where it went is not known.)
+        let forgotten = self.moves.len() == MOVES_KEPT
+            && self.moves.front().is_some_and(|(at, _)| *at > since + 1);
+        if forgotten {
+            return None;
+        }
+        let (mut row, mut column) = (row, column);
+        for (_, m) in self.moves.iter().filter(|(at, _)| *at > since) {
+            match *m {
+                Move::RowOut(r) if row == r => return None,
+                Move::RowOut(r) if row > r => row -= 1,
+                Move::RowIn(r) if row >= r => row += 1,
+                Move::RowsTo(len) if row >= len => return None,
+                Move::ColumnOut(c) if column == c => return None,
+                Move::ColumnOut(c) if column > c => column -= 1,
+                Move::ColumnIn(c) if column >= c => column += 1,
+                Move::ColumnMoved(from, to) => {
+                    column = if column == from {
+                        to
+                    } else if from < column && column <= to {
+                        column - 1
+                    } else if to <= column && column < from {
+                        column + 1
+                    } else {
+                        column
+                    };
+                }
+                _ => {}
+            }
+        }
+        Some((row, column))
+    }
+
+    /// Notes how `change`, done (`forward`) or undone, numbered rows or
+    /// columns anew, at the change just counted.
+    fn note_moves(&mut self, change: &Change, forward: bool) {
+        let m = match (change, forward) {
+            (Change::Dropped(row, _), true) => Move::RowOut(*row),
+            (Change::Dropped(row, _), false) => Move::RowIn(*row),
+            (Change::Rows(..), false) => Move::RowsTo(self.table.len()),
+            (Change::ColumnOut(column, ..), true) => Move::ColumnOut(*column),
+            (Change::ColumnOut(column, ..), false) => Move::ColumnIn(*column),
+            (Change::ColumnMoved(from, to), true) => Move::ColumnMoved(*from, *to),
+            (Change::ColumnMoved(from, to), false) => Move::ColumnMoved(*to, *from),
+            // (The last column, added, taken away again.)
+            (Change::Column(_), false) => Move::ColumnOut(self.table.columns().len()),
+            _ => return,
+        };
+        if self.moves.len() == MOVES_KEPT {
+            self.moves.pop_front();
+        }
+        self.moves.push_back((self.changes, m));
     }
 
     pub fn table(&self) -> &TwoDa {
@@ -184,6 +279,7 @@ impl Editing {
 
     fn done(&mut self, label: impl Into<String>, change: Change) {
         self.changes += 1;
+        self.note_moves(&change, true);
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
@@ -513,6 +609,7 @@ impl Editing {
         let Some((label, change)) = self.undo.pop() else { return false };
         self.changes += 1;
         self.back(&change);
+        self.note_moves(&change, false);
         self.redo.push((label, change));
         true
     }
@@ -521,6 +618,7 @@ impl Editing {
         let Some((label, change)) = self.redo.pop() else { return false };
         self.changes += 1;
         self.again(&change);
+        self.note_moves(&change, true);
         self.undo.push((label, change));
         true
     }
@@ -795,5 +893,40 @@ mod tests {
         // A cell of a row taken whole is the row's; cells alone, labeled so.
         assert_eq!(e.take(&theirs, &[], &[(1, 0), (9, 0)]), (0, 1));
         assert_eq!(e.undo_label(), Some("Take 1 cells"));
+    }
+
+    /// A cell is followed through the rows and columns numbered anew since
+    /// a change (what the Cell panel keeps typed text by): a row taken
+    /// away above it, its Undo, a column moved, rows added and undone; and
+    /// let go of where its own row or column goes.
+    #[test]
+    fn a_cell_is_followed_through_rows_and_columns_numbered_anew() {
+        let mut e = Editing::new(table("  A B C\n0 a b c\n1 d e f\n2 g h i\n3 j k l\n"));
+        let since = e.changes();
+        assert_eq!(e.follow((2, 1), since), Some((2, 1)), "nothing changed");
+        e.set(0, 0, Some("x".into())).unwrap();
+        assert_eq!(e.follow((2, 1), since), Some((2, 1)), "a cell set renumbers nothing");
+        e.remove_row(0);
+        assert_eq!(e.follow((2, 1), since), Some((1, 1)), "a row above taken away");
+        assert_eq!(e.follow((0, 1), since), None, "its own row taken away");
+        e.undo();
+        assert_eq!(e.follow((2, 1), since), Some((2, 1)), "and put back");
+        let before = e.changes();
+        e.move_column(0, 2);
+        assert_eq!(e.follow((2, 1), before), Some((2, 0)), "a column moved past it");
+        assert_eq!(e.follow((2, 0), before), Some((2, 2)), "its own column moved");
+        e.undo();
+        assert_eq!(e.follow((2, 1), before), Some((2, 1)));
+        let before = e.changes();
+        e.add_rows(2);
+        assert_eq!(e.follow((5, 0), before), Some((5, 0)), "rows added at the end");
+        let added = e.changes();
+        e.undo();
+        assert_eq!(e.follow((5, 0), added), None, "an added row undone");
+        assert_eq!(e.follow((3, 0), added), Some((3, 0)));
+        let before = e.changes();
+        e.remove_column(1);
+        assert_eq!((e.follow((0, 1), before), e.follow((0, 2), before)), (None, Some((0, 1))));
+        assert_eq!(e.follow((0, 0), e.changes() + 1), None, "a change not made yet");
     }
 }

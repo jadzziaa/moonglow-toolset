@@ -1383,6 +1383,20 @@ pub struct Moonglow {
     /// while set, a look stays under way (as one walking a large folder).
     #[doc(hidden)]
     pub hold_description_looks: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Holds every Find References to Row of the 2DA editor's References
+    /// panel at its start while set (M4's U16), as
+    /// [`Moonglow::hold_description_looks`] holds the description's look:
+    /// for a test to see it under way, and stopped as another row is
+    /// chosen. Never set by the application.
+    #[doc(hidden)]
+    pub hold_reference_looks: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// A 2DA grid's tab whose pane is to take the focus once the editor
+    /// area is drawn (`table_view::focus_asked`: its grid was given the
+    /// keys).
+    pub(crate) focus_asked_tab: Option<Tab>,
+    /// The active editor's tab as the frame began (`table_view::active_tab`:
+    /// the dock is the editor area's while its tabs are drawn).
+    pub(crate) active_tab_now: Option<Tab>,
     /// The tabs closed, the last one last: Reopen Closed Tab's.
     pub(crate) closed_tabs: Vec<Tab>,
     /// Where each window (by its first tab) is.
@@ -1755,6 +1769,9 @@ impl Moonglow {
             tab_rects: HashMap::new(),
             dragged_tab: None,
             hold_description_looks: Default::default(),
+            hold_reference_looks: Default::default(),
+            focus_asked_tab: None,
+            active_tab_now: None,
             closed_tabs: Vec::new(),
             windows: HashMap::new(),
             window_frame: 1.0,
@@ -1880,6 +1897,10 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // (Tab is a 2DA grid's with its keys, before any control can take
+        // it: M4's U16.)
+        self.active_tab_now = table_view::front_of_focused(self);
+        table_view::keep_tab_for_the_grid(self, ui.ctx());
         // (The game's text is read by the open module's table, if its haks
         // have one: `encoding.2da`.)
         let codepage = self.game.as_deref().map(GameData::codepage);
@@ -2107,6 +2128,12 @@ impl Moonglow {
         shell::status_bar(self, ui);
         // (Set again where the Left Dock draws the Resources panel.)
         self.resources_here = None;
+        // (Set again by the side editors and the talk table's, if they are
+        // drawn, and by the panels a table brings to the Right Dock, M4's
+        // U16, drawn before the editor area: so cleared before the docks.)
+        self.undo_under_pointer = None;
+        self.undo_keys = None;
+        self.pressed_side_tab = None;
         shell::left_dock(self, ui);
         shell::right_dock(self, ui);
         // (The Bottom Dock and the editor area drawn within the room the
@@ -2145,11 +2172,6 @@ impl Moonglow {
             }
             // (The dock is out of reach while its tabs are drawn: the model
             // windows open, for a page that shows a model unless one is.)
-            // (Set again by the side editors and the talk table's, if they
-            // are drawn.)
-            self.undo_under_pointer = None;
-            self.undo_keys = None;
-            self.pressed_side_tab = None;
             self.open_models = self
                 .dock
                 .iter_all_tabs()
@@ -2194,6 +2216,14 @@ impl Moonglow {
                     .show_inside(ui, &mut viewer);
             }
             self.dock = dock;
+            // (A 2DA grid given the keys this frame: its tab's pane takes the
+            // focus, its editor the active one, M4's U16.)
+            if let Some(tab) = self.focus_asked_tab.take()
+                && let Some(at) = self.dock.find_tab(&tab)
+            {
+                let path = egui_dock::NodePath { surface: at.surface, node: at.node };
+                self.dock.set_focused_node_and_surface(path);
+            }
             // (A docked tab's Escape, where no window in front took it.)
             // (Looked at again once the tabs are drawn: a field of the tab
             // that kept the Escape for itself, `widgets::keep_escape`, or
@@ -2893,13 +2923,14 @@ impl Moonglow {
         shell::right_shown(self)
     }
 
-    /// The panel the Left Dock shows (its tab selected): `None` where the
-    /// dock is folded, or holds no panel and is not drawn.
+    /// The panel the Left Dock shows (its tab selected; the Outliner where
+    /// it holds the Outliner alone, `shell::outliner_alone`): `None` where
+    /// the dock is folded, or holds no panel and is not drawn.
     pub fn left_dock_shows(&self) -> Option<Panel> {
         if shell::left_folded(self) {
             return None;
         }
-        shell::left_shown(self)
+        shell::left_shown(self).or(shell::outliner_alone(self).then_some(Panel::OUTLINER))
     }
 
     /// Whether every one of them is folded away.
@@ -2951,6 +2982,7 @@ impl Moonglow {
         self.settings.bottom_dock_height = None;
         self.settings.module_panel_height = None;
         self.settings.bookmarks_panel_height = None;
+        self.settings.columns_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3086,21 +3118,21 @@ impl Moonglow {
         // (A conversation's bookmarks, each list a stop of its own: the
         // conversation whose they are. Docked, the one the Outliner lists;
         // in windows, those drawn at the last frame, in their order.)
-        let mut marks: Vec<Option<ResKey>> = Vec::new();
+        let mut marks: Vec<Option<outliner::Owner>> = Vec::new();
         // (Only what is drawn: a folded dock, by the window's width or by
         // the builder, is passed by; its strip's buttons, View's rows and
         // their keys unfold it.)
         if let Some(panel) = self.left_dock_shows() {
-            panes.push((panel.keys(), None));
-            marks.push(None);
+            // (Holding the Outliner alone, no module open: its one stop.)
+            if panel != Panel::OUTLINER {
+                panes.push((panel.keys(), None));
+                marks.push(None);
+            }
             // (The Outliner under its tabs' panel, before the editor
             // area: left to right, then down.)
             if Panel::OUTLINER.available(self) {
                 panes.push((outliner::keys_of(self), None));
-                marks.push(match outliner::contents(self) {
-                    Some(outliner::Contents::Bookmarks(key)) => Some(key),
-                    _ => None,
-                });
+                marks.push(outliner::contents(self).and_then(outliner::Contents::owner));
             }
         }
         // (A floating conversation's window's Outliner, its bookmarks: at
@@ -3149,6 +3181,14 @@ impl Moonglow {
         let at = (now as isize + by).rem_euclid(panes.len() as isize) as usize;
         let (next, table) = panes[at];
         palette_view::give_keys(ctx, next);
+        // (What has the keyboard's focus lets go of it: a stop that takes
+        // it (a panel's first field, Cell's Value, References' button)
+        // asks for it again as it is drawn, and the lists' keys work only
+        // with none, `tree::keys_free`. A stop left from References'
+        // button kept it, and the Outliner's keys did nothing.)
+        if let Some(focused) = ctx.memory(|m| m.focused()) {
+            ctx.memory_mut(|m| m.surrender_focus(focused));
+        }
         if next == Keys::Marks
             && let Some(key) = marks[at]
         {
@@ -3189,7 +3229,14 @@ impl Moonglow {
         let lists = [Keys::Compiler, Keys::Bookmarks, Keys::SearchResults];
         self.script_tools.list_focus = lists.contains(&next).then_some(next);
         // (A conversation's panels: their first field takes it.)
-        let node = [Keys::NodeData, Keys::NodeSearch, Keys::Conversation];
+        // (And a table's Cell and References, M4's U16.)
+        let node = [
+            Keys::NodeData,
+            Keys::NodeSearch,
+            Keys::Conversation,
+            Keys::Cell,
+            Keys::TableReferences,
+        ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
@@ -3338,6 +3385,13 @@ impl Moonglow {
             Some(_) => tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0),
             None if matches!(tab, Tab::Dialog(_)) => {
                 tab.window_size() + egui::vec2(shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
+            }
+            // (A table's, its Cell and References at its right and its
+            // columns at its left, M4's U16: that much wider, its grid
+            // keeping the room it had.)
+            None if matches!(tab, Tab::Table(_)) => {
+                tab.window_size()
+                    + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
             None => tab.window_size(),
         };
@@ -4801,6 +4855,17 @@ impl Moonglow {
             Action::NewNui(name) => nui_view::create(self, &name),
             Action::ImportNui => nui_view::import(self),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
+            // (The tab alone goes. What it holds is let go of where its close
+            // was settled, before this is asked for: OK and Cancel's
+            // `forget_side`, the tab's own close (`TabViewer::on_close`,
+            // `Moonglow::closed`). Asked for on its own, a table's
+            // `TableDoc` stays in `tables` with its References' thread
+            // (`panels::Looking`, which runs on to its end: it is stopped as
+            // the document goes, or by a change seen in a frame that draws
+            // it), until the module closes (a table of the module's), else
+            // for the window's life; opened again, that same document comes
+            // back with its tab (`table_view::open_doc`). Tests close tabs
+            // so; nothing in the window does for a table.)
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {
                     self.options = None;

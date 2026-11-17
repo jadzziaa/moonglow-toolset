@@ -91,31 +91,80 @@ pub(crate) struct Outliner {
     /// The area listed last: its rows' state (the keys' row, the anchor,
     /// what the keys open) is let go of with another area in front.
     listed_area: Option<ResRef>,
-    /// The conversation whose bookmarks have the keys (`Keys::Marks`): the
-    /// Outliner's, or a floating conversation's window's.
-    pub(crate) marks_keys: Option<ResKey>,
-    /// The keys' row among those bookmarks, with its conversation (0 the
-    /// group's own row, then each bookmark's): of no other conversation.
-    marks_cursor: Option<(ResKey, usize)>,
-    /// The keys' row of this conversation's list has just moved: brought
-    /// into sight by that list alone (a docked one and a floating one's
-    /// can both be drawn).
-    marks_moved: Option<ResKey>,
-    /// The group of bookmarks the keys open or close.
-    marks_fold: Option<(ResKey, bool)>,
-    /// The lists of bookmarks drawn this frame, each with whether it is in
-    /// a window (in the order the windows' panes are drawn), and those of
-    /// the frame before (F6's stops, the keys left where none is drawn).
-    pub(crate) marks_now: Vec<(ResKey, bool)>,
-    pub(crate) marks_last: Vec<(ResKey, bool)>,
-    /// The floating conversations whose window's Outliner is folded to a
-    /// strip at their tree's left this frame (`shell::window_panes`: the
-    /// tree would keep less than its room beside the pane).
-    pub(crate) strips_now: std::collections::HashSet<ResKey>,
-    /// Those whose strip's Outliner is unfolded over the tree.
-    pub(crate) strips_open: std::collections::HashSet<ResKey>,
-    /// Where the strip was drawn this frame, with its conversation.
-    pub(crate) strip_at: Option<(ResKey, egui::Rect)>,
+    /// The list that has the keys (`Keys::Marks`): a conversation's
+    /// bookmarks or a table's columns, the Outliner's or a floating
+    /// editor's window's.
+    pub(crate) marks_keys: Option<Owner>,
+    /// The keys' row in that list, with its editor (0 the group's own row,
+    /// then each bookmark's or column's): of no other editor.
+    marks_cursor: Option<(Owner, usize)>,
+    /// The keys' row of this editor's list has just moved: brought into
+    /// sight by that list alone (a docked one and a floating one's can
+    /// both be drawn).
+    marks_moved: Option<Owner>,
+    /// The group the keys open or close.
+    marks_fold: Option<(Owner, bool)>,
+    /// The lists drawn this frame, each with whether it is in a window (in
+    /// the order the windows' panes are drawn), and those of the frame
+    /// before (F6's stops, the keys left where none is drawn).
+    pub(crate) marks_now: Vec<(Owner, bool)>,
+    pub(crate) marks_last: Vec<(Owner, bool)>,
+    /// The floating editors whose window's Outliner is folded to a strip
+    /// at their left this frame (`shell::window_panes`: the tree or the
+    /// grid would keep less than its room beside the pane).
+    pub(crate) strips_now: std::collections::HashSet<Owner>,
+    /// Those whose strip's Outliner is unfolded over the editor.
+    pub(crate) strips_open: std::collections::HashSet<Owner>,
+    /// Where the strip was drawn this frame, with its editor.
+    pub(crate) strip_at: Option<(Owner, egui::Rect)>,
+    /// A table's columns as listed (their names, icons and kinds' words),
+    /// by its id, with the mark of the table they were made for
+    /// (`table_view::panels::columns_mark`) and the load order's count
+    /// then (`Moonglow::load_order`: the game's data read again, a hak
+    /// added, the module's layer refreshed, whose tables give the game's
+    /// kinds): made again only as either changes, not at every frame (a
+    /// table can have a hundred columns).
+    columns_seen: std::collections::HashMap<u32, ((u64, u64), std::sync::Arc<ColumnsSeen>)>,
+}
+
+/// A table's columns as the Outliner lists them ([`Outliner::columns_seen`]).
+#[derive(Debug)]
+struct ColumnsSeen {
+    names: Vec<String>,
+    /// Each column's icon and its kind's words (where its kind is known).
+    looks: Vec<(mg_uikit::Icon, Option<String>)>,
+}
+
+/// The room over the first of the Outliner's rows of a table's columns
+/// (the board's 2; the rows are the kit's, 22 high).
+const COLUMNS_TOP: f32 = 2.0;
+
+/// The editor whose list the Outliner shows with keys of its own
+/// (`Keys::Marks`): a conversation's bookmarks (M4's U15), a table's
+/// columns (U16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Owner {
+    Dialog(ResKey),
+    Table(u32),
+}
+
+impl Owner {
+    /// The editor of a tab that brings such a list into its window.
+    pub(crate) fn of(tab: &crate::Tab) -> Option<Owner> {
+        match tab {
+            crate::Tab::Dialog(key) => Some(Owner::Dialog(*key)),
+            crate::Tab::Table(id) => Some(Owner::Table(*id)),
+            _ => None,
+        }
+    }
+
+    /// What the Outliner lists for it.
+    pub(crate) fn contents(self) -> Contents {
+        match self {
+            Owner::Dialog(key) => Contents::Bookmarks(key),
+            Owner::Table(id) => Contents::Columns(id),
+        }
+    }
 }
 
 /// What the Outliner lists, by the active docked editor (the proposal's
@@ -125,6 +174,20 @@ pub(crate) struct Outliner {
 pub(crate) enum Contents {
     Area(ResRef),
     Bookmarks(ResKey),
+    /// A table's columns (M4's U16): the table's id.
+    Columns(u32),
+}
+
+impl Contents {
+    /// The editor whose list it is, where it is one with keys of its own
+    /// (`Keys::Marks`): not an area's.
+    pub(crate) fn owner(self) -> Option<Owner> {
+        match self {
+            Contents::Area(_) => None,
+            Contents::Bookmarks(key) => Some(Owner::Dialog(key)),
+            Contents::Columns(id) => Some(Owner::Table(id)),
+        }
+    }
 }
 
 /// What the Outliner lists now: the active docked editor's
@@ -133,6 +196,8 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
     match app.active_editor() {
         Some(crate::Tab::Area(area)) if app.ws.is_some() => Some(Contents::Area(*area)),
         Some(crate::Tab::Dialog(key)) if app.ws.is_some() => Some(Contents::Bookmarks(*key)),
+        // (A table's, whatever is open: a table is no module's alone.)
+        Some(crate::Tab::Table(id)) => Some(Contents::Columns(*id)),
         _ => None,
     }
 }
@@ -141,7 +206,7 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
 /// (`Keys::Outliner`), a conversation's bookmarks' (`Keys::Marks`).
 pub(crate) fn keys_of(app: &Moonglow) -> Keys {
     match contents(app) {
-        Some(Contents::Bookmarks(_)) => Keys::Marks,
+        Some(Contents::Bookmarks(_) | Contents::Columns(_)) => Keys::Marks,
         _ => Keys::Outliner,
     }
 }
@@ -166,8 +231,8 @@ pub(crate) fn area(app: &Moonglow) -> Option<ResRef> {
 /// The keys given to the Outliner (Next Pane, the folded strip's icon): at
 /// the row they were at, else its first.
 pub(crate) fn take_keys(app: &mut Moonglow, ctx: &egui::Context) {
-    if let Some(Contents::Bookmarks(key)) = contents(app) {
-        take_marks(app, ctx, key);
+    if let Some(owner) = contents(app).and_then(Contents::owner) {
+        take_marks(app, ctx, owner);
         return;
     }
     app.outliner.marks_keys = None;
@@ -186,15 +251,74 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     match contents(app) {
         Some(Contents::Area(_)) => _ = ui.scope(|ui| panel(app, ui)),
         Some(Contents::Bookmarks(key)) => _ = ui.scope(|ui| bookmarks(app, ui, key, false)),
+        Some(Contents::Columns(id)) => _ = ui.scope(|ui| columns(app, ui, id, false)),
         None => {}
     }
+}
+
+/// The Outliner alone in the Left Dock (`shell::outliner_alone`: a
+/// table's columns, no module open), the dock's fold button (`fold` its
+/// tip) at the end of its header, where the tab bar's would be. Whether
+/// the button was clicked.
+pub(crate) fn alone(app: &mut Moonglow, ui: &mut Ui, fold: &str) -> bool {
+    let id = egui::Id::new(ALONE_FOLD);
+    ui.data_mut(|d| d.insert_temp(id, (fold.to_string(), false)));
+    self::ui(app, ui);
+    ui.data_mut(|d| d.remove_temp::<(String, bool)>(id)).is_some_and(|(_, clicked)| clicked)
+}
+
+/// Where [`alone`] keeps the fold button's tip, and whether it was
+/// clicked, while the Outliner is drawn.
+const ALONE_FOLD: &str = "outliner-alone-fold";
+
+/// The Left Dock's fold button, at the end of the Outliner's header where
+/// it is drawn alone in the dock ([`alone`]); not in a window's.
+fn alone_fold(ui: &mut Ui, window: bool) {
+    let id = egui::Id::new(ALONE_FOLD);
+    let Some((tip, _)) = ui.data(|d| d.get_temp::<(String, bool)>(id)).filter(|_| !window) else {
+        return;
+    };
+    let side = mg_uikit::shell::Side::Left;
+    if mg_uikit::shell::fold_button_tip(ui, side, crate::shell::LEFT_DOCK, &tip).clicked() {
+        ui.data_mut(|d| d.insert_temp(id, (tip, true)));
+    }
+}
+
+/// The columns of the table at `at` as the Outliner lists them, made again
+/// only where the table's columns mark has changed ([`Outliner::columns_seen`]).
+fn columns_seen(app: &mut Moonglow, at: usize) -> std::sync::Arc<ColumnsSeen> {
+    let doc = &app.tables[at];
+    let (id, mark) = (doc.id, (crate::table_view::panels::columns_mark(doc), app.load_order));
+    if let Some((was, seen)) = app.outliner.columns_seen.get(&id)
+        && *was == mark
+    {
+        return seen.clone();
+    }
+    let kinds = crate::table_view::kinds(app, &doc.name());
+    let description = doc.description();
+    let d = description.as_deref();
+    let names: Vec<String> = doc.edit.table().columns().to_vec();
+    let looks = (names.iter())
+        .map(|c| {
+            let icon = crate::table_view::panels::kind_icon(d, &kinds, c);
+            (icon, crate::table_view::panels::kind_words(d, &kinds, c))
+        })
+        .collect();
+    let seen = std::sync::Arc::new(ColumnsSeen { names, looks });
+    // (Those of tables closed since go.)
+    app.outliner.columns_seen.retain(|t, _| app.tables.iter().any(|d| d.id == *t));
+    app.outliner.columns_seen.insert(id, (mark, seen.clone()));
+    seen
 }
 
 /// A floating conversation's Outliner, in its window (`shell::window_panes`,
 /// a left pane): its bookmarks, as the main window's Outliner lists those of
 /// a docked one.
-pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
-    ui.scope(|ui| bookmarks(app, ui, key, true));
+pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
+    match owner {
+        Owner::Dialog(key) => _ = ui.scope(|ui| bookmarks(app, ui, key, true)),
+        Owner::Table(id) => _ = ui.scope(|ui| columns(app, ui, id, true)),
+    }
 }
 
 fn panel(app: &mut Moonglow, ui: &mut Ui) {
@@ -443,7 +567,7 @@ fn made_here(app: &mut Moonglow, area: ResRef) {
 
 /// The keys given to conversation `key`'s bookmarks (a click on a row,
 /// F6, the strip's icon): at the row they were at, else the group's.
-pub(crate) fn take_marks(app: &mut Moonglow, ctx: &egui::Context, key: ResKey) {
+pub(crate) fn take_marks(app: &mut Moonglow, ctx: &egui::Context, key: Owner) {
     give_keys(ctx, Keys::Marks);
     let o = &mut app.outliner;
     o.marks_keys = Some(key);
@@ -454,8 +578,9 @@ pub(crate) fn take_marks(app: &mut Moonglow, ctx: &egui::Context, key: ResKey) {
     ctx.request_repaint();
 }
 
-/// Whether the keys are conversation `key`'s bookmarks'.
-fn marks_have_keys(app: &Moonglow, ctx: &egui::Context, key: ResKey) -> bool {
+/// Whether the keys are `key`'s list's (a conversation's bookmarks, a
+/// table's columns).
+fn marks_have_keys(app: &Moonglow, ctx: &egui::Context, key: Owner) -> bool {
     keys_are(ctx, Keys::Marks) && app.outliner.marks_keys == Some(key)
 }
 
@@ -484,7 +609,8 @@ const NO_BOOKMARKS: &str = "No bookmarks: Bookmark on the Node section's bar mar
 fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
     let ctx = ui.ctx().clone();
     mg_uikit::name_group(ui, OUTLINER);
-    app.outliner.marks_now.push((key, window));
+    let owner = Owner::Dialog(key);
+    app.outliner.marks_now.push((owner, window));
     let header = mg_uikit::shell::PanelHeader::new(OUTLINER)
         .detail(key.resref.to_string())
         .name(OUTLINER_HEADER);
@@ -496,17 +622,17 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
     let Some(rows) = crate::dialog_view::bookmark_rows(app, &ctx, key) else { return };
     // (The keys' row of another conversation: none here.)
     let mut cursor = match app.outliner.marks_cursor {
-        Some((k, at)) if k == key => Some(at.min(rows.len())),
+        Some((k, at)) if k == owner => Some(at.min(rows.len())),
         _ => None,
     };
-    let here = marks_have_keys(app, &ctx, key) && tree::keys_free(ui);
+    let here = marks_have_keys(app, &ctx, owner) && tree::keys_free(ui);
     // (Taken by its own list, whichever is drawn first.)
-    let moved = here && app.outliner.marks_moved == Some(key);
+    let moved = here && app.outliner.marks_moved == Some(owner);
     if moved {
         app.outliner.marks_moved = None;
     }
     let fold = match app.outliner.marks_fold.take() {
-        Some((k, open)) if k == key => Some(open),
+        Some((k, open)) if k == owner => Some(open),
         other => {
             app.outliner.marks_fold = other;
             None
@@ -571,8 +697,8 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
     }
     if let Some(at) = clicked {
         cursor = Some(at);
-        app.outliner.marks_cursor = Some((key, at));
-        app.outliner.marks_keys = Some(key);
+        app.outliner.marks_cursor = Some((owner, at));
+        app.outliner.marks_keys = Some(owner);
         give_keys(&ctx, Keys::Marks);
     }
     // The keys, while they are this list's.
@@ -609,17 +735,17 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
             Some(Key::Home) => Some(0),
             Some(Key::End) => Some(last),
             Some(Key::ArrowRight) if at == 0 && !open && !rows.is_empty() => {
-                app.outliner.marks_fold = Some((key, true));
+                app.outliner.marks_fold = Some((owner, true));
                 Some(0)
             }
             Some(Key::ArrowRight) if at == 0 && open && !rows.is_empty() => Some(1),
             Some(Key::ArrowLeft) if at == 0 && open => {
-                app.outliner.marks_fold = Some((key, false));
+                app.outliner.marks_fold = Some((owner, false));
                 Some(0)
             }
             Some(Key::ArrowLeft) => Some(0),
             Some(Key::Enter) if at == 0 && !rows.is_empty() => {
-                app.outliner.marks_fold = Some((key, !open));
+                app.outliner.marks_fold = Some((owner, !open));
                 Some(0)
             }
             // (A bookmark's row; on the quiet row of none, nothing.)
@@ -656,12 +782,278 @@ fn bookmarks(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
             .flatten();
         let to = to.or(typed);
         if let Some(to) = to {
-            app.outliner.marks_cursor = Some((key, to));
-            app.outliner.marks_moved = Some(key);
+            app.outliner.marks_cursor = Some((owner, to));
+            app.outliner.marks_moved = Some(owner);
             ctx.request_repaint();
         }
     }
     if let Some(line) = gone_to {
         crate::dialog_view::go_to_bookmark(app, &ctx, key, line);
     }
+}
+
+/// The Columns' tip on a column's eye, shown or hidden (the Table board's).
+const HIDE_TIP: &str =
+    "Hide Column: hide it while the table is open. Its cells are kept and saved.";
+const SHOW_TIP: &str = "Show the column again";
+
+/// Table `id`'s columns as the Outliner lists them (M4's U16, the Table
+/// board's Left Dock): the header, "Outliner" and how many columns, with
+/// Show Hidden Columns' eye at its end; a row for each column in its order,
+/// its kind's icon, its name and its kind's words weak after it (the
+/// table's description's, else what the checks know of the game's table
+/// of its name), cut to the panel's width, and an eye that hides it as its
+/// menu's Hide Column does (and shows it again); a hidden column's row is
+/// quiet. A click on a row goes to the column (the selected row's cell, or
+/// the first row's) and gives the list the keys: Up, Down, Page Up, Page
+/// Down, Home and End, Enter going to the column, letters to a column by
+/// its name, Escape handing them back. In the Left Dock, or in its window
+/// where it floats (`window`). A group of its own, named [`OUTLINER`].
+fn columns(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
+    let ctx = ui.ctx().clone();
+    mg_uikit::name_group(ui, OUTLINER);
+    let owner = Owner::Table(id);
+    app.outliner.marks_now.push((owner, window));
+    let Some(at) = app.tables.iter().position(|d| d.id == id) else { return };
+    let seen = columns_seen(app, at);
+    let names = &seen.names;
+    let doc = &app.tables[at];
+    let hidden_count = doc.hidden.len();
+    let header = mg_uikit::shell::PanelHeader::new(OUTLINER)
+        .detail(match names.len() {
+            1 => "1 column".to_string(),
+            n => format!("{n} columns"),
+        })
+        .name(OUTLINER_HEADER);
+    let show_all = header
+        .show(ui, |ui| {
+            let words = crate::table_view::show_hidden_words(hidden_count);
+            let tip = match hidden_count {
+                0 => "No column is hidden".to_string(),
+                _ => format!("{words}: bring back every column hidden from view"),
+            };
+            let shown = ui.add_enabled_ui(hidden_count > 0, |ui| {
+                let b =
+                    mg_uikit::IconButton::new(mg_uikit::Icon::Eye, crate::table_view::SHOW_HIDDEN)
+                        .icon_only(true);
+                ui.add(b).on_hover_text(tip).clicked()
+            });
+            alone_fold(ui, window);
+            shown.inner
+        })
+        .inner;
+    if show_all {
+        app.tables[at].hidden.clear();
+    }
+    // (Folded to its header in a dock too short for its rows.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
+    let doc = &app.tables[at];
+    let current = doc.selected.map(|s| s.1);
+    let shown: Vec<bool> = names.iter().map(|c| !doc.hidden.contains(&c.to_lowercase())).collect();
+    let mut cursor = match app.outliner.marks_cursor {
+        Some((k, at)) if k == owner => Some(at.min(names.len().saturating_sub(1))),
+        _ => None,
+    };
+    let here = marks_have_keys(app, &ctx, owner) && tree::keys_free(ui);
+    // (Its columns with the keys: Undo and Redo are the table's.)
+    if marks_have_keys(app, &ctx, owner) {
+        app.undo_keys = Some(crate::Tab::Table(id));
+    }
+    let moved = here && app.outliner.marks_moved == Some(owner);
+    if moved {
+        app.outliner.marks_moved = None;
+    }
+    let mut clicked = None;
+    let mut eye = None;
+    let scroll =
+        egui::ScrollArea::vertical().id_salt(("outliner-columns", id, window)).auto_shrink(false);
+    // (Only the rows in sight are laid out, as `ScrollArea::show_rows`
+    // does, under the list's 2 points of room: the keys' row brought into
+    // sight by its place, drawn or not.)
+    let rows = scroll.show_viewport(ui, |ui, view| {
+        mg_uikit::list_rows(ui);
+        let pitch = mg_uikit::row_pitch(ui);
+        let count = names.len();
+        ui.set_height(COLUMNS_TOP + count as f32 * pitch);
+        let first = (((view.min.y - COLUMNS_TOP) / pitch).floor().max(0.0) as usize).min(count);
+        let last = ((((view.max.y - COLUMNS_TOP) / pitch).ceil().max(0.0) as usize) + 1).min(count);
+        let top = ui.max_rect().top() + COLUMNS_TOP;
+        if moved && let Some(c) = cursor {
+            let y = top + c as f32 * pitch;
+            let row = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y + pitch);
+            ui.scroll_to_rect(row, None);
+        }
+        let shown_rows = egui::Rect::from_x_y_ranges(
+            ui.max_rect().x_range(),
+            top + first as f32 * pitch..=top + last as f32 * pitch,
+        );
+        let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(shown_rows));
+        ui.skip_ahead_auto_ids(first);
+        for c in first..last {
+            let column = &names[c];
+            let (icon, words) = seen.looks[c].clone();
+            let mut row = mg_uikit::TreeRow::new(column.as_str())
+                .icon(icon)
+                .fit()
+                .quiet(!shown[c])
+                .selected((here && cursor == Some(c)) || (!here && current == Some(c)));
+            // (Its kind's words said with its name to a screen reader.)
+            if let Some(words) = words {
+                row = row.label(format!("{column}, {words}")).second(words);
+            }
+            let tip = if shown[c] { HIDE_TIP } else { SHOW_TIP };
+            let row = row.eye(shown[c], format!("Show {column}"), tip).show_parts(ui);
+            if row.eye.as_ref().is_some_and(egui::Response::clicked) {
+                eye = Some(c);
+            } else if row.response.clicked() {
+                clicked = Some(c);
+            }
+        }
+    });
+    if here {
+        crate::palette_view::keys_outline(ui, rows.inner_rect, Keys::Marks);
+    }
+    let mut go = None;
+    if let Some(c) = clicked {
+        cursor = Some(c);
+        app.outliner.marks_cursor = Some((owner, c));
+        app.outliner.marks_keys = Some(owner);
+        give_keys(&ctx, Keys::Marks);
+        go = Some(c);
+    }
+    if here {
+        use egui::Key;
+        let keys = [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+            Key::Enter,
+        ];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.outliner.marks_cursor = None;
+            app.outliner.marks_keys = None;
+            crate::palette_view::give_arrows(&ctx, false);
+            cursor = None;
+        }
+        let last = names.len().saturating_sub(1);
+        let page = ((rows.inner_rect.height() / mg_uikit::row_pitch(ui)) as usize).max(1);
+        let at = cursor.unwrap_or(0).min(last);
+        let to = match pressed {
+            Some(Key::ArrowDown) => Some((at + 1).min(last)),
+            Some(Key::ArrowUp) => Some(at.saturating_sub(1)),
+            Some(Key::PageDown) => Some((at + page).min(last)),
+            Some(Key::PageUp) => Some(at.saturating_sub(page)),
+            Some(Key::Home) => Some(0),
+            Some(Key::End) => Some(last),
+            Some(Key::Enter) => {
+                go = Some(at);
+                Some(at)
+            }
+            _ => None,
+        };
+        // Letters go to the column whose name begins with them.
+        let texts: Vec<String> = names.iter().map(|n| mg_core::text::fold(n)).collect();
+        let seek = |from: Option<usize>, typed: &str| {
+            let from = from.unwrap_or(texts.len().saturating_sub(1));
+            crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
+        };
+        let typed = (!names.is_empty())
+            .then(|| {
+                tree::typed_row(ui, egui::Id::new(("outliner-columns-typed", id)), cursor, &seek)
+            })
+            .flatten();
+        if let Some(to) = to.or(typed).filter(|_| !names.is_empty()) {
+            app.outliner.marks_cursor = Some((owner, to));
+            app.outliner.marks_moved = Some(owner);
+            ctx.request_repaint();
+        }
+    }
+    let doc = &mut app.tables[at];
+    if let Some(c) = eye {
+        match shown[c] {
+            true => doc.hide_column(c),
+            false => _ = doc.hidden.remove(&names[c].to_lowercase()),
+        }
+    }
+    // (A hidden column has no cell in sight to go to.)
+    if let Some(c) = go.filter(|c| shown.get(*c) == Some(&true)) {
+        let row = doc.selected.map_or(0, |s| s.0);
+        if row < doc.edit.table().len() {
+            doc.go_to(row, c);
+        }
+    }
+}
+
+/// A floating editor's Outliner folded to a strip at its left (the docks'
+/// own fold strip, `mg_uikit::shell::FoldStrip`), under its header: a
+/// conversation's bookmarks beside its tree (M4's U15), a table's columns
+/// beside its grid (U16). Its icon unfolds the Outliner over the editor,
+/// and folds it again; the strip's place noted for it ([`over`]).
+pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
+    use mg_uikit::shell::{FoldStrip, STRIP, Side, StripClick};
+    let t = mg_uikit::tokens(ui.ctx());
+    let open = app.outliner.strips_open.contains(&owner);
+    let tip = match (open, owner) {
+        (true, _) => "Fold the Outliner away",
+        (false, Owner::Dialog(_)) => "Show the Outliner: the conversation's bookmarks",
+        (false, Owner::Table(_)) => "Show the Outliner: the table's columns",
+    };
+    let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
+        .exact_size(STRIP)
+        .resizable(false)
+        .frame(egui::Frame::new().fill(t.bar))
+        .show(ui, |ui| {
+            let name = crate::dialog_view::OUTLINER_STRIP;
+            let strip = FoldStrip::new(name, Side::Left).chevron(false);
+            strip.panel(mg_uikit::Icon::Outliner, OUTLINER, tip).show(ui)
+        });
+    if matches!(shown.inner, Some(StripClick::Panel(_) | StripClick::Unfold)) {
+        match open {
+            true => _ = app.outliner.strips_open.remove(&owner),
+            false => _ = app.outliner.strips_open.insert(owner),
+        }
+        ui.ctx().request_repaint();
+    }
+    let strip = shown.response.rect;
+    app.outliner.strip_at = Some((owner, strip));
+}
+
+/// A floating editor's Outliner unfolded from its strip, over the editor
+/// from the strip's edge, as wide as the window's pane at first (or what
+/// the editor leaves), the whole height under the header; a press there
+/// reaches nothing under it. Drawn after the editor, at the window's text
+/// size, as the Outliner is.
+pub(crate) fn over(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
+    let Some((at, strip)) = app.outliner.strip_at.take() else { return };
+    if at != owner || !app.outliner.strips_open.contains(&owner) {
+        return;
+    }
+    let t = mg_uikit::tokens(ui.ctx());
+    let room = (ui.max_rect().right() - strip.right()).max(0.0);
+    let wide = crate::shell::WINDOW_LEFT_WIDE.min(room * 0.8);
+    let over = egui::Rect::from_min_size(
+        egui::pos2(strip.right(), strip.top()),
+        egui::vec2(wide, strip.height()),
+    );
+    let mut child =
+        ui.new_child(egui::UiBuilder::new().id_salt(("outliner-over", owner)).max_rect(over));
+    child.set_style(ui.ctx().global_style());
+    child.set_clip_rect(over.intersect(ui.clip_rect()));
+    // (Over the editor: its fill and its edge, and the presses there its.)
+    child.interact(
+        over,
+        egui::Id::new(("outliner-over-ground", owner)),
+        egui::Sense::click_and_drag(),
+    );
+    child.painter().rect_filled(over, 0.0, t.panel);
+    child.painter().vline(over.right(), over.y_range(), egui::Stroke::new(1.0, t.line));
+    app.window_bars_drawn.push(crate::shell::Panel::OUTLINER);
+    window_ui(app, &mut child, owner);
 }

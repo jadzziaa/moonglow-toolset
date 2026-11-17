@@ -1112,7 +1112,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // (Its window's Outliner unfolded from its strip, over the tree: drawn
     // after the editor, whose view is back in its place by then, at the
     // window's text size, as the Outliner is.)
-    outliner_over(app, ui, key);
+    crate::outliner::over(app, ui, crate::outliner::Owner::Dialog(key));
 }
 
 /// The conversation `key` as it is now, and its view with what is kept
@@ -1661,8 +1661,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     // A floating conversation's Outliner folded to a strip at the tree's
     // left, under the header (M4's U15 review: the pane gives way before
     // the header does), where its window has not the room for its pane.
-    if app.outliner.strips_now.contains(&key) {
-        outliner_strip(app, ui, key);
+    let owner = crate::outliner::Owner::Dialog(key);
+    if app.outliner.strips_now.contains(&owner) {
+        crate::outliner::strip(app, ui, owner);
     }
     // The tree, in the Options' colours.
     let hl = view.highlight;
@@ -1860,72 +1861,10 @@ fn dialog_of(editor: Option<&Tab>) -> Option<ResKey> {
     }
 }
 
-/// The name of a floating conversation's window's Outliner's strip (its
-/// fold strip's dock, for a screen reader and the tests).
+/// The name of a floating editor's window's Outliner's strip (its fold
+/// strip's dock, for a screen reader and the tests): a conversation's
+/// (M4's U15) and a table's (U16), `outliner::strip`.
 pub const OUTLINER_STRIP: &str = "Window's Outliner";
-
-/// A floating conversation's Outliner folded to a strip at its tree's left
-/// (the docks' own fold strip, `mg_uikit::shell::FoldStrip`): its icon
-/// unfolds the Outliner over the tree, and folds it again; the strip's
-/// place noted for it ([`outliner_over`]).
-fn outliner_strip(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
-    use mg_uikit::shell::{FoldStrip, STRIP, Side, StripClick};
-    let t = mg_uikit::tokens(ui.ctx());
-    let open = app.outliner.strips_open.contains(&key);
-    let tip = match open {
-        true => "Fold the Outliner away",
-        false => "Show the Outliner: the conversation's bookmarks",
-    };
-    let shown = egui::Panel::left(egui::Id::new(("dlg-outliner-strip", key)))
-        .exact_size(STRIP)
-        .resizable(false)
-        .frame(egui::Frame::new().fill(t.bar))
-        .show(ui, |ui| {
-            let strip = FoldStrip::new(OUTLINER_STRIP, Side::Left).chevron(false);
-            strip.panel(mg_uikit::Icon::Outliner, crate::outliner::OUTLINER, tip).show(ui)
-        });
-    if matches!(shown.inner, Some(StripClick::Panel(_) | StripClick::Unfold)) {
-        match open {
-            true => _ = app.outliner.strips_open.remove(&key),
-            false => _ = app.outliner.strips_open.insert(key),
-        }
-        ui.ctx().request_repaint();
-    }
-    let strip = shown.response.rect;
-    app.outliner.strip_at = Some((key, strip));
-}
-
-/// A floating conversation's Outliner unfolded from its strip, over the
-/// tree from the strip's edge, as wide as the window's pane at first (or
-/// what the tree leaves), the whole height under the header; a press there
-/// reaches nothing under it.
-fn outliner_over(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
-    let Some((at, strip)) = app.outliner.strip_at.take() else { return };
-    if at != key || !app.outliner.strips_open.contains(&key) {
-        return;
-    }
-    let t = mg_uikit::tokens(ui.ctx());
-    let room = (ui.max_rect().right() - strip.right()).max(0.0);
-    let wide = crate::shell::WINDOW_LEFT_WIDE.min(room * 0.8);
-    let over = egui::Rect::from_min_size(
-        egui::pos2(strip.right(), strip.top()),
-        egui::vec2(wide, strip.height()),
-    );
-    let mut child =
-        ui.new_child(egui::UiBuilder::new().id_salt(("dlg-outliner-over", key)).max_rect(over));
-    child.set_style(ui.ctx().global_style());
-    child.set_clip_rect(over.intersect(ui.clip_rect()));
-    // (Over the tree: its fill and its edge, and the presses there its.)
-    child.interact(
-        over,
-        egui::Id::new(("dlg-outliner-over-ground", key)),
-        egui::Sense::click_and_drag(),
-    );
-    child.painter().rect_filled(over, 0.0, t.panel);
-    child.painter().vline(over.right(), over.y_range(), egui::Stroke::new(1.0, t.line));
-    app.window_bars_drawn.push(crate::shell::Panel::OUTLINER);
-    crate::outliner::window_ui(app, &mut child, key);
-}
 
 /// The width of the Node section's tools ([`node_tools`]).
 pub(crate) fn node_tools_width(ui: &Ui) -> f32 {

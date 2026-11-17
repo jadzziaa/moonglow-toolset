@@ -798,6 +798,12 @@ pub struct Settings {
     /// only once chosen, so files stay as they were.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bookmarks_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a
+    /// table, its columns (M4's U16: a seam per what the Outliner lists,
+    /// as the bookmarks'). `None`: not chosen, the Table board's (254).
+    /// Written only once chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart

@@ -71,12 +71,29 @@ pub fn row_uses(
     game: Option<&GameData>,
     cp: Codepage,
 ) -> Vec<Usage> {
+    row_uses_until(module, table, row, game, cp, &|| false).unwrap_or_default()
+}
+
+/// [`row_uses`], given up where `stop` says so (asked between
+/// resources): `None` then. The 2DA editor's References panel looks on a
+/// thread of its own, and stops when another row is chosen.
+pub fn row_uses_until(
+    module: &Module,
+    table: &str,
+    row: usize,
+    game: Option<&GameData>,
+    cp: Codepage,
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<Usage>> {
     let spec = game.and_then(|g| g.resman.get_named("nwscript", ResType::NSS).ok());
     let spec = spec.map(|d| Spec::parse(&d));
     let mut keys: Vec<ResKey> = module.keys().copied().collect();
     keys.sort();
     let mut out = Vec::new();
     for key in keys {
+        if stop() {
+            return None;
+        }
         let Some(data) = module.get(&key) else { continue };
         if key.restype == ResType::NSS {
             out.extend(script_uses(key, data, table, row, spec.as_ref(), cp));
@@ -86,7 +103,7 @@ pub fn row_uses(
             out.extend(field_uses(key, &gff, table, row, game, cp));
         }
     }
-    out
+    Some(out)
 }
 
 /// A field's whole value, where it is a number.

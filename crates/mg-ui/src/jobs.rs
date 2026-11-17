@@ -213,6 +213,9 @@ impl Moonglow {
         if self.tables.iter().any(crate::table_view::TableDoc::walking) {
             return Some("a table's description's folder being read");
         }
+        if self.tables.iter().any(crate::table_view::TableDoc::looking) {
+            return Some("a table's row's references being found");
+        }
         None
     }
 

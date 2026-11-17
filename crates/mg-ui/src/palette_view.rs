@@ -434,6 +434,11 @@ pub(crate) enum Keys {
     NodeData,
     NodeSearch,
     Conversation,
+    /// A table's Cell and References panels (M4's U16): no arrows of their
+    /// own; F6 gives Cell's Value and References' button the keyboard's
+    /// focus (`table_view::panels`).
+    Cell,
+    TableReferences,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

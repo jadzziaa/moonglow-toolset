@@ -100,6 +100,10 @@ pub(crate) struct TableView {
     /// The layer whose rows alone it shows (Rows from), as last set.
     rows_from: Option<usize>,
     pub(crate) doc: crate::table_view::TableDoc,
+    /// The tab that drew it last (a resource tab, a layer's copy's, a hak
+    /// editor's): its grid's keys are that tab's while it is the active
+    /// editor (`table_view::grid_has_keys`).
+    tab: Option<Tab>,
 }
 
 /// How many 2DA views are kept: more are made anew.
@@ -1310,7 +1314,11 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, key, layer, (l, viewed.made));
+        let tab = match layer {
+            None => Tab::Resource(key),
+            Some(layer) => Tab::ResourceCopy { key, layer: layer.to_string() },
+        };
+        two_da(app, ui, key, layer, (l, viewed.made), &tab);
         return;
     }
     // A text by its lines in sight, a script's in the editor's colors.
@@ -1426,6 +1434,43 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
     }
 }
 
+/// The tab that drew the read-only view of a table whose grid's id is
+/// `id` last: its resource tab, a layer's copy's, or a hak editor's.
+pub(crate) fn view_tab(app: &Moonglow, id: u32) -> Option<Tab> {
+    app.browser.table_views.values().find(|v| v.doc.id == id)?.tab.clone()
+}
+
+/// What the Status Bar shows beside a table only looked at, the resource
+/// tab's view of `key` (or of a layer's `copy` of it, which a higher layer
+/// overrides; M4's U16): its rows and columns, whose copy it is
+/// (the layer the game reads it from: the game's, a hak's, the module's)
+/// and that it is read-only, and the keys it has
+/// (`table_view::panels::shown_read_only`). `None` before it is drawn.
+pub(crate) fn table_shown(
+    app: &Moonglow,
+    k: &crate::shell::HintKeys<'_>,
+    ctx: &egui::Context,
+    key: ResKey,
+    copy: Option<&str>,
+) -> Option<crate::shell::Shown> {
+    let view = app.browser.table_views.get(&(key, copy.map(str::to_string)))?;
+    // (A layer's copy, a hak's under a higher one: that layer's.)
+    let layer = copy.map(str::to_string).or_else(|| {
+        let g = app.game.as_deref()?;
+        let at = *g.resman.copies(&key).first()?;
+        Some(g.resman.layers()[at].label.clone())
+    });
+    let whose = match layer {
+        Some(layer) => format!("from {layer}, read-only"),
+        None => "read-only".to_string(),
+    };
+    let has = view
+        .tab
+        .as_ref()
+        .is_some_and(|tab| crate::table_view::grid_has_keys(app, ctx, view.doc.id, tab));
+    Some(crate::table_view::panels::shown_read_only(k, ctx, (&view.doc, has), &whose))
+}
+
 /// A 2DA as a table; only the rows in view are laid out. With copies of
 /// it in several layers (haks over the game's), each row says which layer
 /// it comes from, and the cells a layer changed are marked, with what they
@@ -1441,11 +1486,12 @@ pub(crate) fn two_da(
     key: ResKey,
     layer: Option<&str>,
     (l, of): (&mg_module::table_layers::Layered, u64),
+    tab: &Tab,
 ) {
     use crate::table_view::{GridOf, TableDoc, grid_in, keys_in, view_header};
     let name = key.resref.to_string();
     let kinds = crate::table_view::kinds(app, &name);
-    let Moonglow { browser, game, settings, talk, talk_view, .. } = app;
+    let Moonglow { browser, .. } = app;
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
@@ -1494,7 +1540,7 @@ pub(crate) fn two_da(
         browser.made_views += 1;
         let id = u32::MAX - browser.made_views;
         let doc = TableDoc::read_only(id, key, t.clone());
-        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc });
+        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc, tab: None });
     }
     let rows_from = browser.rows_from.filter(|_| layered);
     let strrefs = !browser.raw_strrefs;
@@ -1504,13 +1550,19 @@ pub(crate) fn two_da(
         view.doc.within = rows_from
             .map(|o| std::sync::Arc::new((0..t.len()).filter(|&r| l.row_origin(r) == o).collect()));
     }
+    view.tab = Some(tab.clone());
+    let id = view.doc.id;
+    let has = crate::table_view::grid_has_keys(app, ui.ctx(), id, tab);
+    let Moonglow { browser, game, settings, talk, talk_view, .. } = app;
+    let view = browser.table_views.get_mut(&at).expect("made above");
     let doc = &mut view.doc;
     doc.strref_text = strrefs;
     view_header(ui, doc);
-    keys_in(doc, ui, true);
+    keys_in(doc, ui, true, has);
     let talk = talk.as_ref().filter(|_| !talk_view.outside);
-    let of = GridOf { settings, table_name: &name, talk, game: game.as_deref() };
+    let of = GridOf { settings, table_name: &name, talk, game: game.as_deref(), has_keys: has };
     grid_in(ui, doc, of, &kinds, &[], Some(l));
+    crate::table_view::focus_asked(app, ui.ctx(), id, tab);
 }
 
 #[cfg(test)]

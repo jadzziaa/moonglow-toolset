@@ -1159,9 +1159,10 @@ fn table_read_only_and_column_widths() {
 }
 
 /// A table with a description beside it: values by name, a cell that is
-/// none of its list (in the rows above the flags' list, which opens over
-/// the last four), and a flags cell being ticked (the flags are the
-/// game's own `DAMAGE_TYPE_` constants, read from `nwscript`).
+/// none of its list, and a flags cell chosen, its flags the Cell panel's
+/// rows since M4's U16 (the flags are the game's own `DAMAGE_TYPE_`
+/// constants, read from `nwscript`; they were a list opened over the
+/// grid's last rows).
 #[test]
 #[ignore]
 fn described_table() {
@@ -1208,22 +1209,12 @@ fn described_table() {
     h.run_steps(6);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(5, 2);
     h.run_steps(4);
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let at = h
-        .query_all(combo)
-        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "2 flags"))
-        .map(|n| n.rect().center())
-        .expect("the flags' list");
-    h.hover_at(at);
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        });
-    }
-    h.run_steps(4);
+    // (Its flags' rows, two ticked.)
+    let ticked = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::CheckBox
+            && n.toggled() == Some(egui::accesskit::Toggled::True)
+    };
+    assert_eq!(h.query_all(egui_kittest::kittest::by().predicate(ticked)).count(), 2, "2 flags");
     shoot(&mut h, &dir, "described-table");
 }
 
@@ -13234,35 +13225,181 @@ fn conversation_panels() {
     shoot(&mut h, &dir, "conversation-floating-strip-open");
 }
 
-/// Table.png: the game's `spells.2da` (a copy: Chapter1 has none of its
-/// own) in the 2DA editor As Tabs, Bull's Strength's TargetType chosen;
-/// the Left Dock's Resources panel finding "spells". Today the header is
-/// three rows and the cell inspector is under the grid, not the board's
-/// Cell and References panels in the Right Dock; no Outliner of columns.
+/// Table.png: the game's `spells.2da` put in the module (Chapter1 has
+/// none of its own, its Name of row 30 made a string of the module's
+/// talk table it has not: one cell wrong) in the 2DA editor As Tabs, the
+/// tab modified, the six cells of MetaMagic
+/// and TargetType of rows 7 to 9 chosen, Bull's Strength's TargetType the
+/// cell with the keys; the Left Dock's Resources panel finding "spells".
+/// Since M4's U16 the board's header, the Cell and References panels in the
+/// Right Dock, the Outliner of columns and the Status Bar's counts and
+/// hints.
 #[test]
 #[ignore]
 fn board_table() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let scratch = mg_testkit::scratch_dir("screens-board-table");
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    let (data, column) = {
-        let game = h.state().game.as_deref().unwrap();
-        let data = game.resman.get_named("spells", ResType::TWODA).unwrap().into_owned();
-        let column = game.table("spells").unwrap().column("TargetType").unwrap();
-        (data, column)
-    };
-    let file = scratch.join("spells.2da");
-    std::fs::write(&file, data).unwrap();
+    let id = board_spells(&mut h);
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
     h.state_mut().browser.filter = "spells".into();
-    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     frames_until(&mut h, "the table in front", |h| {
         h.state().active_editor() == Some(&mg_ui::Tab::Table(id))
     });
-    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(9, column);
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_table");
+}
+
+/// The board's table (`board_table`): the game's `spells.2da` put in the
+/// module and opened, a cell made wrong, six cells chosen and the grid
+/// given the keys; its id.
+fn board_spells(h: &mut Harness<'_, Moonglow>) -> u32 {
+    let (data, columns) = {
+        let game = h.state().game.as_deref().unwrap();
+        let mut t = (*game.table("spells").unwrap()).clone();
+        let at = |c: &str| t.column(c).unwrap();
+        let columns = [at("MetaMagic"), at("TargetType"), at("Name")];
+        // (A string of the module's talk table it has not: wrong.)
+        t.set(30, columns[2], Some("16777999".into())).unwrap();
+        (t.to_bytes(game.codepage()).unwrap(), columns)
+    };
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    h.state_mut().ws.as_mut().unwrap().module.set(key, data);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    // (Changed and not yet saved, as the board's tab says.)
+    doc.edit.mark_unsaved();
+    doc.selected = Some((7, columns[0]));
+    doc.select_to((9, columns[1]));
+    mg_ui::table_view::take_keys(&h.ctx, id);
+    id
+}
+
+/// The 2DA editor beside the Table board (M4's U16, `table-*`): As Tabs at
+/// 1280 (the Right Dock one tab bar of Cell and References, the header
+/// yielding), floating in a window of the size it opens at (its Cell and
+/// References its right pane, its columns its left) and in a kept window
+/// of 1100 by 700 (the columns folded to a strip, then unfolded over the
+/// grid), a table only looked at (the game's `spells.2da` in the
+/// resource tab, docked: its counts and the hints of what it can do), a
+/// table with no module open (`table-no-module`: its columns the Left
+/// Dock's Outliner alone), a list of 300 values in Cell
+/// (`table-long-list`), the read-only table's cursor
+/// (`table-read-only-cursor`) and the wrong cell with the keys
+/// (`table-wrong-cursor`).
+#[test]
+#[ignore]
+fn table_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1280.0, 900.0));
+    let id = board_spells(&mut h);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-1280");
+    // (A window kept wide enough for both panes beside the grid's room.)
+    let mut h = shell_with_area(&root, egui::vec2(1920.0, 1080.0));
+    h.state_mut().settings.window_sizes = vec![("table".to_string(), [1640, 820])];
+    let id = board_spells(&mut h);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-floating");
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_sizes = vec![("table".to_string(), [1100, 700])];
+    let id = board_spells(&mut h);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-floating-strip");
+    let strip = h.get_by_label(mg_ui::dialog_view::OUTLINER_STRIP);
+    strip.get_by_label(mg_ui::OUTLINER).click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-floating-strip-open");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    board_front(&mut h, &mg_ui::Tab::Resource(key));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-read-only");
+    // (Its cursor: a row of the game's later copy, given the keys.)
+    h.get_by_label("Acid_Fog").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-read-only-cursor");
+    // The wrong cell (a string the module's talk table has not) with the
+    // keys: its red text and outline on the cursor's fill.
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let id = board_spells(&mut h);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+    let name = doc.edit.table().column("Name").unwrap();
+    doc.go_to(30, name);
+    mg_ui::table_view::take_keys(&h.ctx, id);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-wrong-cursor");
+    // No module open (M4's U16 review): the game's spells.2da as a file,
+    // its columns the Left Dock's Outliner alone, a STRING_REF cell chosen.
+    let files = mg_testkit::scratch_dir("screens-table-no-module");
+    let mut h = no_module_window(&root, egui::vec2(1600.0, 900.0));
+    let (data, name) = {
+        let game = h.state().game.as_deref().unwrap();
+        let t = game.table("spells").unwrap();
+        (t.to_bytes(game.codepage()).unwrap(), t.column("Name").unwrap())
+    };
+    std::fs::write(files.join("spells.2da"), data).unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &files.join("spells.2da")).unwrap();
+    h.run_steps(3);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().selected = Some((9, name));
+    mg_ui::table_view::take_keys(&h.ctx, id);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-no-module");
+    // A list of 300 values (a description of ours) in Cell: one list in a
+    // frame a few rows high, its value chosen in sight.
+    let files = mg_testkit::scratch_dir("screens-table-long-list");
+    std::fs::write(files.join("nasher.cfg"), "").unwrap();
+    std::fs::write(
+        files.join("loot.2da"),
+        "2DA V2.0\n\n   Label   Pick\n0  Torch   140\n1  Rope    7\n2  Gem     299\n",
+    )
+    .unwrap();
+    let values: Vec<String> = (0..300).map(|n| format!("LOOT_ITEM_{n:03} = {n}")).collect();
+    let toml = format!("[columns.Pick]\nkind = \"list\"\nvalues = {{ {} }}\n", values.join(", "));
+    std::fs::write(files.join("loot.2da.toml"), toml).unwrap();
+    let mut h = no_module_window(&root, egui::vec2(1600.0, 900.0));
+    let id = mg_ui::table_view::open_path(h.state_mut(), &files.join("loot.2da")).unwrap();
+    h.run_steps(3);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    mg_ui::table_view::take_keys(&h.ctx, id);
+    let tab = mg_ui::Tab::Table(id);
+    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "table-long-list");
+}
+
+/// The main window with the game and no module open, As Tabs (the 2DA
+/// editor's pictures without a module, M4's U16 review).
+fn no_module_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static, Moonglow> {
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let mut h = Harness::builder()
+        .with_size(size)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.run_steps(3);
+    h
 }
 
 /// Talk.png: the game's `dialog.tlk`, opened as a table the game ships

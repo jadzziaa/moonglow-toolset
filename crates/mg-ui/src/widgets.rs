@@ -4546,7 +4546,6 @@ pub(crate) struct Dropdown {
     combo: egui::ComboBox,
     /// Its id salt as an id: where [`Dropdown::show_menu`] keeps its keys.
     salt: egui::Id,
-    stays_open: bool,
     /// [`Dropdown::show_menu`]'s list has a Filter field above its rows.
     filtered: bool,
     /// The box's width as asked (held to its room as it is shown).
@@ -4580,7 +4579,6 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     Dropdown {
         combo: egui::ComboBox::from_id_salt(id_salt).icon(mg_uikit::combo_icon),
         salt,
-        stays_open: false,
         filtered: false,
         width: None,
     }
@@ -4615,13 +4613,6 @@ impl Dropdown {
     /// The open list's greatest height.
     pub(crate) fn height(mut self, height: f32) -> Self {
         self.combo = self.combo.height(height);
-        self
-    }
-
-    /// Open until a click lands outside it (a list of ticks, not one choice).
-    pub(crate) fn stays_open(mut self) -> Self {
-        self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-        self.stays_open = true;
         self
     }
 
@@ -4869,7 +4860,7 @@ impl Dropdown {
         // (A click on a row closes a filtered list too, which a click
         // inside it leaves open for its field.)
         let pressed = keys.pressed.or((keys.clicked && self.filtered).then_some(0));
-        if pressed.is_some() && !self.stays_open {
+        if pressed.is_some() {
             egui::Popup::close_id(ui.ctx(), r.id.with("popup"));
         }
         state = MenuState {
@@ -4883,7 +4874,7 @@ impl Dropdown {
             },
             reveal: false,
         };
-        if pressed.is_some() && !self.stays_open {
+        if pressed.is_some() {
             state.cursor = None;
         }
         ui.data_mut(|d| d.insert_temp(state_id, state));

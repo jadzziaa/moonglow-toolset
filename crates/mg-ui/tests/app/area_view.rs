@@ -8628,3 +8628,63 @@ fn custom_music_that_is_not_a_sound_does_not_play_and_the_log_says_why() {
     let line = said.iter().find(|m| m.starts_with("Sound mg_track")).expect("a line about it");
     assert_eq!(line, "Sound mg_track: not a sound the game plays (neither WAVE nor MP3)");
 }
+
+/// The area's view keeps its keys beside a table whose grid had them (M4's
+/// U16 review): the table docked in another group, or in its window
+/// beside the view; the pointer over the view, its arrow moves the camera
+/// and Delete deletes the object selected, and the table's selection and
+/// cells are as they were.
+#[test]
+fn the_area_s_keys_beside_a_table_that_had_the_grid_s() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    for floating in [false, true] {
+        let Some((mut h, area)) = area_harness(&format!("grid-beside-{floating}")) else { return };
+        h.run_steps(3);
+        let dir = mg_testkit::scratch_dir(&format!("ui-grid-beside-area-{floating}"));
+        std::fs::write(dir.join("t.2da"), "2DA V2.0\n\n   A  B\n0  a  b\n1  c  d\n2  e  f\n")
+            .unwrap();
+        if !floating {
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        let id = mg_ui::table_view::open_path(h.state_mut(), &dir.join("t.2da")).unwrap();
+        settle(&mut h);
+        match floating {
+            // (Its window clear of the view.)
+            true => {
+                let (at, size) = (egui::pos2(10.0, 420.0), egui::vec2(300.0, 300.0));
+                own_window(&mut h, &Tab::Table(id), at, size);
+            }
+            false => h.state_mut().actions.push(mg_ui::Action::SplitEditor),
+        }
+        settle(&mut h);
+        h.get_all_by_label("c").next().unwrap().click();
+        settle(&mut h);
+        let doc = |h: &Harness<'_, Moonglow>| {
+            let d = h.state().tables.iter().find(|d| d.id == id).unwrap();
+            (d.selected, d.edit.table().cell(0, 0).map(str::to_string))
+        };
+        assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Table", "{floating}: the grid's");
+        let was = doc(&h);
+        assert_eq!(was.0, Some((1, 0)), "{floating}");
+        let waypoints = |h: &mut Harness<'_, Moonglow>| {
+            let ws = h.state_mut().ws.as_mut().unwrap();
+            let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+            git.root.list("WaypointList").unwrap().len()
+        };
+        let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            vec![(ObjectKind::Waypoint, 0)];
+        let over = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+        h.hover_at(over);
+        h.run_steps(2);
+        let (start, count) = (target(&h), waypoints(&mut h));
+        h.key_press(egui::Key::ArrowUp);
+        h.run_steps(3);
+        assert!((target(&h) - start).length() > 0.1, "{floating}: the arrow moves the camera");
+        h.key_press(egui::Key::Delete);
+        h.run_steps(3);
+        assert_eq!(waypoints(&mut h), count - 1, "{floating}: Delete deletes the waypoint");
+        assert_eq!(doc(&h), was, "{floating}: the table as it was");
+    }
+}

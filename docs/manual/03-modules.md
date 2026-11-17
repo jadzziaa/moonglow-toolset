@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T11:32:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T09:44:51Z }
 ---
 
 # Modules
@@ -1991,7 +1991,38 @@ changed:
   is asked for at once.
 
 The table is a grid: the column names stay at the top and the rows'
-numbers at the left as it scrolls.
+numbers at the left as it scrolls. Over it is the editor's header: at
+the left **Save**, **Add Row** with its count beside it, **Empty Row**,
+**Delete Row** and **Add Column…** as icons, then **Find** and **Go to**
+and, where some are, **N cells are wrong**; at the right **Values as
+names** (where a description names values) and **Strings as text** as
+icon toggles; then **More ▾**, which holds **Save As File…**, **Take
+Rows…**, **Compact**, **Show Hidden Columns** and **Reset All Widths**;
+and **OK** and **Cancel** at its right end. In a narrow window the
+header's buttons lose their words and then go into More, Find, Go to and
+Save last of all; OK and Cancel never do.
+
+The selected cell is the Right Dock's **Cell** panel, the row's users its
+**References** panel under it (one tab bar of the two in a window under
+1400 points wide), and the table's columns are the **Outliner**'s, under
+the Left Dock's tabs (with no module open, the Left Dock holds the
+Outliner alone, its fold button at the end of the Outliner's header). A
+table opened in a window of its own (Open
+editors: As Floating Windows) keeps them in its window: Cell and
+References at its right, the columns at its left where the window has
+the room beside the grid, else folded to a strip at the grid's left
+whose icon unfolds them over it. The Status Bar says how many cells are
+selected (where more than one), the table's rows and columns and where
+it is kept (in the module, in a hak, in a file), and the grid's keys
+while it has them: **Enter** Type, **Shift + Click** Select to,
+**Delete** Empty, **Ctrl + C** Copy, **Ctrl + V** Paste, **Tab** Next
+column, **Esc** Leave grid. The grid has its keys while its table is the
+editor in front of the window, the one pressed last: a press in another
+editor (of the main window, or a floating editor's window), in a dock's
+panel or in a dialog takes them away, and a click on a cell gives them
+back. The cell with the keys is filled in the accent color and ringed;
+cells chosen with it are tinted, and the column's name over it is in the
+accent color.
 
 - **A click** selects a cell; a double click, Enter or F2 types into it,
   and a letter or digit typed begins typing in its place, as in a
@@ -2039,20 +2070,33 @@ numbers at the left as it scrolls.
   widened as the others are.
 - **Hide Column**, on the same menu, takes a column out of sight while
   the table is open (its cells are kept and saved, and the arrow keys
-  pass over it); **Show Hidden Columns (n)**, over the table, brings
-  every one back.
+  pass over it); the column's **eye** in the Outliner does the same, and
+  shows it again. **Show Hidden Columns**, in the header's More (it says
+  how many: "Show Hidden Columns (2)") or the eye on the Outliner's
+  header, brings every one back.
 - **Add Column…** adds one at the end. A column is moved by dragging
   its name onto another column's (a line shows where it will go), or by
   **Move Left** and **Move Right** in the menu a right click on its name
   opens; its cells go with it. The same menu renames the column or
   removes it, with its cells (Undo puts it back where it was).
-- **Undo** and **Redo** in the editor's own row are the table's steps,
-  and so are Undo's and Redo's keys (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or
-  those set in Options › Keyboard) with the pointer over the editor or
-  the keys in its grid (after a click on a cell): there they take back a
-  paste or a typed cell, not the module's last change.
+- **Undo** and **Redo**, the Top Bar's and Edit's, and their keys
+  (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or those set in Options › Keyboard),
+  take the table's steps with the pointer over the editor or its Cell
+  and References panels, or the keys in its grid, its Cell panel or its
+  columns in the Outliner (after a click there): a paste, a typed cell
+  or a value set in the Cell panel, not the module's last change. The
+  editor has no Undo and Redo of its own.
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
-  goes to it, Escape clears it); **Go to** takes a row's number.
+  with the pointer over the table goes to it, Escape clears it); **Go
+  to** takes a row's number, Enter going there.
+- **The Outliner** lists the columns in their order, each with its
+  kind's icon and words ("any of 7 flags", "a talk-table string's
+  number") and its eye. A click on a column goes to its cell in the row
+  selected and gives the list the keys: Up, Down, Page Up, Page Down,
+  Home and End move along the columns, Enter goes to one, letters typed
+  go to a column by its name, Escape hands the keys back; F6 stops
+  there. The seam over it is kept apart from the one beside an area or a
+  conversation.
 
 **Cells are checked as you type**, as Verify Module checks a hak's
 tables: a cell that names a row of another table which isn't there or
@@ -2061,11 +2105,26 @@ class's requirement by its kind, and the like), a table which isn't
 there (a class's feat list; with the game's data), or a talk-table
 string that isn't, is outlined in red and says why under the pointer
 (a cell as the game's own copy has it, wrong there too, is the game's
-and is not: seven appearances name footstep 30 of 18); the count above the grid goes to each in turn. Under
-the grid, the selected cell is shown by what its column holds: a
-talk-table string as its text (**Strings as text** shows them so in the
-grid too), a row of another table as that row's name, with a list to
-choose another from, and a model (an appearance's `RACE`, a
+and is not: seven appearances name footstep 30 of 18); the count in the header goes to each in turn.
+
+**The Cell panel** shows the selected cell by what its column holds
+(where several cells are selected, the one with the keys, filled and
+ringed, as the board draws it; Delete, Ctrl+C and Ctrl+V in the grid act on all of
+them). Its **Value** is the cell's text, typed in: Enter, Tab or a click
+elsewhere sets it (one step), Escape lets it go; what is typed is kept
+by its cell, so a row taken away above it (an Undo, a change made
+elsewhere) carries it to the cell's new place, and where the cell itself
+is gone it is let go of, never put in the cell that took its number.
+Under it is the column's name and its kind in words, and its choosers:
+a list's values and a flags column's flags as one list of rows, each
+with its value, in a frame a few rows high that scrolls (a list of
+hundreds of values keeps the panel short). Tab stops on the list once;
+then Up, Down, Page Up, Page Down, Home and End move along it, letters
+typed go to a value by its name, and Space or Enter (or a click)
+chooses a value or ticks a flag; a talk-table string as its text (**Strings as
+text** shows them so in the grid too), a row of another table as that
+row's name, with a list to choose another from, and a model (an
+appearance's `RACE`, a
 placeable's `ModelName`, a door's) as whether the game has it and
 which layer it is read from, or that there is no model of the name in
 the game, its haks or the module; **Choose Model…** lists the models the
@@ -2095,6 +2154,12 @@ that do, by a constant of `nwscript` that stands for the row
 row (its number written, or a constant). A click on one of the module's
 goes there. That is who would be left pointing at nothing if the row
 were emptied; a script that works a row out as it runs is not found.
+It is the **References** panel's (its header names the row): it looks
+on a thread of its own, saying **Looking through the game's tables and
+the module…** meanwhile while the window goes on, and stops where
+another row is chosen or the table changes; it lists **In the game's
+tables** and **In the module**, each with its count, or says that
+nothing names the row.
 
 **Take Rows…** is for a table that hides another copy of itself (your
 hak's `appearance.2da` over another hak's, or over the game's). It lists
@@ -2129,11 +2194,12 @@ changed by another program) is read again, as it is now, where nothing
 in the editor is unsaved; with something unsaved, the editor says so
 over the table, and Save writes the editor's table over the other.
 
-Under the table are **OK** and **Cancel**: OK saves the table and closes
-its window; Cancel closes it without saving, asking first where there
-are unsaved changes (**Save**, **Don't Save** or **Cancel**), as the
-window's close button does (a table's changes are its own, and the module's Undo
-does not bring them back).
+At the header's right end are **OK** and **Cancel**: OK saves the table
+and closes its window; Cancel closes it without saving (what was set in
+its Cell panel too), asking first where there are unsaved changes
+(**Save**, **Don't Save** or **Cancel**), as the window's close button
+does (a table's changes are its own, and the module's Undo does not
+bring them back).
 
 ### A table's description
 

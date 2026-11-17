@@ -1,6 +1,17 @@
 # Update log
 
 ## 2026-11-17
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U16's review ([03](manual/03-modules.md#the-2da-editor), [02](manual/02-main-window.md)).
+  * The grid's keys (Tab, the arrows, Delete, typing) are its table's only while that table is the editor in front: a press in another editor, a dock's panel or a dialog takes them away, a read-only table's too.
+  * The grid is drawn as the Table board draws it: the cell with the keys filled in the accent color and ringed, the cells chosen with it tinted, the column's name over it in the accent color, the row numbers in the gutter at the right.
+  * A list's values and a flags column's flags in the Cell panel are one list, one stop of Tab, with its keys and letters, in a frame a few rows high; Enter in Cell's Value no longer copies a large table.
+  * With no module open, a table's columns are the Left Dock's Outliner alone; the Outliner lays out only the columns in sight.
+  * F6 no longer leaves the keyboard's focus in the panel it leaves (References' button kept it, and the Outliner's keys did nothing); a wrong cell under the cursor reads in the light theme.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U16, the 2DA editor**, as the Table board draws it ([03](manual/03-modules.md#the-2da-editor), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The 2DA editor's three rows of buttons are one header row**: Save, Add Row with its count, Empty Row, Delete Row and Add Column… as icons, Find, Go to and the wrong cells; Values as names and Strings as text at the right; More with Save As File…, Take Rows…, Compact, Show Hidden Columns and Reset All Widths; OK and Cancel at its end. Its own Undo and Redo are gone: the Top Bar's and Ctrl+Z take the table's steps.
+  * **The selected cell is edited in the Right Dock's Cell panel**: its Value typed in (kept by its cell when rows are numbered anew under it), a list's values and the flags as one list of rows with their values, the row, string and model choosers, the column's kind, and what describes the table. **References** under it finds what names the row without holding up the window, and stops when another row is chosen.
+  * **The Outliner lists the table's columns**, each with its kind and an eye that hides it as Hide Column does; a click or Enter goes to the column. A table in a window of its own keeps Cell and References at its right and its columns at its left (or folded to a strip).
+  * **The Status Bar** says how many cells are selected, the table's rows, columns and where it is kept, and the grid's keys; Tab now goes to the next column, as it says (before, the first button took it).
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U15's review ([06](manual/06-conversations.md#bookmarks), [02](manual/02-main-window.md)).
   * A conversation's Data no longer redraws without end beside some lines in the default window (its Script rows now stand on one line where they fit).
   * A conversation in a window too narrow for its Outliner folds it to a strip at the tree's left: its icon opens the bookmarks over the tree, and the header keeps its commands.

@@ -1055,7 +1055,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             }
             Viewing::Table(table, made) => {
                 let label = table.copies[0].0.clone();
-                crate::browser::two_da(app, ui, key, Some(&label), (table, *made));
+                let tab = Tab::Hak(id);
+                crate::browser::two_da(app, ui, key, Some(&label), (table, *made), &tab);
             }
             Viewing::Model(true) => {
                 use crate::model_view::Source;

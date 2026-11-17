@@ -767,14 +767,14 @@ impl Id {
             // (The docks' panels too: the Resources panel or the Palette
             // panel without a module.)
             Id::NextPane | Id::PreviousPane => {
-                open || crate::shell::left_shown(app).is_some()
-                    || crate::shell::right_shown(app).is_some()
+                open || crate::shell::left_holds(app) || crate::shell::right_shown(app).is_some()
             }
             Id::ViewLog | Id::ResetLayout => true,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
             // (Whenever the Left Dock holds a panel: its Resources panel
             // without a module too.)
-            Id::ViewTree => crate::shell::left_shown(app).is_some(),
+            // (Or the Outliner alone: a table's columns without a module.)
+            Id::ViewTree => crate::shell::left_holds(app),
             Id::HidePanels => open,
             // (Whenever the Right Dock holds a panel: the Palette panel
             // without a module too, once asked for.)

@@ -22,4 +22,4 @@ asks:
 - to_bytes_like keeps row labels by position and tabs; the editor saves like the bytes it read (TableDoc::read), and rereads when the source changes.
 ## Watch out
 - The scratchpad is shared between packages: a commit -F msgN.txt can pick up another session's file; write the message file just before committing.
-- A chooser drawn inside the cell panel's horizontal_wrapped gets squeezed to a sliver: end_row() and a vertical of its own.
+- A chooser drawn inside the cell panel's horizontal_wrapped gets squeezed to a sliver: end_row() and a vertical of its own. (Still so in the Cell panel since M4's U16: the choosers are drawn in a horizontal_wrapped there.)

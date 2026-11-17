@@ -1156,14 +1156,13 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.run_steps(4);
     // (The description's folder is walked on a thread of its own.)
     settle(&mut h);
-    h.get_by_label_contains("Described by loot.2da.toml: 4 columns");
+    h.get_by_label_contains("Described by loot.2da.toml: 4 of 5 columns");
     let d = h.state().tables[0].description().expect("the description is read");
     assert_eq!(d.column("Kinds").unwrap().kind.entries().len(), 2);
     // Values by their names; the cell out of its range is the one wrong.
     h.get_by_label("LOOT_KIND_GOLD | LOOT_KIND_GEMS");
     h.get_by_label("Rare");
-    h.get_by_label("1 cell is wrong").click();
-    h.run_steps(3);
+    table_click(&mut h, "1 cell is wrong");
     assert_eq!(h.state().tables[0].selected, Some((1, 1)));
     h.get_by_label_contains("500 is above what the column takes");
     h.get_by_label("In a hundred");
@@ -1195,36 +1194,23 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(0, "Place"), Some("2"));
     // A list's cell is chosen by name: the table gets the value.
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let open = |h: &mut Harness<'_, Moonglow>, shows: &str| {
-        let at = h
-            .query_all(combo.clone())
-            .find(|n| n.accesskit_node().value().is_some_and(|v| v == shows))
-            .map(|n| n.rect().center())
-            .unwrap_or_else(|| panic!("the list showing {shows}"));
-        h.hover_at(at);
-        press(h, at, true, egui::Modifiers::NONE);
-        press(h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    };
-    h.get_by_label("Common").click();
-    h.run_steps(3);
-    open(&mut h, "Common");
-    h.get_by_label("Rare  (1)").click();
-    h.run_steps(3);
+    // (Since M4's U16 the Cell panel's rows, each with its value.)
+    grid_cell(&h, "Common").click();
+    settle(&mut h);
+    choice(&h, "Rare").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("1"));
     // Flags are ticked: each is a bit of the cell, written as the list's
     // own values are.
-    h.get_by_label("LOOT_KIND_GOLD").click();
-    h.run_steps(3);
-    open(&mut h, "LOOT_KIND_GOLD");
-    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
-    h.run_steps(3);
+    grid_cell(&h, "LOOT_KIND_GOLD").click();
+    settle(&mut h);
+    choice(&h, "LOOT_KIND_GEMS").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Kinds"), Some("0x03"));
-    h.get_by_label("LOOT_KIND_GOLD  (0x01)").click();
-    h.run_steps(3);
-    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
-    h.run_steps(3);
+    choice(&h, "LOOT_KIND_GOLD").click();
+    settle(&mut h);
+    choice(&h, "LOOT_KIND_GEMS").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Kinds"), None, "no flag: an empty cell");
     // A value no list has, typed in the cell, is a fault said as it is typed.
     h.key_press(egui::Key::Escape);
@@ -1239,7 +1225,7 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("17"));
-    h.get_by_label("2 cells are wrong");
+    assert_eq!(table_headers_with(&h, "2 cells are wrong"), 1);
     // The description is read again when its file changes: with a wider
     // range, the chance of 500 is not wrong any more.
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1248,7 +1234,7 @@ fn a_described_table_is_chosen_from_its_lists() {
     // (Looked at once a second, of the time egui gives.)
     h.run_steps(90);
     settle(&mut h);
-    h.get_by_label("1 cell is wrong");
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 1);
     // A table the description names, open in the editor: as it is there,
     // not as its file has it.
     let places = dir.join("src/places.2da");

@@ -56,6 +56,7 @@ mod shell;
 mod sounds;
 mod status_bar;
 mod status_hints;
+mod table_panels;
 mod tables;
 mod tile_edges;
 mod tile_properties;

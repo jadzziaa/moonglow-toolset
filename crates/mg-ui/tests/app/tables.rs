@@ -745,9 +745,10 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     assert_eq!(table_of(&h, id).get(0, "Spell"), Some("302"));
 }
 
-/// A flags cell's list of ticks by the keys (GitHub issue 7): once its
-/// box is clicked, Down opens it, the arrows move along the flags and
-/// Space ticks the one there (the list staying open).
+/// A flags cell's ticks by the keys (GitHub issue 7): since M4's U16 the
+/// Cell panel's list of flags, one stop of Tab from the Value field, the
+/// arrows along it and Space or Enter ticking the one there; a click on a
+/// row ticks it too.
 #[test]
 fn a_flags_list_is_ticked_by_the_keys() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -768,35 +769,36 @@ fn a_flags_list_is_ticked_by_the_keys() {
     // (The description's folder is walked on a thread of its own.)
     settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
-    h.run_steps(3);
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let at = h
-        .query_all(combo)
-        .find(|n| n.accesskit_node().value().as_deref() == Some("Red"))
-        .map(|n| n.rect().center())
-        .expect("the flags' list");
-    h.hover_at(at);
-    h.run_steps(1);
-    // Opened and closed by clicks: the box keeps the keys.
-    for _ in 0..2 {
-        press(&h, at, true, egui::Modifiers::NONE);
-        press(&h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    }
-    assert!(h.query_by_label("Blue  (4)").is_none(), "closed");
-    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowDown] {
+    settle(&mut h);
+    // (Since M4's U16 the flags are the Cell panel's list of rows, each a
+    // check box with its value: one stop of Tab from the Value field, the
+    // arrows along them, Space or Enter ticking the one there: the review's
+    // ruling, the old list's keys kept.)
+    cell_value(&h).click();
+    settle(&mut h);
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    let focused = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_label("Values").any(|n| n.accesskit_node().is_focused())
+    };
+    assert!(focused(&h), "Tab came to the flags' list");
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown] {
         h.key_press(key);
-        h.run_steps(2);
+        settle(&mut h);
     }
     h.key_press(egui::Key::Space);
-    h.run_steps(3);
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x5"), "Blue ticked");
-    assert!(h.query_by_label("Blue  (4)").is_some(), "still open");
     h.key_press(egui::Key::ArrowUp);
-    h.run_steps(2);
+    settle(&mut h);
     h.key_press(egui::Key::Enter);
-    h.run_steps(3);
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x7"), "Green ticked");
+    assert!(focused(&h), "still the list's");
+    // Red, ticked, unticked by a click on its row.
+    choice(&h, "Red").click();
+    settle(&mut h);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x6"), "Red unticked");
 }
 
 /// A talk table kept in the module (a `.tlk` among its resources) is
@@ -1130,7 +1132,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.get(0, "Label"), t.get(1, "Cost")), (None, None));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("2"));
     // A paste begins at the selection's first cell, and adds the rows it
@@ -1174,7 +1176,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
 
     // A column's name, right-clicked: renamed, then removed.
     let secondary = |h: &mut Harness<'_, Moonglow>, label: &str| {
-        let pos = h.get_by_label(label).rect().center();
+        let pos = column_name(h, label).rect().center();
         h.hover_at(pos);
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton {
@@ -1200,7 +1202,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.run_steps(3);
     let t = table_of(&h, id);
     assert_eq!((t.columns().to_vec(), t.cell(0, 0)), (vec!["Costs".to_string()], Some("5")));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"), "back where it was");
     // A column is moved by its menu, and by a drag of its name onto
@@ -1217,7 +1219,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     );
     assert_eq!(h.state().tables[0].selected, Some((0, 1)));
     let (from, to) =
-        (h.get_by_label("Label").rect().center(), h.get_by_label("Costs").rect().center());
+        (column_name(&h, "Label").rect().center(), column_name(&h, "Costs").rect().center());
     h.hover_at(from);
     press(&h, from, true, egui::Modifiers::NONE);
     h.run_steps(1);
@@ -1228,7 +1230,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).columns(), ["Costs", "Label"], "a step to take back");
 }
@@ -1380,7 +1382,7 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
-    h.get_by_label("(unsaved)");
+    assert!(h.state().tables[0].edit.is_dirty(), "unsaved");
     // The keys are the grid's: Up and Right to Bread's cost, Delete
     // empties it; Escape while typing leaves a cell as it was.
     let key_ = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
@@ -1407,49 +1409,49 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.run_steps(2);
     key_(&mut h, egui::Key::Enter);
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("42"), "typed over");
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     key_(&mut h, egui::Key::ArrowUp);
     assert_eq!(at(&h), Some((0, 1)));
     // Add Row puts one at the end; Empty Row empties the selected one,
     // which stays.
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (3, Some((2, 1))));
     // Delete Row takes the selected row away (here the last), and Add
     // Row adds as many as its number says, in one step.
-    h.get_by_label("Delete Row").click();
+    table_click(&mut h, "Delete Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (2, Some((1, 1))));
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 5;
     h.run_steps(2);
-    h.get_by_label("Add 5 Rows").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (7, Some((2, 1))));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), 2);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 1;
     h.run_steps(2);
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     // A row between others: those after it move up, and Undo puts it back.
     h.get_by_label("Cheesey").click();
     h.run_steps(2);
-    h.get_by_label("Delete Row").click();
+    table_click(&mut h, "Delete Row");
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.len(), t.get(1, "Label")), (2, None), "the added row is row 1 now");
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), 3);
     // (The row put back is the one selected.)
-    h.get_by_label("Empty Row").click();
+    table_click(&mut h, "Empty Row");
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.len(), t.get(1, "Label"), t.get(1, "Cost")), (3, None, None));
     // Undo is the table's own, step by step.
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
     // Save: the module's table is as edited, in one step of the module's.
@@ -1458,12 +1460,12 @@ fn a_module_s_table_is_edited_cell_by_cell() {
         mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
     };
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
-    apart(&h, "Save").click();
+    table_click(&mut h, "Save");
     h.run_steps(3);
     // (The empty row at the end is in the file, a row as the game counts
     // it: `engine_counts_an_empty_last_row`.)
     assert_eq!(stored(&mut h).rows, table_of(&h, id).rows);
-    assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    assert!(!h.state().tables[0].edit.is_dirty(), "saved: not marked");
     // The module's Undo takes the save back with the table open: the
     // editor reads it again.
     // (The module's own Undo: the one under the menu is the grid's while
@@ -1595,8 +1597,10 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     // Compact: saved with one space between cells (ticking it is a change
     // to save), and a file read so is saved so again.
     assert!(!h.state().tables.iter().find(|d| d.id == loose).unwrap().compact);
-    // (The hak's table is open beside it: the file's is the one opened last.)
-    h.get_all_by_label("Compact").last().unwrap().click();
+    // (The hak's table, saved, closed: the file's header is the one left.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    settle(&mut h);
+    table_click(&mut h, "Compact");
     h.run_steps(3);
     let doc = h.state().tables.iter().find(|d| d.id == loose).unwrap();
     assert!(doc.compact && doc.edit.is_dirty());
@@ -1663,9 +1667,9 @@ fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         doc.edit.set(0, footsteps, Some("30".into())).unwrap();
     }
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(3);
-    h.get_by_label("1 cell is wrong").click();
+    table_click(&mut h, "1 cell is wrong");
     h.run_steps(4);
     assert_eq!(h.state().tables[0].selected, Some((0, footsteps)));
 }
@@ -1698,9 +1702,9 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
         doc.go_to(0, 0);
     }
     // (The table changed under the window: as an edit there would say.)
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(3);
-    h.get_by_label("1 cell is wrong").click();
+    table_click(&mut h, "1 cell is wrong");
     h.run_steps(4);
     assert_eq!(h.state().tables[0].selected, Some((3, prereq)));
     h.get_by_label_contains("row 4000 of feat.2da doesn't exist");
@@ -1712,7 +1716,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     assert!(found.len() > 3, "{found:?}");
     // Take Rows: the game's copy has the 25 rows this one lacks, and two
     // it has differently (this is the lowest copy: whose change, untold).
-    h.get_by_label("Take Rows…").click();
+    table_click(&mut h, "Take Rows…");
     h.run_steps(4);
     h.get_by_label_contains("25 new, 2 that differ");
     // (The Differ box ticks the two that differ; Clear Selections unticks;
@@ -1737,7 +1741,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     assert_eq!(now.get(5, "LABEL"), Some("MyOwnShot"), "what was not chosen is as it was");
     assert!(h.state().tables[0].taking.is_none(), "the window closed");
     // One step to take back (and the row added above, another).
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), whole - 24);
 }
@@ -1862,7 +1866,7 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     // Dragged by its name, Cost moves before Label, and Label's width goes
     // with it.
     let (from, to) =
-        (h.get_by_label("Cost").rect().center(), h.get_by_label("Label").rect().center());
+        (column_name(&h, "Cost").rect().center(), column_name(&h, "Label").rect().center());
     drag(&mut h, from, to);
     assert_eq!(table_of(&h, id).columns(), ["Cost", "Label"], "moved by its name");
     let now = left_of(&h, "Label") - left_of(&h, "Cost");
@@ -1892,7 +1896,7 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
     // Reset Width, on the column's menu: its first width again.
-    h.get_by_label("Label").click_secondary();
+    column_name(&h, "Label").click_secondary();
     h.run_steps(3);
     h.get_by_label("Reset Width").click();
     h.run_steps(3);
@@ -1900,13 +1904,13 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
     assert!((label_width - 116.0).abs() < 12.0, "its first width again: {label_width}");
     // Hide Column: out of sight, its cells kept; Show Hidden Columns.
-    h.get_by_label("Cost").click_secondary();
+    column_name(&h, "Cost").click_secondary();
     h.run_steps(3);
     h.get_by_label("Hide Column").click();
     h.run_steps(3);
     assert!(h.query_by_label("Cost").is_none(), "hidden");
     assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "kept");
-    h.get_by_label("Show Hidden Columns (1)").click();
+    table_click(&mut h, "Show Hidden Columns");
     h.run_steps(3);
     assert!(h.query_by_label("Cost").is_some(), "shown again");
 }
@@ -2082,8 +2086,13 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
         h.run_steps(2);
     };
     let none = egui::Modifiers::NONE;
-    // From the middle's: the log (no palettes here), the tree, then the
-    // middle: the table's first cell.
+    // From the middle's: its window's Cell and References (M4's U16: a
+    // floating table's right pane), the log (no palettes here), the tree,
+    // then the middle: the table's first cell.
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Cell");
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "TableReferences");
     key_(&mut h, none, egui::Key::F6);
     assert!(h.state().tree_cursor.is_none(), "the log has the keys");
     key_(&mut h, none, egui::Key::F6);
@@ -2174,15 +2183,7 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     h.get_by_label("no model of this name in the game, its haks or the module");
     h.get_by_label("Choose Model…").click();
     h.run_steps(3);
-    let field = h
-        .get_all_by_role(egui::accesskit::Role::TextInput)
-        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
-        .unwrap()
-        .rect()
-        .center();
-    click_pos(&h, field);
-    h.run_steps(2);
-    h.event(egui::Event::Text("plc_c0".into()));
+    type_into_hint(&mut h, "Part of a model's name", "plc_c0");
     h.run_steps(4);
     let at = h.get_by_label("plc_c02").rect().center();
     click_pos(&h, at);
@@ -2294,7 +2295,7 @@ fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
     h.run_steps(3);
     settle(&mut h);
     h.get_by_label_contains("Described by loot.2da.toml");
-    h.get_by_label("1 cell is wrong");
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 1);
     // The game's spells.2da, a school changed to one the engine lacks.
     let game = game_data(&root);
     let mut t = (*game.table("spells").unwrap()).clone();
@@ -2308,7 +2309,7 @@ fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
     h.get_by_label_contains("Described by Moonglow (the game's spells.2da)");
     // (Bigby's Crushing Hand's MetaMagic of 0xff, the game's, is not
     // said: one cell in each table open, the hak's and this.)
-    assert_eq!(h.get_all_by_label("1 cell is wrong").count(), 2);
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 2);
     let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
     let description = doc.description().unwrap();
     let school = &description.column("School").unwrap().kind;
@@ -2345,7 +2346,7 @@ fn a_row_both_copies_changed_is_taken_cell_by_cell() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
-    h.get_by_label("Take Rows…").click();
+    table_click(&mut h, "Take Rows…");
     h.run_steps(4);
     h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
     h.get_by_label("Cells…").click();
