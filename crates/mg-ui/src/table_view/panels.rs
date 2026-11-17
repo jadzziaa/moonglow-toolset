@@ -765,7 +765,7 @@ fn cell_body(
         }
     }
     if open_talk {
-        app.actions.push(Action::OpenTab(Tab::TalkTable));
+        app.actions.push(Action::ShowModuleTalk);
     }
 }
 

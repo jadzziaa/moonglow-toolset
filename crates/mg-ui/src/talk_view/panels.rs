@@ -47,8 +47,8 @@ impl Drop for Looking {
 }
 
 /// The talk table an editor shown in the docks or its window is.
-fn which_of(editor: Option<&Tab>) -> Option<Which> {
-    Which::of(editor?)
+fn which_of(app: &Moonglow, editor: Option<&Tab>) -> Option<Which> {
+    Which::of(app, editor?)
 }
 
 /// The panels' header's detail: String's "StrRef 18608, line 18608",
@@ -59,7 +59,7 @@ pub(crate) fn detail(
     panel: crate::shell::Panel,
 ) -> Option<String> {
     use crate::shell::Panel;
-    let which = which_of(editor)?;
+    let which = which_of(app, editor)?;
     let Some((t, v)) = parts_of(app, which) else {
         return (panel == Panel::TalkFile).then(|| "No talk table".to_string());
     };
@@ -168,7 +168,7 @@ pub fn text_id(which: Which, row: usize) -> egui::Id {
 /// it: the fields are the line's own). Read-only for a table only looked
 /// at, which says why. Copy puts the line's StrRef on the clipboard.
 pub(crate) fn string(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
-    let Some(which) = which_of(editor) else { return };
+    let Some(which) = which_of(app, editor) else { return };
     let editable = super::editable(app, which);
     if which == Which::Module {
         crate::side_doc::note_pointer(app, ui, &Tab::TalkTable);
@@ -380,7 +380,7 @@ pub(crate) fn string(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
 /// String's header's tool (the Talk board's `.panel-tabs .tools`): Copy
 /// the StrRef of the line chosen, onto the clipboard.
 pub(crate) fn copy_tool(app: &Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
-    let which = which_of(editor);
+    let which = which_of(app, editor);
     let chosen = which.and_then(|w| Some((w, parts_of(app, w)?.1.selected?)));
     let button = mg_uikit::IconButton::new(Icon::Copy, COPY_STRREF).icon_only(true);
     let r = ui.add_enabled(chosen.is_some(), button).on_hover_text(COPY_STRREF_TIP);
@@ -515,7 +515,7 @@ const LISTED: usize = 200;
 /// does, stopped as another line is chosen or the table closes; "Nothing
 /// names line N" where nothing does.
 pub(crate) fn references(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
-    let Some(which) = which_of(editor) else { return };
+    let Some(which) = which_of(app, editor) else { return };
     let ctx = ui.ctx().clone();
     let focus = begin_panel(app, ui, crate::palette_view::Keys::TableReferences);
     let has_module = app.ws.is_some();
@@ -643,7 +643,7 @@ pub(crate) fn references(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) 
 /// Table, the page that makes the module's own where it has none (or one
 /// the game can't find).
 pub(crate) fn file(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
-    let Some(which) = which_of(editor) else { return };
+    let Some(which) = which_of(app, editor) else { return };
     if which == Which::Module {
         crate::side_doc::note_pointer(app, ui, &Tab::TalkTable);
     }
@@ -872,6 +872,8 @@ fn module_s_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>, focus: 
                 app.log.info(format!("Made talk table {}", t.source));
                 app.talk = Some(t);
                 app.talk_view = TalkView::default();
+                // (Shown in the tab, the game's dialog.tlk let go of.)
+                super::hide_game(app);
                 if name.as_deref() != Some(new.as_str()) {
                     use mg_schema::{ExoString, GffValue, ifo};
                     app.actions.push(Action::Apply(mg_edit::Command::new(

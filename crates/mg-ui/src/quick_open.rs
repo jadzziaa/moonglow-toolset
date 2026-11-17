@@ -611,9 +611,9 @@ pub(crate) enum Target {
     Command(Choice),
     /// A recent module, opened as File › Recent Modules opens it.
     Module(PathBuf),
-    /// The game's own `dialog.tlk`, read-only in its tab (M4's U17): no
-    /// resource of the load order (a hak's own `dialog.tlk` is one, and
-    /// opens as the Resources panel opens it).
+    /// The game's own `dialog.tlk`, read-only in the Talk Table tab (M4's
+    /// U17): no resource of the load order (a hak's own `dialog.tlk` is
+    /// one, and opens as the Resources panel opens it).
     GameTalk,
 }
 
@@ -1960,7 +1960,7 @@ fn choose(app: &mut Moonglow, ctx: &egui::Context, target: Target) {
         Target::Command(choice) => commands::run_choice(app, ctx, choice),
         // (Asked about unsaved work first, as File › Recent Modules is.)
         Target::Module(path) => app.actions.push(Action::OpenModule(path)),
-        Target::GameTalk => app.actions.push(Action::OpenTab(Tab::GameTalkTable)),
+        Target::GameTalk => app.actions.push(Action::ShowGameTalk),
     }
 }
 

@@ -13414,9 +13414,9 @@ fn no_module_window(root: &std::path::Path, size: egui::Vec2) -> Harness<'static
     h
 }
 
-/// Talk.png: the game's `dialog.tlk` in its own tab (read-only, M4's U17),
-/// line 18608 chosen and in sight, its References found (Faribeth's
-/// conversation names it).
+/// Talk.png: the game's `dialog.tlk` in the Talk Table tab (read-only, M4's
+/// U17; the owner's ruling: the one tab), line 18608 chosen and in sight,
+/// its References found (Faribeth's conversation names it).
 #[test]
 #[ignore]
 fn board_talk() {
@@ -13424,7 +13424,7 @@ fn board_talk() {
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     board_user_folder(&mut h);
-    board_front(&mut h, &mg_ui::Tab::GameTalkTable);
+    board_game_talk(&mut h);
     h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
     mg_ui::talk_view::take_keys(&h.ctx, mg_ui::talk_view::Which::Game);
     h.run_steps(5);
@@ -13433,6 +13433,52 @@ fn board_talk() {
     frames_until(&mut h, "its references found", |h| h.state().under_way().is_none());
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_talk");
+}
+
+/// The game's `dialog.tlk` shown in the Talk Table tab, as the Resources
+/// panel's row shows it, the tab in front.
+fn board_game_talk(h: &mut Harness<'_, Moonglow>) {
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    frames_until(h, "dialog.tlk shown", |h| {
+        h.state().tab_rect(&mg_ui::Tab::TalkTable).is_some() && h.state().game_talk.is_some()
+    });
+    h.run_steps(5);
+}
+
+/// The Talk Table tab across the owner's ruling (one tab, M4's U17):
+/// `talk-returned`, the module's own table back after `dialog.tlk` was shown
+/// in its tab, a line typed and not saved (its tab's dot, the line in
+/// String); `talk-game-floating-720`, the tab floating in a 1280 by 720
+/// screen showing `dialog.tlk`.
+#[test]
+#[ignore]
+fn talk_one_tab() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_own_talk(&mut h);
+    board_front(&mut h, &mg_ui::Tab::TalkTable);
+    h.state_mut().talk_view.go_to_line(7);
+    h.run_steps(5);
+    let mut line = h.state().talk.as_ref().unwrap().line(7);
+    line.text.push_str(" Not saved yet.");
+    h.state_mut().talk.as_mut().unwrap().set_line(7, &line, None).unwrap();
+    board_game_talk(&mut h);
+    h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
+    h.run_steps(5);
+    // (More › Module's Table.)
+    h.get_by_label(mg_ui::talk_view::TALK_HEADER).get_by_label("More").click();
+    h.run_steps(3);
+    h.get_by_label(mg_ui::talk_view::MODULE_S_TABLE).click();
+    frames_until(&mut h, "the module's table back", |h| h.state().game_talk.is_none());
+    h.run_steps(10);
+    shoot(&mut h, &dir, "talk-returned");
+    let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
+    board_game_talk(&mut h);
+    h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "talk-game-floating-720");
 }
 
 /// A user folder of the pictures' own (a scratch one: never the real

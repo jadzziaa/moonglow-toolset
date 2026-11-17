@@ -912,7 +912,7 @@ impl Id {
             Id::AreaWizard => Action::AreaWizard,
             Id::Factions => Action::OpenTab(Tab::Factions),
             Id::Journal => Action::OpenTab(Tab::Journal),
-            Id::TalkTable => Action::OpenTab(Tab::TalkTable),
+            Id::TalkTable => Action::ShowModuleTalk,
             Id::Palettes => Action::ShowPanel(crate::Panel::Palette),
             Id::PreviewWindow => Action::ShowPanel(crate::Panel::Preview),
             Id::PlaceableGallery => Action::PlaceableGallery,

@@ -2052,8 +2052,10 @@ fn talk_table(h: &mut App<'_>, r: &mut Report) {
     }
     let was = h.state().settings.open_editors;
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    let t = Tab::GameTalkTable;
-    open(h, t.clone());
+    // (Shown in the Talk Table tab, as the Resources panel's row shows it.)
+    let t = Tab::TalkTable;
+    h.state_mut().actions.push(Action::ShowGameTalk);
+    h.run_steps(3);
     if let Some(g) = h.state_mut().game_talk.as_mut() {
         g.view.go_to_line(18608);
     }

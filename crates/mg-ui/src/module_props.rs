@@ -727,7 +727,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         }
         let label = if tlk.is_empty() { "New…" } else { "Edit…" };
         if ui.button(label).on_hover_text("Tools › Talk Table").clicked() {
-            app.actions.push(Action::OpenTab(crate::Tab::TalkTable));
+            app.actions.push(Action::ShowModuleTalk);
         }
     });
     typed_lines(app, ui);

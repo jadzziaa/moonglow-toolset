@@ -35,9 +35,6 @@ pub enum Tab {
     Journal,
     /// The module's custom talk table.
     TalkTable,
-    /// The game's own `dialog.tlk`, read-only, its lines by their own
-    /// StrRefs (M4's U17, ruling 7).
-    GameTalkTable,
     /// A hak in the hak editor (its id among the open haks).
     Hak(u32),
     /// A 2DA in the table editor (its id among the open tables).
@@ -178,7 +175,6 @@ impl Tab {
             Tab::Factions => "factions",
             Tab::Journal => "journal",
             Tab::TalkTable => "talk-table",
-            Tab::GameTalkTable => "game-talk-table",
             Tab::Hak(_) => "hak",
             Tab::Table(_) => "table",
             Tab::Tileset(_) => "tileset",
@@ -235,7 +231,7 @@ impl Tab {
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
             // (The Talk board's list, its header whole beside it: M4's U17.)
-            Tab::TalkTable | Tab::GameTalkTable => (980.0, 700.0),
+            Tab::TalkTable => (980.0, 700.0),
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal => (780.0, 632.0),
             Tab::Gff(_) => (780.0, 600.0),
@@ -301,13 +297,12 @@ impl Tab {
             "advanced-search",
             "plugin-panel",
         ];
-        const ROWS: [&str; 16] = [
+        const ROWS: [&str; 15] = [
             "script",
             "nui",
             "gff",
             "journal",
             "talk-table",
-            "game-talk-table",
             "hak",
             "table",
             "tileset",
@@ -623,7 +618,6 @@ impl Viewer<'_> {
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::TalkTable => crate::talk_view::ui(self.app, ui),
-            Tab::GameTalkTable => crate::talk_view::game_ui(self.app, ui),
             Tab::Hak(id) => crate::hak_view::ui(self.app, ui, *id),
             Tab::Table(id) => crate::table_view::ui(self.app, ui, *id),
             Tab::Tileset(id) => crate::tileset_view::ui(self.app, ui, *id),
@@ -1013,7 +1007,6 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
             doc.map_or("2DA".into(), SideDoc::title)
         }
         Tab::TalkTable => "Talk Table".into(),
-        Tab::GameTalkTable => "dialog.tlk".into(),
         Tab::Dialog(k) => k.to_string(),
         Tab::Resource(k) => format!("{k} (read-only)"),
         Tab::ResourceCopy { key, layer } => format!("{key} from {layer} (read-only)"),
@@ -1149,7 +1142,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::Blueprints(keys) => keys.first().map_or(I::Properties, |k| of(k.restype)),
         Tab::Factions => I::Faction,
         Tab::Journal => I::Journal,
-        Tab::TalkTable | Tab::GameTalkTable => I::TalkTable,
+        Tab::TalkTable => I::TalkTable,
         Tab::Hak(_) => I::Hak,
         Tab::Table(_) => I::Table,
         Tab::Tileset(_) => I::Tileset,
@@ -1532,7 +1525,6 @@ fn fits(tab: &Tab) -> bool {
                 | Tab::Journal
                 | Tab::Dialog(_)
                 | Tab::TalkTable
-                | Tab::GameTalkTable
                 | Tab::Tileset(_)
                 | Tab::PluginPanel { .. }
         )
@@ -1719,7 +1711,6 @@ mod tests {
             (Tab::Factions, I::Faction),
             (Tab::Journal, I::Journal),
             (Tab::TalkTable, I::TalkTable),
-            (Tab::GameTalkTable, I::TalkTable),
             (Tab::Hak(1), I::Hak),
             (Tab::Table(1), I::Table),
             (Tab::Tileset(1), I::Tileset),
@@ -1758,7 +1749,6 @@ mod tests {
                 | Tab::Factions
                 | Tab::Journal
                 | Tab::TalkTable
-                | Tab::GameTalkTable
                 | Tab::Hak(_)
                 | Tab::Table(_)
                 | Tab::Tileset(_)

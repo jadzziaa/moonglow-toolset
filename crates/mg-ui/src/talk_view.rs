@@ -8,11 +8,13 @@
 //! in a hak is shown read-only. Open File and New File edit a `.tlk` anywhere
 //! instead, with or without a module open.
 //!
-//! The game's own `dialog.tlk` (ruling 7 of the redesign) opens read-only in
-//! a tab of its own ([`crate::Tab::GameTalkTable`]), its lines numbered by
-//! their own StrRefs (from 0): the table the game's data read, the
-//! install's language's, shared and never copied after it is opened
-//! ([`GameTalk`]).
+//! The game's own `dialog.tlk` (ruling 7 of the redesign) is shown
+//! read-only in the same Talk Table tab, as the Talk board draws it (the
+//! owner's ruling of 2026-11-17), its lines numbered by their own StrRefs
+//! (from 0): the table the game's data read, the install's language's, one
+//! copy made as it is shown and let go of as the tab shows another table or
+//! closes ([`GameTalk`]). The module's table stays as it was meanwhile, its
+//! unsaved lines, its steps, its chosen line and its list's place with it.
 //!
 //! M4's U17 (the Talk board): the editor is the kit's header over the list
 //! (a header row, the rows in sight alone laid out); the chosen line's
@@ -31,9 +33,9 @@ use mg_core::StrRef;
 use mg_module::talk::{self, Line, Table};
 use mg_resman::ResKey;
 
-/// Which talk table an editor, its panels and its keys are of: the
+/// Which talk table the Talk Table tab, its panels and its keys show: the
 /// module's (or a file's opened on its own: [`TalkView::outside`]), or the
-/// game's `dialog.tlk`.
+/// game's `dialog.tlk` ([`Which::shown`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Which {
     #[default]
@@ -42,20 +44,22 @@ pub enum Which {
 }
 
 impl Which {
-    /// Its editor's tab.
+    /// Its editor's tab: the one Talk Table tab, whichever it shows.
     pub fn tab(self) -> Tab {
-        match self {
-            Which::Module => Tab::TalkTable,
-            Which::Game => Tab::GameTalkTable,
-        }
+        Tab::TalkTable
     }
 
-    /// The talk table a tab edits or shows, if it is one's.
-    pub fn of(tab: &Tab) -> Option<Which> {
-        match tab {
-            Tab::TalkTable => Some(Which::Module),
-            Tab::GameTalkTable => Some(Which::Game),
-            _ => None,
+    /// The talk table a tab shows now, if it is the Talk Table tab.
+    pub fn of(app: &Moonglow, tab: &Tab) -> Option<Which> {
+        (*tab == Tab::TalkTable).then(|| Which::shown(app))
+    }
+
+    /// The talk table the Talk Table tab shows now: the game's while its
+    /// copy is made ([`show_game`]), else the module's.
+    pub fn shown(app: &Moonglow) -> Which {
+        match app.game_talk {
+            Some(_) => Which::Game,
+            None => Which::Module,
         }
     }
 
@@ -115,6 +119,37 @@ pub(crate) fn game_table(app: &mut Moonglow) -> Option<Arc<Table>> {
     view.selected = view.selected.filter(|s| *s < table.len());
     app.game_talk = Some(GameTalk { table: table.clone(), view, of, path });
     Some(table)
+}
+
+/// The game's copy shown made again where the game data read another
+/// (each frame, before the docks and the Status Bar read it).
+pub(crate) fn refresh(app: &mut Moonglow) {
+    if app.game_talk.is_some() {
+        let _ = game_table(app);
+    }
+}
+
+/// Shows the game's `dialog.tlk` in the Talk Table tab (the Resources
+/// panel's row, Quick Open), the tab brought forward or opened; a second
+/// time, nothing more. The module's table stays as it is behind it: a
+/// burst of typing open in it ends (what is typed next is a step of its
+/// own), and nothing typed while the game's is shown reaches it (String is
+/// read-only then).
+pub(crate) fn show_game(app: &mut Moonglow) {
+    if game_table(app).is_none() {
+        app.log.error("dialog.tlk is the game data's: set the game's folder in Tools › Options");
+        return;
+    }
+    if let Some(t) = app.talk.as_mut() {
+        t.end_typing();
+    }
+    app.actions.push(Action::OpenTab(Tab::TalkTable));
+}
+
+/// The Talk Table tab back on the module's table (More › Module's Table,
+/// Open File…, New File…): the game's copy let go of.
+pub(crate) fn hide_game(app: &mut Moonglow) {
+    app.game_talk = None;
 }
 
 /// The table `which` and its view, where it is open.
@@ -667,6 +702,11 @@ pub(crate) fn can_add(app: &mut Moonglow) -> Option<(mg_core::Language, bool)> {
 /// header over its list; with no table, what makes one is the Talk Table
 /// panel's (Module's Table) and the tab says so.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    // (The game's dialog.tlk shown in it: its own.)
+    if app.game_talk.is_some() {
+        game_ui(app, ui);
+        return;
+    }
     let outside = app.talk_view.outside && app.talk.is_some();
     if app.ws.is_none() && !outside {
         ui.label("Open a module to edit its talk table, or a talk table file on its own.");
@@ -692,18 +732,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     editor(app, ui, Which::Module);
 }
 
-/// The game's `dialog.tlk`'s tab: read-only, its lines by their own
-/// StrRefs.
-pub(crate) fn game_ui(app: &mut Moonglow, ui: &mut Ui) {
+/// The Talk Table tab showing the game's `dialog.tlk`: read-only, its
+/// lines by their own StrRefs.
+fn game_ui(app: &mut Moonglow, ui: &mut Ui) {
     if game_table(app).is_none() {
         ui.label("dialog.tlk is the game data's: set the game's folder in Tools › Options.");
+        // (Module's Table and the files, from More, to leave it.)
+        let state =
+            HeaderState { back: Some(true), back_to_file: back_to_file(app), ..Default::default() };
+        let asked = header(app, ui, Which::Game, &state);
+        run_asked(app, Which::Game, &asked);
         return;
-    }
-    let len = app.game_talk.as_ref().map_or(0, |g| g.table.len());
-    let kept = app.open_tabs.take_view(&Tab::GameTalkTable).and_then(|v| v.talk_line());
-    if let (Some(line), Some(g)) = (kept.filter(|l| *l < len), app.game_talk.as_mut()) {
-        g.view.selected = Some(line);
-        g.view.reveal = true;
     }
     editor(app, ui, Which::Game);
 }
@@ -746,6 +785,16 @@ struct HeaderState {
     /// Module's Table can be gone back to (a file opened on its own, the
     /// game's table, with a module open) and nothing unsaved holds it.
     back: Option<bool>,
+    /// Module's Table from the game's table lands on a file's table with
+    /// unsaved changes behind it, not the module's (its tip says so).
+    back_to_file: bool,
+}
+
+/// Whether Module's Table from the game's table goes back to a file's
+/// table opened on its own with unsaved changes (kept, nothing lost),
+/// rather than to the module's.
+fn back_to_file(app: &Moonglow) -> bool {
+    app.talk_view.outside && app.talk.as_ref().is_some_and(Table::is_dirty)
 }
 
 /// What the header asked for, done after it ([`run_asked`]).
@@ -918,12 +967,13 @@ fn header(app: &mut Moonglow, ui: &mut Ui, which: Which, s: &HeaderState) -> Ask
         )
         .right(Item::button(Icon::New, NEW_FILE).in_more().tip("Make an empty .tlk file and edit it"));
     if let Some(back) = s.back {
-        h = h.right(
-            Item::button(Icon::TalkTable, MODULE_S_TABLE)
-                .in_more()
-                .enabled(back)
-                .tip("Back to the talk table the module names"),
-        );
+        h = h.right(Item::button(Icon::TalkTable, MODULE_S_TABLE).in_more().enabled(back).tip(
+            if s.back_to_file {
+                "Back to the file's table, which has unsaved changes"
+            } else {
+                "Back to the talk table the module names"
+            },
+        ));
     }
     let out = h.show_with_end(ui, end_width, |ui| {
         ui.spacing_mut().item_spacing.x = gap;
@@ -1011,14 +1061,16 @@ fn run_asked(app: &mut Moonglow, which: Which, asked: &Asked) {
                     app.talk_view = TalkView::default();
                 }
             }
+            // (The tab back on the module's table, as it was left; a
+            // file's opened on its own behind it goes as the file's own
+            // Module's Table would have it go: where it has no unsaved
+            // changes.)
             Which::Game => {
-                // (The module's own, where it has one; else a file's made
-                // on its own goes, and its tab says how to make one.)
+                hide_game(app);
                 if app.talk_view.outside && app.talk.as_ref().is_some_and(|t| !t.is_dirty()) {
                     app.talk = None;
                     app.talk_view = TalkView::default();
                 }
-                app.actions.push(Action::OpenTab(Tab::TalkTable));
             }
         }
     }
@@ -1038,8 +1090,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, which: Which) {
         selected: v.selected,
         back: match which {
             Which::Module => (v.outside && app.ws.is_some()).then(|| !t.is_dirty()),
-            Which::Game => app.ws.is_some().then_some(true),
+            // (Back to the module's table, or what the tab showed before.)
+            Which::Game => Some(true),
         },
+        back_to_file: which == Which::Game && back_to_file(app),
     };
     let asked = header(app, ui, which, &state);
     // OK and Cancel, as the other editors have: the table is saved when
@@ -1110,7 +1164,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, which: Which) {
 pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
     // (The game's table let go of with its tab, its look stopped.)
-    if app.game_talk.is_some() && app.dock.find_tab(&Tab::GameTalkTable).is_none() {
+    // (Not while its tab is on its way: `show_game` asks for it.)
+    let opening = app.actions.iter().any(|a| matches!(a, Action::OpenTab(Tab::TalkTable)));
+    if app.game_talk.is_some() && app.dock.find_tab(&Tab::TalkTable).is_none() && !opening {
         app.game_talk = None;
     }
     // (Another line chosen: the burst of typing ends, M4's U17 review.)
@@ -1130,9 +1186,10 @@ pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
         let Some((_, v)) = parts(app, which) else { continue };
         panels::follow_looking(v, ctx);
         // (Find looks on as the list is drawn, `rows`; where its tab is
-        // not, the look is let go of: begun again as it is drawn.)
+        // not, or shows the other table, the look is let go of: begun
+        // again as it is drawn.)
         if v.sweeping()
-            && !in_front(app, &which.tab())
+            && (!in_front(app, &which.tab()) || Which::shown(app) != which)
             && let Some((_, v)) = parts(app, which)
         {
             v.sweep = None;
@@ -1636,6 +1693,8 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
             app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));
             app.talk = Some(t);
             app.talk_view = TalkView { outside: true, ..Default::default() };
+            // (Shown in the tab in place of the game's dialog.tlk too.)
+            hide_game(app);
             app.actions.push(Action::OpenTab(Tab::TalkTable));
         }
         Err(e) => app.log.error(format!("Talk table: {e}")),

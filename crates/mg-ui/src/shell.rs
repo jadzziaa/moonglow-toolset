@@ -572,7 +572,7 @@ impl Panel {
             // Bulls_Strength".)
             Panel::Cell => crate::table_view::panels::detail(app, editor, false),
             // (A talk table's "Talk-table line 18608", the Talk board's.)
-            Panel::References if talk_of(editor).is_some() => {
+            Panel::References if talk_of(app, editor).is_some() => {
                 crate::talk_view::panels::detail(app, editor, self)
             }
             Panel::References => crate::table_view::panels::detail(app, editor, true),
@@ -848,8 +848,11 @@ const NUI_SHARES: &[u16] = &[410, 1042, 548];
 const NUI_WINDOW_SHARES: &[u16] = &[440, 1040, 520];
 
 /// The talk table an editor's tab is, if it is one's.
-pub(crate) fn talk_of(editor: Option<&crate::Tab>) -> Option<crate::talk_view::Which> {
-    crate::talk_view::Which::of(editor?)
+pub(crate) fn talk_of(
+    app: &Moonglow,
+    editor: Option<&crate::Tab>,
+) -> Option<crate::talk_view::Which> {
+    crate::talk_view::Which::of(app, editor?)
 }
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
@@ -938,7 +941,7 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         // (A talk table's String, References and Talk Table, the game's
         // dialog.tlk's too, whatever is open; with it into its window
         // where it floats.)
-        crate::Tab::TalkTable | crate::Tab::GameTalkTable => Brings {
+        crate::Tab::TalkTable => Brings {
             right: TALK_RIGHT,
             folded: TALK_FOLDED,
             shares: TALK_SHARES,
@@ -1509,7 +1512,6 @@ pub(crate) fn pane_halves(tab: &crate::Tab) -> bool {
             | crate::Tab::Dialog(_)
             | crate::Tab::Table(_)
             | crate::Tab::TalkTable
-            | crate::Tab::GameTalkTable
             // (And a NUI designer's Components, Properties and Bindings,
             // M4's U18: a control's properties are nowhere else.)
             | crate::Tab::Nui(_)
@@ -2939,10 +2941,7 @@ pub(crate) fn shown(
         // (A table's, M4's U16: the Table board's.)
         Some(Tab::Table(id)) => crate::table_view::panels::shown(app, &k, ctx, *id),
         Some(Tab::TalkTable) => {
-            crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::Module)
-        }
-        Some(Tab::GameTalkTable) => {
-            crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::Game)
+            crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::shown(app))
         }
         // (A table only looked at, the game's or a hak's copy in the
         // resource view: its counts, and none of the keys that change it.)
@@ -4405,7 +4404,7 @@ pub(crate) fn panel_body(
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 // (A talk table's, M4's U17: its References too.)
-                let talk = talk_of(editor).is_some();
+                let talk = talk_of(app, editor).is_some();
                 match panel {
                     Panel::Cell => crate::table_view::panels::cell(app, &mut body, editor),
                     Panel::References if talk => {

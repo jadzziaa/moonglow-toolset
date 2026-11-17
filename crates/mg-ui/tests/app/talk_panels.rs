@@ -179,7 +179,7 @@ fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
 
 /// `dialog.tlk` opens read-only, numbered by its own StrRefs (the plan's
 /// test; ruling 7): from the Resources panel's row and from Quick Open, in
-/// a tab of its own; its lines 0 to 39, none of a custom table's numbers;
+/// the Talk Table tab; its lines 0 to 39, none of a custom table's numbers;
 /// Add Line, Remove Last Line, Save and the imports off, Close alone at the
 /// header's end; String's Text read-only (what is typed changes nothing);
 /// the Status Bar's "40 lines, read-only"; Go to by its own numbers. Its
@@ -197,10 +197,11 @@ fn dialog_tlk_opens_read_only_and_numbered_by_its_strrefs() {
     settle(&mut h);
     h.key_press(egui::Key::Enter);
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::GameTalkTable), "opened from Resources");
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "opened from Resources");
+    assert!(h.state().game_talk.is_some(), "showing dialog.tlk");
     h.get_by_label(talk_view::TALK_HEADER).get_by_label("Close").click();
     settle(&mut h);
-    assert!(h.state().tab_rect(&Tab::GameTalkTable).is_none(), "closed by Close");
+    assert!(h.state().tab_rect(&Tab::TalkTable).is_none(), "closed by Close");
     assert!(h.state().game_talk.is_none(), "its lines let go of with it");
     // From Quick Open: "dialog.tlk" found, chosen.
     h.get_by_label(mg_ui::quick_open::NAME).click();
@@ -209,7 +210,8 @@ fn dialog_tlk_opens_read_only_and_numbered_by_its_strrefs() {
     settle(&mut h);
     h.get_by_label(mg_ui::quick_open::RESULTS).get_by_label_contains("dialog.tlk").click();
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::GameTalkTable), "opened from Quick Open");
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "opened from Quick Open");
+    assert!(h.state().game_talk.is_some(), "showing dialog.tlk");
     // Numbered by its own StrRefs.
     h.get_by_label("0");
     h.get_by_label("7");
@@ -316,7 +318,7 @@ fn the_install_s_dialog_tlk_opens_read_only() {
     let text = app.game.as_deref().unwrap().string(mg_core::StrRef(18608)).unwrap_or_default();
     let mut h = harness(app, 1600.0, 900.0);
     settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     choose(&mut h, Which::Game, 18608);
     let g = h.state().game_talk.as_ref().unwrap();
@@ -518,7 +520,7 @@ fn text_typed_keeps_to_its_own_line() {
 #[test]
 fn references_finds_the_line_s_users() {
     let mut h = talk_window(Mode::Tabs, "ui-talk-references", 1920.0);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     choose(&mut h, Which::Game, 7);
     let hold = h.state().hold_reference_looks.clone();
@@ -540,7 +542,7 @@ fn references_finds_the_line_s_users() {
         h.state().references.usages.iter().map(|u| u.place.clone()).collect::<Vec<_>>()
     };
     assert_eq!(theirs.len(), 1, "{theirs:?}");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     // (The board's row: the line's text quoted before the field.)
     let (before, last) = theirs[0].rsplit_once(" › ").unwrap();
@@ -550,8 +552,9 @@ fn references_finds_the_line_s_users() {
     settle(&mut h);
     let utc = Tab::Blueprint(ResKey::parse("mg_guard", ResType::UTC).unwrap());
     assert_eq!(h.state().active_editor(), Some(&utc), "gone there");
-    // The module's line 2 (16777218): the same creature.
-    open_own(&mut h);
+    // The module's line 2 (16777218): the same creature (the tab back on
+    // the module's table).
+    show(&mut h, Which::Module);
     choose(&mut h, Which::Module, 2);
     talk_click(&mut h, talk_view::FIND_REFERENCES);
     h.get_by_label("Used in 1 place:");
@@ -676,7 +679,7 @@ fn every_talk_panel_fits_the_right_dock() {
     let mut info = ws.module.info().unwrap();
     info.root.set("Mod_CustomTlk", mg_gff::Value::String(Vec::new()));
     ws.module.set_info(&info).unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     for width in [280.0, 340.0, 440.0, 600.0] {
         right_dock_width(&mut h, width);
@@ -816,7 +819,7 @@ fn the_window_comes_to_rest_with_each_talk_panel() {
         settle(&mut h);
         // A Find through 150,040 lines of the game's: looking over many
         // frames (under way), then done, the window at rest.
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+        h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
         settle(&mut h);
         h.state_mut().game_talk.as_mut().unwrap().view.filter = "needle".into();
         h.step();
@@ -826,10 +829,8 @@ fn the_window_comes_to_rest_with_each_talk_panel() {
         settle(&mut h);
         h.get_by_label("150039");
         h.state_mut().game_talk.as_mut().unwrap().view.filter.clear();
-        // (Closed: one talk header drawn, the module's.)
-        h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::GameTalkTable));
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-        settle(&mut h);
+        // (The tab back on the module's table: More › Module's Table.)
+        show(&mut h, Which::Module);
         // The last line removed with it chosen.
         choose(&mut h, Which::Module, 29);
         let len = h.state().talk.as_ref().unwrap().len();
@@ -893,7 +894,7 @@ fn a_talk_table_s_hints_are_as_bound() {
     h.key_press(egui::Key::Escape);
     settle(&mut h);
     // The game's: the same keys, its count, nothing that changes it.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     choose(&mut h, Which::Game, 3);
     let mut game = all.to_vec();
@@ -931,18 +932,21 @@ fn the_talk_header_holds_every_control_from_420_to_1600() {
     let header_name = talk_view::TALK_HEADER;
     for mode in MODES {
         let mut h = talk_window(mode, "ui-talk-header-widths", 1600.0);
-        for tab in [Tab::GameTalkTable, Tab::TalkTable] {
-            // (One header at a time: the game's closed first.)
-            h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::GameTalkTable));
+        for which in [Which::Game, Which::Module] {
+            // (Closed first, and the size its kind's window was left at
+            // forgotten: a floating window made anew at the widest.)
+            h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::TalkTable));
             h.set_size(egui::vec2(1600.0, 800.0));
-            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
             settle(&mut h);
+            h.state_mut().settings.window_sizes.clear();
+            show(&mut h, which);
+            let tab = which;
             let mut widths: Vec<f32> = (21..=80).rev().map(|n| n as f32 * 20.0).collect();
             widths.extend([1399.0, 1400.0, 961.0, 962.0]);
             let mut top = true;
-            let end_names: &[&str] = match tab {
-                Tab::GameTalkTable => &["Close"],
-                _ => &["OK", "Cancel"],
+            let end_names: &[&str] = match which {
+                Which::Game => &["Close"],
+                Which::Module => &["OK", "Cancel"],
             };
             for width in widths {
                 h.set_size(egui::vec2(width, 800.0));
@@ -954,7 +958,7 @@ fn the_talk_header_holds_every_control_from_420_to_1600() {
                 let want: Vec<&str> = TALK_CONTROLS
                     .iter()
                     .copied()
-                    .filter(|n| *n != "Module's Table" || tab == Tab::GameTalkTable)
+                    .filter(|n| *n != "Module's Table" || which == Which::Game)
                     .collect();
                 assert_eq!(names, want, "{what}");
                 if std::mem::take(&mut top) {
@@ -983,7 +987,6 @@ fn the_talk_header_holds_every_control_from_420_to_1600() {
             // At the least: Only lines with text from More.
             h.set_size(egui::vec2(420.0, 800.0));
             settle(&mut h);
-            let which = Which::of(&tab).unwrap();
             let was = |h: &Harness<'_, Moonglow>| match which {
                 Which::Module => h.state().talk_view.only_text,
                 Which::Game => h.state().game_talk.as_ref().unwrap().view.only_text,
@@ -995,35 +998,48 @@ fn the_talk_header_holds_every_control_from_420_to_1600() {
     }
 }
 
-/// The panels follow the talk table in front: the module's in one group and
-/// the game's `dialog.tlk` in another, each one's String shown as its group
-/// has the focus; beside a 2DA, the table's Cell; floating, its window's.
+/// Shows `which` in the Talk Table tab, through the window's own ways: the
+/// game's `dialog.tlk` as the Resources panel's row shows it, the module's
+/// by More › Module's Table; the window at rest.
+fn show(h: &mut Harness<'_, Moonglow>, which: Which) {
+    match which {
+        Which::Game => h.state_mut().actions.push(mg_ui::Action::ShowGameTalk),
+        // (As Tools › Talk Table asks for it.)
+        Which::Module => h.state_mut().actions.push(mg_ui::Action::ShowModuleTalk),
+    }
+    settle(h);
+    assert_eq!(Which::shown(h.state()), which, "the tab shows it");
+}
+
+/// The panels follow the table the Talk Table tab shows (the owner's
+/// ruling: one tab): the module's line in String, then the game's
+/// `dialog.tlk` shown in the same tab, its line; More › Module's Table, the
+/// module's line again, as it was left; beside a 2DA in another group, the
+/// table's Cell, and back; floating, in its window.
 #[test]
 fn the_talk_panels_follow_the_table_in_front() {
     let mut h = talk_window(Mode::Tabs, "ui-talk-follow", 1920.0);
     open_own(&mut h);
     choose(&mut h, Which::Module, 5);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
-    settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
-    settle(&mut h);
-    choose(&mut h, Which::Game, 7);
     let detail = |h: &Harness<'_, Moonglow>| {
         let shown = |d: &&str| h.query_by_label_contains(d).is_some();
         let both = ["StrRef 16777221, line 5", "StrRef 7, line 7"];
         let found: Vec<&str> = both.into_iter().filter(shown).collect();
         (found.len() == 1).then(|| found[0])
     };
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    settle(&mut h);
     assert_eq!(detail(&h), Some("StrRef 16777221, line 5"), "the module's");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
-    settle(&mut h);
+    show(&mut h, Which::Game);
+    choose(&mut h, Which::Game, 7);
     assert_eq!(detail(&h), Some("StrRef 7, line 7"), "the game's");
-    // Beside a 2DA: its Cell, then the talk table's String again.
+    h.get_by_label_contains("dialog.tlk");
+    show(&mut h, Which::Module);
+    assert_eq!(detail(&h), Some("StrRef 16777221, line 5"), "the module's, as it was left");
+    // Beside a 2DA in another group: its Cell, then the talk table's again.
     let dir = mg_testkit::scratch_dir("ui-talk-follow-table");
     std::fs::write(dir.join("mine.2da"), "2DA V2.0\n\n   Label\n0  Bread\n").unwrap();
     let id = mg_ui::table_view::open_path(h.state_mut(), &dir.join("mine.2da")).unwrap();
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
     settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 0);
     settle(&mut h);
@@ -1038,6 +1054,9 @@ fn the_talk_panels_follow_the_table_in_front() {
     choose(&mut h, Which::Module, 5);
     h.get_by_label_contains("StrRef 16777221, line 5");
     assert!(h.state().right_dock_shows() != Some(Panel::String), "not the main window's dock");
+    show(&mut h, Which::Game);
+    choose(&mut h, Which::Game, 7);
+    h.get_by_label_contains("StrRef 7, line 7");
 }
 
 /// Records from before the String panel read without a fault: settings
@@ -1092,7 +1111,7 @@ fn find_looks_through_a_long_table_a_slice_a_frame() {
     app.game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), tlk)));
     let mut h = harness(app, 1600.0, 900.0);
     settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     let sweeping =
         |h: &Harness<'_, Moonglow>| h.state().game_talk.as_ref().unwrap().view.sweeping();
@@ -1110,45 +1129,46 @@ fn find_looks_through_a_long_table_a_slice_a_frame() {
     assert!(h.query_by_label("49999").is_none(), "only what has the words");
 }
 
-/// The list's keys are the active editor's (U16's grid's rule): the
-/// module's table given them, then the game's `dialog.tlk` in front in
-/// another group, a press in it: Down moves neither; a popover open over
-/// the list: nothing; floating, a press in the main window: nothing; a
-/// click on the list gives them back.
+/// The list's keys are the active editor's and its table's (U16's grid's
+/// rule): the module's table given them; the tab switched to the game's
+/// `dialog.tlk` (the owner's ruling: one tab), Down moves neither table's
+/// line (the module's is not shown, the game's list was not given them); a
+/// 2DA in another group pressed, the keys left with the talk table: Down
+/// moves nothing; a popover open over the list: nothing; floating, a press
+/// in the main window: nothing; a click on the list gives them back.
 #[test]
 fn the_list_s_keys_are_the_active_editor_s() {
     let mut h = talk_window(Mode::Tabs, "ui-talk-keys", 1920.0);
     open_own(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
-    settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
-    settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    settle(&mut h);
     choose(&mut h, Which::Module, 3);
     h.key_press(egui::Key::ArrowDown);
     settle(&mut h);
     assert_eq!(chosen(&h), Some(4), "the list has them");
-    // The other group pressed (its list's rows, below the header).
-    let game = h.state().game_talk.as_ref().unwrap().view.selected;
-    let row = h.get_all_by_label("10").find(|n| n.accesskit_node().bounding_box().is_some());
-    let at = row.expect("the game's row 10").rect().right_center() + egui::vec2(-40.0, 0.0);
-    h.hover_at(at);
-    press(&h, at, true, egui::Modifiers::NONE);
-    press(&h, at, false, egui::Modifiers::NONE);
+    // The tab switched to the game's table: the keys left with the
+    // module's, which is not shown.
+    show(&mut h, Which::Game);
+    choose(&mut h, Which::Game, 10);
+    talk_view::keys_left_with(&h.ctx, Which::Module);
+    h.key_press(egui::Key::ArrowDown);
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::GameTalkTable), "the other's");
-    // (Its list took them with the click: left with the module's table,
-    // its editor not the active one.)
+    assert_eq!(chosen(&h), Some(4), "not the module's: not shown");
+    let game = h.state().game_talk.as_ref().unwrap().view.selected;
+    assert_eq!(game, Some(10), "nor the game's: its list was not given them");
+    show(&mut h, Which::Module);
+    // A 2DA in another group pressed: the talk table's keys do nothing.
+    let dir = mg_testkit::scratch_dir("ui-talk-keys-table");
+    std::fs::write(dir.join("mine.2da"), "2DA V2.0\n\n   Label\n0  Bread\n").unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &dir.join("mine.2da")).unwrap();
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Table(id)));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::Table(id)), "the other's");
     talk_view::keys_left_with(&h.ctx, Which::Module);
     h.key_press(egui::Key::ArrowDown);
     settle(&mut h);
     assert_eq!(chosen(&h), Some(4), "not the module's: its editor is not the active one");
-    assert_ne!(
-        h.state().game_talk.as_ref().unwrap().view.selected,
-        game.map(|g| g + 2),
-        "nor the game's: its list was not given them"
-    );
     // A popover open over the module's list: nothing.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     settle(&mut h);
@@ -1341,7 +1361,8 @@ fn a_floating_editor_of_panes_opens_at_its_first_size() {
 /// own (Open File…) has String, References and Talk Table in the Right
 /// Dock, References saying it needs a module; the Left Dock holds no panel
 /// for it (U16's ruling: only a table's columns are the Outliner's alone),
-/// so it is not drawn. The game's `dialog.tlk` opens without a module too;
+/// so it is not drawn. The game's `dialog.tlk` opens the tab showing it
+/// without a module, Open File… works from it;
 /// a module opened and closed beside it leaves its tab as it was.
 #[test]
 fn a_talk_table_without_a_module_has_its_panels_docked() {
@@ -1357,17 +1378,26 @@ fn a_talk_table_without_a_module_has_its_panels_docked() {
     app.game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), our_dialog())));
     let mut h = harness(app, 1600.0, 900.0);
     settle(&mut h);
+    // No module, no tab: dialog.tlk opens the Talk Table tab showing it.
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "the tab, opened");
+    assert_eq!(Which::shown(h.state()), Which::Game, "showing dialog.tlk");
+    // Open File… from it: the file's table in the tab.
     h.state_mut().actions.push(mg_ui::Action::TalkFile(false));
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "opened on its own");
+    assert_eq!(Which::shown(h.state()), Which::Module, "the file's table shown");
+    assert!(h.state().game_talk.is_none(), "the game's copy let go of");
     choose(&mut h, Which::Module, 3);
     assert_eq!(h.state().right_dock_shows(), Some(Panel::String));
     assert!(shows(&h, "Text", "The watch asks for line 3."), "its line in String");
     h.get_by_label_contains("Open a module: what names the line is found in it");
     assert!(h.state().left_dock_rect().is_none(), "the Left Dock not drawn: no panel for it");
     // The game's table, and a module opened and closed beside it.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
+    assert_eq!(Which::shown(h.state()), Which::Game, "dialog.tlk over the file's table");
     choose(&mut h, Which::Game, 7);
     let path = sample_module(&mg_testkit::scratch_dir("ui-talk-no-module-module"));
     h.state_mut().open_module(&path);
@@ -1375,7 +1405,7 @@ fn a_talk_table_without_a_module_has_its_panels_docked() {
     h.state_mut().actions.push(mg_ui::Action::Close);
     settle(&mut h);
     let g = h.state().game_talk.as_ref().map(|g| g.view.selected);
-    let open = h.state().dock.find_tab(&Tab::GameTalkTable).is_some();
+    let open = h.state().dock.find_tab(&Tab::TalkTable).is_some();
     assert!(!open || g == Some(Some(7)), "its tab gone, or on its line: {open} {g:?}");
     assert!(h.state().under_way().is_none(), "nothing left under way");
 }
@@ -1453,7 +1483,8 @@ fn a_hak_s_dialog_tlk_is_a_resource_of_its_own() {
     assert!(!found.is_empty(), "the game's dialog.tlk among the hits");
     found[0].click();
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::GameTalkTable), "the game's opened");
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "the Talk Table tab");
+    assert!(h.state().game_talk.is_some(), "showing the game's");
 }
 
 /// `dialog.tlk`'s key.
@@ -1480,7 +1511,7 @@ fn dialog_tlk_in_front_changes_nothing() {
         }],
     )));
     settle(&mut h);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::GameTalkTable));
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
     settle(&mut h);
     choose(&mut h, Which::Game, 7);
     h.event(egui::Event::Paste("Pasted".into()));
@@ -1499,7 +1530,10 @@ fn dialog_tlk_in_front_changes_nothing() {
     h.state_mut().game = None;
     settle(&mut h);
     h.get_by_label_contains("dialog.tlk is the game data's");
-    assert!(h.state().game_talk.is_some() || h.state().game.is_none());
+    // (The tab still on dialog.tlk, saying why it is empty: its lines not
+    // listed, the module's table not shown in its place.)
+    assert_eq!(Which::shown(h.state()), Which::Game, "still showing dialog.tlk");
+    assert!(h.query_by_label("7").is_none(), "no line listed without game data");
     h.state_mut().game =
         Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), our_dialog())));
     settle(&mut h);
@@ -1527,4 +1561,523 @@ fn a_talk_table_s_export_is_as_before() {
     assert_eq!(lines.next(), Some("StrRef,Text,Sound,SoundLength"));
     assert_eq!(lines.next(), Some("16777216,The watch asks for line 0.,vs_watch_000,2.5"));
     assert_eq!(lines.next(), Some("16777217,Line 1 of the harbor.,,"));
+}
+
+/// The game's `dialog.tlk` is shown in the one Talk Table tab (the owner's
+/// ruling) and the module's table waits behind it: an unsaved line typed
+/// in the module's table, its step, its chosen line and its list's place;
+/// `dialog.tlk` shown as Quick Open shows it (a second time nothing
+/// more), nothing typed reaching the
+/// module's table nor changing the game's (String read-only, a burst ended
+/// as the tab left the module's); More › Module's Table: the module's table
+/// as it was left (the line, the step one Undo takes back, the chosen line),
+/// and the game's copy let go of (the `Arc` held by the test alone). Then,
+/// another tab in front, `dialog.tlk` from the Resources panel's row: the
+/// tab brought forward, showing it.
+#[test]
+fn dialog_tlk_shows_in_the_talk_table_tab_and_the_module_s_table_waits() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    let was = line(&h, 3).text;
+    type_in(&mut h, "Text", "a");
+    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "unsaved");
+    // dialog.tlk shown as Quick Open shows it, Text still focused: the same
+    // tab, the burst of typing ended as it leaves the module's table.
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "the Talk Table tab");
+    assert_eq!(Which::shown(h.state()), Which::Game, "showing dialog.tlk");
+    let held = h.state().game_talk.as_ref().unwrap().table.clone();
+    // A second open: nothing more (the same copy, one tab).
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    let tabs = h.state().dock.iter_all_tabs().filter(|(_, t)| **t == Tab::TalkTable).count();
+    assert_eq!(tabs, 1, "one tab");
+    let same = Arc::ptr_eq(&held, &h.state().game_talk.as_ref().unwrap().table);
+    assert!(same, "the same copy");
+    // Typed while it is shown: nothing reaches either table.
+    choose(&mut h, Which::Game, 7);
+    string_field(&h, "Text").click();
+    settle(&mut h);
+    h.event(egui::Event::Text("X".into()));
+    settle(&mut h);
+    assert_eq!(held.line(7).text, "Well met, traveler.", "the game's as it was");
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "the module's as it was left");
+    // Module's Table: the module's table as it was left.
+    talk_click(&mut h, talk_view::MODULE_S_TABLE);
+    assert_eq!(Which::shown(h.state()), Which::Module);
+    assert_eq!(chosen(&h), Some(3), "its chosen line");
+    assert!(shows(&h, "Text", &format!("{was}a")), "its line in String");
+    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "still unsaved");
+    assert_eq!(Arc::strong_count(&held), 1, "the game's copy let go of");
+    // Typed again: a step of its own (the burst ended as the tab left).
+    type_in(&mut h, "Text", "b");
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "one Undo: \"b\" alone");
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, was, "then the step from before");
+    // Another tab in front, dialog.tlk from the Resources panel's row: the
+    // tab comes forward, showing it again.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::ModuleProperties));
+    h.get_by_label("Resources").click();
+    settle(&mut h);
+    type_into_hint(&mut h, "Name", "dialog");
+    h.get_by_label_contains("dialog.tlk").click();
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "brought forward");
+    assert_eq!(Which::shown(h.state()), Which::Game, "showing dialog.tlk");
+    let tabs = h.state().dock.iter_all_tabs().filter(|(_, t)| **t == Tab::TalkTable).count();
+    assert_eq!(tabs, 1, "one tab");
+}
+
+/// Cancel after a round trip (the module's table, `dialog.tlk`, the
+/// module's table again): one span, as if the tab never left; Don't Save
+/// leaves the file as it was, both edits gone. And the tab closed while it
+/// shows `dialog.tlk` with unsaved lines behind it does what its × does on
+/// the module's table: closes, the unsaved lines kept for the module's
+/// Save, the game's copy let go of.
+#[test]
+fn cancel_and_close_across_dialog_tlk() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-cancel", 1600.0);
+    open_own(&mut h);
+    let file = h.state().talk.as_ref().unwrap().source.file().unwrap().to_path_buf();
+    let before = std::fs::read(&file).unwrap();
+    choose(&mut h, Which::Module, 3);
+    type_in(&mut h, "Text", "a");
+    show(&mut h, Which::Game);
+    show(&mut h, Which::Module);
+    choose(&mut h, Which::Module, 5);
+    type_in(&mut h, "Text", "b");
+    h.get_by_label(talk_view::TALK_HEADER).get_by_label("Cancel").click();
+    settle(&mut h);
+    h.get_by_label("Don't Save").click();
+    settle(&mut h);
+    assert_eq!(std::fs::read(&file).unwrap(), before, "the file as it was");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed");
+    // Both edits gone from the table itself, not only from its file: let
+    // go of, read again from its file when next shown.
+    let kept = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+    assert!(!kept, "nothing unsaved kept in the window");
+    // The close: the tab showing dialog.tlk, an unsaved line behind it.
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-close", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    type_in(&mut h, "Text", "c");
+    show(&mut h, Which::Game);
+    let held = h.state().game_talk.as_ref().unwrap().table.clone();
+    h.get_by_label(talk_view::TALK_HEADER).get_by_label("Close").click();
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed, as its × closes");
+    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "the line kept for the module's Save");
+    assert_eq!(Arc::strong_count(&held), 1, "the game's copy let go of");
+    // The same close on the module's own table: as its × closes it.
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-close-own", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    type_in(&mut h, "Text", "c");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::TalkTable));
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed, no question");
+    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "the line kept, as above");
+}
+
+/// With `dialog.tlk` shown, the module's table waiting behind it takes
+/// nothing: the Top Bar's Undo and Redo (Undo last worked in the module's
+/// table, `dialog.tlk` shown as Quick Open shows it), Ctrl+Z over the list
+/// and over the Top Bar, Ctrl+Y, a paste over it, a press on the tab's own title. Back on the
+/// module's table, its line and its step are as left: one Undo takes the
+/// line back.
+#[test]
+fn the_waiting_module_table_takes_no_undo_nor_paste() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-undo", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    let was = line(&h, 3).text;
+    type_in(&mut h, "Text", "a");
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    assert_eq!(Which::shown(h.state()), Which::Game);
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "the Top Bar's Undo: not the module's table");
+    tool(&h, "Redo").click();
+    settle(&mut h);
+    let title = h.state().tab_rect(&Tab::TalkTable).unwrap();
+    h.hover_at(title.center());
+    h.step();
+    press(&h, title.center(), true, egui::Modifiers::NONE);
+    h.step();
+    press(&h, title.center(), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "after a press on its title");
+    choose(&mut h, Which::Game, 7);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "Ctrl+Z over the list");
+    // (Ctrl+Z with the pointer on the Top Bar: Undo is the one last worked
+    // in, which was the module's table.)
+    let bar = tool(&h, "Undo").rect().center();
+    h.hover_at(bar);
+    h.step();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "Ctrl+Z over the Top Bar");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    settle(&mut h);
+    h.event(egui::Event::Paste("Pasted".into()));
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, format!("{was}a"), "the keys over the list");
+    assert_eq!(line(&h, 7).text, "Line 7 of the harbor.", "nor a paste");
+    talk_click(&mut h, talk_view::MODULE_S_TABLE);
+    assert_eq!(Which::shown(h.state()), Which::Module);
+    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "still unsaved");
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert_eq!(line(&h, 3).text, was, "its step as left: one Undo");
+}
+
+/// Find looking through a long table (a file's, opened by Open File…)
+/// when `dialog.tlk` is shown over it: the look is let go of, its words
+/// kept, and the window comes to rest (the look begins again as the list
+/// is drawn, as where its tab is behind another).
+/// (The fixture's 300,000 lines, as `find_looks_through_a_long_table_a_slice_a_frame`'s.)
+#[test]
+fn the_module_s_find_under_way_rests_while_dialog_tlk_is_shown() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-sweep", 1600.0);
+    let dir = mg_testkit::scratch_dir("ui-talk-one-tab-sweep-table");
+    let mut t = Table::create("mg_long", &dir, mg_core::Language::ENGLISH, false);
+    for n in 0..300_000 {
+        let text = if n == 299_999 { "A needle".to_string() } else { format!("Hay of line {n}") };
+        t.add_line(&Line { text, feminine: None, sound: String::new(), sound_length: 0.0 })
+            .unwrap();
+    }
+    t.save().unwrap();
+    // (Opened as Open File… opens it: a module's table of this length is
+    // not one the harness's user folder holds.)
+    let file = dir.join("mg_long.tlk");
+    open_own(&mut h);
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![file], ..Default::default() });
+    h.state_mut().actions.push(mg_ui::Action::TalkFile(false));
+    settle(&mut h);
+    assert_eq!(h.state().talk.as_ref().unwrap().len(), 300_000);
+    h.state_mut().talk_view.filter = "needle".into();
+    h.step();
+    assert!(h.state().talk_view.sweeping(), "looking on after a frame");
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    assert_eq!(Which::shown(h.state()), Which::Game);
+    assert!(h.state().under_way().is_none(), "at rest");
+    assert!(!h.state().talk_view.sweeping(), "its look let go of");
+    assert_eq!(h.state().talk_view.filter, "needle", "its Find's words kept");
+}
+
+/// More › Module's Table with a file's table opened on its own (Open
+/// File…) behind `dialog.tlk`: the module's table, as the file's own
+/// Module's Table goes to it.
+#[test]
+fn module_s_table_from_dialog_tlk_over_a_file_s_table() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-file", 1600.0);
+    open_own(&mut h);
+    let dir = mg_testkit::scratch_dir("ui-talk-one-tab-file-table");
+    let file = dir.join("lines.tlk");
+    let mut t = Table::create("lines", &dir, mg_core::Language::ENGLISH, false);
+    t.source = mg_module::talk::Source::File(file.clone());
+    let text = "A file's line.".to_string();
+    t.add_line(&Line { text, feminine: None, sound: String::new(), sound_length: 0.0 }).unwrap();
+    t.save().unwrap();
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![file], ..Default::default() });
+    h.state_mut().actions.push(mg_ui::Action::TalkFile(false));
+    settle(&mut h);
+    assert!(h.state().talk_view.outside, "the file's table");
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    talk_click(&mut h, talk_view::MODULE_S_TABLE);
+    assert_eq!(Which::shown(h.state()), Which::Module);
+    // (The file's table let go of: the module's is read again where the
+    // module names it, which this harness's user folder does not hold.)
+    let file_s = h.state().talk.as_ref().is_some_and(|t| t.name == "lines");
+    assert!(!file_s, "not the file's table");
+    assert!(!h.state().talk_view.outside, "the module's");
+}
+
+/// A record of U17's first tab for `dialog.tlk` (`game-talk-table`, written
+/// by 27ce7852 to 92ede11d) reads without a fault and opens the Talk Table
+/// tab showing `dialog.tlk`.
+#[test]
+fn a_record_of_the_game_talk_table_tab_opens_the_talk_table_tab() {
+    let dir = mg_testkit::scratch_dir("ui-talk-old-game-tab");
+    let h = talk_window(Mode::Tabs, "ui-talk-old-game-tab-module", 1600.0);
+    let path = h.state().module_path().unwrap();
+    drop(h);
+    let tabs = dir.join("open-tabs");
+    std::fs::create_dir_all(&tabs).unwrap();
+    let record = r#"{"panes":[{"place":"middle","tabs":["game-talk-table"]}],
+        "front":"game-talk-table","views":{"game-talk-table":{"line":7}}}"#;
+    std::fs::write(mg_ui::open_tabs::file(&tabs, &path), record).unwrap();
+    let mut app = app_in(Mode::Tabs, Vec::new());
+    app.settings.no_last_area = true;
+    app.open_tabs_dir = Some(tabs);
+    app.game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), our_dialog())));
+    app.open_module(&path);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "the Talk Table tab");
+    assert_eq!(Which::shown(h.state()), Which::Game, "showing dialog.tlk");
+    // (The line kept under the old kind is not restored: none chosen.)
+    let view = &h.state().game_talk.as_ref().unwrap().view;
+    assert_eq!(view.selected, None, "the old line not restored");
+    h.get_by_label("0");
+}
+
+/// A record of U17's sessions with both tabs, the module's table's and
+/// `dialog.tlk`'s, in one pane or in two (either in front): one Talk
+/// Table tab, showing `dialog.tlk`, in front where either was.
+#[test]
+fn a_record_of_both_talk_tabs_opens_one_talk_table_tab() {
+    let records = [
+        r#"{"panes":[{"place":"middle","tabs":["talk-table","game-talk-table"]}],"front":"game-talk-table"}"#,
+        r#"{"panes":[{"place":"middle","tabs":["game-talk-table","talk-table"]}],"front":"talk-table"}"#,
+        r#"{"panes":[{"place":"middle","tabs":["module-properties","talk-table"]},{"place":"split right 500","tabs":["game-talk-table"]}],"front":"game-talk-table"}"#,
+    ];
+    for (n, record) in records.into_iter().enumerate() {
+        let dir = mg_testkit::scratch_dir(&format!("ui-talk-old-both-{n}"));
+        let h = talk_window(Mode::Tabs, &format!("ui-talk-old-both-module-{n}"), 1600.0);
+        let path = h.state().module_path().unwrap();
+        drop(h);
+        let tabs = dir.join("open-tabs");
+        std::fs::create_dir_all(&tabs).unwrap();
+        std::fs::write(mg_ui::open_tabs::file(&tabs, &path), record).unwrap();
+        let mut app = app_in(Mode::Tabs, Vec::new());
+        app.settings.no_last_area = true;
+        app.open_tabs_dir = Some(tabs);
+        app.game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), our_dialog())));
+        app.open_module(&path);
+        let mut h = harness(app, 1600.0, 900.0);
+        settle(&mut h);
+        let count = h.state().dock.iter_all_tabs().filter(|(_, t)| **t == Tab::TalkTable).count();
+        assert_eq!(count, 1, "{n}: one Talk Table tab");
+        assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "{n}: in front");
+        assert_eq!(Which::shown(h.state()), Which::Game, "{n}: showing dialog.tlk");
+    }
+}
+
+/// The window comes to rest across the switch, docked and floating: the
+/// module's table, `dialog.tlk` shown, a Find, back to the module's.
+#[test]
+fn the_window_comes_to_rest_across_the_switch() {
+    for mode in MODES {
+        let mut h = talk_window(mode, "ui-talk-one-tab-rest", 1920.0);
+        open_own(&mut h);
+        choose(&mut h, Which::Module, 2);
+        show(&mut h, Which::Game);
+        choose(&mut h, Which::Game, 7);
+        h.state_mut().game_talk.as_mut().unwrap().view.filter = "line".into();
+        settle(&mut h);
+        show(&mut h, Which::Module);
+        assert_eq!(chosen(&h), Some(2), "{mode:?}: its line");
+        show(&mut h, Which::Game);
+        show(&mut h, Which::Module);
+    }
+}
+
+/// Undo noted for the module's table on the way to the Top Bar (the
+/// pointer gone straight from String's Text to the Top Bar's Undo, then
+/// `dialog.tlk` shown): the Top Bar's Undo, Ctrl+Z over the bar and the
+/// Edit menu's label are the module's own then, never the hidden table's.
+#[test]
+fn undo_noted_on_the_way_to_the_bar_never_reaches_the_hidden_table() {
+    for by_key in [false, true] {
+        let name = format!("ui-talk-one-tab-bar-{by_key}");
+        let mut h = talk_window(Mode::Tabs, &name, 1600.0);
+        let info = ResKey::parse("module", ResType::IFO).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "A tag",
+            vec![mg_edit::Edit::SetField {
+                key: info,
+                path: mg_edit::GffPath::root(),
+                label: "Mod_Tag".into(),
+                value: Some(mg_gff::Value::String(b"OTHER".to_vec())),
+            }],
+        )));
+        settle(&mut h);
+        open_own(&mut h);
+        choose(&mut h, Which::Module, 3);
+        let was = line(&h, 3).text;
+        type_in(&mut h, "Text", "a");
+        let bar = tool(&h, "Undo").rect().center();
+        h.hover_at(bar);
+        h.step();
+        h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+        settle(&mut h);
+        assert_eq!(Which::shown(h.state()), Which::Game);
+        if by_key {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        } else {
+            // The Edit menu names the module's step.
+            h.get_by_label("Edit").click();
+            h.run_steps(2);
+            h.get_by_label_contains("Undo A tag");
+            h.key_press(egui::Key::Escape);
+            h.run_steps(2);
+            h.hover_at(bar);
+            h.step();
+            tool(&h, "Undo").click();
+        }
+        settle(&mut h);
+        assert_eq!(line(&h, 3).text, format!("{was}a"), "{by_key}: the hidden line kept");
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let tag = ws.doc(&info).unwrap().root.read(&mg_schema::ifo::MOD_TAG).0;
+        assert_eq!(tag, b"SAMPLE".to_vec(), "{by_key}: the module's step taken back");
+    }
+}
+
+/// Every other way to the module's table shows it, `dialog.tlk` let go
+/// of where the tab showed it: Tools › Talk Table, Module Properties'
+/// Edit…, a 2DA StrRef cell's Talk Table.
+#[test]
+fn every_way_to_the_module_s_table_shows_it() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-ways", 1600.0);
+    open_own(&mut h);
+    // Tools › Talk Table.
+    show(&mut h, Which::Game);
+    h.get_by_label("Tools").click();
+    h.run_steps(2);
+    let item = h.get_all_by_label("Talk Table").find(|n| {
+        let role = n.accesskit_node().role();
+        role != egui::accesskit::Role::Tab && role != egui::accesskit::Role::Label
+    });
+    item.expect("Tools › Talk Table").click();
+    settle(&mut h);
+    assert_eq!(Which::shown(h.state()), Which::Module, "Tools › Talk Table");
+    // Module Properties' Edit… (its Custom Content page).
+    show(&mut h, Which::Game);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    settle(&mut h);
+    h.get_by_label("Custom Content").click();
+    settle(&mut h);
+    h.get_by_label("Edit…").click();
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "Edit…: the tab");
+    assert_eq!(Which::shown(h.state()), Which::Module, "Module Properties' Edit…");
+    // A 2DA StrRef cell's Talk Table.
+    show(&mut h, Which::Game);
+    let dir = mg_testkit::scratch_dir("ui-talk-one-tab-ways-table");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    std::fs::write(dir.join("mine.2da"), "2DA V2.0\n\n   Label  Name\n0  Bread  16777219\n")
+        .unwrap();
+    std::fs::write(dir.join("mine.2da.toml"), "[columns.Name]\nkind = \"strref\"\n").unwrap();
+    let id = mg_ui::table_view::open_path(h.state_mut(), &dir.join("mine.2da")).unwrap();
+    settle(&mut h);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    settle(&mut h);
+    let button = h
+        .get_all_by_label("Talk Table")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button);
+    button.expect("the cell's Talk Table").click();
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&Tab::TalkTable), "the cell's: the tab");
+    assert_eq!(Which::shown(h.state()), Which::Module, "a 2DA cell's Talk Table");
+}
+
+/// Create in the Talk Table panel's Module's Table, with `dialog.tlk`
+/// shown in the tab: the table made is shown in its place.
+#[test]
+fn a_table_made_with_dialog_tlk_shown_takes_its_place() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-one-tab-create");
+    let user = user_folder(&dir, &[]);
+    let path = sample_module(&dir);
+    let mut app = game_app_with(&root, Some(user.clone()), NoDialogs::default());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    assert_eq!(Which::shown(h.state()), Which::Game);
+    let field = h
+        .get_all_by_label("New talk table")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput);
+    field.expect("Module's Table's name").scroll_to_me();
+    settle(&mut h);
+    type_into_hint(&mut h, "name", "mg_made");
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("Create").click();
+    settle(&mut h);
+    assert!(user.join("tlk/mg_made.tlk").is_file(), "made");
+    assert_eq!(Which::shown(h.state()), Which::Module, "the made table shown");
+    assert_eq!(h.state().talk.as_ref().unwrap().name, "mg_made");
+    assert!(h.state().game_talk.is_none(), "the game's copy let go of");
+}
+
+/// The way out of `dialog.tlk`, More › Module's Table, with no game data
+/// (the tab saying why it is empty) and with no module open.
+#[test]
+fn module_s_table_leaves_dialog_tlk_without_game_data_or_module() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-no-data", 1600.0);
+    open_own(&mut h);
+    show(&mut h, Which::Game);
+    h.state_mut().game = None;
+    settle(&mut h);
+    h.get_by_label_contains("dialog.tlk is the game data's");
+    talk_click(&mut h, talk_view::MODULE_S_TABLE);
+    assert_eq!(Which::shown(h.state()), Which::Module, "no game data: the module's");
+    // No module: the tab back on no table of its own, still open.
+    let mut app = app_in(Mode::Tabs, Vec::new());
+    app.game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), our_dialog())));
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ShowGameTalk);
+    settle(&mut h);
+    talk_click(&mut h, talk_view::MODULE_S_TABLE);
+    assert_eq!(Which::shown(h.state()), Which::Module, "no module");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "the tab still open");
+}
+
+/// F6 and the list's keys while `dialog.tlk` is shown: Shift+F6 from
+/// String back to the list gives its keys to the game's list, whose Down
+/// moves its line; the module's waiting table's line stays.
+#[test]
+fn f6_and_the_list_s_keys_go_to_dialog_tlk_s_list() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-f6", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 2);
+    show(&mut h, Which::Game);
+    choose(&mut h, Which::Game, 7);
+    h.key_press(egui::Key::F6);
+    settle(&mut h);
+    let text = talk_view::panels::text_id(Which::Game, 7);
+    assert!(h.ctx.memory(|m| m.has_focus(text)), "F6: the game's line's Text");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F6);
+    settle(&mut h);
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    let game = h.state().game_talk.as_ref().unwrap().view.selected;
+    assert_eq!(game, Some(8), "Down in the game's list");
+    assert_eq!(chosen(&h), Some(2), "the module's line as left");
+}
+
+/// The panels read the game's copy as the list does: the game data
+/// changed, String shows the new line's text in the very next frame.
+#[test]
+fn the_panels_follow_changed_game_data_at_once() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-refresh", 1600.0);
+    show(&mut h, Which::Game);
+    choose(&mut h, Which::Game, 7);
+    assert!(shows(&h, "Text", "Well met, traveler."));
+    let mut tlk = our_dialog();
+    tlk.entries[7] = mg_tlk::TlkEntry::text("Well met again.");
+    h.state_mut().game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), tlk)));
+    h.step();
+    assert!(shows(&h, "Text", "Well met again."), "String in the same frame as the list");
 }

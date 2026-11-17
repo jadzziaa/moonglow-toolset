@@ -535,6 +535,10 @@ impl Moonglow {
             .or_else(|| self.undo_keys.clone())
             .or_else(|| self.undo_before_bars.clone().filter(|_| self.pointer_on_bars))
             .or_else(|| self.pointer_on_bars.then(|| self.worked_side_editor()).flatten())
+            // (Never the module's talk table while the tab shows the game's
+            // dialog.tlk over it, from whatever it was noted by: Undo, Redo,
+            // their labels and tips are then the module's.)
+            .filter(|tab| *tab != Tab::TalkTable || self.game_talk.is_none())
     }
 
     /// The side editor (or the talk table's) the user last worked in

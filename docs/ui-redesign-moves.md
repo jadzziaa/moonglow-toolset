@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T19:52:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T21:32:50Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -269,7 +269,7 @@ Every control of the screens mocked in the second round and its home in the mock
 #### New
 
 - A header row on the list. ✓ M4 U17 (StrRef, Text, Feminine where there is one, Sound; only the rows in sight laid out)
-- dialog.tlk opened read-only and numbered by its own StrRefs. ✓ M4 U17 (a tab of its own, from the Resources panel's row and Quick Open; its lines one copy made as the tab opens, shared after, let go of with the tab)
+- dialog.tlk opened read-only and numbered by its own StrRefs. ✓ M4 U17 (in the Talk Table tab, the module's table waiting behind it, by the owner's ruling of 2026-11-17; from the Resources panel's row and Quick Open; its lines one copy made as it is shown, shared after, let go of as the tab shows another table or closes)
 - The Talk Table panel as a home for the no-table page. ✓ M4 U17 (Module's Table, its section)
 
 #### Not Drawn

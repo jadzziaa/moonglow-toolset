@@ -1,6 +1,10 @@
 # Update log
 
 ## 2026-11-17
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, U17 by the owner's ruling: **the game's `dialog.tlk` draws inside the Talk Table tab**, as the board draws it ([03](manual/03-modules.md#the-talk-table-editor); [moves](ui-redesign-moves.md)).
+  * Opening `dialog.tlk` from the Resources panel or Quick Open shows it in the Talk Table tab, read-only, numbered by its own StrRefs; the tab comes forward where it is open. More › Module's Table brings the module's table back as you left it: its unsaved lines, Undo steps, chosen line and what you typed.
+  * Its own tab ("dialog.tlk") is gone; a remembered one opens the Talk Table tab showing `dialog.tlk`.
+  * Tools › Talk Table, Module Properties' Edit… and a 2DA cell's Talk Table show the module's table; Undo and Redo never reach the waiting table while `dialog.tlk` is shown; the panels follow changed game data in the same frame as the list.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U18's review ([18](manual/18-nui-creator.md#design), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
   * **The NUI designer's docks stay on every page and in every Layout**: Components, Properties, Bindings and Layers on Bindings, Events & Variants and Images, in Preview only and Split source; the editor keeps its width as you switch.
   * **Properties is the board's form**: labels beside their fields, bold section headings that fold, Width and Height on one row, Source with its plus, descriptions as tooltips; the adding buttons carry a drawn plus. The View popover's rows line up.

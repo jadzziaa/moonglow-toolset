@@ -193,6 +193,12 @@ enum Want {
     References(Option<Query>),
     /// Tile Properties of these tiles (by index in the area's tile list).
     TileProperties(ResRef, Vec<usize>),
+    /// The Talk Table tab showing the game's `dialog.tlk`: a record of
+    /// U17's own tab for it (`game-talk-table`), which the owner's ruling
+    /// folded into the Talk Table tab. Nothing writes it now: the tab
+    /// remembers it showed `dialog.tlk` no more than a file it showed by
+    /// Open File….
+    GameTalk,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -421,7 +427,6 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::Factions => "factions".into(),
         Tab::Journal => "journal".into(),
         Tab::TalkTable => "talk-table".into(),
-        Tab::GameTalkTable => "game-talk-table".into(),
         Tab::Manual => "manual".into(),
         Tab::AdvancedSearch => "advanced-search".into(),
         Tab::Options => "options".into(),
@@ -479,7 +484,9 @@ fn parse_tab(text: &str) -> Option<Want> {
         "factions" => Tab::Factions,
         "journal" => Tab::Journal,
         "talk-table" => Tab::TalkTable,
-        "game-talk-table" => Tab::GameTalkTable,
+        // (The game's dialog.tlk in a tab of its own, as U17 first kept it
+        // until the owner's ruling: the Talk Table tab, showing it.)
+        "game-talk-table" => return Some(Want::GameTalk),
         "manual" => Tab::Manual,
         "advanced-search" => Tab::AdvancedSearch,
         "options" => Tab::Options,
@@ -736,6 +743,7 @@ impl Moonglow {
             Want::Table(TableAt::File(path) | TableAt::Hak(path, _)) => return path.is_file(),
             Want::References(_) => return true,
             Want::TileProperties(a, _) => return area(a),
+            Want::GameTalk => return true,
             Want::Tab(tab) => tab,
         };
         match tab {
@@ -972,10 +980,6 @@ impl Moonglow {
             Tab::AreasProperties(rs) => page(are(rs.first()?), crate::area_props::several_page(rs)),
             Tab::TalkTable => {
                 Some(View { line: Some(self.talk_view.selected?), ..Default::default() })
-            }
-            Tab::GameTalkTable => {
-                let line = self.game_talk.as_ref()?.view.selected?;
-                Some(View { line: Some(line), ..Default::default() })
             }
             Tab::ModuleProperties => {
                 let page = crate::module_props::PAGES.iter().find(|p| p.0 == self.module_page);
@@ -1243,6 +1247,11 @@ impl Moonglow {
                 Some(Tab::References)
             }
             Want::TileProperties(..) => None,
+            Want::GameTalk => {
+                // (Without the game's data, the module's table alone.)
+                let _ = crate::talk_view::game_table(self);
+                Some(Tab::TalkTable)
+            }
         };
         self.actions.truncate(asked);
         tab

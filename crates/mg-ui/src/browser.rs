@@ -649,19 +649,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 let r = list_row(ui, row, at_cursor, &fonts);
                 let copy = over.as_ref().map(|_| layer.clone());
                 let game_talk = is_game_talk(row);
-                let tab = || match game_talk {
-                    true => Tab::GameTalkTable,
-                    false => tab_of(*k, copy.clone(), in_module(k)),
+                // (The game's dialog.tlk: shown in the Talk Table tab.)
+                let open = || match game_talk {
+                    true => Action::ShowGameTalk,
+                    false => Action::OpenTab(tab_of(*k, copy.clone(), in_module(k))),
                 };
                 if r.clicked() {
                     clicked = Some(at);
                 }
                 if r.double_clicked() || (entered && cursor == Some(at)) {
-                    actions.push(Action::OpenTab(tab()));
+                    actions.push(open());
                 }
                 mg_uikit::context_menu(&r, |ui| {
                     if ui.button("Open").clicked() {
-                        actions.push(Action::OpenTab(tab()));
+                        actions.push(open());
                     }
                     // (A copy's as its layer has it: a model, a blueprint.)
                     let previewable = crate::model_view::previewable(k.restype)

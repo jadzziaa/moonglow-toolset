@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T14:38:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T23:03:35Z }
 ---
 
 # Modules
@@ -1807,9 +1807,22 @@ it. A table in a hak, or one the game ships (a premium campaign's, in
 is): change it where it is built.
 A nasher project's table kept as JSON is edited in its file.
 
-**The game's own `dialog.tlk`** opens read-only in a tab of its own: its
+**The game's own `dialog.tlk`** opens read-only in the Talk Table tab: its
 row in the Resources panel (`dialog.tlk`, in the layer `lang:en`, the
-language the game data is read in) or "dialog.tlk" in Quick Open. It is
+language the game data is read in) or "dialog.tlk" in Quick Open. With the
+tab already open, it comes forward showing `dialog.tlk`; the module's table
+waits behind it as you left it (its unsaved lines, Undo steps, chosen line
+and what you typed), and **Module's Table** in the header's More brings it
+back (where a file opened with Open File… waits behind it with unsaved
+changes, it brings that file back instead, as its tip says). Every other
+way to the talk table, Tools › Talk Table, Module Properties' Edit… or
+New… and a 2DA cell's Talk Table, shows the module's table. While
+`dialog.tlk` is shown, Undo and Redo are the module's own, never the
+waiting table's; the module's Save (Ctrl+S) still writes the waiting
+table's unsaved lines, and closing the tab keeps them for that Save
+without asking: the dot on the tab's title is the sign that some are
+there. A Find References look under way in the module's table carries on,
+its result there on your return. The Talk Table panel names the table shown. It is
 the table the game data reads: the install's `lang/<language>/data/
 dialog.tlk` (the masculine one: Moonglow shows a line by the masculine
 table, as Aurora does), not a copy in the user folder or `override`. Its
@@ -1822,8 +1835,10 @@ Go to, Only lines with text and the exports work as in the module's
 table, by its own numbers; References looks through the module and its
 haks, not the game's own 2DAs (the panel says so). Undo with it in front
 is the module's: the table has no steps of its own. One copy of its
-112,228 lines is made as the tab opens, shared from then on, and let go
-of as the tab closes. A hak's own resource named `dialog.tlk` is listed
+112,228 lines is made as it is shown, shared from then on, and let go
+of as the tab shows another table or closes; the tab does not remember
+`dialog.tlk` across a restart (as it does not remember a file opened with
+Open File…). A hak's own resource named `dialog.tlk` is listed
 in the Resources panel beside it and opens as the hak's resources do:
 the game reads its talk table from the install alone. Where the module has no talk table of its own, its
 Talk Table panel holds Module's Table too.

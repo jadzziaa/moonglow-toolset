@@ -378,6 +378,13 @@ pub enum Action {
     FindStrRef(u32),
     /// The game's `dialog.tlk` written out (M4's U17): as JSON, else CSV.
     GameTalkExport(bool),
+    /// The game's `dialog.tlk` shown in the Talk Table tab, read-only (the
+    /// Resources panel's row, Quick Open: M4's U17, the owner's ruling).
+    ShowGameTalk,
+    /// The module's talk table in the Talk Table tab (Tools › Talk Table,
+    /// Module Properties' Edit… and New…, a 2DA cell's Talk Table): the
+    /// game's `dialog.tlk` let go of where the tab showed it.
+    ShowModuleTalk,
 
     /// The resource browser's Save As: a resource of the load order to a
     /// file (the copy the game reads, or the one a layer has, by its
@@ -794,8 +801,8 @@ pub struct Moonglow {
     /// The module's talk table, open for editing (Tools › Talk Table).
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
-    /// The game's `dialog.tlk`, read-only in its tab (M4's U17), once
-    /// opened.
+    /// The game's `dialog.tlk` while the Talk Table tab shows it,
+    /// read-only (M4's U17; the owner's ruling: in the one tab).
     pub game_talk: Option<talk_view::GameTalk>,
     /// The talk-table lines typed for the module's fields, kept with the
     /// steps that set them, and the question asked of a text the table
@@ -2140,6 +2147,10 @@ impl Moonglow {
         // Status Bar.
         // (A Bottom Dock panel a script asked to the front last frame.)
         shell::bottom_forward(self);
+        // (The game's dialog.tlk shown made again from changed game data
+        // before anything reads it: the panels and the Status Bar, drawn
+        // before the list, never a frame behind it.)
+        talk_view::refresh(self);
         shell::status_bar(self, ui);
         // (Set again where the Left Dock draws the Resources panel.)
         self.resources_here = None;
@@ -3147,7 +3158,7 @@ impl Moonglow {
     pub(crate) fn editor_keys(&self) -> (palette_view::Keys, Option<u32>) {
         use palette_view::Keys;
         match self.tabs_recent.first() {
-            Some(Tab::TalkTable | Tab::GameTalkTable) => (Keys::Talk, None),
+            Some(Tab::TalkTable) => (Keys::Talk, None),
             Some(Tab::Table(id)) => (Keys::Table, Some(*id)),
             _ => (Keys::Area, None),
         }
@@ -3244,7 +3255,8 @@ impl Moonglow {
         }
         // (A talk table's lines: the tab's, M4's U17.)
         if next == Keys::Talk
-            && let Some(which) = self.tabs_recent.first().and_then(talk_view::Which::of)
+            && let Some(which) =
+                self.tabs_recent.first().and_then(|t| talk_view::Which::of(self, t))
         {
             talk_view::take_keys(ctx, which);
         }
@@ -3464,7 +3476,7 @@ impl Moonglow {
             // (A talk table's, its String, References and Talk Table at
             // its right, M4's U17: that much wider, its list keeping the
             // room it had.)
-            None if talk_view::Which::of(&tab).is_some() => {
+            None if tab == Tab::TalkTable => {
                 tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0)
             }
             None => tab.window_size(),
@@ -3478,8 +3490,8 @@ impl Moonglow {
         // not to the room between the docks: it may stand over a dock, as a
         // window dragged there does, and its panes and header keep their
         // room. The coordinator's ruling at M4's U17 review.)
-        let panes = matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_))
-            || talk_view::Which::of(&tab).is_some();
+        let panes =
+            matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_)) || tab == Tab::TalkTable;
         let wide = if tab == Tab::Options {
             room.width()
         } else if panes {
@@ -5137,6 +5149,11 @@ impl Moonglow {
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
             Action::TalkFile(new) => talk_view::file(self, new),
             Action::GameTalkExport(json) => talk_view::export_game(self, json),
+            Action::ShowGameTalk => talk_view::show_game(self),
+            Action::ShowModuleTalk => {
+                talk_view::hide_game(self);
+                self.run_now(Action::OpenTab(Tab::TalkTable));
+            }
 
             Action::SaveResource(key, layer) => {
                 browser::save_as(self, key, layer.as_deref(), false)
