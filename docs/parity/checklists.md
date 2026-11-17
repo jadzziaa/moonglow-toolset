@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T19:09:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:28:37Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -156,18 +156,20 @@ unless their file (under `crates/`) follows the name.
 | Add (with Root: a greeting; with a line: a line of the other kind), new conversation with `nw_walk_wp` end scripts | same; the file's fields, order and defaults as Aurora's | ✅ (`aurora_dialog.rs`) [conversation_editor_builds_and_links] |
 | Input Text popup for a new line ("Enter what the NPC/player says next:", the placeholder selected; OK adds it, the parent staying selected; Cancel adds nothing) | the same; with the option off, the new line is selected and its Text field edited in place | ✅ [conversation_options_popup_link_directions_drag_and_backup] |
 | Drag a line onto another: moves it with its branch; Ctrl+drag links them (direction from Options) | the same (Ctrl or Cmd); a line is not dropped into its own branch, nor a link onto Root | ✅ (`dialog.rs` tests) [conversation_options_popup_link_directions_drag_and_backup] |
+| Toolbar: Add, Copy, Cut, Paste, Paste As Link, Delete, move up and down, Expand All, Collapse All, the highlight filters, Export, Import, Test | the editor's header (M4 U14, the Conversation board): Add with its word, the rest as icons, the five highlights a group of toggles, Scripts, Export, Import Lines…, Test, then OK and Cancel at its end (Close alone for a conversation only looked at); into More where the editor is narrow | ✅ [conversation_editor_builds_and_links, a_conversation_only_looked_at_is_read_only] |
 | Copy, Cut, Paste, Paste As Link (direction from Options), Delete | same; Delete removes the branch and every link to it, then renumbers | ✅ (`dialog.rs` tests) |
 | Expand All, Collapse All; highlight filters (comments, actions, quests, animations, sounds) | same | ✅ |
+| The line's fields under the tree (`pnlData`) | the Right Dock's Node section, its Data tab (M4 U14), or a floating conversation's window's right pane: the sections Text, Text Appears When…, Actions Taken, Other Actions and Comments on one scroll | ✅ [the_line_s_fields_are_the_right_dock_s_or_the_window_s, the_panels_follow_the_conversation_in_front, every_conversation_panel_fits_the_right_dock] |
 | Speaker Tag (combo of module creature tags, Add) | a text field and the list of the tags of the creatures placed in the module's areas | ✅ [speaker_tags_come_from_the_module_s_creatures] |
 | Text + `…` all languages; Insert Token (stringtokens.2da, highlight tokens) | same | ✅ |
 | Text Appears When…: script, `…`, Edit, EE parameters (+/−), script preview | same | ✅ (engine: conditions in order with parameters, `engine_dialog.rs`) |
 | Actions Taken: script, parameters, preview | same | ✅ (engine: the action runs with its parameter) |
 | Other Actions: animation (Aurora's list), sound (`…`, Play), journal category and entry, Edit | animation list with Aurora's values, sound picker and Play, journal and entry from the module's journal | ✅ |
 | Comments (node comment; link comment on links) | same | ✅ |
-| Current File: end scripts normal/aborted, Stop Camera Zoom In | same | ✅ |
-| Status bar: line letters/words, file words | line letters and words, file words | ✅ |
-| Bookmarks (list, double-click to go) | Bookmark toggles the selected line; the Bookmarks tab lists them, click selects | ✅ [conversation_search_bookmarks_and_test] |
-| Search: find, replace, match case, whole word, current file / all files in module | Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one | ✅ (language and gender scopes: English only) |
+| Current File: end scripts normal/aborted, Stop Camera Zoom In | the Conversation panel under the Node section (M4 U14), the file's word count in its header | ✅ [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
+| Status bar: line letters/words, file words | over the line's Data: its letters and words (the talk table's text where that is shown: Aurora counts 0) and the file's words | ✅ improvement [a_talk_table_line_counts_the_text_shown] |
+| Bookmarks (list, double-click to go) | Bookmark on the Node section's bar toggles the selected line; the bookmarked lines are listed under Search's results (M4 U15 moves them to the Outliner), click selects | ✅ [conversation_search_bookmarks_and_test] |
+| Search: find, replace, match case, whole word, current file / all files in module | the Node section's Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one; Ctrl+F brings it to the front | ✅ (language and gender scopes: English only) [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
 | Test (click through the conversation) | Test window: greetings, then each line's next lines, Back, Done; conditions not run: each is taken to pass unless switched off in the window | ✅ |
 | Script Wizard (Text Appears When…: abilities, class and level, gender, race, alignment, feats, skills, skill checks, items, local variables, random; Actions Taken: rewards, take gold/XP/items, set locals, attack or open a store, faction change; name sc_NNN/at_NNN, start the editor) | same pages and lists; Finish writes, compiles and sets the script in one undoable command | ✅ (`aurora_script_wizard.rs`: Aurora's five captured scripts byte for byte, all compile) [script_wizard_writes_compiles_and_sets_scripts] |
 | Script Wizard output that does not work in EE: store with appraise checks plus a party reward (`nw_i0_tool` and `nw_i0_plot` both define `HasItem`: no compile), Take XP (`GiveXPToCreature` ignores negative amounts) | `nw_i0_plot` only, party XP as a loop; Take XP with `SetXP` | ✅ (improvement) |

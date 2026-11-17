@@ -688,12 +688,36 @@ pub struct DockTabs {
     tabs: Vec<DockTab>,
     drawn_hovered: Option<usize>,
     tools_width: Option<f32>,
+    title: Option<String>,
 }
 
 impl DockTabs {
     /// The tab bar of the dock named `dock` (`"Left Dock"`).
     pub fn new(dock: impl Into<String>) -> Self {
-        DockTabs { dock: dock.into(), tabs: Vec::new(), drawn_hovered: None, tools_width: None }
+        DockTabs {
+            dock: dock.into(),
+            tabs: Vec::new(),
+            drawn_hovered: None,
+            tools_width: None,
+            title: None,
+        }
+    }
+
+    /// The panel's name before its tabs (`.docktab.title`, the Conversation
+    /// board's "Node" before Data and Search): in `text`, a tab's padding
+    /// at each side, no line at its right, not a tab (a label in the tab
+    /// list's group, never chosen).
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// The title's width ([`DockTabs::title`]), none without one.
+    fn title_width(&self, ui: &Ui) -> f32 {
+        let Some(title) = &self.title else { return 0.0 };
+        let font = FontId::proportional(metrics::BODY_SIZE);
+        let words = ui.painter().layout_no_wrap(title.clone(), font, Color32::WHITE).size().x;
+        2.0 * DOCK_TAB_PADDING + words
     }
 
     /// The tools' width (`tools` will lay out so much): where the tabs'
@@ -714,7 +738,7 @@ impl DockTabs {
     /// those that fit.)
     pub fn tabs_width(&self, ui: &Ui, icons: bool) -> f32 {
         let each = |t: &DockTab| if icons { t.icon_width(ui) } else { t.width(ui) };
-        self.tabs.iter().map(each).sum()
+        self.title_width(ui) + self.tabs.iter().map(each).sum::<f32>()
     }
 
     /// Whether the tabs show their icons alone in a bar `bar` wide.
@@ -726,7 +750,7 @@ impl DockTabs {
     /// form they show there (their words, closer, or their icons alone).
     pub fn tabs_width_in(&self, ui: &Ui, bar: f32) -> f32 {
         let form = self.form_in(ui, bar);
-        self.tabs.iter().map(|t| t.width_in(ui, form)).sum()
+        self.title_width(ui) + self.tabs.iter().map(|t| t.width_in(ui, form)).sum::<f32>()
     }
 
     /// How the tabs show in a bar `bar` wide ([`DockTabs::tools_width`]):
@@ -736,8 +760,9 @@ impl DockTabs {
     /// even where those do not fit either.
     fn form_in(&self, ui: &Ui, bar: f32) -> TabForm {
         let Some(tools) = self.tools_width else { return TabForm::Words };
+        let title = self.title_width(ui);
         let fits = |form| {
-            let tabs: f32 = self.tabs.iter().map(|t| t.width_in(ui, form)).sum();
+            let tabs: f32 = title + self.tabs.iter().map(|t| t.width_in(ui, form)).sum::<f32>();
             tabs + TOOLS_PADDING.0 + tools + TOOLS_PADDING.1 <= bar
         };
         if self.tabs.is_empty() || fits(TabForm::Words) {
@@ -796,6 +821,15 @@ impl DockTabs {
                     node.set_role(egui::accesskit::Role::TabList);
                 });
                 ui.spacing_mut().item_spacing.x = 0.0;
+                if let Some(title) = &self.title {
+                    let size = vec2(self.title_width(ui), bar.height());
+                    let (rect, r) = ui.allocate_exact_size(size, Sense::hover());
+                    r.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, title));
+                    let font = FontId::proportional(metrics::BODY_SIZE);
+                    let galley = ui.painter().layout_no_wrap(title.clone(), font, t.text);
+                    let y = (rect.center().y - 0.5 - galley.size().y / 2.0).round();
+                    ui.painter().galley(pos2(rect.left() + DOCK_TAB_PADDING, y), galley, t.text);
+                }
                 for (i, tab) in self.tabs.iter().enumerate() {
                     let wide = tab.width_in(ui, form);
                     let size = vec2(wide, bar.height());
@@ -1285,6 +1319,66 @@ mod tests {
         out.textures_delta.clear();
         let whole = texts(&out).iter().any(|(t, cut, _)| t == "short" && !cut);
         assert!(whole, "a short detail is drawn whole");
+    }
+
+    /// A tab bar's title (`.docktab.title`, the Conversation board's "Node"
+    /// before Data and Search): drawn first in `text`, its tabs after it,
+    /// counted in the room the tabs take (they go to icons sooner), and no
+    /// tab: a click on it chooses nothing.
+    #[test]
+    fn a_tab_bar_s_title_stands_before_its_tabs_and_is_no_tab() {
+        let input = |events: Vec<egui::Event>| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(320.0, 100.0))),
+            events,
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        crate::apply(&ctx, crate::Theme::Dark);
+        let t = crate::tokens(&ctx);
+        let bar = || DockTabs::new("Right Dock").title("Node").tab("Data").tab("Search");
+        let mut selected = 1;
+        let mut texts = Vec::new();
+        let mut widths = (0.0, 0.0);
+        for events in [Vec::new(), Vec::new()] {
+            let mut out = ctx.run_ui(input(events), |ui| {
+                widths = (
+                    bar().tabs_width(ui, false),
+                    DockTabs::new("Right Dock").tab("Data").tab("Search").tabs_width(ui, false),
+                );
+                bar().show(ui, &mut selected, |_| ());
+            });
+            out.textures_delta.clear();
+            texts = (out.shapes.iter())
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(s) => Some((
+                        s.galley.text().to_string(),
+                        s.fallback_color,
+                        s.visual_bounding_rect(),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+        }
+        let find = |w: &str| texts.iter().find(|(t, ..)| t == w).cloned().expect(w);
+        let (node, data, search) = (find("Node"), find("Data"), find("Search"));
+        assert_eq!(node.1, t.text, "the title in `text`");
+        assert!(node.2.right() < data.2.left() && data.2.right() < search.2.left());
+        assert!(widths.0 > widths.1 + 20.0, "the title counted: {widths:?}");
+        // A click on the title chooses no tab.
+        let at = node.2.center();
+        for pressed in [true, false] {
+            let press = egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            let mut out = ctx.run_ui(input(vec![egui::Event::PointerMoved(at), press]), |ui| {
+                bar().show(ui, &mut selected, |_| ());
+            });
+            out.textures_delta.clear();
+        }
+        assert_eq!(selected, 1, "the title is no tab");
     }
 
     /// The editor's thresholds (the area header's, M4's to apply).

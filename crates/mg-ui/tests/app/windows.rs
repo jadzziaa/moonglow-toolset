@@ -2831,11 +2831,12 @@ fn scripts_open_as_tabs_of_one_window() {
     assert_ne!(third.0, first.0, "a window of its own");
 }
 
-/// The lower halves of the script, conversation and journal editors
-/// (the script's window's bottom pane, Compiler and the rest since M4's
-/// U13; the selection's fields) are dragged up only so far: a third of
-/// the script's window, seven tenths of the others, the text or the lines
-/// above keeping their room.
+/// The lower halves of the script and journal editors (the script's
+/// window's bottom pane, Compiler and the rest since M4's U13; the
+/// journal's fields) are dragged up only so far: a third of the script's
+/// window, seven tenths of the journal, the text or the lines above
+/// keeping their room. (The conversation's line's fields left its lower
+/// half for the Right Dock's Node section in M4's U14.)
 #[test]
 fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     let dir = mg_testkit::scratch_dir("ui-lower-halves");
@@ -2850,7 +2851,6 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     m.save().unwrap();
     for (tab, panel, share) in [
         (Tab::Script(script), egui::Id::new(("window-bottom", Tab::Script(script))), 1.0 / 3.0),
-        (Tab::Dialog(talk), egui::Id::new(("dlg-data", talk)), 0.7),
         (Tab::Journal, egui::Id::new("journal-fields"), 0.7),
     ] {
         let mut app = app_with(Vec::new());

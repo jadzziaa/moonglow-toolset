@@ -1,6 +1,17 @@
 # Update log
 
+## 2026-11-17
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U14's review ([06](manual/06-conversations.md)).
+  * A script's and a sound's names show whole in their fields (16 characters); where the panel is narrow, the label stands over the field.
+  * A conversation only looked at can't be changed by a drag in its tree or by Script Wizard…; Find over a conversation in another group works for that one; the Conversation panel keeps room for its rows at the editor's larger text, and Data's headings grow with it.
+  * The script preview numbers its lines, Add Set has its ⌄, the Speaker tag is one combo, and both Tests are named Test.
+
 ## 2026-11-16
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U14, the conversation header and the Node panel**, as the Conversation and Floating boards draw them ([06](manual/06-conversations.md); [parity](parity/checklists.md); [moves](ui-redesign-moves.md)).
+  * **The conversation editor's toolbar is one header row**: Add with its word, Copy, Cut, Paste, Paste As Link, Delete, Move Up and Move Down, Expand All and Collapse All as icons; the five highlights as one group of toggles, Scripts, Export, Import Lines… and Test at the right; OK and Cancel at its end. Where the editor is narrow, what has no room goes into More.
+  * **The line chosen is edited in the Right Dock's Node section**: its Data tab holds the line's Text, Text Appears When…, Actions Taken, Other Actions and Comments on one scroll, its Search tab Find and Replace (and, for now, the bookmarked lines), with Bookmark and Test on its bar; the **Conversation** panel under it holds the file's own settings and its word count. A conversation in a window of its own has them in its window's right pane. The pane under the tree is gone.
+  * A line whose text is the talk table's counts that text's letters and words (it said "0 letters, 0 words"); the parameter sets' Save Set…, Copy Set, Paste Set and Save to File… are in a "…" menu beside Add Set, and each script section has its Script Wizard… at its heading.
+  * A color picker's hex field is as wide as its text at a window's larger text.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U13's review ([07](manual/07-scripts.md#the-script-editor), [02](manual/02-main-window.md#the-status-bar)).
   * An error at the end of a script, or in an include, is underlined too: on the line with text above it, or on the `#include` line naming the include. A script in a window of its own says its error in red at the right of its window's bottom pane.
   * From 1400 points the Status Bar drops hints before its switches lose their words, as the boards draw it.

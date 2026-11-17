@@ -1017,6 +1017,85 @@ pub(crate) fn script_tool<'t>(
     }
 }
 
+/// A conversation's lines as its outline: kind, text and whether a link.
+pub(crate) fn dialog_lines(h: &mut Harness<'_, Moonglow>, key: ResKey) -> Vec<String> {
+    let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    mg_module::dialog::outline(&g)
+        .iter()
+        .map(|l| l.split('|').take(3).collect::<Vec<_>>().join("|"))
+        .collect()
+}
+
+/// The conversation editor's header's control `name`
+/// (`mg_ui::dialog_view::CONVERSATION_HEADER`, M4's U14): on its row, or
+/// in its More, which is opened for it where the header's record says it
+/// went there (left open: [`dialog_click`] clicks it, which closes More).
+/// Of the first conversation drawn where several are.
+#[track_caller]
+pub(crate) fn dialog_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let header_name = mg_ui::dialog_view::CONVERSATION_HEADER;
+    let records = header::records(&h.ctx, header_name);
+    let rec = records.into_iter().next().expect("the conversation header");
+    let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
+    // (A highlight's place is its group's.)
+    let place = place.or_else(|| {
+        let highlights = ["Comments", "Actions", "Quests", "Animations", "Sounds"];
+        let group = rec.places.iter().find(|(n, _)| n == "Highlight").map(|(_, p)| *p);
+        group.filter(|_| highlights.contains(&name))
+    });
+    assert_eq!(header::more_name(header_name), DIALOG_MORE);
+    if place == Some(Place::More) && h.query_by_label(DIALOG_MORE).is_none() {
+        h.get_by_label(header_name).get_by_label(header::MORE).click();
+        settle(h);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(DIALOG_MORE).get_by_label(name),
+        Some(Place::Row | Place::Icon) => h.get_by_label(header_name).get_by_label(name),
+        other => panic!("{name} in the conversation header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// The conversation header's More's popover.
+pub(crate) const DIALOG_MORE: &str = "More in Conversation header";
+
+/// Clicks the conversation header's control `name` ([`dialog_tool`]:
+/// through More where it is there) and runs the frames that follow.
+#[track_caller]
+pub(crate) fn dialog_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    dialog_tool(h, name).click();
+    settle(h);
+}
+
+/// The control `name` of a conversation's Data under its section's
+/// heading `heading` (M4's U14: Text Appears When… and Actions Taken each
+/// have a Script, Add Set and the rest): the first of the name below the
+/// heading and above the next heading of those two.
+#[track_caller]
+pub(crate) fn in_section<'t>(
+    h: &'t Harness<'_, Moonglow>,
+    heading: &str,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    let headings = ["Text Appears When…", "Actions Taken", "Other Actions"];
+    let top = |label: &str| {
+        let mut all = h.query_all_by_label(label);
+        all.find(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
+            .map(|n| n.rect().top())
+    };
+    let from = top(heading).expect("the section's heading");
+    let to = (headings.iter().filter_map(|l| top(l)))
+        .filter(|y| *y > from + 1.0)
+        .fold(f32::INFINITY, f32::min);
+    let mut all = h.get_all_by_label(name);
+    all.find(|n| n.rect().center().y > from && n.rect().center().y < to)
+        .unwrap_or_else(|| panic!("{name} under {heading}"))
+}
+
 /// The row `name` of a script's Reference panel's list (M4's U12), in
 /// the Right Dock or in the script's window's right pane: by its group,
 /// apart from a header's button or a tab of the same name.

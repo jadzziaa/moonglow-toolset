@@ -1,16 +1,19 @@
 ---
 type: Manual Page
 title: Conversations
-description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
+description: Conversations - the editor's header and tree, a line's Data and the Search in the Right Dock's Node section, the Conversation panel, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T14:46:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T00:37:19Z }
 ---
 
 # Conversations
 
 **Tools › New Conversation…** makes a conversation (`.dlg`); double-click
-one in the module tree to open it in the **Conversation Editor**, laid out
-as Aurora's.
+one in the module tree to open it in the **Conversation Editor**: its
+header (what you do to the lines, how they look, then OK and Cancel) over
+its tree; the line chosen, the conversation's Search and its own settings
+in the Right Dock beside it (in a window of its own, in the window's
+right pane).
 
 ## The tree
 
@@ -19,12 +22,15 @@ The conversation is a tree under **Root**: the NPC's lines (red, headed
 line is a **link**: it stands for a line elsewhere in the tree, so
 branches can join and loop without copying text. Double-click a link, or
 right-click it for **Go to Linked**, to go to the line itself (the
-branches above it open out). Select a line to edit it
-below the tree: its **Speaker** (NPC lines: the conversation's owner, or
-a creature in the module by tag) and its **Text** (the **…** button edits
-every language). A line whose text is a talk-table string (as all the
-original campaign's are) shows that string in the tree and under the
-empty field; text typed in the field is said instead.
+branches above it open out). Select a line to edit it in the Right
+Dock's **Node** section, its **Data** tab (see [a line's
+Data](#a-lines-data)): its **Speaker tag** (NPC lines: the conversation's
+owner, or a creature in the module by tag) and its **Text** (the **…**
+button edits every language). A line whose text is a talk-table string
+(as all the original campaign's are) shows that string in the tree and
+under the empty field; text typed in the field is said instead. Over its
+fields the line's letters and words are counted, the talk table's text
+where that is what is shown, and the file's words.
 
 While its tree has the keys (see below), or with the pointer over the
 editor, Ctrl+A adds a line, Delete deletes the selected one (on macOS the
@@ -35,7 +41,8 @@ deleted from the module tree (its menu's Delete…, which asks first).
 
 **The keyboard.** Opening a conversation (from the module tree, or
 bringing its tab to the front) gives its tree the keys, as Aurora does, and
-so does a click in the editor (a thin outline shows it has them), as a
+so does a click in the editor or in its panels in the Right Dock (a thin
+outline shows it has them), as a
 click gives them to the module tree; they stay its until you click another list, point at an
 area's view or press Escape (Aurora's Escape does nothing there; Moonglow's
 hands the keys back, as in the module tree). Then, as in Aurora's tree:
@@ -75,6 +82,17 @@ Folding a branch with the arrow before its line (or Collapse All) while a line i
 selected selects the line folded, as Windows' tree does, so the
 selection stays in sight.
 
+The header has, at its left, **Add** with its word, then Copy, Cut,
+Paste, Paste As Link and Delete, Move Up and Move Down, Expand All and
+Collapse All as icons (each named in its tip); at its right the five
+highlights, **Scripts**, **Export**, **Import Lines…** and **Test**; then
+**OK** and **Cancel** at its end (OK closes the conversation, its changes
+kept; Cancel sets back what it changed since it was opened, as one Undo
+step). Where the editor is too narrow for them all, the icons' words go
+first and then the commands go into **More** at the header's end, the
+last ones first; OK and Cancel never do. The header keeps the window's
+text size whatever Options › Conversation Editor gives the lines.
+
 | Command | Does |
 | --- | --- |
 | Add | a reply to the selected line (an NPC line under Root or a player line, a player line under an NPC line) |
@@ -86,7 +104,9 @@ selection stays in sight.
 | Expand All, Collapse All | open or close the whole tree |
 | Export | the conversation as plain text, CSV, Twine or Ink (see below) |
 | Import Lines… | read back an edited CSV export's text |
+| Comments, Actions, Quests, Animations, Sounds | highlight the lines with a comment, an action script, a journal update, an animation or a sound |
 | Scripts | show each line's condition, action, journal update and sound |
+| Test | play the conversation through (see below; also on the Node section's bar) |
 
 With **Scripts** on (the default), each line names what it does besides
 its text: `if c_has_key` (its Text Appears When), `do a_give_gold` (its
@@ -102,22 +122,34 @@ a player line or Root, and the reverse). Options › Conversation Editor
 sets which way Paste As Link and Ctrl + drag link, and whether a new line
 first asks for its text in a popup.
 
-The pane under the lines (Data, Bookmarks, Search) is as tall as you
-drag its top edge to, up to seven tenths of the editor: it keeps that
-height whatever the line chosen has to show, and scrolls where it has
-more than that.
+**The Right Dock.** Beside a conversation in front, the Right Dock holds
+its **Node** section (its tabs **Data** and **Search**, with
+**Bookmark** and **Test** at the end of their bar) and under it the
+**Conversation** panel, the file's word count in its header; drag the
+line between them to share the dock's height as you like. Under 1400
+points of window the three are tabs of one bar. The dock stays while the
+conversation's group has the focus, and follows whichever conversation
+is in front; a conversation in a window of its own has the same panels
+in its window's right pane, and leaves the main window's Right Dock as
+it was. Each panel scrolls where it has more than its room to show, and
+takes the editor's text size (Options › Conversation Editor) as the
+lines do. A field you are typing in belongs to its line: choosing
+another line keeps what you typed in the first.
 
-**Search** finds text in this conversation or every conversation in the
-module (match case, whole words, replace: without Match case, accents
-are set aside as case is, so `arbol` finds `Árbol`); **Bookmarks** remember lines to
-go back to. Bookmarks and folded branches stay with their lines when a
+**Search** (the Node section's tab) finds text in this conversation or
+every conversation in the module (match case, whole words, replace:
+without Match case, accents are set aside as case is, so `arbol` finds
+`Árbol`); **Bookmark**, on the Node section's bar, puts a bookmark on the
+line chosen or takes it off, and the bookmarked lines are listed under
+Search's results, a click going to the line. Bookmarks and folded branches stay with their lines when a
 delete numbers the lines after it anew (a bookmark on a line deleted goes,
 and Undo brings it back), and when something else changes the
 conversation (a plugin, or the file changed outside Moonglow): there they
 are found again by their text, speaker and the lines above them, and one
-whose line can't be found goes (the debug log says which). With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
-Search and F3 finds again, as in Aurora, from the conversation or from
-the Search pane's Find What field.
+whose line can't be found goes (the debug log says which). With the pointer over the editor, Ctrl+F (or Ctrl+R) brings
+Search to the front (unfolding the Right Dock if it was folded) and F3
+finds again, as in Aurora, from the conversation or from Search's Find
+What field.
 
 **Test** plays the conversation as the game does: the NPC says the first
 of its lines whose condition passes, and the player is offered the
@@ -131,14 +163,26 @@ replies whose conditions pass, numbered.
 
 (Aurora's Test shows every line, whatever its condition.)
 
-## A line's tabs
+## A line's Data
 
+The Node section's **Data** tab shows the line chosen in sections on one
+scroll, a row each field, its label at its left (over it where the panel
+is too narrow, the editor's larger text too):
+
+- **Text**: the speaker's tag, the text with its **…** (every language)
+  and **Token…**, and the talk table's string under it where the text is
+  that.
 - **Text Appears When…**: the script that decides whether the line is
-  offered (it returns TRUE or FALSE), with its parameters. **Script
-  Wizard…** writes one from a few choices.
-- **Actions Taken**: the script that runs when the line is spoken, with
-  its parameters; also from the Script Wizard.
-- **Parameter sets**, on both of those tabs beside **Parameters**, save
+  offered (it returns TRUE or FALSE), its parameters and a preview of its
+  source, its lines numbered. **Script Wizard…**, at the section's
+  heading, writes one from a few choices. A script's or a sound's field
+  always shows a name of 16 characters whole: where the panel has not the
+  room beside its label, the label stands over it.
+- **Actions Taken**: the script that runs when the line is spoken, its
+  parameters and preview; also from its own Script Wizard….
+- **Parameter sets**, in both of those sections on the **Parameters**
+  row (**+** adds a parameter, **Add Set**, and the **…** menu of Save
+  Set…, Copy Set, Paste Set and Save to File…), save
   typing where the same scripts are used with the same parameters time
   and again. **Save Set…** keeps the script and its parameters under a
   name (typed in place; Enter saves it; a set of the name kept already
@@ -174,9 +218,16 @@ replies whose conditions pass, numbered.
 - **Other Actions**: the animation the speaker plays, the sound it says
   (**Play** to hear it), and the journal entry it sets (a quest and an
   entry).
-- **Comments**: notes for the builder.
-- **Current File**: the conversation's own settings: the scripts run when
-  it ends normally or is aborted, and whether the camera may zoom in.
+- **Comments**: notes for the builder (a link's own on a link).
+
+The **Conversation** panel, under the Node section, holds the
+conversation's own settings (Aurora's Current File): the scripts run when
+it ends normally or is aborted, and whether the camera may zoom in.
+
+A conversation only looked at (one of the game's, opened to read) shows
+its panels quiet and keeps nothing typed in them (the log says so); its
+header's commands that would change it are off, and **Close** alone ends
+it.
 
 **Tokens** (`<FirstName>`, `<Class>`, custom tokens…) go into the text from
 **Token…**; the game replaces them when the line is spoken. A language

@@ -1340,7 +1340,10 @@ fn dialog_script_parameters() {
 /// Parameter sets beside a conversation script's parameters: Text
 /// Appears When… with the Add Set menu open (a builder's skill check
 /// saved, one that isn't a set), the tip of what a set holds, Save Set…'s
-/// name typed in place, and the Parameter Sets window.
+/// name typed in place, and the Parameter Sets window. (Since M4's U14
+/// the line's sections are the Right Dock's Data, Text Appears When…
+/// first: its Add Set and its `…` menu of the sets' other commands are
+/// the first of their names.)
 #[test]
 #[ignore]
 fn dialog_parameter_sets() {
@@ -1391,37 +1394,48 @@ fn dialog_parameter_sets() {
     h.run_steps(4);
     h.get_by_label_contains("You look strong.").click();
     h.run_steps(4);
-    // The row: Add Set, Save Set…, Copy Set, Paste Set and Save to File…
-    // (Paste Set's tip shown), and in a narrow window, where it wraps.
+    // The row: Add Parameter, Add Set and the `…` menu (Save Set…, Copy
+    // Set, Paste Set and Save to File…), open, Paste Set's tip shown; and
+    // in a narrow window.
+    let commands = mg_ui::dialog_view::SET_COMMANDS;
+    h.get_all_by_label(commands).next().unwrap().click();
+    h.run_steps(3);
     h.get_by_label("Paste Set").hover();
     h.run_steps(3);
     shoot(&mut h, &dir, "dialog-parameter-sets-row");
+    h.key_press(egui::Key::Escape);
     h.set_size(egui::vec2(900.0, 800.0));
     h.hover_at(egui::pos2(10.0, 790.0));
     h.run_steps(4);
     shoot(&mut h, &dir, "dialog-parameter-sets-row-narrow");
     h.set_size(egui::vec2(1280.0, 800.0));
     h.run_steps(4);
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").next().unwrap().click();
     shoot(&mut h, &dir, "dialog-parameter-sets-menu");
     h.get_by_label("Skill check").hover();
     h.run_steps(3);
     shoot(&mut h, &dir, "dialog-parameter-sets-tip");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
+    h.get_all_by_label(commands).next().unwrap().click();
+    h.run_steps(3);
     h.get_by_label("Save Set…").click();
     h.run_steps(3);
+    // (The name's field, beside its label.)
+    let y = h.get_by_label("Set name").rect().center().y;
     h.get_all_by_role(egui::accesskit::Role::TextInput)
-        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .find(|n| (n.rect().center().y - y).abs() < 8.0)
         .unwrap()
         .type_text("Strength check");
     shoot(&mut h, &dir, "dialog-parameter-sets-save");
     // (The name's Cancel, in its row: the editor has one too.)
     let row = h.get_by_label("Set name").rect().center().y;
-    let cancel = h.get_all_by_label("Cancel").find(|n| (n.rect().center().y - row).abs() < 4.0);
+    // (In its row, or under it where the narrow panel wraps it.)
+    let cancel =
+        h.get_all_by_label("Cancel").find(|n| (-4.0..40.0).contains(&(n.rect().center().y - row)));
     cancel.expect("the name's Cancel").click();
     h.run_steps(3);
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").next().unwrap().click();
     h.run_steps(3);
     h.get_by_label("Manage Sets…").click();
     shoot(&mut h, &dir, "dialog-parameter-sets-window");
@@ -13158,6 +13172,43 @@ fn board_conversation() {
     shoot(&mut h, &board_dir(), "board_conversation");
 }
 
+/// The conversation `m1q1faribeth` beside Conversation.png's state (its
+/// second line chosen): As Tabs in a window 1280 wide (the header
+/// yielding into More, the Right Dock in one tab bar), at 1600 with the
+/// editor's larger text (Options › Conversation Editor, 18 points), and
+/// floating in a window of its own 1100 by 700, its panels in the
+/// window's right pane (`conversation-*`).
+#[test]
+#[ignore]
+fn conversation_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let key = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    let tab = mg_ui::Tab::Dialog(key);
+    let row = mg_ui::dialog_view::Row { parent: mg_module::dialog::Parent::Root, pos: 1 };
+    let chosen = |h: &mut Harness<'_, Moonglow>| {
+        frames_until(h, "the conversation's view", |h| h.state().dialog_views.contains_key(&key));
+        h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(row);
+        h.run_steps(10);
+    };
+    for (name, size, larger) in
+        [("conversation-1280", 1280.0, None), ("conversation-larger-text", 1600.0, Some(18))]
+    {
+        let mut h = board_window(&root, egui::vec2(size, 900.0));
+        h.state_mut().settings.dialog_font_size = larger;
+        board_front(&mut h, &tab);
+        chosen(&mut h);
+        shoot(&mut h, &dir, name);
+    }
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    frames_until(&mut h, "the conversation drawn", |h| h.state().tab_rect(&tab).is_some());
+    place(&mut h, &tab, (250.0, 110.0), (1100.0, 700.0));
+    chosen(&mut h);
+    shoot(&mut h, &dir, "conversation-floating");
+}
+
 /// Table.png: the game's `spells.2da` (a copy: Chapter1 has none of its
 /// own) in the 2DA editor As Tabs, Bull's Strength's TargetType chosen;
 /// the Left Dock's Resources panel finding "spells". Today the header is
@@ -13880,8 +13931,8 @@ fn menus_tree_several_objects() {
     shoot(&mut h, &dir, "menu-tree-several-objects");
 }
 
-/// A sets menu with no sets saved (a conversation's Add Set: a note
-/// above its rows).
+/// A sets menu with no sets saved (a conversation's Add Set, its Text
+/// Appears When…'s, the first: a note above its rows).
 #[test]
 #[ignore]
 fn menus_sets_none() {
@@ -13912,7 +13963,7 @@ fn menus_sets_none() {
     h.run_steps(4);
     h.get_by_label_contains("You look strong.").click();
     h.run_steps(4);
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").next().unwrap().click();
     h.run_steps(4);
     shoot(&mut h, &dir, "menu-sets-none");
 }

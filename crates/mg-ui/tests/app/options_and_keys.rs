@@ -400,8 +400,8 @@ fn keys_remapped_in_options_and_used() {
         ws.doc(&key).unwrap().root.list("StartingList").map_or(0, <[_]>::len)
     };
     assert_eq!(starts(&mut h), 0);
-    // (The conversation editor's: the module tree and the palettes have one too.)
-    let at = h.get_all_by_label("Expand All").last().unwrap().rect().center();
+    // (Over the conversation's lines, its Root.)
+    let at = h.get_all_by_label("Root").last().unwrap().rect().center();
     h.hover_at(at);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
@@ -925,7 +925,9 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.state_mut().settings.toolbar_icons_only = true;
     h.run_steps(3);
     let glyphs = width(&h, &lines);
-    assert!(glyphs < words * 0.6, "the conversation's toolbar narrower: {glyphs} of {words}");
+    // (Its header reads Toolbar buttons no more since M4's U14, as the
+    // script's since U12: the Conversation board's.)
+    assert_eq!(glyphs, words, "the conversation's header as it was");
     // The toggles still toggle, said to be on or off.
     h.get_by_label("Comments").click();
     h.run_steps(2);

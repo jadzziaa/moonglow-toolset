@@ -190,6 +190,19 @@ pub enum Panel {
     /// searches (Find In Files, Find In Currently Open Scripts,
     /// References); U28 adds the dialogs that become panels.
     SearchResults,
+    /// A conversation's line chosen (M4's U14, the Conversation board's
+    /// Right Dock): its text, condition, action, other actions and
+    /// comments, a section each on one scroll, under the Node section's
+    /// tab "Data" (`dialog_view::node_data`).
+    NodeData,
+    /// A conversation's Find and Replace (M4's U14): the Node section's
+    /// tab "Search", beside Data; and, until U15 puts them in the
+    /// Outliner, its bookmarks (`dialog_view::node_search`).
+    NodeSearch,
+    /// A conversation's own settings (M4's U14), under the Node section:
+    /// Normal end, Aborted and Stop camera zoom in, the word count in its
+    /// header (`dialog_view::conversation_panel`).
+    Conversation,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -247,7 +260,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 13] = [
+    pub(crate) const KEYED: [Panel; 16] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -261,6 +274,9 @@ impl Panel {
         Panel::Compiler,
         Panel::Bookmarks,
         Panel::SearchResults,
+        Panel::NodeData,
+        Panel::NodeSearch,
+        Panel::Conversation,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -281,7 +297,10 @@ impl Panel {
             | Panel::TileProperties
             | Panel::Properties
             | Panel::Reference
-            | Panel::Help => Dock::Right,
+            | Panel::Help
+            | Panel::NodeData
+            | Panel::NodeSearch
+            | Panel::Conversation => Dock::Right,
             Panel::Log | Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
@@ -306,6 +325,9 @@ impl Panel {
             Panel::Compiler => "Compiler",
             Panel::Bookmarks => "Bookmarks",
             Panel::SearchResults => "Search Results",
+            Panel::NodeData => "Data",
+            Panel::NodeSearch => "Search",
+            Panel::Conversation => "Conversation",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -329,6 +351,9 @@ impl Panel {
             Panel::Compiler,
             Panel::Bookmarks,
             Panel::SearchResults,
+            Panel::NodeData,
+            Panel::NodeSearch,
+            Panel::Conversation,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -355,6 +380,9 @@ impl Panel {
             Panel::Compiler => Icon::Compile,
             Panel::Bookmarks => Icon::Bookmark,
             Panel::SearchResults => Icon::Search,
+            Panel::NodeData => Icon::Properties,
+            Panel::NodeSearch => Icon::Find,
+            Panel::Conversation => Icon::Conversation,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -371,6 +399,9 @@ impl Panel {
             // `browser::tools`.)
             Panel::Module => 4,
             Panel::Resources => 2,
+            // (The Node section's Bookmark and Test, its own: drawn by
+            // `dialog_view::node_tools`.)
+            Panel::NodeData | Panel::NodeSearch => 2,
             // (The others' from their list; the Outliner's Expand All and
             // Collapse All are on its own header.)
             _ => self.header_tools().len(),
@@ -395,6 +426,9 @@ impl Panel {
             Panel::Compiler => "Compiler: what the script's latest compile said",
             Panel::Bookmarks => "Bookmarks: the script's bookmarked lines",
             Panel::SearchResults => "Search Results: what the last search found",
+            Panel::NodeData => "Data: the conversation's line chosen",
+            Panel::NodeSearch => "Search: find and replace in the conversation",
+            Panel::Conversation => "Conversation: the conversation's own settings",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -460,6 +494,19 @@ impl Panel {
             // Help shows.)
             Panel::Reference => Some(crate::script_reference::REFERENCE_DETAIL.to_string()),
             Panel::Help => Some(crate::script_reference::help_detail(app)),
+            // (The Conversation board's "3834 words in the file".)
+            Panel::Conversation => crate::dialog_view::words_detail(app, editor),
+            _ => None,
+        }
+    }
+
+    /// The name its section shows before its tabs (the kit's
+    /// `DockTabs::title`, `.docktab.title`): the Conversation board's
+    /// "Node" before Data and Search, where they stand as a section of
+    /// their own (not in the one tab bar of a narrow window).
+    fn section_title(self) -> Option<&'static str> {
+        match self {
+            Panel::NodeData | Panel::NodeSearch => Some(crate::dialog_view::NODE),
             _ => None,
         }
     }
@@ -500,7 +547,13 @@ impl Panel {
             Panel::TileProperties | Panel::Properties => {
                 brings.has(self) || brings.window_has(self)
             }
-            Panel::Reference | Panel::Help | Panel::Compiler | Panel::Bookmarks => brings.has(self),
+            Panel::Reference
+            | Panel::Help
+            | Panel::Compiler
+            | Panel::Bookmarks
+            | Panel::NodeData
+            | Panel::NodeSearch
+            | Panel::Conversation => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             Panel::SearchResults => true,
@@ -530,6 +583,11 @@ impl Panel {
             Panel::Compiler => Keys::Compiler,
             Panel::Bookmarks => Keys::Bookmarks,
             Panel::SearchResults => Keys::SearchResults,
+            // (No arrows of their own: F6 gives the panel's first field the
+            // keyboard's focus, `dialog_view::begin_panel`.)
+            Panel::NodeData => Keys::NodeData,
+            Panel::NodeSearch => Keys::NodeSearch,
+            Panel::Conversation => Keys::Conversation,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -638,6 +696,19 @@ const SCRIPT_WINDOW_SHARES: &[u16] = &[880, 1120];
 /// Search Results).
 const SCRIPT_BOTTOM: &[Panel] = &[Panel::Compiler, Panel::Bookmarks];
 const SCRIPT_WINDOW_BOTTOM: &[Panel] = &[Panel::SearchResults];
+/// A conversation's Right Dock (M4's U14, the Conversation board's): the
+/// Node section, its title before Data and Search, and the Conversation
+/// panel under it with its header; one tab bar of the three under 1400;
+/// with the conversation into its window where it floats. The board's
+/// shares: the Node section takes what the Conversation panel's 120
+/// points leave in the board's dock, 690 of 811 (the dock's height less
+/// the line between them).
+const DIALOG_RIGHT: &[Section] = &[&[Panel::NodeData, Panel::NodeSearch], &[Panel::Conversation]];
+const DIALOG_FOLDED: &[Panel] = &[Panel::NodeData, Panel::NodeSearch, Panel::Conversation];
+const DIALOG_SHARES: &[u16] = &[1702, 298];
+/// In its own window, shorter, the Conversation panel keeps room for its
+/// three rows (Normal end, Aborted, Stop camera zoom in).
+const DIALOG_WINDOW_SHARES: &[u16] = &[1600, 400];
 
 /// What the editor `tab` brings to the docks (the plan's decision 2,
 /// `editor_brings` by kind): an area's tab the Outliner (with a module
@@ -703,6 +774,18 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             window_shares: SCRIPT_WINDOW_SHARES,
             bottom: SCRIPT_BOTTOM,
             window_bottom: SCRIPT_WINDOW_BOTTOM,
+            floats: true,
+            ..Brings::default()
+        },
+        // (A conversation's Node and Conversation panels, whatever is
+        // open; with it into its window where it floats. The Right Dock
+        // stays while the conversation's group has the focus, as a
+        // script's does.)
+        crate::Tab::Dialog(_) => Brings {
+            right: DIALOG_RIGHT,
+            folded: DIALOG_FOLDED,
+            shares: DIALOG_SHARES,
+            window_shares: DIALOG_WINDOW_SHARES,
             floats: true,
             ..Brings::default()
         },
@@ -998,7 +1081,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     let owner = owner_of(app, tab).clone();
     match fits || right.is_empty() {
         true => app.panes_dropped.remove(&owner),
-        false => app.panes_dropped.insert(owner),
+        false => app.panes_dropped.insert(owner.clone()),
     };
     if !right.is_empty() && fits {
         let (least, most) = match halves && room < 2.0 * RIGHT_DOCK_LEAST {
@@ -1029,7 +1112,13 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                         0 => WINDOW_RIGHT.to_string(),
                         _ => format!("{WINDOW_RIGHT}, Section {}", i + 1),
                     };
-                    let front = run_or_kept_front(app, kind, &brings, section);
+                    // (Brought to the front in this window, else the run's
+                    // or the kind's.)
+                    let asked = app.window_rights.get(&owner).copied();
+                    let front = match asked.filter(|p| section.contains(p)) {
+                        Some(asked) => asked,
+                        None => run_or_kept_front(app, kind, &brings, section),
+                    };
                     let mut part =
                         ui.new_child(egui::UiBuilder::new().id_salt(&name).max_rect(place));
                     part.set_clip_rect(place.intersect(ui.clip_rect()));
@@ -1044,6 +1133,9 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     if bar.opened {
                         crate::properties_panel::open_in_tab(app, Some(tab));
                     }
+                    if let Some(tool) = bar.node {
+                        crate::dialog_view::node_tool(app, Some(tab), tool);
+                    }
                     app.window_bars_drawn.push(front);
                     let on = (front, section.len() == 1);
                     panel_body(app, &mut part, on, Host::Window, pane, Some(tab));
@@ -1056,6 +1148,8 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                 chosen
             });
         if let Some(panel) = shown.inner {
+            // (A tab chosen in the window: the window's own front no more.)
+            app.window_rights.remove(&owner);
             keep_front(app, kind, &brings, panel);
         }
     }
@@ -1182,7 +1276,9 @@ pub(crate) const WINDOW_BOTTOM_HIGH: f32 = 140.0;
 /// its side lists did so), rather than going where the editor's least
 /// beside it does not fit.
 pub(crate) fn pane_halves(tab: &crate::Tab) -> bool {
-    matches!(tab, crate::Tab::Script(_))
+    // (And a conversation's Node and Conversation panels, M4's U14: every
+    // field of its lines is there, as its bottom pane had them.)
+    matches!(tab, crate::Tab::Script(_) | crate::Tab::Dialog(_))
 }
 
 /// The least room an editor keeps in a window of its own beside its
@@ -2999,6 +3095,7 @@ fn fold_tip(app: &Moonglow, ctx: &egui::Context, side: Side, open: bool) -> Stri
 pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     follow_editor(app);
     help_forward(app);
+    crate::dialog_view::search_forward(app);
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
     app.right_rect = None;
@@ -3117,12 +3214,24 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 for p in bar_panels {
                     tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
                 }
+                // (A conversation's Bookmark and Test, the Node section's,
+                // before the fold button where its panels share the bar.)
+                let node = bar_panels.contains(&Panel::NodeData);
+                let pass = ui.ctx().cumulative_pass_nr();
+                let enabled =
+                    node && crate::dialog_view::node_tools_enabled(app, editor.as_ref(), pass);
                 let bar = tabs.show(ui, &mut tab, |ui| {
-                    kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
+                    let clicked =
+                        node.then(|| crate::dialog_view::node_tools(ui, enabled)).flatten();
+                    (clicked, kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked())
                 });
+                let (clicked, folded) = bar.inner;
+                if let Some(tool) = clicked {
+                    crate::dialog_view::node_tool(app, editor.as_ref(), tool);
+                }
                 // (A tab chosen shows its panel from the next frame: this
                 // one draws the panel in front as the frame began.)
-                (bar.changed.then(|| bar_panels[tab]), bar.inner)
+                (bar.changed.then(|| bar_panels[tab]), folded)
             };
             app.right_bars.push(front);
             panel_body(app, ui, (front, titled), Host::Dock, pane_id, editor.as_ref());
@@ -3183,6 +3292,9 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 if bar.opened {
                     crate::properties_panel::open_in_tab(app, editor.as_ref());
+                }
+                if let Some(tool) = bar.node {
+                    crate::dialog_view::node_tool(app, editor.as_ref(), tool);
                 }
                 app.right_bars.push(front);
                 // (A section of one panel has its header over it.)
@@ -3269,9 +3381,10 @@ fn help_forward(app: &mut Moonglow) {
 pub(crate) fn bottom_forward(app: &mut Moonglow) {
     use crate::script_tools::InfoTab;
     // (Windows closed since keep no front.)
-    if !app.window_bottoms.is_empty() {
+    if !app.window_bottoms.is_empty() || !app.window_rights.is_empty() {
         let dock = &app.dock;
         app.window_bottoms.retain(|tab, _| dock.find_tab(tab).is_some());
+        app.window_rights.retain(|tab, _| dock.find_tab(tab).is_some());
     }
     let asks = std::mem::take(&mut app.script_tools.forward);
     if asks.is_empty() {
@@ -3347,6 +3460,8 @@ struct SectionBar<R> {
     inner: R,
     /// The panel's own Open in Tab was clicked (Properties').
     opened: bool,
+    /// The Node section's own tool clicked (Bookmark, Test).
+    node: Option<crate::dialog_view::NodeTool>,
 }
 
 /// A stacked section's bar, named `name`, of `section` with `front` in
@@ -3382,18 +3497,37 @@ fn section_bar<R>(
                 tools(ui)
             })
             .inner;
-        return SectionBar { chosen: None, inner, opened };
+        return SectionBar { chosen: None, inner, opened, node: None };
     }
     let mut at = section.iter().position(|p| *p == front).unwrap_or(0);
     let mut tabs = DockTabs::new(name);
+    // (The Conversation board's "Node" before Data and Search.)
+    if let Some(title) = section.first().and_then(|p| p.section_title()) {
+        tabs = tabs.title(title);
+    }
     for p in section {
         tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
     }
-    if let Some(width) = tools_width {
-        tabs = tabs.tools_width(width);
+    // (The Node section's Bookmark and Test, before the dock's own tools,
+    // as the Conversation board draws them at its bar's end.)
+    let node = section.contains(&Panel::NodeData);
+    let own = match node {
+        true => crate::dialog_view::node_tools_width(ui),
+        false => 0.0,
+    };
+    match tools_width {
+        Some(width) => tabs = tabs.tools_width(width.max(own)),
+        None if node => tabs = tabs.tools_width(own),
+        None => {}
     }
-    let bar = tabs.show(ui, &mut at, tools);
-    SectionBar { chosen: bar.changed.then_some(at), inner: bar.inner, opened: false }
+    let pass = ui.ctx().cumulative_pass_nr();
+    let enabled = node && crate::dialog_view::node_tools_enabled(app, editor, pass);
+    let bar = tabs.show(ui, &mut at, |ui| {
+        let clicked = node.then(|| crate::dialog_view::node_tools(ui, enabled)).flatten();
+        (clicked, tools(ui))
+    });
+    let (node, inner) = bar.inner;
+    SectionBar { chosen: bar.changed.then_some(at), inner, opened: false, node }
 }
 
 /// The plugins' "pane last clicked in" for a press in `panel`: a panel an
@@ -3476,7 +3610,8 @@ fn section_rects(
         return vec![column];
     }
     let shares: Vec<f32> = sections.iter().map(|s| stack.share(app, s)).collect();
-    let heights = section_heights(column.height() - (count - 1) as f32, &shares);
+    let leasts: Vec<f32> = sections.iter().map(|s| section_least(app, s)).collect();
+    let heights = section_heights_with(column.height() - (count - 1) as f32, &shares, &leasts);
     let mut rects = Vec::with_capacity(count);
     let mut y = column.top();
     for h in &heights {
@@ -3537,17 +3672,41 @@ fn section_seams(
 /// out) by their `shares`: each its share of the room, at least
 /// [`SECTION_LEAST`] where the room has that for each, the last taking
 /// what is left so that they fill it in whole points.
+#[cfg(test)]
 pub(crate) fn section_heights(room: f32, shares: &[f32]) -> Vec<f32> {
+    section_heights_with(room, shares, &vec![SECTION_LEAST; shares.len()])
+}
+
+/// The least height of the stacked section holding `section`'s panels:
+/// [`SECTION_LEAST`], or what its panel needs to show whole at rest (a
+/// conversation's Conversation panel, its three rows at the editor's
+/// text size: M4's U14 review).
+fn section_least(app: &Moonglow, section: &[Panel]) -> f32 {
+    match section {
+        [Panel::Conversation] => crate::dialog_view::conversation_least(app),
+        _ => SECTION_LEAST,
+    }
+}
+
+/// [`section_heights`] with each section's own least height (`leasts`):
+/// each its share of the room, at least its least where the room has
+/// that for it and those after it, the last taking what is left.
+pub(crate) fn section_heights_with(room: f32, shares: &[f32], leasts: &[f32]) -> Vec<f32> {
     let count = shares.len();
     if count == 0 {
         return Vec::new();
     }
     let total: f32 = shares.iter().sum::<f32>().max(f32::EPSILON);
-    let least = SECTION_LEAST.min(room / count as f32);
+    // (Each held to an even part of the room where that is less: a short
+    // column shares out what it has.)
+    let leasts: Vec<f32> = (0..count)
+        .map(|i| leasts.get(i).copied().unwrap_or(SECTION_LEAST).min(room / count as f32))
+        .collect();
     let mut heights = Vec::with_capacity(count);
     let mut left = room;
     for (i, share) in shares.iter().enumerate() {
-        let after = (count - i - 1) as f32 * least;
+        let after: f32 = leasts[i + 1..].iter().sum();
+        let least = leasts[i];
         let h = match i + 1 == count {
             true => left,
             false => (room * share / total).round().clamp(least, (left - after).max(least)),
@@ -3682,6 +3841,9 @@ pub(crate) fn panel_body(
         // (Compiler's inset ground fills the panel, its own margin in it:
         // the Script board's `.compiler-out`.)
         Panel::Properties | Panel::Compiler => Margin::ZERO,
+        // (A conversation's: their scroll's own room, its bar at the
+        // panel's edge.)
+        Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -3748,6 +3910,18 @@ pub(crate) fn panel_body(
                 match panel {
                     Panel::Reference => crate::script_reference::reference(app, &mut body, editor),
                     _ => crate::script_reference::help(app, &mut body, editor),
+                }
+            }
+            // (A conversation's, M4's U14.)
+            Panel::NodeData | Panel::NodeSearch | Panel::Conversation => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::NodeData => crate::dialog_view::node_data(app, &mut body, editor),
+                    Panel::NodeSearch => crate::dialog_view::node_search(app, &mut body, editor),
+                    _ => crate::dialog_view::conversation_panel(app, &mut body, editor, titled),
                 }
             }
             // (The Bottom Dock's, or a script's window's bottom pane's.)

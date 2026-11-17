@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T19:09:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:28:37Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -111,20 +111,20 @@ Every control of today's screens and its home in the mockups, by the names the c
 
 | Today | In the redesign |
 |---|---|
-| Add, Copy, Cut, Paste, Paste As Link, Delete | Header, left (Add with its word) |
-| Move the line up, down | Header, arrow icons |
-| Expand All, Collapse All | Header icons |
-| Comments, Actions, Quests, Animations, Sounds (highlight) | Header, a group of icon toggles |
-| Scripts | Header, word toggle |
-| Export and its formats, Import Lines… | Header, right |
-| Test | Header, right end; also in the Node panel header |
-| Data and Search tabs (bottom pane) | Right Dock, Node panel tabs |
+| Add, Copy, Cut, Paste, Paste As Link, Delete | Header, left (Add with its word) ✓ M4 U14 (the others icons, named and tipped; into More where the editor is narrow) |
+| Move the line up, down | Header, arrow icons ✓ M4 U14 |
+| Expand All, Collapse All | Header icons ✓ M4 U14 |
+| Comments, Actions, Quests, Animations, Sounds (highlight) | Header, a group of icon toggles ✓ M4 U14 (the kit's joined group, "Highlight" in More) |
+| Scripts | Header, word toggle ✓ M4 U14 |
+| Export and its formats, Import Lines… | Header, right ✓ M4 U14 |
+| Test | Header, right end; also in the Node panel header ✓ M4 U14 (the header's last before OK and Cancel, its end slot; the Node section's named "Test: click through the conversation", the board's) |
+| Data and Search tabs (bottom pane) | Right Dock, Node panel tabs ✓ M4 U14 ("Node" the section's title before them, the board's; a floating conversation's in its window's right pane) |
 | Bookmarks tab | Outliner, under the Module panel |
-| Bookmark button | Node panel header |
-| Speaker tag, Text with its languages button and Token… | Node panel, Text section |
-| Text Appears When…, Actions Taken (script, Script Wizard…, parameters, preview) | Node panel, a section each |
-| Other Actions (animation, sound, journal), Comments | Node panel, a section each |
-| Current File (Normal end, Aborted, Stop camera zoom in, word count) | Right Dock, Conversation panel under Node |
+| Bookmark button | Node panel header ✓ M4 U14 |
+| Speaker tag, Text with its languages button and Token… | Node panel, Text section ✓ M4 U14 |
+| Text Appears When…, Actions Taken (script, Script Wizard…, parameters, preview) | Node panel, a section each ✓ M4 U14 (Script Wizard… at each section's heading; Add Parameter, Add Set and the sets' … menu on the Parameters row) |
+| Other Actions (animation, sound, journal), Comments | Node panel, a section each ✓ M4 U14 |
+| Current File (Normal end, Aborted, Stop camera zoom in, word count) | Right Dock, Conversation panel under Node ✓ M4 U14 (the word count in its header) |
 | Row context menu, drag to move, Ctrl+drag to link | Unchanged; the common ones are named in the Status Bar hints |
 
 

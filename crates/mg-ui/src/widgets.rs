@@ -977,9 +977,13 @@ pub(crate) fn replaced_note(
 pub(crate) fn set_name_row(ui: &mut Ui, name: &mut String) -> (bool, bool) {
     let mut save = false;
     let mut cancel = false;
-    ui.horizontal(|ui| {
-        ui.label("Set name");
-        let r = ui.add(mg_uikit::text_field(name).desired_width(180.0));
+    // (Its buttons on a line of their own where a narrow pane has no room
+    // for them beside the name: a conversation's panel, M4's U14.)
+    ui.horizontal_wrapped(|ui| {
+        let label = ui.label("Set name");
+        let room = ui.available_width() - ui.spacing().item_spacing.x;
+        let width = 180f32.min(room).max(label.rect.width());
+        let r = ui.add(mg_uikit::text_field(name).desired_width(width));
         autofocus(ui, &r);
         let ok = crate::saved::valid_name(name);
         // (Enter in the name is the name's, not the window's OK.)
@@ -1485,6 +1489,28 @@ pub(crate) fn resref_edit<'t>(text: &'t mut ResRefText<'_>) -> egui::TextEdit<'t
 
 /// A resref field with a picker button. Returns the new value when the user
 /// types one (on focus loss) or picks one.
+/// Where [`with_resref_width`] keeps the width [`resref_field`] takes.
+const RESREF_WIDTH_ID: &str = "resref-field-width";
+
+/// `add` with every [`resref_field`] in it `width` wide (a conversation's
+/// panel's rows: as wide as the row leaves them, at least 16 characters).
+pub(crate) fn with_resref_width<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let id = egui::Id::new(RESREF_WIDTH_ID);
+    let was = ui.data(|d| d.get_temp::<f32>(id));
+    ui.data_mut(|d| d.insert_temp(id, width));
+    let r = add(ui);
+    ui.data_mut(|d| match was {
+        Some(was) => _ = d.insert_temp(id, was),
+        None => d.remove::<f32>(id),
+    });
+    r
+}
+
+/// The width [`with_resref_width`] gives the resref fields drawn in it.
+fn resref_width(ui: &Ui) -> Option<f32> {
+    ui.data(|d| d.get_temp::<f32>(egui::Id::new(RESREF_WIDTH_ID)))
+}
+
 pub(crate) fn resref_field(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1500,9 +1526,10 @@ pub(crate) fn resref_field(
         let shown = current.to_string();
         // (Never past its room, its button kept beside it.)
         let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.x + 8.0;
-        let width = match crate::blueprint::narrow(ui) {
-            true => 160f32.min(ui.available_width() - button).max(60.0),
-            false => 160.0,
+        let width = match (resref_width(ui), crate::blueprint::narrow(ui)) {
+            (Some(width), _) => width,
+            (None, true) => 160f32.min(ui.available_width() - button).max(60.0),
+            (None, false) => 160.0,
         };
         let typed = commit_resref_in(&mut app.buffers, ui, id, &shown, width);
         if let Some(text) = typed {

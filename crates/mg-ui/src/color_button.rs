@@ -59,6 +59,18 @@ fn hex_of(c: Color32, alpha: Alpha) -> String {
     }
 }
 
+/// The width of the picker's hex field in `ui`'s style ([`edit_srgba`]):
+/// its longest text (#rrggbb, or #rrggbbaa with an alpha) in the
+/// monospace font, the field's margins and the room for the cursor
+/// after it.
+fn hex_width(ui: &Ui, alpha: Alpha) -> f32 {
+    let longest = if alpha == Alpha::Opaque { "#000000" } else { "#00000000" };
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let words = ui.painter().layout_no_wrap(longest.to_string(), font, Color32::WHITE).size().x;
+    let margin = mg_uikit::controls::FIELD_MARGIN;
+    (words + f32::from(margin.left) + f32::from(margin.right) + 2.0).ceil()
+}
+
 /// The text the picker's 📋 copies for `c`.
 fn text_of(c: Color32, alpha: Alpha) -> String {
     let [r, g, b, a] = c.to_srgba_unmultiplied();
@@ -142,10 +154,15 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
                 let hex_id = popup_id.with("hex");
                 let shown = hex_of(Color32::from(hsva), alpha);
                 let mut text: String = ui.data(|d| d.get_temp(hex_id)).unwrap_or(shown);
+                // (As wide as its text in the window's style, the
+                // conversation editor's larger text too: a fixed 70 points
+                // cut it short there, M2's known difference, settled in
+                // M4's U14.)
+                let width = hex_width(ui, alpha);
                 let field = ui
                     .add(
                         mg_uikit::text_field(&mut text)
-                            .desired_width(if alpha == Alpha::Opaque { 70.0 } else { 90.0 })
+                            .desired_width(width)
                             .font(egui::TextStyle::Monospace),
                     )
                     .on_hover_text("The color as #rrggbb: type or paste one here");
@@ -263,6 +280,65 @@ mod tests {
         assert_eq!(parse("1, 1, 1"), Some(Color32::from_rgb(1, 1, 1)), "whole numbers are bytes");
         for text in ["", "hello", "300, 0, 0", "1, 2", "#12345", "1, 2, 3, 4, 5"] {
             assert_eq!(parse(text), None, "{text:?}");
+        }
+    }
+
+    /// The picker's hex field is as wide as its text in the window's style,
+    /// at the conversation editor's larger text too (Options › Conversation
+    /// Editor, the text half as large again): the known difference "A color
+    /// picker's hex field is cut short under a window's larger text" (a
+    /// fixed 70 points), settled in M4's U14. With and without an alpha.
+    #[test]
+    fn the_hex_field_holds_its_text_at_a_larger_text() {
+        use egui_kittest::kittest::{NodeT as _, Queryable as _};
+        for (alpha, color) in [
+            (Alpha::Opaque, Color32::from_rgb(158, 151, 211)),
+            (Alpha::OnlyBlend, Color32::from_rgba_unmultiplied(158, 151, 211, 128)),
+        ] {
+            for by in [1.0f32, 1.5, 2.0] {
+                let mut h = egui_kittest::Harness::builder()
+                    .with_size(egui::vec2(700.0, 600.0))
+                    .build_ui_state(
+                        move |ui, c: &mut Color32| {
+                            // (From egui's own style each frame: not
+                            // larger again each frame.)
+                            let mut style = egui::Style::default();
+                            for font in style.text_styles.values_mut() {
+                                font.size *= by;
+                            }
+                            ui.set_style(style.clone());
+                            ui.ctx().set_global_style(style);
+                            edit_srgba(ui, c, alpha);
+                        },
+                        color,
+                    );
+                h.run();
+                h.get_by_role(egui::accesskit::Role::ColorWell).click();
+                // (Until the picker shows its hex field, by a deadline, not
+                // a count of frames.)
+                let hex = hex_of(color, alpha);
+                let started = std::time::Instant::now();
+                let field = loop {
+                    h.run();
+                    let found = (h.get_all_by_role(egui::accesskit::Role::TextInput))
+                        .find(|n| n.accesskit_node().value().as_deref() == Some(hex.as_str()))
+                        .map(|n| n.rect());
+                    match found {
+                        Some(field) => break field,
+                        None => assert!(started.elapsed().as_secs() < 10, "never: the hex field"),
+                    }
+                };
+                let font = egui::TextStyle::Monospace.resolve(&h.ctx.global_style());
+                let words = h
+                    .ctx
+                    .fonts_mut(|f| f.layout_no_wrap(hex.clone(), font, Color32::WHITE).size().x);
+                let margins = 2.0 * f32::from(mg_uikit::controls::FIELD_MARGIN.left);
+                assert!(
+                    field.width() >= words + margins,
+                    "{hex} at {by}x: a field {} wide for words {words} and margins {margins}",
+                    field.width()
+                );
+            }
         }
     }
 }

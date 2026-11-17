@@ -284,19 +284,6 @@ impl Tools {
         }
     }
 
-    /// An editor's toolbar toggle: its words, or its icon ([`Tools::word_look`]).
-    pub(crate) fn toggle_word(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on);
-        self.with_tip(r, name, tip)
-    }
-
     /// `r`, a button, with its tip.
     pub(crate) fn named(self, r: egui::Response, name: &str, tip: &str) -> egui::Response {
         self.with_tip(r, name, tip)

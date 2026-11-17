@@ -752,6 +752,17 @@ pub struct Moonglow {
     /// opened from, whose Delete would delete the whole conversation).
     pub(crate) dialog_keys: Option<ResKey>,
     pub dialog_clip: Option<dialog_view::DialogClip>,
+    /// Find or Find Next pressed in this conversation this frame: its
+    /// Search brought to the front as the next frame begins
+    /// (`dialog_view::search_forward`, M4's U14).
+    pub(crate) dialog_search_forward: Option<ResKey>,
+    /// F6 came to a conversation's panel: its first field takes the
+    /// keyboard's focus as it is drawn (M4's U14).
+    pub(crate) dialog_panel_focus: Option<palette_view::Keys>,
+    /// The height a conversation's Conversation panel's rows took as it
+    /// was drawn last in a section of its own: its section's least height
+    /// (`dialog_view::conversation_least`, M4's U14 review).
+    pub(crate) dialog_conversation_height: f32,
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
     pub script_tools: script_tools::ScriptTools,
@@ -872,6 +883,11 @@ pub struct Moonglow {
     /// search), by the editor's tab: shown where the pane holds it
     /// (`shell::window_panes`), before the kind's kept one.
     pub(crate) window_bottoms: HashMap<Tab, Panel>,
+    /// The panel brought to the front of a section of a floating editor's
+    /// window's right pane in the run, by the window's tabs (M4's U14: a
+    /// floating conversation's Search, asked by Find), before the run's
+    /// and the kind's fronts; a tab chosen there takes its place.
+    pub(crate) window_rights: HashMap<Tab, Panel>,
     /// The Left Dock's panel chosen last (its tab selected), for the run:
     /// shown where the dock holds it (`shell::left_shown`).
     pub(crate) left_panel: Panel,
@@ -1511,6 +1527,9 @@ impl Moonglow {
             dialog_views: HashMap::new(),
             dialog_keys: None,
             dialog_clip: None,
+            dialog_search_forward: None,
+            dialog_panel_focus: None,
+            dialog_conversation_height: 0.0,
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
             search_results: search_results::SearchResults::default(),
@@ -1559,6 +1578,7 @@ impl Moonglow {
             right_fronts: Vec::new(),
             bottom_panel: None,
             window_bottoms: HashMap::new(),
+            window_rights: HashMap::new(),
             left_rect: None,
             left_panel: Panel::Module,
             left_drawn: None,
@@ -2338,6 +2358,9 @@ impl Moonglow {
         self.properties_changed.retain(|_, changes| {
             dock.find_tab(&changes.tab).is_some() || (changes.opening && opening(&changes.tab))
         });
+        // (A conversation's panels' edits whose editor was not drawn after
+        // them this frame: set now, on the lines they were made on.)
+        dialog_view::flush_panels(self);
         if !self.actions.is_empty() || !self.closing_cancels.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -3131,6 +3154,9 @@ impl Moonglow {
         // (Compiler, Bookmarks, Search Results: the panel takes it.)
         let lists = [Keys::Compiler, Keys::Bookmarks, Keys::SearchResults];
         self.script_tools.list_focus = lists.contains(&next).then_some(next);
+        // (A conversation's panels: their first field takes it.)
+        let node = [Keys::NodeData, Keys::NodeSearch, Keys::Conversation];
+        self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
         if self.right_columns
             && let Some(p) = self.right_bars.iter().copied().find(|p| p.keys() == next)

@@ -329,8 +329,9 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
         h.run();
     };
 
-    // A condition: female, carrying key_1.
-    h.get_by_label("Script Wizard…").click();
+    // A condition: female, carrying key_1. (Each of the line's two
+    // scripts has its own Script Wizard…, M4's U14.)
+    in_section(&h, "Text Appears When…", "Script Wizard…").click();
     h.run();
     h.run();
     for label in ["Gender", "Item In Inventory", "Next >", "Female", "Next >"] {
@@ -357,9 +358,7 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     assert_eq!(start.resref("Active").unwrap().as_str(), Some("sc_001"));
 
     // An action: 50 gold.
-    h.get_by_label("Actions Taken").click();
-    h.run();
-    h.get_by_label("Script Wizard…").click();
+    in_section(&h, "Actions Taken", "Script Wizard…").click();
     h.run();
     h.run();
     for label in ["Give rewards", "Next >"] {

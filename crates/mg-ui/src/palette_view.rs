@@ -424,6 +424,12 @@ pub(crate) enum Keys {
     Compiler,
     Bookmarks,
     SearchResults,
+    /// A conversation's Data, Search and Conversation panels (M4's U14):
+    /// no arrows of their own; F6 gives the panel's first field the
+    /// keyboard's focus (`dialog_view::node_data` and the others).
+    NodeData,
+    NodeSearch,
+    Conversation,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

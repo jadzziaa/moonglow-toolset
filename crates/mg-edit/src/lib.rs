@@ -346,6 +346,11 @@ impl Workspace {
         self.viewed.insert(key, gff);
     }
 
+    /// A document only looked at ([`Workspace::view`]), as given.
+    pub fn viewed_doc(&self, key: &ResKey) -> Option<&Gff> {
+        self.viewed.get(key).filter(|_| self.is_viewed(key))
+    }
+
     /// Whether `key` is a document only looked at ([`Workspace::view`]).
     pub fn is_viewed(&self, key: &ResKey) -> bool {
         self.viewed.contains_key(key) && !self.module.contains(key)

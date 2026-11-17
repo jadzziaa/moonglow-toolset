@@ -18,7 +18,11 @@ const KEPT: &[(&str, usize, &str)] = &[
     ),
     ("bake_view.rs", 2, "the walkmeshes before and after, drawn over the 3D view"),
     ("icons.rs", 1, "its tests"),
-    ("color_button.rs", 11, "colors typed, parsed and picked (data), and its tests"),
+    (
+        "color_button.rs",
+        13,
+        "colors typed, parsed and picked (data), the hex field's measure, and its tests",
+    ),
     ("dialog_view.rs", 1, "the speakers' colors of Options › Conversation (data)"),
     ("faction_view.rs", 3, "Aurora's hostile, neutral and friendly colors (the game's look)"),
     ("minimap.rs", 2, "the minimap's frame over the 3D view"),

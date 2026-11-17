@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T15:14:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T22:41:58Z }
 ---
 
 # Options
@@ -298,7 +298,7 @@ window is one in As Tabs too, for a kind you moved to a window):
   the dark theme's colors and a light one the light theme's, so its text
   stays readable whichever theme the window wears.
 - **Editors' toolbar buttons** (Icons and text): **Icons only** shows the buttons of the editors' toolbars (the
-  conversation editor's, the hak editor's and the NUI
+  hak editor's and the NUI
   Creator's) as their icons alone, as Aurora's toolbars are,
   to save room. Rest the pointer on an icon and its tip names it, with
   its key and what it does; a screen reader reads the button's name, not
@@ -307,7 +307,8 @@ window is one in As Tabs too, for a kind you moved to a window):
   [Areas](04-areas.md#the-header)); nor does a model's view, whose one
   header row puts what has no room into its More (see [The main
   window](02-main-window.md#the-model-viewer)), nor the script editor's
-  header (see [Scripts](07-scripts.md#the-script-editor)). The editors' buttons show their words alone with Icons and text, as they
+  header (see [Scripts](07-scripts.md#the-script-editor)), nor the
+  conversation editor's (see [Conversations](06-conversations.md#the-tree)). The editors' buttons show their words alone with Icons and text, as they
   always have; the palette's tile tools (Select Tiles, Eraser, Refine
   Tile…) are rows of its list, named as in Aurora's palette, and keep
   their names. It takes effect at once, when you choose OK. The Top
