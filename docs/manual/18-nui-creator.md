@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T20:44:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T03:15:48Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -55,10 +55,65 @@ The designer's header holds its pages as a switch (**Design**, **Bindings**,
 accented button; off while the checks find an error, which its tip counts),
 **Export…**, and **More** with **Import…** and **How to Open It…**; at its
 right **Interact** and **Reset**, **View**, and **OK** and **Cancel**. What
-has no room loses its words, then goes into More. Under it a row keeps
-**Event Script…**, **Advanced** (**JUI Source**, **Binding JSON**,
-**Opener Script**), what the last Build said (**Not built**, **Build
-failed**) and the checks' count, which opens their list.
+has no room loses its words, then goes into More. Nothing stands between it
+and the canvas.
+
+**The source group.** **View › Layout › Split source** opens the window's
+source as an editor group of its own at the design's right (its tab named
+as the window, `crier.jui`); in a designer in a window of its own, in that
+window, which widens by its room (moved left where the screen's edge is in
+the way) and goes back where it was as the group closes (moved or sized
+meanwhile, it keeps your place, narrowed again). The source is bound to its
+design: Reopen Closed Tab brings it back beside the design, opening the
+design first if it is closed, and wherever it was dragged it closes with
+the design. A second NUI window opens among the designs, never in a source
+group. Its header holds the switch
+**JUI Source** (the window's text as the module holds it) and **Binding
+JSON** (its settings': binds, handlers, variants), **Event Script…** (the
+window's `NAME_e.nss`, written and opened at its handlers) and **Opener
+Script** (`NAME_o.nss`, off until Build & Compile makes it). The text is
+numbered a line at a time in the script editor's font and colors. What you
+type is set when you leave the field (another switch position, a click
+elsewhere, the group or the design closed with the keyboard still in it,
+onto the text you typed over: changed from elsewhere meanwhile, what you
+typed is let go) and before the module is saved, one step for Undo, a draft that doesn't read too: it is kept, and the pages ask for it
+to be put right; meanwhile the canvas shows what you type wherever it reads.
+The design and the source follow each other: a control chosen on the
+canvas or in Layers brings the text's cursor to its first line, the
+cursor's line marked; a click in the text chooses the control it is in, and
+moving the cursor with the keys goes on choosing while it was the text that
+chose (a control chosen on the canvas or in Layers stays chosen as you read
+with the keys, and several chosen are never let go by the cursor). Choosing a swap layout variant to
+edit moves the switch to Binding JSON, where the variant is written. The
+switch is kept for each window while Moonglow runs, and with the module's
+open tabs when it is opened again; **Editor** or **Preview only** in Layout,
+or the group's own ×, closes it, and closing the design closes it too.
+While the source group is the editor in front, the keys are its own (Delete
+and Tab are the text's); a click on the canvas gives them back to the design.
+
+**Checks** is a panel of the Bottom Dock, its switch in the Status Bar with
+the count of what the checks found (errors in the error color, warnings in
+the warning color): a row a finding, errors first, a window or settings that
+don't read first of all, each with its kind, the control it is about (a
+click chooses it on the canvas, in Layers and in the source), its message
+(whole in its tip) and its fix (**Bind It**, **Turn It Off**, **Add Close
+Handler**); its bar says the window's count (`crier: 0 errors · 1
+warning`). New errors bring it to the front and open the Bottom Dock
+(warnings open nothing); a designer in a window of its own shows it in the
+window's bottom pane. Layers marks a control a check names with a warning
+(or error) mark at its row's right, its message as the mark's tip; a click
+on the mark goes to Checks.
+
+**The Status Bar** says, while the designer is the editor in front, what
+the last Build left in the warning color (**Not built**, its scripts not
+what Build makes of the window now; **Build failed**, the reason on hover)
+and the window's count of binds and handlers (`3 binds, 3 handlers`); a
+designer in a window of its own says the first in its header. Its hints
+are the canvas's, as Options › Keyboard binds them: **Click** Select,
+**Drag** Resize by handle, **Esc** Cancel resize, and with a control chosen
+**Ctrl + D** Duplicate, **Alt + Up** Move up and **Delete**; in Interact,
+**Click** Try a control. None while a field is typed in or a popover is
+open, on the other pages, or while the source group is in front.
 
 The designer's panels are the docks', on every page and in every **Layout**
 (the editor keeps its width as you switch): **Components** over **Properties** over
@@ -68,9 +123,8 @@ menu, and a dropdown in it opens and chooses as anywhere), and **Layers** in the
 Outliner under the Left Dock's tabs. A designer in a window of its own brings
 them into its window: the three at its right, Layers at its left where the
 window has the room (else a strip at the canvas's left whose icon unfolds
-them over it). On the **Bindings** page the Bindings panel points to the
-page, which shows the same binds. Two designers in two groups each bring
-their own as their group is chosen.
+them over it). Two designers in two groups each bring their own as their
+group is chosen; a designer's source group brings its designer's.
 
 **Properties** is a form: each label beside its field (over it only where
 the panel is too narrow for both), under bold section headings that fold
@@ -114,12 +168,18 @@ setting that controls whether players may resize it in game. List-template cells
 their width from the template; resize their containing list or edit cell settings
 in JUI Source. Dynamic dimensions are not replaced by a resize gesture.
 
-**Fit** and **100%** over the canvas control its zoom. **Game preview** reads
+**Fit** and **100%** at the canvas's bottom right control its zoom (**View ›
+Zoom** too); at its top left it says **Game preview** with the UI scale and
+the state shown (the window's size in its tip), the resources' issues under
+it, and with **View › Resources** where each picture and font came from;
+what is not drawn here and Interact's last event stand at its bottom left.
+They stand over the canvas, and take no click beside them. **Game preview** reads
 `nui_skin.tml`, textures and TrueType fonts from your configured NWN
 installation and current module content. No game artwork is bundled with
 Moonglow. The header's **View** popover holds how the canvas shows the
 window, kept for the designer as long as Moonglow runs: **Layout** (Editor,
-Preview only, Split source), **UI scale** (100–200%), **State** (the selected
+Preview only, Split source: the source group), **UI scale** (100–200%),
+**Zoom** (Fit, 100%), **State** (the selected
 control normally, hovered, pressed or disabled; off in Interact),
 **Resources**, **Clean view** (hides selection outlines and editor guides),
 **Preview on screen** and **Screen**. Its dropdowns open in it; Escape
@@ -181,7 +241,7 @@ to edit **Row data**: add, duplicate or remove a row across its bind arrays.
 Structured arrays, colors and rectangles are editable in Properties and Bindings.
 The forms show the first 200 items of an array and the first 200 rows of Row
 data, and say how many more there are: a list tried at thousands of rows is
-edited in **Advanced › Binding JSON**.
+edited in **Binding JSON** (the source group's).
 Dropdown entries expose their numeric values separately from their labels.
 **Bind Formatting** exposes the stock number flags, decimal precision and text flags.
 
@@ -263,11 +323,8 @@ matching thumbnails. Cropping uses the native image region. Individual list-row
 images are edited in Row data. **View › Screen** previews common
 resolutions and enables title dragging to author window position. A geometry
 bind remains a bind. Position and resize gestures commit on release; Esc cancels.
-**View › Layout** offers the full editor, preview alone, or preview beside
-editable JUI Source. While editing a variant, split source shows the companion
-settings JSON. The source is written to the module when you leave the field, an incomplete
-draft too: it is kept, and Undo takes it back. Meanwhile the preview beside it
-shows what you type whenever it reads as a window.
+**View › Layout** offers the full editor, preview alone, or the source group
+beside the design (Split source, above).
 
 ## Keys
 
@@ -297,7 +354,7 @@ Unknown fields and widget types are retained. Duplicate JSON keys are reported
 instead of silently discarding a value.
 Unused null `label`/`value` slots are hidden in the inspector. For a supported
 property, **Set Value…** initializes the appropriate type instead of offering
-arbitrary JSON types. Custom data remains available in **Advanced › JUI Source**.
+arbitrary JSON types. Custom data remains available in **JUI Source**.
 **Advanced Properties** appears only when the selected element has additional
 editable fields; it does not show an empty section for type/version metadata.
 **Tooltip when disabled** explains an unavailable control on hover
@@ -312,7 +369,11 @@ The suggested name and initial value come from the control; **Create**
 creates and connects the value in one Undo step. **Cancel** leaves the module
 unchanged. The source dropdown offers compatible existing binds, or **Constant
 (no bind)** to detach while keeping the initial value (the first row for a list).
-Other controls using the same bind are unaffected by detaching.
+Other controls using the same bind are unaffected by detaching. A bound
+property's row shows its bind as a chip beside its label (the link icon and
+the bind's name); a click on it shows that property in Property Binding,
+where its Source changes the bind or takes it off, with its initial value
+and its **Bind Formatting**.
 
 List-template properties create an array with one value per existing row.
 Ordinary properties do not offer row arrays. A control whose value is bound
@@ -323,12 +384,23 @@ The property's **… › Make Dynamic (Bind)** menu remains a shortcut.
 The menu is available for dynamic arguments in the stock NUI API. Layout
 arguments such as list row height and group borders remain constants; replace
 the layout to change them while the window is open.
-**Bindings › Create Bind** creates a named, typed value with an explicit
-initial value. Each bind's **Add Handler** adds a **Value changed** handler;
-the window watches the bind for it. The window's `close` event (the player
-closing it) and code that closes the window are separate things.
-**Bindings** also edits structured initial values and optional watches;
-**Advanced › Binding JSON** exposes the underlying settings. List-template binds need arrays;
+The **Bindings** panel is a table of the window's binds (**Name**, **Initial
+Value**, **Watch**; the row of the bind the property chosen in Property
+Binding takes its value from is filled, the bind chosen in the table
+ringed): **New Bind**, the plus on its header, creates a named,
+typed value with an explicit initial value; **Watch** adds or takes off a
+bind's **Value changed** handler (the window watches the bind for it); a
+row chosen shows that bind's form under the table, where it is renamed, its
+initial value edited by its kind, its handlers written (**When This Value
+Changes**), where it is used listed and the bind deleted. Under the table
+stand **Custom window ID** (empty: the window's name; set as you leave it,
+or as its panel goes) and the two choices
+of client delivery (**Load JUI from the client by resource name**, **Events
+go to the module's event script**), what each does in its tip. The
+**Bindings** page shows every bind's form at once (with **Create Bind**),
+the panel beside it then the table alone. The window's `close` event (the
+player closing it) and code that closes the window are separate things.
+**Binding JSON** exposes the underlying settings. List-template binds need arrays;
 ordinary binds use the property's scalar, rectangle or color. A bind's name
 (given in **Create Bind**, in **New Bind for Property** or by its
 **Rename**) can't hold a line break, a tab or another control character, which
@@ -392,8 +464,8 @@ code. **Insert…** adds ready-made code to it: **Close Window**, **Set bind**
 (to its current value, written as NWScript reads it: `JsonString("…")`,
 `JsonInt(…)`, `JsonBool(…)`), **Toggle bind** and **Show variant**; a menu
 with nothing to offer is off. After that it is
-ordinary code to change. **Event Script…** under the header opens the whole
-script. **Remove** takes the handler away; what you wrote in it stays in the
+ordinary code to change. **Event Script…** in the source group's header opens
+the whole script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
 place for `#include` lines and helper functions. When the script's editor
@@ -515,8 +587,8 @@ into a section. A script written by hand (with no markers) stays as it is.
 The build status includes both scripts, handlers and swap layout variants.
 A manually changed opener is reported as a conflict, not replaced. Build
 saves the window's own scripts first; save any other open script edits,
-including changed includes, before building. A failed Build says so under
-the header (**Build failed**, the reason on hover) until the next one.
+including changed includes, before building. A failed Build says so in the
+Status Bar (**Build failed**, the reason on hover) until the next one.
 
 The opener has **no `main` and no automatic player selection**. Include it in
 your own script, choose the player for that script's event and call
@@ -569,10 +641,7 @@ their checks found.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. What the checks found is
-listed under the tabs (their count there opens and closes the list, and new
-errors open it): a line a finding, errors first, with the control it is
-about, which the line selects, and a fix where there is one. A message
-longer than its line is cut, and whole in its tip. The checks describe the
+in **Checks** (above). The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,

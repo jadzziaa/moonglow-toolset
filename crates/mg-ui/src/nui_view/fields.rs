@@ -195,11 +195,16 @@ pub(super) fn put_back_settings(
             put_back(ctx, was, view, &Place::Variant(name.clone()), out);
         }
     }
-    if let (Some(was), Some(now)) = (&was.window_id, &mut now.window_id) {
-        let (was, mut id) = (Value::from(was.as_str()), Value::from(now.as_str()));
-        put_back(ctx, &was, &mut id, &Place::WindowId, out);
+    // (None set, its field shows "" put back as none: M4's U19 review.)
+    if let Some(id_now) = &mut now.window_id {
+        let was_id = was.window_id.as_deref().unwrap_or_default();
+        let (was_v, mut id) = (Value::from(was_id), Value::from(id_now.as_str()));
+        put_back(ctx, &was_v, &mut id, &Place::WindowId, out);
         if let Value::String(id) = id {
-            *now = id;
+            *id_now = id;
+        }
+        if was.window_id.is_none() && id_now.is_empty() {
+            now.window_id = None;
         }
     }
 }
@@ -232,10 +237,15 @@ pub(super) fn set_typed<'a>(
             }
             Place::Variant(name) => s.variants.get_mut(name).and_then(|w| w.pointer_mut(pointer)),
             Place::WindowId => {
-                if let (Some(id), Value::String(shown)) = (&mut s.window_id, &r.shown)
-                    && r.set == id.as_str()
-                {
-                    id.clone_from(shown);
+                match (&mut s.window_id, &r.shown) {
+                    (Some(id), Value::String(shown)) if r.set == id.as_str() => {
+                        id.clone_from(shown);
+                    }
+                    // (Typed with none set: given it.)
+                    (None, Value::String(shown)) if r.set == "" && !shown.is_empty() => {
+                        s.window_id = Some(shown.clone());
+                    }
+                    _ => {}
                 }
                 continue;
             }

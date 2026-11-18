@@ -139,6 +139,56 @@ pub(super) fn section(
     header
 }
 
+/// A bound property's chip (M4's U19, the NUI board's `.bind-chip`): the
+/// link icon in `accent` and the bind's name in the code font, on a ground
+/// of `accent` faint and its rim, 22 high; a button named "Bound to NAME",
+/// cut short to the room it is given.
+pub(super) fn bind_chip(ui: &mut Ui, name: &str) -> egui::Response {
+    let t = mg_uikit::tokens(ui.ctx());
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let icon = mg_uikit::metrics::ICON;
+    let pad = 8.0;
+    let room = (ui.available_width() - 2.0 * pad - icon - 4.0).max(0.0);
+    let mut job = egui::text::LayoutJob::simple_singleline(name.to_string(), font, t.text);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+    let galley = ui.painter().layout_job(job);
+    let size =
+        egui::vec2(2.0 * pad + icon + 4.0 + galley.size().x, mg_uikit::metrics::CONTROL_HEIGHT);
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+    let said = format!("Bound to {name}");
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said));
+    if ui.is_rect_visible(rect) {
+        let fill =
+            if r.hovered() { t.accent.gamma_multiply(0.28) } else { t.accent.gamma_multiply(0.16) };
+        ui.painter().rect_filled(rect, 3.0, fill);
+        ui.painter().rect_stroke(rect, 3.0, (1.0, t.accent), egui::StrokeKind::Inside);
+        let at = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + pad + icon / 2.0, rect.center().y),
+            egui::vec2(icon, icon),
+        );
+        mg_uikit::Icon::Link.paint(ui.painter(), at, t.accent);
+        let y = rect.center().y - galley.size().y / 2.0;
+        ui.painter().galley(egui::pos2(at.right() + 4.0, y), galley, t.text);
+    }
+    r
+}
+
+/// Where a bound property's chip asks Property Binding to show its
+/// property ([`bind_chip`]): the property's key, taken as Property Binding
+/// is drawn next.
+/// Keyed by the designer whose Properties draw it (`chip_owner`, set as
+/// they begin): two designers drawn in one frame (one docked, one in its
+/// window) never take each other's.
+pub(super) fn chip_asked(ctx: &egui::Context) -> egui::Id {
+    let owner = ctx.data(|d| d.get_temp::<ResKey>(chip_owner()));
+    egui::Id::new(("nui-bind-chip-asked", owner))
+}
+
+/// Where the designer whose Properties are being drawn is noted.
+pub(super) fn chip_owner() -> egui::Id {
+    egui::Id::new("nui-bind-chip-owner")
+}
+
 /// A button with the kit's drawn plus before its words (Add Property,
 /// Create Bind, Add Handler…), named by its words.
 pub(super) fn plus(words: &str) -> mg_uikit::IconButton {

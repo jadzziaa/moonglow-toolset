@@ -1,5 +1,17 @@
 # Update log
 
+## 2026-11-18
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U19's review ([18](manual/18-nui-creator.md#design)).
+  * **The NUI designer's source is bound to its design**: Reopen Closed Tab brings it back beside the design (opening the design first where it is closed), a second NUI window opens among the designs, and the source closes with its design wherever it was dragged; a floating designer goes back where it was as its source closes.
+  * The design follows the source on a click in the text, or as the cursor moves while the text chose; a control chosen on the canvas or in Layers is kept as you read, several chosen are never let go; the source marks the cursor's line, as the board does.
+  * What is typed in the source is set when the module is saved, and when the source or the design closes onto the text it was typed over; a new Custom window ID is set as its panel goes; Checks' fixes are whole; plugins see the window's JUI with its source in front.
+  * The Bindings table marks the bind the chosen property takes its value from; it no longer goes through the window each frame (a window's chart of a million samples draws in 19 ms, against the tip's 33).
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U19, the NUI designer: source group, Checks, overlays**, as the NUI board draws them ([18](manual/18-nui-creator.md#design), [02](manual/02-main-window.md#the-log); [moves](ui-redesign-moves.md)).
+  * **The row under the designer's header is gone.** Split source is the window's source as an editor group of its own at the design's right (in a floating designer's window, which widens for it): its switch JUI Source | Binding JSON, Event Script… and Opener Script in its header, its text numbered; what you type is set as you leave it, the canvas showing it meanwhile; the control chosen and the cursor in the text follow each other. Its switch is kept with the module's open tabs.
+  * **Checks is a Bottom Dock panel**, its Status Bar switch counting the errors and warnings; new errors open it. Each row: the kind, the control (a click chooses it), the message and its fix (Bind It…). Layers marks a control a check names, and shows each control's ID (or the bind its value takes) in weak words.
+  * **The Status Bar** says Not built or Build failed in the warning color and "3 binds, 3 handlers"; its hints are the canvas's keys as you bound them. Fit and 100% stand at the canvas's bottom right (and in View › Zoom), "Game preview" at its top left.
+  * **A bound property shows its bind as a chip**; a click shows it in Property Binding. **The Bindings panel is a table** (Name, Initial Value, Watch) with New Bind on its header, the window's ID and delivery choices under it, the chosen bind's form under them.
+
 ## 2026-11-17
 * **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, U17 by the owner's ruling: **the game's `dialog.tlk` draws inside the Talk Table tab**, as the board draws it ([03](manual/03-modules.md#the-talk-table-editor); [moves](ui-redesign-moves.md)).
   * Opening `dialog.tlk` from the Resources panel or Quick Open shows it in the Talk Table tab, read-only, numbered by its own StrRefs; the tab comes forward where it is open. More › Module's Table brings the module's table back as you left it: its unsaved lines, Undo steps, chosen line and what you typed.

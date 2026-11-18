@@ -374,7 +374,7 @@ fn selection_counts(view: &AreaView) -> Vec<Count> {
         [(kind, index)] => {
             let tip = view.model.as_ref().and_then(|m| m.object(*kind, *index));
             let tip = tip.map(|o| describe(*kind, o));
-            vec![Count { text: "1 selected".into(), tip }]
+            vec![Count { text: "1 selected".into(), tip, warn: false }]
         }
         many => vec![Count::new(format!("{} selected", many.len()))],
     }

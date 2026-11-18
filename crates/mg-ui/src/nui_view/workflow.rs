@@ -97,12 +97,16 @@ pub(super) fn new_bind_name<'a>(
 pub(super) fn create_bind(
     ui: &mut Ui,
     bindings: &mut std::collections::BTreeMap<String, Binding>,
+    button: bool,
+    asked: bool,
 ) -> Option<String> {
     let mut created = None;
     ui.push_id("create-bind", |ui| {
         let id = ui.make_persistent_id("create-bind-draft");
         let mut draft = ui.ctx().data_mut(|d| d.get_temp::<BindDraft>(id));
-        if ui.add(form::plus("Create Bind")).clicked() && draft.is_none() {
+        // (Its button, or the Bindings panel's header's plus: M4's U19.)
+        let pressed = button && ui.add(form::plus("Create Bind")).clicked();
+        if (pressed || asked) && draft.is_none() {
             draft = Some(BindDraft::new());
         }
         let mut finish = false;

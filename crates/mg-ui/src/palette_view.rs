@@ -451,6 +451,9 @@ pub(crate) enum Keys {
     /// Properties are [`Keys::Properties`], its Layers [`Keys::Marks`].
     NuiComponents,
     NuiBindings,
+    /// A NUI designer's Checks (M4's U19), in the Bottom Dock: no arrows of
+    /// its own; F6 gives its first row's control the focus.
+    NuiChecks,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

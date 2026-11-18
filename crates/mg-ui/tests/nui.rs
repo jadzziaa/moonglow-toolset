@@ -508,7 +508,9 @@ fn edit_code_opens_the_event_script_at_the_handler_s_section() {
     insert_close_window(&mut h);
     h.run();
     assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
-    // Event script… opens the whole script; Undo takes the insert back.
+    // Event script… (the source group's, M4's U19) opens the whole script;
+    // Undo takes the insert back.
+    view_choose(&mut h, "Layout", "Split source");
     h.get_by_label("Event Script…").click();
     h.run();
     assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
@@ -1398,18 +1400,13 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
     let mut h = creator(app(), [1200, 850]);
     h.run();
     let before = h.state().ws.as_ref().unwrap().module.get(&key).unwrap().to_vec();
-    h.get_by_label("Advanced").click();
-    h.run();
-    h.get_by_label("JUI Source").click();
-    h.run();
-    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap().click();
+    // (The source group, M4's U19: its switch on JUI Source.)
+    view_choose(&mut h, "Layout", "Split source");
+    h.get_by_label(mg_ui::nui_names::SOURCE_TEXT).click();
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.run();
-    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
-        .next()
-        .unwrap()
-        .type_text("invalid draft");
+    h.get_by_label(mg_ui::nui_names::SOURCE_TEXT).type_text("invalid draft");
     h.run();
     // A draft is the tab's until its field is left: then it is the
     // module's, also one that doesn't read.
@@ -1437,8 +1434,7 @@ fn split_source_shows_on_the_canvas_what_is_typed() {
     let before = document(&h);
     let mut typed = before.clone();
     typed["root"]["children"][0]["value"] = json!("Typed live");
-    let field = || egui::accesskit::Role::MultilineTextInput;
-    h.get_all_by_role(field()).next().unwrap().click();
+    h.get_by_label(mg_ui::nui_names::SOURCE_TEXT).click();
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
     h.run();
@@ -2158,10 +2154,9 @@ fn import_brings_windows_into_the_module_from_the_creator() {
 fn the_event_function_is_chosen_under_client_delivery() {
     let mut h = harness();
     page(&mut h, "Bindings");
-    h.get_by_label("Client Delivery").click();
-    h.run();
+    // (Under the Bindings panel's table, M4's U19.)
     assert!(!settings(&h).event_function);
-    h.get_by_label("Events go to the module's event script (a function to call)").click();
+    h.get_by_label("Events go to the module's event script").click();
     h.run();
     assert!(settings(&h).event_function);
     undo(&mut h);
@@ -3252,4 +3247,62 @@ fn a_group_root_and_a_column_s_fit_are_as_the_client_has_them() {
     let col_root = json!({"type":"col","draw_list_scissor":false,"draw_list":rect,
         "children":[label(200.0)]});
     assert_eq!(count(col_root), 4_800, "a column root's is");
+}
+
+/// "Not built" in the Status Bar until a build (M4's U19, the plan's): said
+/// in `warn` beside the designer docked in front, gone once Build has made
+/// its scripts, back as the window changes; "Build failed" where a Build
+/// fails (no game). Floating, the window's header says it (the Status Bar
+/// is the main window's).
+#[test]
+fn not_built_is_said_until_a_build() {
+    use mg_ui::nui_names::{BUILD_STATE, NUI_HEADER};
+    let root = mg_testkit::corpus!();
+    for tabs in [true, false] {
+        let what = if tabs { "As Tabs" } else { "floating" };
+        let mut app = Moonglow::new(
+            Some(mg_resman::GameInstall::new(root.clone(), None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        if tabs {
+            app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        app.ws = Some(mg_edit::Workspace::new(m));
+        app.run(Action::NewNui("nui_test".into()));
+        let mut h = creator(app, [1500, 850]);
+        h.run();
+        let says = |h: &Harness<'_, Moonglow>, words: &str| match tabs {
+            true => h.state().status_said().iter().any(|s| s == words),
+            false => {
+                mg_uikit::header::records(&h.ctx, NUI_HEADER)
+                    .first()
+                    .is_some_and(|r| r.places.iter().any(|(n, _)| n == BUILD_STATE))
+                    && h.query_by_label(words).is_some()
+            }
+        };
+        assert!(says(&h, "Not built"), "{what}: not built yet");
+        h.state_mut().run(Action::GenerateNui { name: "nui_test".into(), export: false });
+        h.run();
+        assert!(!says(&h, "Not built") && !says(&h, "Build failed"), "{what}: built");
+        // The window changed: not built again.
+        let mut w = document(&h);
+        w["title"] = json!("Changed");
+        h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&w).unwrap());
+        h.run();
+        assert!(says(&h, "Not built"), "{what}: changed since");
+    }
+    // A Build that fails (no game): said, As Tabs, in the Status Bar.
+    let mut app = app();
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    app.run(Action::OpenTab(Tab::Nui(key())));
+    let mut h = creator(app, [1500, 850]);
+    h.state_mut().run(Action::GenerateNui { name: "nui_test".into(), export: false });
+    h.run();
+    assert!(
+        h.state().status_said().iter().any(|s| s == "Build failed"),
+        "{:?}",
+        h.state().status_said()
+    );
 }

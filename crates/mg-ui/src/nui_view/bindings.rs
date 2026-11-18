@@ -86,6 +86,13 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     if keys.is_empty() {
         return;
     }
+    // (A bound property's chip clicked: its property shown here, the
+    // section opened and brought into sight, M4's U19.)
+    let asked_id = form::chip_asked(ui.ctx());
+    let asked = ui.ctx().data_mut(|d| d.remove_temp::<String>(asked_id));
+    if let Some(key) = asked.as_ref().filter(|k| keys.contains(k)) {
+        state.binding_property = key.clone();
+    }
     if !keys.contains(&state.binding_property) {
         state.binding_property = ["value", "label", "title"]
             .into_iter()
@@ -94,20 +101,28 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             .into();
     }
     let tip = "A bound property takes its value from a bind, which a script can change";
-    form::section(ui, "nui-property-binding", "Property Binding", true, None, Some(tip), |ui| {
-        {
-            form::row(ui, "Property", None, |ui, lead| {
-                widgets::dropdown("bind-property")
-                    .selected_text(label(&state.binding_property, &ty))
-                    .width(ui.available_width().max(0.0))
-                    .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
-                    .labelled_by(lead.id);
-            });
-            let key = state.binding_property.clone();
-            let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
-            let bound = current["bind"].as_str().map(str::to_owned);
-            let rows = row_count(doc, &path, settings);
-            ui.push_id((&path, &key), |ui| {
+    let open = asked.is_some().then_some(true);
+    let section = form::section(
+        ui,
+        "nui-property-binding",
+        "Property Binding",
+        true,
+        open,
+        Some(tip),
+        |ui| {
+            {
+                form::row(ui, "Property", None, |ui, lead| {
+                    widgets::dropdown("bind-property")
+                        .selected_text(label(&state.binding_property, &ty))
+                        .width(ui.available_width().max(0.0))
+                        .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
+                        .labelled_by(lead.id);
+                });
+                let key = state.binding_property.clone();
+                let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
+                let bound = current["bind"].as_str().map(str::to_owned);
+                let rows = row_count(doc, &path, settings);
+                ui.push_id((&path, &key), |ui| {
                 let draft_id = ui.make_persistent_id("property-bind-draft");
                 let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
                 let mut chosen = bound.clone().unwrap_or_default();
@@ -300,10 +315,19 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                             "There is no such bind: make it, or choose another above.",
                         );
                     }
+                    // (Its Bind Formatting, under its row before M4's U19,
+                    // where its chip is now.)
+                    if let Some(bound) = doc.pointer_mut(&path).map(|n| &mut n[&key]) {
+                        fields::binding_options(ui, bound);
+                    }
                 }
             });
-        }
-    });
+            }
+        },
+    );
+    if asked.is_some() {
+        section.scroll_to_me(Some(egui::Align::TOP));
+    }
 }
 
 pub(super) fn watch(ui: &mut Ui, name: &str, doc: &Value, s: &mut Settings, state: &mut State) {

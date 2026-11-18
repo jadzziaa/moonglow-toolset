@@ -21,10 +21,11 @@
 use super::*;
 use crate::palette_view::{Keys, give_keys, keys_are};
 
-/// The designer `editor` is, where it is one.
+/// The designer `editor` is, where it is one (or its source group, a part
+/// of it: M4's U19).
 pub(crate) fn nui_of(editor: Option<&Tab>) -> Option<ResKey> {
     match editor? {
-        Tab::Nui(key) => Some(*key),
+        Tab::Nui(key) | Tab::NuiSource(key) => Some(*key),
         _ => None,
     }
 }
@@ -405,21 +406,45 @@ pub(super) fn act(
     }
 }
 
-/// The Bindings panel (the board's lowest section): the window's binds,
-/// Create bind, Client delivery and Window identity, as the Bindings page
-/// has them (U19 makes them the board's table).
-pub(crate) fn bindings(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
-    let Some(mut o) = open(app, ui, editor, Keys::NuiBindings) else { return };
-    // (The Bindings page is this panel's whole: one of each field and
-    // button, not two editing the same bind.)
-    if o.state.page == super::Page::Bindings {
-        ui.add_space(8.0);
-        egui::Frame::new().inner_margin(BODY).show(ui, |ui| {
-            ui.weak("The Bindings page shows the window's binds.");
-        });
-        close(app, o);
-        return;
+/// Where the Bindings panel's header's plus asks for Create Bind's dialog
+/// (M4's U19, the board's `+` on the Bindings header), for designer `key`.
+pub(crate) fn create_asked(key: ResKey) -> egui::Id {
+    egui::Id::new(("nui-create-bind", key))
+}
+
+/// The Bindings panel's header's plus (the board's): Create Bind.
+pub(crate) fn bindings_plus(ui: &mut Ui, editor: Option<&Tab>) {
+    let Some(key) = nui_of(editor) else { return };
+    let plus = widgets::icon_only(mg_uikit::Icon::Plus, "New Bind");
+    if ui.add(plus).on_hover_text("New Bind: a named value the event script can change").clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(create_asked(key), true));
     }
+}
+
+/// The Bindings panel (the board's lowest section, M4's U19): the window's
+/// binds as a table (Name, Initial Value, Watch) with Create Bind on its
+/// header's plus, the window's settings under it, and the bind chosen's
+/// form; on the Bindings page, whose body is every bind's form, the table
+/// and the settings alone (one of each field).
+pub(crate) fn bindings(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, titled: bool) {
+    // (Sharing a tab bar, under 1400: its count and its plus at its own
+    // top, as its header has them.)
+    if !titled {
+        let words = detail(app, editor, crate::Panel::Bindings).unwrap_or_default();
+        egui::Frame::new()
+            .inner_margin(egui::Margin { left: 8, right: 4, top: 2, bottom: 0 })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.weak(words);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        bindings_plus(ui, editor);
+                    });
+                });
+            });
+    }
+    let Some(mut o) = open(app, ui, editor, Keys::NuiBindings) else { return };
+    let page = o.state.page == super::Page::Bindings;
+    let create = ui.ctx().data_mut(|d| d.remove_temp::<bool>(create_asked(o.key))).is_some();
     let Some(mut work) = o.state.work.take() else {
         ui.add_space(8.0);
         ui.weak(REPAIR);
@@ -438,12 +463,13 @@ pub(crate) fn bindings(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             // (The window as it is kept, the variant edited back in the
             // settings: its binds' uses and renames reach both, as the page's.)
             super::main_root(&mut work, &mut o.state, true);
-            design::bindings_in(
+            let of = work.of.clone();
+            design::bindings_table(
                 ui,
-                &mut work.settings,
-                Some(&mut work.window),
+                (&mut work.settings, &mut work.window, &of),
                 &mut o.state,
-                false,
+                page,
+                create,
             );
             super::main_root(&mut work, &mut o.state, false);
         });
@@ -462,8 +488,13 @@ enum Row {
         path: String,
         depth: usize,
         words: String,
-        /// Weak words after them: the window's title on its row.
+        /// Weak words after them: the window's title on its row, a
+        /// control's ID, else the bind its value takes (M4's U19, the
+        /// board's "Button · Send  send", "Label  fee_text").
         detail: Option<String>,
+        /// What a check found of it, the first (errors first): whether it
+        /// is an error, and its message (the board's warning mark).
+        mark: Option<(bool, String)>,
         branch: bool,
         main: bool,
         icon: mg_uikit::Icon,
@@ -481,23 +512,28 @@ enum Row {
 /// ([`LayerRows::of`]): a window of hundreds of controls is not walked, and
 /// each row's words not written, every frame.
 pub(super) struct LayerRows {
-    of: (Option<[Held; 2]>, std::collections::BTreeSet<String>, String, Option<String>),
+    of: (Option<[Held; 2]>, std::collections::BTreeSet<String>, String, Option<String>, usize),
     rows: std::sync::Arc<[Row]>,
 }
 
 /// The rows of Layers for `state` (its window, its folds, what is typed in
 /// its Find, the variant edited).
 fn rows(state: &mut State) -> std::sync::Arc<[Row]> {
+    // (The checks' findings, by where they are kept: new findings mark
+    // the rows anew.)
+    let findings = state.checks.as_ref().map(|c| c.findings.clone());
     let of = (
         state.work.as_ref().map(|w| w.of.clone()),
         state.collapsed.clone(),
         state.layer_search.clone(),
         state.edit_view.clone(),
+        findings.as_ref().map_or(0, |f| f.as_ptr() as usize),
     );
     if let Some(kept) = &state.layer_rows
         && kept.of.1 == of.1
         && kept.of.2 == of.2
         && kept.of.3 == of.3
+        && kept.of.4 == of.4
         && match (&kept.of.0, &of.0) {
             (Some(a), Some(b)) => same(a, b),
             (None, None) => true,
@@ -508,6 +544,20 @@ fn rows(state: &mut State) -> std::sync::Arc<[Row]> {
     }
     let mut out = Vec::new();
     let search = mg_core::text::Needle::new(&state.layer_search);
+    // Each control a check names, its first finding (errors first).
+    let mut marks: std::collections::BTreeMap<String, (bool, String)> = Default::default();
+    if let (Some(findings), Some(doc)) =
+        (&findings, state.source.as_ref().and_then(|s| s.window.as_ref().ok()))
+    {
+        for d in findings.iter() {
+            let error = d.severity == Severity::Error;
+            let Some(path) = describe_path(doc, &d.path).0 else { continue };
+            let held = marks.entry(path).or_insert((error, d.message.clone()));
+            if error && !held.0 {
+                *held = (true, d.message.clone());
+            }
+        }
+    }
     if let Some(work) = &state.work {
         // While a variant is edited, the tree is still the window's own.
         let main = match &state.swapped {
@@ -516,6 +566,7 @@ fn rows(state: &mut State) -> std::sync::Arc<[Row]> {
         };
         let tree = Tree {
             s: &work.settings,
+            marks: &marks,
             main: true,
             active_root: &work.window["root"],
             search: &search,
@@ -533,6 +584,8 @@ fn rows(state: &mut State) -> std::sync::Arc<[Row]> {
 #[derive(Clone, Copy)]
 struct Tree<'a> {
     s: &'a Settings,
+    /// The controls the checks name, by path ([`Row::Control`]'s mark).
+    marks: &'a std::collections::BTreeMap<String, (bool, String)>,
     /// The window's own tree, not that of a variant being edited under its
     /// swap layout.
     main: bool,
@@ -568,16 +621,24 @@ fn walk(node: &Value, path: &str, depth: usize, tree: Tree<'_>, out: &mut Vec<Ro
     };
     let ty = if path.is_empty() { "window" } else { node["type"].as_str().unwrap_or_default() };
     // (The window's row says its title after its name, the board's
-    // "Window  The Town Crier".)
-    let detail = path
-        .is_empty()
-        .then(|| node["title"].as_str().filter(|t| !t.is_empty()).map(str::to_owned))
-        .flatten();
+    // "Window  The Town Crier"; a control its ID, else the bind its value
+    // takes, M4's U19.)
+    let detail = match path.is_empty() {
+        true => node["title"].as_str().filter(|t| !t.is_empty()).map(str::to_owned),
+        false => (node["id"].as_str())
+            .or_else(|| node["value"]["bind"].as_str())
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned),
+    };
+    // (Marked where the window's own tree is: a variant edited in its
+    // place is checked where it is kept.)
+    let mark = tree.main.then(|| tree.marks.get(path).cloned()).flatten();
     out.push(Row::Control {
         path: path.into(),
         depth,
         words,
         detail,
+        mark,
         branch,
         main: tree.main,
         icon: kind_icon(ty),
@@ -784,6 +845,8 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
     }
     let mut clicked: Option<(usize, bool)> = None;
     let mut folded: Option<String> = None;
+    let mut go_to_checks = false;
+    let t = mg_uikit::tokens(&ctx);
     let scroll =
         egui::ScrollArea::vertical().id_salt(("nui-layers", key, window)).auto_shrink(false);
     let shown = scroll.show_viewport(ui, |ui, view| {
@@ -819,13 +882,17 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
             let mut row_ui =
                 ui.new_child(egui::UiBuilder::new().id_salt(("nui-layer", i)).max_rect(place));
             match row {
-                Row::Control { path, words, detail, branch, main, icon, tip, .. } => {
+                Row::Control { path, words, detail, mark, branch, main, icon, tip, .. } => {
                     let editable_tree = !*main || state.edit_view.is_none();
                     let marked = editable_tree
                         && (state.selected == *path || state.selected_many.contains(path));
                     let mut tree_row = mg_uikit::TreeRow::new(words.as_str()).icon(*icon).fit();
                     if let Some(detail) = detail {
                         tree_row = tree_row.second(detail.as_str());
+                    }
+                    // (Room kept at its right for the checks' mark.)
+                    if mark.is_some() {
+                        tree_row = tree_row.count("\u{2003}").label(words.as_str());
                     }
                     let mut tree_row =
                         tree_row.selected(marked).sense(egui::Sense::click_and_drag());
@@ -881,6 +948,37 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                     }
                     if r.clicked() {
                         clicked = Some((i, row_ui.input(|i| i.modifiers.command)));
+                    }
+                    // The checks' mark (the board's warning at the row's
+                    // right): its tip the finding's message, a click going
+                    // to Checks, the control chosen.
+                    if let Some((error, message)) = mark {
+                        let side = mg_uikit::metrics::ICON + 4.0;
+                        let at = egui::Rect::from_center_size(
+                            egui::pos2(line.right() - side / 2.0 - 4.0, line.center().y),
+                            egui::vec2(side, side),
+                        );
+                        let (icon, color, word) = match error {
+                            true => (mg_uikit::Icon::Error, t.error, "Error"),
+                            false => (mg_uikit::Icon::Warning, t.warn, "Warning"),
+                        };
+                        let resp = row_ui.interact(
+                            at,
+                            row_ui.id().with("check-mark"),
+                            egui::Sense::click(),
+                        );
+                        icon.paint(row_ui.painter(), at.shrink(2.0), color);
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Button,
+                                true,
+                                format!("{word}: {message}"),
+                            )
+                        });
+                        if resp.on_hover_text(message.as_str()).clicked() {
+                            go_to_checks = true;
+                            clicked = Some((i, false));
+                        }
                     }
                 }
                 Row::Draw { path, index, words, main, .. } => {
@@ -941,6 +1039,10 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                 state.selected = path;
             }
         }
+    }
+    // (The checks' mark: Checks brought to the front, its dock opened.)
+    if go_to_checks {
+        app.nui_checks_forward.push(key);
     }
     if let Some((i, additive)) = clicked
         && let Row::Control { path, main, .. } = &rows[i]
@@ -1120,7 +1222,7 @@ pub(crate) fn test_frame(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             egui::Panel::bottom("test-bindings")
                 .exact_size(high * 0.15)
                 .resizable(false)
-                .show(ui, |ui| bindings(app, ui, Some(&tab)));
+                .show(ui, |ui| bindings(app, ui, Some(&tab), true));
             egui::CentralPanel::default().show(ui, |ui| properties(app, ui, Some(&tab), false));
         });
     }

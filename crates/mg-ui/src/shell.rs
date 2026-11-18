@@ -232,6 +232,12 @@ pub enum Panel {
     /// each bind's value, watch and uses, Client delivery and Window
     /// identity (`nui_view::panels::bindings`).
     Bindings,
+    /// A NUI designer's Checks (M4's U19, the NUI board's Bottom Dock): what
+    /// the checks of its window found, each a row of its kind, its control
+    /// (a click chooses it in the design, Layers and the source), its
+    /// message and its fix (Bind It, Turn It Off, Add Close Handler)
+    /// (`nui_view::checks::panel`); its Status Bar switch counts them.
+    Checks,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -289,7 +295,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 22] = [
+    pub(crate) const KEYED: [Panel; 23] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -312,6 +318,7 @@ impl Panel {
         Panel::TalkFile,
         Panel::Components,
         Panel::Bindings,
+        Panel::Checks,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -342,7 +349,11 @@ impl Panel {
             | Panel::TalkFile
             | Panel::Components
             | Panel::Bindings => Dock::Right,
-            Panel::Log | Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => Dock::Bottom,
+            Panel::Log
+            | Panel::Compiler
+            | Panel::Bookmarks
+            | Panel::SearchResults
+            | Panel::Checks => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
             #[cfg(test)]
@@ -375,6 +386,7 @@ impl Panel {
             Panel::TalkFile => "Talk Table",
             Panel::Components => "Components",
             Panel::Bindings => "Bindings",
+            Panel::Checks => "Checks",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -407,6 +419,7 @@ impl Panel {
             Panel::TalkFile,
             Panel::Components,
             Panel::Bindings,
+            Panel::Checks,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -442,6 +455,7 @@ impl Panel {
             Panel::TalkFile => Icon::TalkTable,
             Panel::Components => Icon::Nui,
             Panel::Bindings => Icon::Link,
+            Panel::Checks => Icon::CheckCircle,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -498,6 +512,7 @@ impl Panel {
             Panel::TalkFile => "Talk Table: the talk table's lines, language and file",
             Panel::Components => "Components: the controls to add to the NUI window",
             Panel::Bindings => "Bindings: the NUI window's binds",
+            Panel::Checks => "Checks: what the checks of the NUI window found",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -526,17 +541,24 @@ impl Panel {
         }
     }
 
+    /// [`Panel::badge`] for the active docked editor (the tests').
+    pub(crate) fn badge_for_tests(self, app: &Moonglow) -> Option<mg_uikit::Badge> {
+        self.badge(app, app.active_editor())
+    }
+
     /// Its switch's count badge in the Status Bar, where it has one (M4:
     /// Problems' errors, Search Results' hits, Checks'); the Log has none.
     /// `editor` is the editor it counts for (the active docked one).
     fn badge(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<mg_uikit::Badge> {
-        let _ = editor;
         match self {
             // (Its hits, where the last search found any.)
             Panel::SearchResults => match app.search_results.hits.len() {
                 0 => None,
                 n => Some(mg_uikit::Badge::count(n)),
             },
+            // (A NUI designer's errors and warnings, the NUI board's "1":
+            // in `error` where any is an error, else in `warn`.)
+            Panel::Checks => crate::nui_view::checks::badge(app, editor),
             #[cfg(test)]
             Panel::Sample(n) if n >= SAMPLE_BOTTOM => {
                 Some(mg_uikit::Badge::count(usize::from(n - SAMPLE_BOTTOM)))
@@ -645,7 +667,8 @@ impl Panel {
             | Panel::String
             | Panel::TalkFile
             | Panel::Components
-            | Panel::Bindings => brings.has(self),
+            | Panel::Bindings
+            | Panel::Checks => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             Panel::SearchResults => true,
@@ -692,6 +715,8 @@ impl Panel {
             // the Bindings panel's first field the focus.)
             Panel::Components => Keys::NuiComponents,
             Panel::Bindings => Keys::NuiBindings,
+            // (F6 gives its first row's control the focus, M4's U19.)
+            Panel::Checks => Keys::NuiChecks,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -846,6 +871,10 @@ const NUI_SHARES: &[u16] = &[410, 1042, 548];
 /// search and a row of its components, Properties the chosen control's
 /// binding and its Content whole, Bindings its first words and Create Bind.
 const NUI_WINDOW_SHARES: &[u16] = &[440, 1040, 520];
+/// A NUI designer's own Bottom Dock panel (M4's U19, the NUI board's tab
+/// before Search Results and the Log): its Checks, with the designer into
+/// its window's bottom pane where it floats.
+const NUI_BOTTOM: &[Panel] = &[Panel::Checks];
 
 /// The talk table an editor's tab is, if it is one's.
 pub(crate) fn talk_of(
@@ -872,7 +901,8 @@ pub(crate) fn talk_of(
 /// own: the Left Dock is then its tabs' panel alone, the whole height,
 /// and the Right Dock is not drawn, folded or not, its sizes kept.
 pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
-    let tab = owner_of(app, tab);
+    let owner = owner_of(app, tab);
+    let tab = &*owner;
     #[cfg(test)]
     if let Some((kind, brings)) = app.sample_brings
         && kind == tab.kind()
@@ -959,6 +989,7 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             folded: NUI_FOLDED,
             shares: NUI_SHARES,
             window_shares: NUI_WINDOW_SHARES,
+            bottom: NUI_BOTTOM,
             floats: true,
             ..Brings::default()
         },
@@ -1005,21 +1036,27 @@ fn tiles_in_hand(app: &Moonglow, area: mg_core::ResRef) -> bool {
 }
 
 /// The editor a tab belongs to, whose panels it brings and whose layout
-/// of the docks the settings keep: the tab itself, for every tab today.
-/// A tab that is part of another editor (U19: the NUI designer's source,
-/// a second editor group of the designer's) maps here to the designer's
-/// tab, so that focusing it keeps the designer's Right Dock. A script's
+/// of the docks the settings keep: the tab itself, but for a tab that is
+/// part of another editor: the NUI designer's source (M4's U19, a second
+/// editor group of the designer's) is the designer's tab, so that focusing
+/// it keeps the designer's Right Dock, Outliner and Checks. A script's
 /// group brings its own (the owner's ruling at T9's review).
-pub(crate) fn owner_of<'a>(app: &Moonglow, tab: &'a crate::Tab) -> &'a crate::Tab {
+pub(crate) fn owner_of<'a>(
+    app: &Moonglow,
+    tab: &'a crate::Tab,
+) -> std::borrow::Cow<'a, crate::Tab> {
     let _ = app;
-    tab
+    match tab {
+        crate::Tab::NuiSource(key) => std::borrow::Cow::Owned(crate::Tab::Nui(*key)),
+        tab => std::borrow::Cow::Borrowed(tab),
+    }
 }
 
 /// The kind a tab's layout of the docks is kept under
 /// (`Settings::dock_layouts`): its owner's `Tab::kind`, the placeholder
 /// that stands for no area the area's (they bring the same section).
 pub(crate) fn layout_kind(app: &Moonglow, tab: &crate::Tab) -> &'static str {
-    match owner_of(app, tab) {
+    match &*owner_of(app, tab) {
         crate::Tab::NoArea => crate::Tab::Area(mg_core::ResRef::default()).kind(),
         owner => owner.kind(),
     }
@@ -1225,6 +1262,11 @@ pub(crate) fn focus_right(app: &mut Moonglow, panel: Panel) {
 /// (`Moonglow::window_bars`). An editor whose panels stay in the main
 /// window's docks (an area's) brings none here.
 pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
+    // (A NUI designer's source group, a part of the designer: its panes are
+    // the designer's, drawn beside the design. M4's U19.)
+    if matches!(tab, crate::Tab::NuiSource(_)) {
+        return;
+    }
     let brings = brings_of(app, tab);
     if !brings.floats && brings.window_right.is_empty() {
         return;
@@ -1259,7 +1301,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     // reach in a small window. M4's U12.)
     let halves = pane_halves(tab);
     let fits = halves || room - RIGHT_DOCK_LEAST - 1.0 >= window_editor_least(tab) - 0.5;
-    let owner = owner_of(app, tab).clone();
+    let owner = owner_of(app, tab).into_owned();
     match fits || right.is_empty() {
         true => app.panes_dropped.remove(&owner),
         false => app.panes_dropped.insert(owner.clone()),
@@ -1380,7 +1422,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
     if !bottom.is_empty() {
         // (Brought to the front in the run, else as kept for the kind,
         // else its first.)
-        let owner = owner_of(app, tab).clone();
+        let owner = owner_of(app, tab).into_owned();
         let run = app.window_bottoms.get(&owner).copied().filter(|p| bottom.contains(p));
         let kept = (kind.and_then(|k| app.settings.dock_layouts.get(k)))
             .and_then(|l| l.bottom.as_deref())
@@ -2275,6 +2317,9 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 Panel::Compiler => "Show what the script's latest compile said, or close it".into(),
                 Panel::Bookmarks => "Show the script's bookmarks, or close them".into(),
                 Panel::SearchResults => "Show what the last search found, or close it".into(),
+                Panel::Checks => {
+                    "Show what the checks of the NUI window found, or close them".into()
+                }
                 _ => format!("Show the {} panel, or close it", p.name()),
             };
             (p, bottom_shows(app, p), tip, p.badge(app, app.active_editor()))
@@ -2366,9 +2411,16 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 folder_item = folder_item.tooltip(tip);
             }
             let mut counts: Vec<StatusItem> = (shown.counts.iter())
-                .map(|c| match &c.tip {
-                    Some(tip) => StatusItem::new(&c.text).tooltip(tip),
-                    None => StatusItem::new(&c.text),
+                .map(|c| {
+                    let item = if c.warn {
+                        StatusItem::new(&c.text).warn()
+                    } else {
+                        StatusItem::new(&c.text)
+                    };
+                    match &c.tip {
+                        Some(tip) => item.tooltip(tip),
+                        None => item,
+                    }
                 })
                 .collect();
             // (Its whole words in its tip, where it is cut short.)
@@ -2733,11 +2785,14 @@ pub(crate) struct Note {
 pub(crate) struct Count {
     pub(crate) text: String,
     pub(crate) tip: Option<String>,
+    /// In the theme's `warn`: a NUI designer's "Not built" and "Build
+    /// failed" (M4's U19, the NUI board's `.sb-item.nb`).
+    pub(crate) warn: bool,
 }
 
 impl Count {
     pub(crate) fn new(text: impl Into<String>) -> Count {
-        Count { text: text.into(), tip: None }
+        Count { text: text.into(), tip: None, warn: false }
     }
 }
 
@@ -2938,6 +2993,11 @@ pub(crate) fn shown(
             Shown { hints, counts, note }
         }
         Some(Tab::Dialog(key)) => dialog_shown(app, &k, ctx, *key),
+        // (A NUI designer's, M4's U19: the NUI board's; its source group's
+        // too, its counts and build state without the canvas's hints.)
+        Some(tab @ (Tab::Nui(key) | Tab::NuiSource(key))) => {
+            crate::nui_view::shown(app, &k, ctx, *key, matches!(tab, Tab::Nui(_)))
+        }
         // (A table's, M4's U16: the Table board's.)
         Some(Tab::Table(id)) => crate::table_view::panels::shown(app, &k, ctx, *id),
         Some(Tab::TalkTable) => {
@@ -3832,6 +3892,7 @@ pub(crate) fn bottom_forward(app: &mut Moonglow) {
         app.window_bottoms.retain(|tab, _| dock.find_tab(tab).is_some());
         app.window_rights.retain(|tab, _| dock.find_tab(tab).is_some());
     }
+    nui_forward(app);
     let asks = std::mem::take(&mut app.script_tools.forward);
     if asks.is_empty() {
         return;
@@ -3883,6 +3944,32 @@ pub(crate) fn bottom_forward(app: &mut Moonglow) {
     }
 }
 
+/// A NUI designer's checks found more errors (`nui_view::checks`, M4's
+/// U19): its Checks to the front, opening the Bottom Dock where the
+/// designer is the active docked editor (or its source group is), or its
+/// window's bottom pane where it floats; a designer behind another tab or
+/// window opens nothing.
+fn nui_forward(app: &mut Moonglow) {
+    for key in std::mem::take(&mut app.nui_checks_forward) {
+        let Some(at) = app.dock.find_tab(&crate::Tab::Nui(key)) else { continue };
+        if !at.surface.is_main() {
+            let tabs: Vec<crate::Tab> = (app.dock.iter_leaves())
+                .filter(|(p, _)| p.surface == at.surface)
+                .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
+                .collect();
+            for tab in tabs {
+                app.window_bottoms.insert(tab, Panel::Checks);
+            }
+            continue;
+        }
+        let ours = app.active_editor().is_some_and(|t| *owner_of(app, t) == crate::Tab::Nui(key));
+        if ours && panels(app, Dock::Bottom).contains(&Panel::Checks) {
+            focus_bottom(app, Panel::Checks);
+            app.settings.hide_log = false;
+        }
+    }
+}
+
 /// After the frame is drawn: where a Bottom Dock panel drawn in this pass
 /// showed what has changed since (`ScriptTools::made`: the script's
 /// editor, drawn after it, compiled or set a bookmark; a search's window
@@ -3894,7 +3981,7 @@ pub(crate) fn follow_bottom(app: &Moonglow, ctx: &egui::Context) {
     let t = &app.script_tools;
     let pass = ctx.cumulative_pass_nr();
     let stale = t.bottom_drawn.is_some_and(|(p, least)| p == pass && least != t.made);
-    if stale || !t.forward.is_empty() {
+    if stale || !t.forward.is_empty() || !app.nui_checks_forward.is_empty() {
         ctx.request_repaint();
     }
 }
@@ -3940,6 +4027,10 @@ fn section_bar<R>(
                 // (A NUI designer's Element Actions there, M4's U18.)
                 if *one == Panel::Properties && crate::nui_view::panels::nui_of(editor).is_some() {
                     crate::nui_view::panels::actions(app, ui, editor);
+                } else if *one == Panel::Bindings {
+                    // (A NUI designer's Create Bind, the board's plus, M4's
+                    // U19.)
+                    crate::nui_view::panels::bindings_plus(ui, editor);
                 } else if *one == Panel::Properties {
                     opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
                 }
@@ -4019,9 +4110,9 @@ pub(crate) fn own_preview(
     editor: Option<&crate::Tab>,
 ) -> Option<crate::model_view::Source> {
     let editor = owner_of(app, editor?);
-    let brings = brings_of(app, editor);
+    let brings = brings_of(app, &editor);
     let own = brings.has(Panel::Preview) && !brings.has(Panel::Palette);
-    own.then(|| crate::model_view::Source::of_editor(editor)).flatten()
+    own.then(|| crate::model_view::Source::of_editor(&editor)).flatten()
 }
 
 /// The least height of a stacked section of the Right Dock: its tab bar
@@ -4299,7 +4390,7 @@ pub(crate) fn panel_body(
         // panel's edge.)
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
         Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
-        Panel::Components | Panel::Bindings => Margin::ZERO,
+        Panel::Components | Panel::Bindings | Panel::Checks => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -4372,7 +4463,7 @@ pub(crate) fn panel_body(
                     Panel::Components => {
                         crate::nui_view::panels::components(app, &mut body, editor)
                     }
-                    _ => crate::nui_view::panels::bindings(app, &mut body, editor),
+                    _ => crate::nui_view::panels::bindings(app, &mut body, editor, titled),
                 }
             }
             Panel::Reference | Panel::Help => {
@@ -4416,7 +4507,7 @@ pub(crate) fn panel_body(
                 }
             }
             // (The Bottom Dock's, or a script's window's bottom pane's.)
-            Panel::Compiler | Panel::Bookmarks | Panel::SearchResults => {
+            Panel::Compiler | Panel::Bookmarks | Panel::SearchResults | Panel::Checks => {
                 let builder = egui::UiBuilder::new().max_rect(room);
                 let builder = LateSlot::salted(builder, host, panel.name(), pane);
                 let mut body = ui.new_child(builder);
@@ -4424,6 +4515,7 @@ pub(crate) fn panel_body(
                 match panel {
                     Panel::Compiler => crate::script_panels::compiler(app, &mut body, editor),
                     Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
+                    Panel::Checks => crate::nui_view::checks::panel(app, &mut body, editor),
                     _ => crate::search_results::body(app, &mut body),
                 }
             }
@@ -4516,7 +4608,18 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             // tabs keep their form as another is chosen.)
             let button = IconButton::new(Icon::Copy, "").icon_only(true).width(ui);
             let most = held.iter().map(|p| p.tools()).max().unwrap_or(0);
-            let mut tabs = DockTabs::new(BOTTOM_DOCK).tools_width(button * most as f32);
+            // (A NUI designer's Checks says what they count at the bar's
+            // end, the NUI board's "crier: 0 errors · 1 warning".)
+            let detail = (front == Panel::Checks)
+                .then(|| crate::nui_view::checks::detail(app, editor.as_ref()))
+                .flatten();
+            let detail_width = detail.as_ref().map_or(0.0, |d| {
+                let font = egui::TextStyle::Small.resolve(ui.style());
+                let galley = ui.fonts_mut(|f| f.layout_no_wrap(d.clone(), font, t.text_3));
+                galley.size().x + 12.0
+            });
+            let mut tabs =
+                DockTabs::new(BOTTOM_DOCK).tools_width(button * most as f32 + detail_width);
             for p in &held {
                 tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
             }
@@ -4548,6 +4651,9 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
                     if r.on_hover_text(tip).on_disabled_hover_text(tip).clicked() {
                         chosen = Some(*id);
                     }
+                }
+                if let Some(d) = detail.as_ref().filter(|_| tab_fits) {
+                    ui.label(egui::RichText::new(d).small().color(t.text_3));
                 }
                 chosen
             });
@@ -5186,6 +5292,6 @@ mod dock_tests {
         let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
         assert_eq!(layout_kind(&app, &crate::Tab::NoArea), "area");
         assert_eq!(layout_kind(&app, &crate::Tab::Manual), "manual");
-        assert_eq!(owner_of(&app, &crate::Tab::Manual), &crate::Tab::Manual);
+        assert_eq!(*owner_of(&app, &crate::Tab::Manual), crate::Tab::Manual);
     }
 }

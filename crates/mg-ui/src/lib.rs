@@ -56,9 +56,16 @@ mod nui_view;
 /// The NUI designer's header and panels' names (M4's U18), for the tests
 /// and plugins that find its controls.
 pub mod nui_names {
+    pub use crate::nui_view::checks::CHECKS_ROWS;
+    pub use crate::nui_view::design::BINDS_TABLE;
     pub use crate::nui_view::panels::{ELEMENT_ACTIONS, LAYER_ACTIONS};
+    // (The source group's, M4's U19.)
+    pub use crate::nui_view::source::{
+        BINDING_JSON, EVENT_SCRIPT, JUI_SOURCE, OPENER_SCRIPT, SETTINGS_TEXT, SOURCE,
+        SOURCE_HEADER, SOURCE_TEXT,
+    };
     pub use crate::nui_view::{
-        BUILD, EXPORT, HOW_TO_OPEN, IMPORT, INTERACT, NUI_HEADER, PAGE, RESET, VIEW,
+        BUILD, BUILD_STATE, EXPORT, HOW_TO_OPEN, IMPORT, INTERACT, NUI_HEADER, PAGE, RESET, VIEW,
     };
 }
 pub mod open_tabs;
@@ -385,6 +392,9 @@ pub enum Action {
     /// Module Properties' Edit… and New…, a 2DA cell's Talk Table): the
     /// game's `dialog.tlk` let go of where the tab showed it.
     ShowModuleTalk,
+    /// A NUI designer's source group (M4's U19): opened beside the
+    /// designer's group (`true`), or closed (`false`).
+    NuiSource(ResKey, bool),
 
     /// The resource browser's Save As: a resource of the load order to a
     /// file (the copy the game reads, or the one a layer has, by its
@@ -789,6 +799,17 @@ pub struct Moonglow {
     pub search_results: search_results::SearchResults,
     /// The NUI window whose last Build failed, and why: shown by its Build button.
     pub(crate) nui_build_error: Option<(String, String)>,
+    /// The NUI designers whose checks found more errors this frame: their
+    /// Checks brought to the front at the next frame's start, the Bottom
+    /// Dock (or the window's bottom pane) opened (`shell::bottom_forward`,
+    /// M4's U19).
+    pub(crate) nui_checks_forward: Vec<ResKey>,
+    /// A floating designer's window's place before its source group widened
+    /// it, and the place it was given then (M4's U19): the first given back
+    /// as the group closes, where the window still stands at the second;
+    /// moved or sized by the builder meanwhile, theirs narrowed by the room
+    /// it was given.
+    pub(crate) nui_widened: HashMap<ResKey, (egui::Rect, egui::Rect, Option<egui::Pos2>)>,
     /// The Save Script As window: the script and the new name.
     pub(crate) script_save_as: Option<(ResKey, String)>,
     /// The New Script window's name.
@@ -1569,6 +1590,8 @@ impl Moonglow {
             script_tools: script_tools::ScriptTools::default(),
             search_results: search_results::SearchResults::default(),
             nui_build_error: None,
+            nui_checks_forward: Vec::new(),
+            nui_widened: HashMap::new(),
             script_save_as: None,
             new_script: None,
             script_wizard: None,
@@ -2279,7 +2302,11 @@ impl Moonglow {
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
         trace::changed("panes", || self.panes());
-        self.remember_window_sizes();
+        // (A window put again, where it had landed beside its place: the
+        // frame that moves it asked for.)
+        if self.remember_window_sizes() {
+            ui.ctx().request_repaint();
+        }
         self.remember_window_places(ui.ctx());
         self.note_recent_tabs(ui.ctx());
         tree::follow_front_tab(self);
@@ -2654,6 +2681,80 @@ impl Moonglow {
         tree::reveal_tab(self, &tab);
     }
 
+    /// The editor group a NUI designer opens in where its kind has no place
+    /// kept: the focused group, unless that is a source group (a group
+    /// whose tab in front is a designer's source), then its design's group.
+    fn design_group(&self) -> Option<egui_dock::NodePath> {
+        let focused = self.focused_group()?;
+        let front = self.dock.leaf(focused).ok().and_then(|l| l.tabs.get(l.active.0).cloned());
+        match front {
+            Some(Tab::NuiSource(key)) => self
+                .dock
+                .find_tab(&Tab::Nui(key))
+                .map(|p| egui_dock::NodePath { surface: p.surface, node: p.node })
+                .or(Some(focused)),
+            _ => Some(focused),
+        }
+    }
+
+    /// The window of its own `tab` is in, as Moonglow follows it: the tab
+    /// it is tracked by (any of the window's: a second designer gathered
+    /// into the first's window is not it) and where it stands now; `None`
+    /// for a tab of the main window.
+    fn tracked_window(&self, tab: &Tab) -> Option<(Tab, egui::Rect)> {
+        let at = self.dock.find_tab(tab).filter(|p| !p.surface.is_main())?;
+        (self.windows.iter())
+            .find(|(t, _)| self.dock.find_tab(t).is_some_and(|p| p.surface == at.surface))
+            .map(|(t, w)| (t.clone(), w.now))
+    }
+
+    /// A NUI designer's source group (M4's U19, the NUI board's `crier.jui`
+    /// beside the design): brought forward where it is open; else a group
+    /// of its own at the right of the designer's group, the designer
+    /// keeping the board's share (640 of the two's 1018), in the main
+    /// window or in the designer's own (widened by the source's room as
+    /// far as the screen has it, so that the designer keeps its width and
+    /// its panes). Its group has the focus.
+    fn open_nui_source(&mut self, key: mg_resman::ResKey) {
+        let source = Tab::NuiSource(key);
+        if self.dock.find_tab(&source).is_some() {
+            self.show_tab(source);
+            return;
+        }
+        // (Never without its design: the design first.)
+        if self.dock.find_tab(&Tab::Nui(key)).is_none() {
+            self.run_now(Action::OpenTab(Tab::Nui(key)));
+        }
+        let Some(at) = self.dock.find_tab(&Tab::Nui(key)) else { return };
+        let path = egui_dock::NodePath { surface: at.surface, node: at.node };
+        let mut share = nui_view::SOURCE_SHARE;
+        // (Where the window stands now, as Moonglow follows it; else as
+        // egui_dock last drew it.)
+        let window = self.tracked_window(&Tab::Nui(key)).filter(|(_, r)| r.is_positive());
+        if let Some((tracked, rect)) = window {
+            // (Wider by the source's room, moved left where the screen's
+            // right edge is in the way; on a screen too narrow for both, the
+            // design gives up some of its own, down to the board's share.)
+            let screen = self.screen.unwrap_or(egui::Rect::EVERYTHING);
+            let wider = (rect.width() + nui_view::SOURCE_WIDTH).min(screen.width());
+            if wider > rect.width() {
+                let left = rect.left().min(screen.right() - wider).max(screen.left());
+                let to = egui::Rect::from_min_size(
+                    egui::pos2(left, rect.top()),
+                    egui::vec2(wider, rect.height()),
+                );
+                // (Its panes' corner, where they come to be put back.)
+                let corner = self.windows.get(&tracked).and_then(|w| w.seen).map(|r| r.min);
+                self.put_window(&tracked, to);
+                self.nui_widened.insert(key, (rect, to, corner));
+                share = ((wider - nui_view::SOURCE_WIDTH) / wider).max(nui_view::SOURCE_SHARE);
+            }
+        }
+        let leaf = egui_dock::Node::leaf(source.clone());
+        self.dock.split(path, egui_dock::Split::Right, share, leaf);
+        self.show_tab(source);
+    }
+
     /// The editor group off `side` of the middle, where there is one: a
     /// kind kept there opens in it rather than in another split off.
     fn group_off(&self, side: Side) -> Option<egui_dock::NodePath> {
@@ -2876,6 +2977,22 @@ impl Moonglow {
         self.bar_shown.said()
     }
 
+    /// The lines of designer `key`'s source group that its control chosen
+    /// takes, as marked under its text (first, last; from 0): for the tests.
+    #[doc(hidden)]
+    pub fn nui_source_lines(&self, key: &mg_resman::ResKey) -> Option<(usize, usize)> {
+        nui_view::source::lines(self.nui_views.get(key)?)
+    }
+
+    /// The badge on `panel`'s Status Bar switch for the active docked
+    /// editor, as it would be drawn now: its words and its kind (for the
+    /// tests: a screen reader is told the switch's name alone).
+    #[doc(hidden)]
+    pub fn switch_badge(&self, panel: Panel) -> Option<(String, mg_uikit::BadgeKind)> {
+        let badge = panel.badge_for_tests(self)?;
+        Some((badge.text().to_string(), badge.badge_kind()))
+    }
+
     /// Where the Right Dock's Preview panel's body was drawn at the last
     /// frame, under the dock's tab bar: `None` where it was not drawn (the
     /// Palette's tab in front, the dock folded or not drawn).
@@ -2961,6 +3078,28 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn nui_chosen(&self, key: &ResKey) -> Option<String> {
         self.nui_views.get(key).map(nui_view::chosen)
+    }
+
+    /// The controls chosen together in NUI window `key`'s designer, by
+    /// path (for the tests: M4's U19 review).
+    #[doc(hidden)]
+    pub fn nui_chosen_many(&self, key: &ResKey) -> Vec<String> {
+        self.nui_views.get(key).map(nui_view::chosen_many).unwrap_or_default()
+    }
+
+    /// Chooses bind `name` in NUI window `key`'s Bindings table, as a click
+    /// on its row does (for the timing: M4's U19 review).
+    #[doc(hidden)]
+    pub fn nui_choose_bind(&mut self, key: &ResKey, name: &str) {
+        nui_view::choose_bind(self.nui_views.entry(*key).or_default(), name);
+    }
+
+    /// How many times NUI window `key`'s Bindings table walked the window
+    /// for its binds' uses (once for each change of the module's bytes:
+    /// none in a frame that changes nothing). For the tests.
+    #[doc(hidden)]
+    pub fn nui_binds_walks(&self, key: &ResKey) -> usize {
+        self.nui_views.get(key).map_or(0, nui_view::binds_walks)
     }
 
     /// How many copies of NUI window `key` its designer made to edit (one
@@ -3313,6 +3452,8 @@ impl Moonglow {
             // (And a NUI designer's Components and Bindings, M4's U18.)
             Keys::NuiComponents,
             Keys::NuiBindings,
+            // (And its Checks, M4's U19.)
+            Keys::NuiChecks,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3657,7 +3798,7 @@ impl Moonglow {
     /// how its panes have moved and grown since; and its size, by the kind
     /// of its first tab, for the next of the kind to open at (not a
     /// maximized one's).
-    fn remember_window_sizes(&mut self) {
+    fn remember_window_sizes(&mut self) -> bool {
         let mut again = Vec::new();
         // A maximized window stays so as Moonglow's window is resized:
         // put over the room again where it changed.
@@ -3728,6 +3869,7 @@ impl Moonglow {
                 None => self.settings.window_sizes.push((kind.to_string(), size)),
             }
         }
+        let put = !again.is_empty();
         for (tab, rect) in again {
             self.put_window(&tab, rect);
         }
@@ -3735,6 +3877,7 @@ impl Moonglow {
         let dock = &self.dock;
         self.maximized.retain(|t, _| dock.find_tab(t).is_some());
         self.windows.retain(|t, _| dock.find_tab(t).is_some());
+        put
     }
 
     /// Puts a tab's window at `rect` (position and size), and follows it
@@ -4987,6 +5130,10 @@ impl Moonglow {
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::SplitEditor => self.split_editor(),
+            // (A NUI designer's source group opens beside its design, the
+            // design first where it is not open: Reopen Closed Tab, a plugin's
+            // or a test's OpenTab, as Split source does. M4's U19 review.)
+            Action::OpenTab(Tab::NuiSource(key)) => self.open_nui_source(key),
             Action::OpenTab(tab) => {
                 if let Tab::Dialog(key) = &tab {
                     self.dialog_keys = Some(*key);
@@ -5015,6 +5162,9 @@ impl Moonglow {
                         // editors says: a tab of the focused editor group,
                         // or a window of its own.
                         let pane = match self.place_for(&tab) {
+                            // (A designer among the designs, never in a
+                            // source group: M4's U19 review.)
+                            None if matches!(tab, Tab::Nui(_)) => self.design_group(),
                             None => self.focused_group(),
                             Some(Place::Window) => None,
                             Some(Place::Middle) => self.middle_pane(),
@@ -5153,6 +5303,39 @@ impl Moonglow {
             Action::ShowModuleTalk => {
                 talk_view::hide_game(self);
                 self.run_now(Action::OpenTab(Tab::TalkTable));
+            }
+            Action::NuiSource(key, true) => self.open_nui_source(key),
+            Action::NuiSource(key, false) => {
+                if let Some(path) = self.dock.find_tab(&Tab::NuiSource(key)) {
+                    self.dock.remove_tab(path);
+                }
+                // (A floating designer's window as wide as it was before.)
+                let at = self.tracked_window(&Tab::Nui(key));
+                if let (Some((was, given, corner)), Some((tracked, now))) =
+                    (self.nui_widened.remove(&key), at)
+                {
+                    let near = |a: egui::Rect, b: egui::Rect| {
+                        (a.min - b.min).length() < 1.5 && (a.size() - b.size()).length() < 1.5
+                    };
+                    let back = near(now, given);
+                    let to = match back {
+                        true => was,
+                        false => {
+                            let added = given.width() - was.width();
+                            let width = (now.width() - added).max(was.width().min(now.width()));
+                            egui::Rect::from_min_size(now.min, egui::vec2(width, now.height()))
+                        }
+                    };
+                    self.put_window(&tracked, to);
+                    // (Put back while still wide, egui holds it inside the
+                    // screen: put there again once it is narrow, as a
+                    // maximized window's way back is.)
+                    if let (true, Some(corner), Some(track)) =
+                        (back, corner, self.windows.get_mut(&tracked))
+                    {
+                        track.aim = Some(corner);
+                    }
+                }
             }
 
             Action::SaveResource(key, layer) => {

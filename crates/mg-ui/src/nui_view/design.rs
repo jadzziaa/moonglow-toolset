@@ -280,6 +280,8 @@ pub(super) fn inspector(
         ui.weak("Choose a control on the canvas or in Layers.");
         return;
     };
+    // (Its bind chips' clicks are this designer's: `form::chip_asked`.)
+    ui.ctx().data_mut(|d| d.insert_temp(form::chip_owner(), key));
     let whose = (key, &state.edit_view, &state.selected, state.typing);
     fields::of(ui.ctx(), Some(egui::Id::new(whose)));
     let swap = layouts::is_swap(s, node);
@@ -355,7 +357,7 @@ pub(super) fn bindings_in(
         }
         ui.label("A bind is a named value the event script can change.");
         ui.weak("Made here, it is chosen for a control's property in Design.");
-        workflow::create_bind(ui, &mut s.bindings);
+        workflow::create_bind(ui, &mut s.bindings, true, false);
         let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
         for view in s.variants.values() {
             used.extend(mg_nui::bind_names(view));
@@ -399,61 +401,277 @@ pub(super) fn bindings_in(
                     at: uses.get(&name).map_or(&[], Vec::as_slice),
                     in_a_variant: in_variants.contains(&name),
                 };
-                egui::CollapsingHeader::new(&name)
+                // (The bind chosen in the Bindings panel's table, brought
+                // into sight and opened: M4's U19.)
+                let reveal = state.bind_reveal && state.bind_chosen.as_deref() == Some(&name);
+                let shown = egui::CollapsingHeader::new(&name)
                     .icon(mg_uikit::collapsing_icon)
                     .id_salt(("bind", &name))
                     .default_open(true)
+                    .open(reveal.then_some(true))
                     .show(ui, |ui| {
                         if let Some(to) = bind(ui, &name, used, doc, s, state) {
                             renamed = Some(to);
                         }
                     });
+                if reveal {
+                    shown.header_response.scroll_to_me(Some(egui::Align::TOP));
+                    state.bind_reveal = false;
+                }
             }
         }
         if let (Some(names), Some(doc)) = (renamed, v) {
             shortcuts::rename_binds(doc, &names);
         }
-        egui::CollapsingHeader::new("Client Delivery").icon(mg_uikit::collapsing_icon).show(
-            ui,
-            |ui| {
-                ui.check_box(&mut s.from_resref, "Load JUI from the client by resource name");
-                ui.weak(
-                    "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
-                 opener script sends the layout.",
-                );
-                ui.check_box(
-                    &mut s.event_function,
-                    "Events go to the module's event script (a function to call)",
-                );
-                ui.weak(
-                    "Build writes the event script as an include with a function that handles the \
-                 window's events: include it in the module's OnNuiEvent script and call it there \
-                 (it says whether the event was this window's). Off, the window has an event \
-                 script of its own.",
-                );
-            },
-        );
-        egui::CollapsingHeader::new("Window Identity").icon(mg_uikit::collapsing_icon).show(
-            ui,
-            |ui| {
-                let mut custom = s.window_id.is_some();
-                if ui.check_box(&mut custom, "Custom window ID").changed() {
-                    s.window_id = custom.then(|| "my_window".into());
-                }
-                if let Some(id) = &mut s.window_id {
-                    fields::text(ui, id, ui.spacing().text_edit_width);
-                }
-                ui.weak(
-                    "The ID NuiCreate gives the window and NuiFindWindow finds it by. The resource \
-                 keeps its name.",
-                );
-            },
-        );
+        // (Client Delivery and Window Identity are the Bindings panel's,
+        // beside every page: one of each field, M4's U19.)
+        if !titled {
+            window_settings(ui, s);
+        }
     };
     match titled {
         true => _ = scroll.show(ui, body),
         false => body(ui),
     }
+}
+
+/// The Bindings panel's table's header row, as a screen reader says it.
+pub const BINDS_TABLE: &str = "Name, Initial Value, Watch";
+
+/// The window's settings under the Bindings panel's table (the NUI board's
+/// `Nui_right.png`): Custom window ID, and the two checks of Client
+/// Delivery, what each does in its tip.
+pub(super) fn window_settings(ui: &mut Ui, s: &mut Settings) {
+    ui.add_space(form::ROW_GAP);
+    let tip = "The ID NuiCreate gives the window and NuiFindWindow finds it by; empty, the \
+               window's name. The resource keeps its name";
+    form::row(ui, "Custom window ID", Some(tip), |ui, lead| {
+        let width = ui.available_width();
+        // (One set is edited where it is, as every field of the form: set
+        // as it is left, its panel going, the designer closing or the
+        // module saved; left empty, the window's name again. None set, a
+        // name typed is given it as the field is left.)
+        match &mut s.window_id {
+            Some(id) => {
+                if let Some(field) = fields::hinted(ui, id, width, "The window's name") {
+                    let field = field.labelled_by(lead.id);
+                    if !field.has_focus() && id.is_empty() {
+                        s.window_id = None;
+                    }
+                }
+            }
+            // (None set: the field edits an empty one, which shows what is
+            // typed as every field does, put back as none as the frame ends,
+            // set as it is left or its panel goes: `fields::put_back_settings`.)
+            None => {
+                let id = s.window_id.insert(String::new());
+                if let Some(field) = fields::hinted(ui, id, width, "The window's name") {
+                    field.labelled_by(lead.id);
+                }
+                if s.window_id.as_deref() == Some("") {
+                    s.window_id = None;
+                }
+            }
+        }
+    });
+    ui.check_box(&mut s.from_resref, "Load JUI from the client by resource name").on_hover_text(
+        "The players' clients must have the JUI then (from a hak or NWSync). Off, the opener \
+         script sends the layout",
+    );
+    ui.check_box(&mut s.event_function, "Events go to the module's event script").on_hover_text(
+        "Build writes the event script as an include with a function to call from the module's \
+         OnNuiEvent script. Off, the window has an event script of its own",
+    );
+}
+
+/// The Bindings panel's body (M4's U19, the NUI board's table): the binds as
+/// a table (Name, Initial Value, Watch), a row chosen by a click, Watch a
+/// check that adds or takes off the bind's handler of its changes; the
+/// binds the window names that have no value yet; the window's settings;
+/// and the bind chosen's form under them (its name, initial value by its
+/// kind, When This Value Changes, where it is used, Delete), unless the
+/// Bindings page shows every bind's (`page`). `create`: the panel's
+/// header's plus was clicked (Create Bind's dialog).
+pub(super) fn bindings_table(
+    ui: &mut Ui,
+    (s, v, of): (&mut Settings, &mut Value, &[Held; 2]),
+    state: &mut State,
+    page: bool,
+    create: bool,
+) {
+    let t = mg_uikit::tokens(ui.ctx());
+    // Where the window and its variants name each bind, walked once for the
+    // bytes they were read from (no frame walks the window for them: the
+    // tip's panel walked it twice a frame, M4's U19 review).
+    let fresh = state.binds_seen.as_ref().is_none_or(|b| !same(&b.of, of));
+    if fresh {
+        let mut used = mg_nui::bind_names(v);
+        let mut in_variants = std::collections::BTreeSet::new();
+        for view in s.variants.values() {
+            in_variants.extend(mg_nui::bind_names(view));
+        }
+        used.extend(in_variants.iter().cloned());
+        let mut uses = std::collections::BTreeMap::new();
+        binds_uses(v, &mut String::new(), &mut uses);
+        state.binds_seen = Some(BindsSeen { of: of.clone(), used, uses, in_variants });
+        state.binds_walks += 1;
+    }
+    let seen = state.binds_seen.take().expect("just made");
+    if let Some(name) = workflow::create_bind(ui, &mut s.bindings, false, create) {
+        state.bind_chosen = Some(name);
+    }
+    let names: Vec<String> = s.bindings.keys().cloned().collect();
+    if state.bind_chosen.as_ref().is_some_and(|n| !s.bindings.contains_key(n)) {
+        state.bind_chosen = None;
+    }
+    let row = 22.0;
+    let width = ui.available_width();
+    let watch_w = 52.0;
+    let name_w = ((width - watch_w) * 0.36).max(60.0);
+    let value_w = (width - watch_w - name_w).max(40.0);
+    let mono = egui::TextStyle::Monospace.resolve(ui.style());
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let cell =
+        |ui: &mut Ui, rect: egui::Rect, words: &str, font: &egui::FontId, color: egui::Color32| {
+            let mut job =
+                egui::text::LayoutJob::simple_singleline(words.to_string(), font.clone(), color);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 12.0).max(0.0));
+            let galley = ui.painter().layout_job(job);
+            let at = egui::pos2(rect.left() + 6.0, rect.center().y - galley.size().y / 2.0);
+            ui.painter().galley(at, galley, color);
+        };
+    // (Its header row: the columns' names, on the bar's ground.)
+    let (head, said) = ui.allocate_exact_size(egui::vec2(width, row), egui::Sense::hover());
+    said.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, BINDS_TABLE));
+    ui.painter().rect_filled(head, 0.0, t.bar);
+    let cols = |r: egui::Rect| {
+        let n = egui::Rect::from_min_size(r.min, egui::vec2(name_w, r.height()));
+        let v = egui::Rect::from_min_size(
+            egui::pos2(n.right(), r.top()),
+            egui::vec2(value_w, r.height()),
+        );
+        let w = egui::Rect::from_min_max(egui::pos2(v.right(), r.top()), r.max);
+        (n, v, w)
+    };
+    let (hn, hv, hw) = cols(head);
+    for (rect, words) in [(hn, "Name"), (hv, "Initial Value"), (hw, "Watch")] {
+        cell(ui, rect, words, &small, t.text_3);
+    }
+    for (rect, line) in [(hv, hv.left()), (hw, hw.left())] {
+        ui.painter().vline(line, rect.y_range(), (1.0, t.line));
+    }
+    let property_bind: Option<String> = v
+        .pointer(&state.selected)
+        .and_then(|n| n[&state.binding_property]["bind"].as_str())
+        .map(str::to_owned);
+    let mut toggled = None;
+    for name in &names {
+        let Some(binding) = s.bindings.get(name) else { continue };
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(width, row), egui::Sense::click());
+        // (The bind the property chosen in Property Binding takes its value
+        // from filled, as the board's `can_send`; the bind chosen in the
+        // table ringed, its form under the table.)
+        let bound = property_bind.as_deref() == Some(name.as_str());
+        let chosen = state.bind_chosen.as_deref() == Some(name.as_str());
+        if bound {
+            ui.painter().rect_filled(rect, 0.0, t.accent_fill);
+        } else if r.hovered() {
+            ui.painter().rect_filled(rect, 0.0, t.raised_hover);
+        }
+        if chosen {
+            let ring = rect.shrink(0.5);
+            ui.painter().rect_stroke(ring, 0.0, (1.0, t.accent), egui::StrokeKind::Inside);
+        }
+        let text = if bound { t.on_fill } else { t.text };
+        let (n, value, w) = cols(rect);
+        cell(ui, n, name, &mono, text);
+        let shown = serde_json::to_string(&binding.value).unwrap_or_default();
+        cell(ui, value, &shown, &mono, text);
+        let watched = s.handlers.iter().any(|h| h.event == "watch" && h.element == *name);
+        let mut on = watched;
+        let check = egui::Rect::from_center_size(w.center(), egui::vec2(18.0, 18.0));
+        let said = format!("Watch {name}");
+        let c = ui
+            .put(check, egui::Checkbox::without_text(&mut on))
+            .on_hover_text("A handler runs when the event script's value of it changes");
+        c.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, &said));
+        if on != watched {
+            toggled = Some((name.clone(), on));
+        }
+        r.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, name)
+        });
+        if bound {
+            let said = "Bound to the property chosen";
+            ui.ctx().accesskit_node_builder(r.id, |node| node.set_description(said));
+        }
+        if r.on_hover_text(format!("{name} = {shown}")).clicked() {
+            state.bind_chosen = Some(name.clone());
+            state.bind_reveal = true;
+        }
+    }
+    if let Some((name, on)) = toggled {
+        if on {
+            s.handlers.push(mg_nui::Handler {
+                event: "watch".into(),
+                element: name,
+                action: mg_nui::Action::Code,
+                extra: Default::default(),
+            });
+        } else {
+            s.handlers.retain(|h| !(h.event == "watch" && h.element == name));
+        }
+    }
+    // The binds the window names with no value yet.
+    let used = &seen.used;
+    for name in used {
+        if !s.bindings.contains_key(name) {
+            ui.horizontal(|ui| {
+                ui.label(format!("{name} needs an initial value"));
+                if ui.button("Add Value").clicked() {
+                    s.bindings.insert(name.clone(), Binding::default());
+                }
+            });
+        }
+    }
+    if names.is_empty() && used.is_empty() {
+        ui.weak("No binds yet: the plus makes one.");
+    }
+    window_settings(ui, s);
+    // The bind chosen: its form (on the Bindings page, the page's).
+    let Some(name) = state.bind_chosen.clone().filter(|_| !page) else {
+        state.binds_seen = Some(seen);
+        return;
+    };
+    ui.add_space(8.0);
+    let used = Used {
+        anywhere: seen.used.contains(&name),
+        at: seen.uses.get(&name).map_or(&[], Vec::as_slice),
+        in_a_variant: seen.in_variants.contains(&name),
+    };
+    let mut renamed = None;
+    ui.push_id(("bind", &name), |ui| {
+        let doc: &Value = v;
+        form::section(ui, ("nui-bind-chosen", &name), &name, true, None, None, |ui| {
+            renamed = bind(ui, &name, used, doc, s, state);
+        });
+    });
+    if let Some(names) = renamed {
+        if let Some(to) = names.values().next() {
+            state.bind_chosen = Some(to.clone());
+        }
+        shortcuts::rename_binds(v, &names);
+    }
+    state.binds_seen = Some(seen);
+}
+
+/// Where the window names each bind, as the Bindings table last walked it
+/// ([`bindings_table`]), for the bytes it walked.
+pub(super) struct BindsSeen {
+    of: [Held; 2],
+    used: std::collections::BTreeSet<String>,
+    uses: std::collections::BTreeMap<String, Vec<String>>,
+    in_variants: std::collections::BTreeSet<String>,
 }
 
 /// Where a bind is used: whether anywhere, the paths of the window's
@@ -823,9 +1041,9 @@ mod tests {
                 |l: String| l.strip_prefix(what).is_some_and(|n| n.parse::<usize>().is_ok());
             all.filter(|n| n.accesskit_node().label().is_some_and(numbered)).count()
         };
-        // (Properties shows the bind twice: as the property, and as its
-        // bind.)
-        let forms = 2;
+        // (Properties shows the bind once, in Property Binding: the
+        // property's own row is its bind's chip since M4's U19.)
+        let forms = 1;
         assert_eq!(headers(&h, "Item "), forms * fields::MOST_ITEMS, "each form to its count");
         let said = h.query_all_by_label("And 4800 more items: edit them in Binding JSON.");
         assert_eq!(said.count(), forms);

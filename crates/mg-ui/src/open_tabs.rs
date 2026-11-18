@@ -296,6 +296,11 @@ impl View {
         (self.scroll.map(|[x, y]| egui::vec2(x, y)), self.cursor.map(|[a, b]| (a, b)))
     }
 
+    /// The page kept (a NUI source group's switch: M4's U19).
+    pub(crate) fn page(&self) -> Option<&str> {
+        self.page.as_deref()
+    }
+
     /// The talk table's line kept.
     pub(crate) fn talk_line(&self) -> Option<usize> {
         self.line
@@ -433,6 +438,7 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::PlaceableGallery => "placeable-gallery".into(),
         Tab::Script(k) => format!("script:{}", key_text(k)),
         Tab::Nui(k) => format!("nui:{}", key_text(k)),
+        Tab::NuiSource(k) => format!("nui-source:{}", key_text(k)),
         Tab::Gff(k) => format!("gff:{}", key_text(k)),
         Tab::Dialog(k) => format!("dialog:{}", key_text(k)),
         Tab::Resource(k) => format!("resource:{}", key_text(k)),
@@ -497,6 +503,7 @@ fn parse_tab(text: &str) -> Option<Want> {
         }
         "script" => Tab::Script(parse_key(rest)?),
         "nui" => Tab::Nui(parse_key(rest)?),
+        "nui-source" => Tab::NuiSource(parse_key(rest)?),
         "gff" => Tab::Gff(parse_key(rest)?),
         "dialog" => Tab::Dialog(parse_key(rest)?),
         "resource" => Tab::Resource(parse_key(rest)?),
@@ -943,6 +950,11 @@ impl Moonglow {
         let git = |a: &ResRef| ResKey::new(*a, ResType::GIT);
         let are = |a: &ResRef| ResKey::new(*a, ResType::ARE);
         match tab {
+            // (A NUI designer's source group: its switch, M4's U19.)
+            Tab::NuiSource(k) => {
+                let page = crate::nui_view::source::switch_name(self.nui_views.get(k)?);
+                Some(View { page: Some(page.to_string()), ..Default::default() })
+            }
             Tab::Area(r) => {
                 let view = self.area_views.get(r)?;
                 let o = view.orbit?;
@@ -1408,6 +1420,21 @@ impl Moonglow {
             if self.dock.find_tab(&tab).is_none() {
                 self.dock.main_surface_mut().push_to_first_leaf(tab);
             }
+        }
+        // (A NUI designer's source kept without its design: opened as Split
+        // source opens it, the design first. M4's U19 review.)
+        let alone: Vec<ResKey> = (self.dock.iter_all_tabs())
+            .filter_map(|(_, t)| match t {
+                Tab::NuiSource(k) => Some(*k),
+                _ => None,
+            })
+            .filter(|k| self.dock.find_tab(&Tab::Nui(*k)).is_none())
+            .collect();
+        for key in alone {
+            if let Some(path) = self.dock.find_tab(&Tab::NuiSource(key)) {
+                self.dock.remove_tab(path);
+            }
+            self.actions.push(crate::Action::NuiSource(key, true));
         }
         // (A side editor's changed document whose tab was closed above, not
         // among those kept: its tab, rather than none to save it from.)

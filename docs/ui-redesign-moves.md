@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T21:32:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T01:19:22Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -281,33 +281,33 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign |
 |---|---|
 | Design, Bindings, Events & variants pages | Page switch in the design group: Design, Bindings, Events & Variants, Images ✓ M4 U18 (the header's switch, first on its row, into More last) |
-| Advanced › JUI source, Binding JSON | Page switch in the source group |
+| Advanced › JUI source, Binding JSON | Page switch in the source group ✓ M4 U19 (JUI Source, Binding JSON: the source group's switch, kept per window and with the open tabs; the source pages and the Advanced menu gone; the repair's Open JUI Source and Open Binding JSON open the group on that position) |
 | Advanced › Images | Images, in the design group's page switch ✓ M4 U18 |
-| Advanced › Opener Script | Icon button in the source group's header |
-| Event Script… | Button in the source group's header |
-| Editor, Preview only, Split source | View popover (✓ M4 U18: its Layout dropdown; the docks stay in each, as on every page, the coordinator's ruling in its review). Split source is the second editor group (U19) |
+| Advanced › Opener Script | Icon button in the source group's header ✓ M4 U19 (off until Build & Compile makes it) |
+| Event Script… | Button in the source group's header ✓ M4 U19 (with the script icon) |
+| Editor, Preview only, Split source | View popover (✓ M4 U18: its Layout dropdown; the docks stay in each, as on every page, the coordinator's ruling in its review). Split source is the second editor group ✓ M4 U19 (a tab of its own, `crier.jui`, at the design's right, in its window where it floats; Editor, Preview only or its × close it) |
 | Build & compile | Primary icon button, with a tooltip ✓ M4 U18 (Build & Compile, the hammer's accented button; its tip counts the errors that hold it off) |
 | Export… | Icon button ✓ M4 U18 |
 | Import…, How to open it… | More menu ✓ M4 U18 (Import…, How to Open It…, a dialog of its code to copy) |
 | OK, Cancel | Editor header, right end ✓ M4 U18 |
-| "Not built", "Build failed" | Status Bar, in the warning color |
-| Checks toggle and its list | Checks switch with a count in the Status Bar, and the Checks panel in the Bottom Dock |
+| "Not built", "Build failed" | Status Bar, in the warning color ✓ M4 U19 (a floating designer's header says it: the Status Bar is the main window's) |
+| Checks toggle and its list | Checks switch with a count in the Status Bar, and the Checks panel in the Bottom Dock ✓ M4 U19 (errors and warnings counted, in `error` or `warn`; new errors open it; a floating designer's window's bottom pane; Problems' switch is U20's) |
 | Interact, Reset | Header, right side ✓ M4 U18 (Interact the play toggle, Reset off outside it) |
 | UI scale, State, Resources, Clean view, Screen | View popover ✓ M4 U18 (UI scale, State and Screen dropdowns that open in it, Resources, Clean view and Preview on screen checks; Escape closes it alone) |
-| Zoom: Fit, 100%, "Game preview" label | Overlays in the canvas corners |
-| Canvas hint line | Status Bar key caps |
+| Zoom: Fit, 100%, "Game preview" label | Overlays in the canvas corners ✓ M4 U19 (Game preview with the UI scale and state at the top left, Fit and 100% at the bottom right; View › Zoom too) |
+| Canvas hint line | Status Bar key caps ✓ M4 U19 (Click Select, Drag Resize by handle, Esc Cancel resize, Ctrl + D Duplicate, Alt + Up Move up, Delete, as bound; "3 binds, 3 handlers") |
 | Components palette | Right Dock, top panel ✓ M4 U18 (Find a control…, the components by group in title case; added to the control chosen; on every page) |
 | Layers with search, Expand All, Collapse All | Outliner in the Left Dock ✓ M4 U18 (Find a layer or ID…, Expand All, Collapse All and Layer Actions on its header; the Window row's detail its title; only the rows in sight laid out; their keys; a floating designer's window's left pane or its strip) |
 | Properties: binding, Content, Size & layout, Behavior, Events, Element actions | Properties panel in the Right Dock ✓ M4 U18 (the board's form: each label beside its field, over it only where the row has no room; bold section headings that fold; Width and Height on one row; Source with the plus that makes a bind; descriptions as tooltips; Add Property and the other adding buttons with the kit's drawn plus, named by their words; Property Binding first; Element Actions its header's `…`; a panel, not a menu, under 760 points) |
-| Bindings, Create bind, Window identity, Client delivery | Bindings panel under Properties ✓ M4 U18 (as the Bindings page lists them, on the other pages; on the Bindings page the panel points to it; the table is U19's) |
+| Bindings, Create bind, Window identity, Client delivery | Bindings panel under Properties ✓ M4 U18; as a table ✓ M4 U19 (Name, Initial Value, Watch; New Bind on its header's plus; Custom window ID and the two delivery checks under it; the bind chosen's form under them; on the Bindings page, whose body is every bind's form, the table alone) |
 
 
 #### New
 
-- The View popover (✓ M4 U18) and the zoom overlay (U19).
-- The source as a second editor group with its own page switch.
-- A warning mark on the Outliner row, and IDs and bind names as weak text.
-- A bind chip on a bound property, and Bindings as a table.
+- The View popover (✓ M4 U18) and the zoom overlay (✓ M4 U19).
+- The source as a second editor group with its own page switch ✓ M4 U19.
+- A warning mark on the Outliner row, and IDs and bind names as weak text ✓ M4 U19 (the mark an error's or a warning's, its tip the message, a click going to Checks).
+- A bind chip on a bound property, and Bindings as a table ✓ M4 U19.
 
 ### Tileset Editor
 

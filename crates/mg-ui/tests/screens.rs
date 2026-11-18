@@ -13590,11 +13590,9 @@ fn floating_first_sizes() {
 }
 
 /// Nui.png: the NUI designer As Tabs on `crier.jui` (mg-nui's test
-/// window, put in the module: Chapter1 has none), Split source shown.
-/// Today its header and navigation rows, the panels inside the editor
-/// (Components and Layers at its left, Properties at its right), not the
-/// board's Outliner of layers, Components, Properties and Bindings in the
-/// docks and Checks in the Bottom Dock.
+/// window, put in the module: Chapter1 has none), as the board draws it
+/// (M4's U19): the design beside its source group, Checks in the Bottom
+/// Dock with its warning, Send's bound Enabled shown in Property Binding.
 #[test]
 #[ignore]
 fn board_nui() {
@@ -13610,27 +13608,71 @@ fn board_nui() {
     let settings = ResKey::parse("crier", ResType::TXT).unwrap();
     h.state_mut().ws.as_mut().unwrap().module.set(settings, txt);
     board_front(&mut h, &mg_ui::Tab::Nui(key));
-    // (The board's design group: the Design page in the Editor view, its
-    // Components, Properties and Bindings in the Right Dock and its Layers
-    // in the Outliner, M4's U18; Button · Send chosen in Layers. The source
-    // group beside it is U19's.)
+    board_nui_as_drawn(&mut h, key);
+    shoot(&mut h, &board_dir(), "board_nui");
+}
+
+/// The NUI board's state (M4's U19) of the crier open in its designer:
+/// the board's third control, a text input whose value no bind keeps (the
+/// checks' one warning), put in; the design group on the Design page in the
+/// Editor view beside the source group (View › Layout › Split source) on
+/// JUI Source; Button · Send chosen in Layers, its Behavior opened and its
+/// Enabled's bind chip clicked (Property Binding on Enabled); Checks in
+/// front in the Bottom Dock by its Status Bar switch.
+fn board_nui_as_drawn(h: &mut Harness<'static, Moonglow>, key: ResKey) {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let mut window: serde_json::Value = mg_nui::parse(ws.module.get(&key).unwrap()).unwrap();
+    let enter = serde_json::json!({"type": "textedit", "label": "Enter text", "value": "",
+        "max": 100, "multiline": false, "height": 34.0});
+    window["root"]["children"].as_array_mut().unwrap().insert(2, enter);
+    ws.module.set(key, serde_json::to_vec_pretty(&window).unwrap());
     h.run_steps(3);
     if let Some(send) = h.query_all_by_label("Button · Send").next() {
         send.click();
     }
-    h.run_steps(10);
-    shoot(&mut h, &board_dir(), "board_nui");
+    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::NuiSource(key, true));
+    h.run_steps(5);
+    // (Its Event Script… opens crier_e.nss beside it in its group, the
+    // board's strip; the source brought forward again.)
+    if let Some(event) = h.query_all_by_label(mg_ui::nui_names::EVENT_SCRIPT).next() {
+        event.click();
+    }
+    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::NuiSource(key, true));
+    h.run_steps(5);
+    for name in ["Behavior", "Bound to can_send", "Checks"] {
+        if let Some(node) = h.query_all_by_label(name).next() {
+            node.click();
+        }
+        h.run_steps(5);
+    }
+    // (Behavior's chip in sight, as the board draws it, Property Binding on
+    // Enabled above it.)
+    if let Some(chip) = h.query_all_by_label("Bound to can_send").next() {
+        chip.scroll_to_me();
+    }
+    h.run_steps(5);
+    // (A press on the design, Send's place: the design the editor in front,
+    // its hints in the Status Bar as the board draws them.)
+    if let Some(send) = h.query_all_by_label("Canvas Button · Send").next() {
+        send.click();
+    }
+    h.run_steps(5);
 }
 
 /// The NUI designer's pages and panels (M4's U18; the NUI board): the
 /// crier (`crates/mg-nui/tests/data`) As Tabs at 1600 on each page
 /// (`nui-design`, `nui-bindings`, `nui-events`, `nui-images`), its View
 /// popover open (`nui-view`), Preview only and Split source with the docks
-/// (`nui-preview-only`, `nui-split`), the Right Dock at its least (`nui-280`), at 1280 (`nui-1280`: the Right Dock's one
+/// (`nui-preview-only`, `nui-split`: the source group, M4's U19, and
+/// `nui-split-settings` on Binding JSON), Clean view (`nui-clean`), the
+/// Right Dock at its least (`nui-280`), at 1280 (`nui-1280`: the Right Dock's one
 /// bar), in a window of 1000 whose editor is under 760 points
 /// (`nui-narrow`: Properties a panel, not a menu), and floating in a
 /// screen of 1600 by 900 and of 1280 by 720 (`nui-floating`,
-/// `nui-floating-720`), Button · Send chosen.
+/// `nui-floating-720`, and each with its source group, `-source`), Button
+/// · Send chosen.
 #[test]
 #[ignore]
 fn nui_panels() {
@@ -13679,13 +13721,24 @@ fn nui_panels() {
     shoot(&mut h, &dir, "nui-view");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
-    // (Preview only and Split source, the docks kept: the fix round.)
+    // (Preview only and Split source, the docks kept: the fix round; Split
+    // source the source group, on each of its switch's positions, M4's U19.)
     for (layout, shot) in [("Preview only", "nui-preview-only"), ("Split source", "nui-split")] {
         nui_view(&mut h, "Layout", Some(layout));
         h.run_steps(10);
         shoot(&mut h, &dir, shot);
     }
+    let header = h.get_by_label(mg_ui::nui_names::SOURCE_HEADER);
+    header.get_by_label(mg_ui::nui_names::BINDING_JSON).click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "nui-split-settings");
     nui_view(&mut h, "Layout", Some("Editor"));
+    h.run_steps(3);
+    // (Clean view: the window alone, the corners' words and zoom kept.)
+    nui_view(&mut h, "Clean view", None);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "nui-clean");
+    nui_view(&mut h, "Clean view", None);
     h.run_steps(3);
     // (The Right Dock at its least, 280: every panel fits it.)
     h.state_mut().settings.right_dock_width = Some(280);
@@ -13717,6 +13770,11 @@ fn nui_panels() {
         frames_until(&mut h, "the designer drawn", |h| h.state().tab_rect(&tab).is_some());
         send(&mut h);
         shoot(&mut h, &dir, name);
+        // (Its source group beside it in its window, M4's U19: as View ›
+        // Layout › Split source opens it; the area under it keeps drawing.)
+        h.state_mut().actions.push(mg_ui::Action::NuiSource(key, true));
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("{name}-source"));
     }
 }
 

@@ -27,6 +27,12 @@ pub enum Tab {
     Script(ResKey),
     /// A NUI window (a JUI), in the NUI Creator.
     Nui(ResKey),
+    /// A NUI window's source, the designer's second editor group (M4's
+    /// U19, the NUI board's `crier.jui` beside the design): its text as
+    /// JSON, the window's or its settings', by the group's switch. A part
+    /// of the designer of the same window: it brings the designer's
+    /// panels, and goes when the designer's tab closes.
+    NuiSource(ResKey),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
     /// The Faction Editor.
@@ -171,6 +177,7 @@ impl Tab {
             Tab::ModuleProperties => "module-properties",
             Tab::Script(_) => "script",
             Tab::Nui(_) => "nui",
+            Tab::NuiSource(_) => "nui-source",
             Tab::Gff(_) => "gff",
             Tab::Factions => "factions",
             Tab::Journal => "journal",
@@ -226,6 +233,9 @@ impl Tab {
             // added where it opens in a window, M4's U18,
             // `Moonglow::open_window`.)
             Tab::Nui(_) => (760.0, 792.0),
+            // (Its source group alone in a window, dragged out of its
+            // design's: room for its header and a line of JSON.)
+            Tab::NuiSource(_) => (520.0, 792.0),
             Tab::Manual | Tab::Resource(_) | Tab::ResourceCopy { .. } => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
@@ -297,9 +307,10 @@ impl Tab {
             "advanced-search",
             "plugin-panel",
         ];
-        const ROWS: [&str; 15] = [
+        const ROWS: [&str; 16] = [
             "script",
             "nui",
+            "nui-source",
             "gff",
             "journal",
             "talk-table",
@@ -355,9 +366,12 @@ impl Tab {
             Tab::Instance { area: r, .. }
             | Tab::Instances { area: r, .. }
             | Tab::InstanceModel { area: r, .. } => area(r),
-            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
-                Some(*k)
-            }
+            Tab::Script(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k) => Some(*k),
             Tab::Journal => ResKey::parse("module", ResType::JRL),
             Tab::Factions => ResKey::parse("repute", ResType::FAC),
             _ => None,
@@ -404,7 +418,12 @@ impl Tab {
             | Tab::Instances { area: r, .. }
             | Tab::InstanceModel { area: r, .. } => area(r),
             Tab::AreasProperties(areas) => areas.iter_mut().for_each(area),
-            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
+            Tab::Script(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k) => {
                 *k = moved(*k).unwrap_or(*k);
             }
             Tab::Blueprints(keys) => {
@@ -421,9 +440,12 @@ impl Tab {
     /// has it.
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
-            Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {
-                Some(*k)
-            }
+            Tab::Script(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k) => Some(*k),
             Tab::Area(r) | Tab::AreaProperties(r) => Some(ResKey::new(*r, ResType::ARE)),
             _ => None,
         }
@@ -613,6 +635,7 @@ impl Viewer<'_> {
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
+            Tab::NuiSource(k) => crate::nui_view::source::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
@@ -871,7 +894,17 @@ impl TabViewer for Viewer<'_> {
         // it is cut short.
         if let Some(look) = self.app.doc_tabs.get(tab) {
             let front = self.app.fronts.contains(tab);
-            let name = look.name.clone();
+            // (A NUI designer's source named as its design on the strip, the
+            // board's; said, and in its tip, as its source: M4's U19 review.)
+            let source = matches!(tab, Tab::NuiSource(_));
+            let name = match source {
+                true => format!("{} source", look.name),
+                false => look.name.clone(),
+            };
+            if source {
+                let tip = format!("{}: its source, as JUI Source or Binding JSON", look.name);
+                let _ = response.clone().on_hover_text(tip);
+            }
             response.widget_info(|| {
                 egui::WidgetInfo::selected(egui::WidgetType::Button, true, front, &name)
             });
@@ -984,7 +1017,9 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
     match tab {
         Tab::Welcome => "Welcome".into(),
         Tab::NoArea => "No Area Open".into(),
-        Tab::Nui(k) => k.to_string(),
+        // (The source group's tab is named as the design's, the board's
+        // `crier.jui` twice.)
+        Tab::Nui(k) | Tab::NuiSource(k) => k.to_string(),
         Tab::ModuleProperties => "Module Properties".into(),
         Tab::Script(k) => k.to_string(),
         Tab::Gff(k) => k.to_string(),
@@ -1129,7 +1164,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::ModuleProperties => I::Module,
         Tab::NoArea | Tab::Area(_) => I::Area,
         Tab::Script(_) => I::Script,
-        Tab::Nui(_) => I::Nui,
+        Tab::Nui(_) | Tab::NuiSource(_) => I::Nui,
         Tab::Gff(k) | Tab::Blueprint(k) | Tab::Resource(k) => of(k.restype),
         Tab::ResourceCopy { key, .. } => of(key.restype),
         Tab::Model(k) | Tab::ModelCopy { key: k, .. } => {
@@ -1177,7 +1212,7 @@ fn resources_of(app: &Moonglow, tab: &Tab) -> Vec<ResKey> {
         Tab::AreasProperties(areas) => {
             areas.iter().flat_map(|r| area(*r, &[ResType::ARE, ResType::GIT])).collect()
         }
-        Tab::Blueprint(k) | Tab::Dialog(k) | Tab::Gff(k) | Tab::Nui(k) => {
+        Tab::Blueprint(k) | Tab::Dialog(k) | Tab::Gff(k) | Tab::Nui(k) | Tab::NuiSource(k) => {
             // (The game's blueprint, looked at: nothing of the module's.)
             if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) { Vec::new() } else { vec![*k] }
         }
@@ -1512,6 +1547,7 @@ fn fits(tab: &Tab) -> bool {
             tab,
             Tab::Script(_)
                 | Tab::Nui(_)
+                | Tab::NuiSource(_)
                 | Tab::Manual
                 | Tab::Options
                 | Tab::ModuleProperties
@@ -1707,6 +1743,7 @@ mod tests {
             (Tab::NoArea, I::Area),
             (Tab::Script(k("s", ResType::NSS)), I::Script),
             (Tab::Nui(k("n", ResType::JUI)), I::Nui),
+            (Tab::NuiSource(k("n", ResType::JUI)), I::Nui),
             (Tab::Gff(k("g", ResType::FAC)), I::Faction),
             (Tab::Factions, I::Faction),
             (Tab::Journal, I::Journal),
@@ -1745,6 +1782,7 @@ mod tests {
                 | Tab::NoArea
                 | Tab::Script(_)
                 | Tab::Nui(_)
+                | Tab::NuiSource(_)
                 | Tab::Gff(_)
                 | Tab::Factions
                 | Tab::Journal

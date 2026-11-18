@@ -387,7 +387,13 @@ pub(crate) fn tab_selection(tab: &crate::Tab) -> Vec<mg_plugin::Selected> {
         Tab::Instances { area, paths } => paths.iter().filter_map(|p| object(*area, p)).collect(),
         Tab::Area(area) | Tab::AreaProperties(area) => vec![Selected::Area(*area)],
         Tab::AreasProperties(areas) => areas.iter().map(|a| Selected::Area(*a)).collect(),
-        Tab::Script(key) | Tab::Dialog(key) | Tab::Nui(key) | Tab::Gff(key) => {
+        // (A NUI designer's source group: its design's window, M4's U19
+        // review.)
+        Tab::Script(key)
+        | Tab::Dialog(key)
+        | Tab::Nui(key)
+        | Tab::NuiSource(key)
+        | Tab::Gff(key) => {
             vec![selected_at(*key, &root)]
         }
         Tab::ModuleProperties => vec![Selected::Resource(
@@ -1346,6 +1352,7 @@ impl Moonglow {
             Tab::Blueprint(key) => Selected::Blueprint(key),
             Tab::Script(key)
             | Tab::Nui(key)
+            | Tab::NuiSource(key)
             | Tab::Gff(key)
             | Tab::Dialog(key)
             | Tab::Resource(key) => Selected::Resource(key),

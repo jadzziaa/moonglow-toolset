@@ -467,7 +467,7 @@ impl Moonglow {
         let moved = |k: &ResKey| scripts.iter().find(|(was, _)| was == k).map(|(_, now)| *now);
         for (_, tab) in self.dock.iter_all_tabs_mut() {
             match tab {
-                Tab::Nui(k) if *k == from => *k = new,
+                Tab::Nui(k) | Tab::NuiSource(k) if *k == from => *k = new,
                 Tab::Script(k) => *k = moved(k).unwrap_or(*k),
                 _ => {}
             }

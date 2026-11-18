@@ -207,7 +207,10 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
         Some(crate::Tab::Table(id)) => Some(Contents::Columns(*id)),
         // (A NUI designer's Layers, where it brings its panels: its Design
         // page in the Editor view, M4's U18.)
-        Some(crate::Tab::Nui(key)) if app.ws.is_some() => Some(Contents::Layers(*key)),
+        // (Its source group's too, M4's U19: a part of the designer.)
+        Some(crate::Tab::Nui(key) | crate::Tab::NuiSource(key)) if app.ws.is_some() => {
+            Some(Contents::Layers(*key))
+        }
         _ => None,
     }
 }

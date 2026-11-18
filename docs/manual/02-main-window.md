@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T19:52:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T01:19:22Z }
 ---
 
 # The main window
@@ -17,7 +17,8 @@ resource browser), and under them, while an area is in front, the
 **Palette** and **Preview** panels on two tabs beside an area (beside a
 creature's, an item's, a placeable's or a door's editor, that editor's
 own **Preview** alone), the **log** and **Search Results** in the Bottom
-Dock under the tabs (beside a script, its Compiler and Bookmarks too), and the
+Dock under the tabs (beside a script, its Compiler and Bookmarks too; beside a
+NUI window, its Checks), and the
 **Status Bar** (the Bottom Dock's
 switches at its left and, while the log is closed, its last line; in its
 middle the **hints** of the tab you work in, each a key or a gesture and
@@ -301,7 +302,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA or a NUI window is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA or a NUI window is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field); a NUI window's Checks, in the Bottom Dock, its first row's control), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -1304,8 +1305,10 @@ while the viewer plays): the same switch as the area view's toolbar
 The Bottom Dock under the tabs holds the **Log** and **Search Results**
 whatever is in front, and before them the panels the editor in front
 brings (a script's **Compiler** and **Bookmarks**: see
-[Scripts](07-scripts.md)), each a tab with its switch in the Status
-Bar. **Search Results** lists what the last search found (a script's
+[Scripts](07-scripts.md); a NUI window's **Checks**, its switch counting
+what the checks found: see [NUI Creator](18-nui-creator.md)), each a tab
+with its switch in the Status Bar. A NUI window's new errors open the dock
+on Checks, as a script's failed compile opens it on Compiler. **Search Results** lists what the last search found (a script's
 Find In Files, Find In Currently Open Scripts and References); its
 switch shows how many lines, and a click on one opens it. A switch off
 opens the dock on its panel, one on closes the dock. Where nothing was
@@ -1351,7 +1354,8 @@ meanwhile waits (the log says so).
 
 The row along the window's foot. At its left, the Bottom Dock's
 switches: **Log**, the editor's own (a script's **Compiler** and
-**Bookmarks**) and **Search Results**, with its count (and, while the
+**Bookmarks**, a NUI window's **Checks** with its count) and **Search
+Results**, with its count (and, while the
 log is closed, its last line: see [The log](#the-log); beside a script
 whose check as you type found an error, that error in red in its
 place, whether the log is open or not, until a warning or an error is

@@ -245,3 +245,56 @@ fn a_variant_edited() {
     assert_eq!(app.nui_chosen(&key).as_deref(), Some("/root"), "the variant edited");
     report("variant edited, idle frame", (0..count).map(|_| frame(&mut app)).collect());
 }
+
+/// The large window with its source beside it (M4's U19: the source group
+/// open at the design's right): idle frames.
+#[test]
+#[ignore]
+fn a_large_window_with_its_source() {
+    let root = mg_testkit::corpus!();
+    let (mut app, key, frame) = open(&root, "sourced", &window(12, 120.0));
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    app.actions.push(Action::NuiSource(key, true));
+    let sourced: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("source opening: {opening:?} {sourced:?}");
+    docked(&app, key);
+    assert!(app.dock.find_tab(&Tab::NuiSource(key)).is_some(), "the source group open");
+    report("source beside it, idle frame", (0..count).map(|_| frame(&mut app)).collect());
+}
+
+/// The chart of a million samples with a bind, chosen in the Bindings table
+/// (M4's U19 review: its uses were walked each frame a bind was chosen).
+#[test]
+#[ignore]
+fn a_chart_with_a_bind_chosen() {
+    let root = mg_testkit::corpus!();
+    let mut window = mg_nui::window();
+    window["geometry"] = json!({"x": -1.0, "y": -1.0, "w": 1100.0, "h": 760.0});
+    let mut chart = mg_nui::template("chart");
+    let data: Vec<f64> = (0..1_000_000).map(|i| (f64::from(i) * 0.001).sin()).collect();
+    chart["value"][0]["data"] = json!(data);
+    chart["height"] = json!(400.0);
+    window["root"]["children"] = json!([chart, {"type": "label", "value": {"bind": "caption"}}]);
+    let (mut app, key, frame) = open(&root, "charted", &window);
+    let mut s = mg_nui::Settings::default();
+    s.bindings.insert(
+        "caption".into(),
+        mg_nui::Binding { value: json!("A caption"), ..Default::default() },
+    );
+    let txt = ResKey::parse("charted", ResType::TXT).unwrap();
+    app.actions.push(Action::Apply(Command::new(
+        "Settings",
+        vec![Edit::SetResource { key: txt, data: Some(s.bytes()) }],
+    )));
+    let count = std::env::var("FRAME_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(30);
+    let opening: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    app.nui_choose_bind(&key, "caption");
+    let chosen: Vec<_> = (0..5).map(|_| frame(&mut app)).collect();
+    println!("chart-bind opening: {opening:?} {chosen:?}");
+    docked(&app, key);
+    report(
+        "a chart of 1,000,000 samples, a bind chosen, idle frame",
+        (0..count).map(|_| frame(&mut app)).collect(),
+    );
+}

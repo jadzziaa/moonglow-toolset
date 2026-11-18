@@ -12,7 +12,6 @@ pub(in crate::nui_view) fn canvas(
     if state.preview_scale == 0.0 {
         state.preview_scale = 1.0;
     }
-    toolbar(ui, state, assets);
     track_gestures(ui, v, state);
     let mut runtime = session(v, s, state);
     // What is shown in the window's place: a simulation's window, the window
@@ -46,7 +45,9 @@ pub(in crate::nui_view) fn canvas(
     let authored = v;
     let s = shown_settings;
     let size = window_size(other.as_deref().unwrap_or(authored), s);
-    let available = (ui.available_size() - vec2(0.0, 28.0)).max(vec2(80.0, 80.0));
+    // (The whole room: what the canvas says stands over its corners, M4's
+    // U19, not in rows over and under it.)
+    let available = ui.available_size().max(vec2(80.0, 80.0));
     if state.screen_size.x <= 0.0 {
         state.screen_size = vec2(1920.0, 1080.0);
     }
@@ -88,27 +89,19 @@ pub(in crate::nui_view) fn canvas(
         close_requested: false,
         collapse_requested: None,
     };
-    egui::ScrollArea::both()
+    let room = egui::ScrollArea::both()
         .id_salt("nui-canvas")
         .auto_shrink([false, false])
         .max_height(available.y)
-        .show(ui, |ui| stage.draw(ui));
+        .show(ui, |ui| stage.draw(ui))
+        .inner_rect;
     let Stage { changes, dropped, unsupported, close_requested, collapse_requested, .. } = stage;
-    ui.small(format!(
-        "{} × {} · UI scale {}% · Game resources; local layout preview",
-        size.x as u32,
-        size.y as u32,
-        (ui_scale * 100.0).round() as u32
-    ));
-    if !unsupported.is_empty() {
-        ui.colored_label(
-            ui.visuals().warn_fg_color,
-            format!(
-                "Not drawn here (see it in the game): {}",
-                unsupported.into_iter().collect::<Vec<_>>().join(", ")
-            ),
-        );
-    }
+    let last_event = (runtime.as_ref())
+        .filter(|r| state.preview_interactive && !r.last_event.is_empty())
+        .map(|r| r.last_event.clone());
+    let said =
+        Said { size, ui_scale, unsupported: &unsupported, last_event: last_event.as_deref() };
+    corners(ui, room, state, assets, &said);
     if let Some((path, ty)) = dropped {
         state.selected = path;
         design::insert(authored, &mut state.selected, ty);
@@ -119,9 +112,6 @@ pub(in crate::nui_view) fn canvas(
     release_gestures(ui, authored, state);
     if let Some(r) = &mut runtime {
         simulate(ui, r, changes, close_requested, collapse_requested);
-        if state.preview_interactive && !r.last_event.is_empty() {
-            ui.small(&r.last_event);
-        }
     }
     state.runtime = runtime;
 }
@@ -256,45 +246,154 @@ fn simulate(
     }
 }
 
-/// The row of switches over the canvas, and what it says of the resources.
-pub(super) fn toolbar(ui: &mut Ui, state: &mut State, assets: &skin::Assets) {
-    ui.horizontal_wrapped(|ui| {
-        // Wrap whole controls, never their labels. Nested enabled UIs here can
-        // inherit the remaining canvas height and create a very tall wrapped row.
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        // (A control's height, as the row was with its buttons: the canvas
-        // under it stays at whole pixels.)
-        ui.set_min_height(ui.spacing().interact_size.y);
-        ui.strong(if assets.loaded { "Game preview" } else { "Preview · game skin unavailable" });
-        // (Interact and Reset are the header's, UI scale, State, Resources,
-        // Clean view and Screen its View popover's, M4's U18; the zoom and
-        // "Game preview" stay here until U19 puts them in the canvas's
-        // corners.)
-        ui.weak("Zoom");
-        for (label, zoom) in [("Fit", 0.0), ("100%", 1.0)] {
-            ui.selectable_value(&mut state.zoom, zoom, label);
+/// What the canvas says of what it shows, at its corners.
+struct Said<'a> {
+    size: Vec2,
+    ui_scale: f32,
+    unsupported: &'a BTreeSet<String>,
+    last_event: Option<&'a str>,
+}
+
+/// What stands over the canvas's corners (M4's U19, the NUI board's
+/// `vp-tl` and `vp-br`), over the window's room and not in rows of their
+/// own: at the top left "Game preview · UI scale 100% · State: Follow
+/// pointer" (the window's size and where its resources come from in its
+/// tip; in Interact what the canvas does then), the resources' issues under
+/// it, or with View's Resources where each picture and font came from; at
+/// the bottom left what is not drawn here and Interact's last event; at the
+/// bottom right the zoom, Fit and 100%. Each on a chip of the bar's ground,
+/// so that it reads in both themes over the game's black; only the zoom
+/// takes the pointer, and only where it stands: the canvas beside them
+/// takes its clicks.
+fn corners(ui: &mut Ui, room: Rect, state: &mut State, assets: &skin::Assets, said: &Said<'_>) {
+    let t = mg_uikit::tokens(ui.ctx());
+    let pad = 8.0;
+    let inner = room.shrink(pad);
+    let chip = |ui: &mut Ui, at: Rect, add: &mut dyn FnMut(&mut Ui)| {
+        let mut child = ui.new_child(
+            egui::UiBuilder::new().max_rect(at).layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(room.intersect(ui.clip_rect()));
+        egui::Frame::new()
+            .fill(t.bar.gamma_multiply(0.92))
+            .corner_radius(3)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(&mut child, |ui| add(ui))
+            .response
+    };
+    let scale = (said.ui_scale * 100.0).round() as u32;
+    let label = match (state.preview_interactive, assets.loaded) {
+        (true, _) => format!("Interact · UI scale {scale}%"),
+        (false, true) => {
+            format!(
+                "Game preview · UI scale {scale}% · State: {}",
+                super::super::STATES[state.preview_state]
+            )
         }
+        (false, false) => format!("Preview · game skin unavailable · UI scale {scale}%"),
+    };
+    let tip = match state.preview_interactive {
+        true => {
+            "Controls take values here; an edit starts over; handlers' code runs only in the game"
+                .to_string()
+        }
+        false => format!(
+            "{} × {}: game resources, local layout preview",
+            said.size.x as u32, said.size.y as u32
+        ),
+    };
+    let top = chip(ui, inner, &mut |ui| {
+        ui.label(egui::RichText::new(&label).small().color(t.text_2)).on_hover_text(&tip);
     });
+    let mut below = top.rect.bottom() + 4.0;
     if state.preview_info {
-        egui::ScrollArea::vertical().id_salt("nui-resource-info").max_height(120.0).show(ui,|ui| {
-            for (name,origin) in &assets.origins {ui.small(format!("{name} — {origin}"));}
-            for issue in &assets.issues {ui.colored_label(ui.visuals().error_fg_color,issue);}
-            ui.small("Stock bevel: 4 source pixels. Font rasterization and layout are local; compare final output in NWN.");
+        let at = Rect::from_min_max(egui::pos2(inner.left(), below), inner.max);
+        chip(ui, at, &mut |ui| {
+            ui.set_max_width(360.0_f32.min(inner.width() - 12.0));
+            egui::ScrollArea::vertical().id_salt("nui-resource-info").max_height(120.0).show(
+                ui,
+                |ui| {
+                    for (name, origin) in &assets.origins {
+                        ui.small(format!("{name} — {origin}"));
+                    }
+                    for issue in &assets.issues {
+                        ui.colored_label(t.error, issue);
+                    }
+                    ui.small(
+                        "Stock bevel: 4 source pixels. Font rasterization and layout are local; \
+                     compare final output in NWN.",
+                    );
+                },
+            );
         });
     } else if !assets.issues.is_empty() {
-        ui.colored_label(
-            ui.visuals().error_fg_color,
-            match assets.issues.len() {
-                1 => "1 resource issue · see Resources".to_owned(),
-                n => format!("{n} resource issues · see Resources"),
-            },
-        );
+        let at = Rect::from_min_max(egui::pos2(inner.left(), below), inner.max);
+        let words = match assets.issues.len() {
+            1 => "1 resource issue · see View › Resources".to_owned(),
+            n => format!("{n} resource issues · see View › Resources"),
+        };
+        below = chip(ui, at, &mut |ui| {
+            ui.label(egui::RichText::new(&words).small().color(t.error));
+        })
+        .rect
+        .bottom();
     }
-    ui.small(if state.preview_interactive {
-        "Controls take values here · Edit in the panels · An edit starts over · Handlers' code runs only in the game"
-    } else {
-        "Select to edit · Drag handles to resize · Esc cancels a resize"
-    });
+    let _ = below;
+    // (Bottom left: what is not drawn here, Interact's last event.)
+    let mut lines = Vec::new();
+    if !said.unsupported.is_empty() {
+        let kinds = said.unsupported.iter().cloned().collect::<Vec<_>>().join(", ");
+        lines.push((format!("Not drawn here (see it in the game): {kinds}"), t.warn));
+    }
+    if let Some(event) = said.last_event {
+        lines.push((event.to_owned(), t.text_2));
+    }
+    let zoom_width = zoom_width(ui);
+    if !lines.is_empty() {
+        let high = 20.0 * lines.len() as f32 + 4.0;
+        let at = Rect::from_min_max(
+            egui::pos2(inner.left(), inner.bottom() - high),
+            egui::pos2((inner.right() - zoom_width - pad).max(inner.left()), inner.bottom()),
+        );
+        chip(ui, at, &mut |ui| {
+            for (words, color) in &lines {
+                ui.add(
+                    egui::Label::new(egui::RichText::new(words).small().color(*color)).truncate(),
+                );
+            }
+        });
+    }
+    // (Bottom right: the zoom.)
+    let size = egui::vec2(zoom_width, mg_uikit::metrics::CONTROL_HEIGHT);
+    let at = Rect::from_min_size(inner.max - size, size);
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(at)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let mut zoom = state.zoom;
+    mg_uikit::segmented(&mut child, "Zoom", &mut zoom, &ZOOMS);
+    state.zoom = zoom;
+}
+
+/// The zoom's choices: Fit, and the window at its size.
+const ZOOMS: [(f32, &str, &str); 2] =
+    [(0.0, "Fit", "Fit the window in the canvas"), (1.0, "100%", "The window at its size")];
+
+/// The zoom's width, as the kit lays out its choices.
+fn zoom_width(ui: &Ui) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
+    let words: f32 = ZOOMS
+        .iter()
+        .map(|(_, w, _)| {
+            ui.fonts_mut(|f| f.layout_no_wrap((*w).to_string(), font.clone(), Color32::WHITE))
+                .size()
+                .x
+                + pad
+        })
+        .sum();
+    words.ceil() + 1.0
 }
 
 /// One frame of the canvas: the window as it is shown, and what drawing it
