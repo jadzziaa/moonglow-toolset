@@ -1,6 +1,15 @@
 # Update log
 
 ## 2026-11-18
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U21's review ([03](manual/03-modules.md#the-hak-editor); [moves](ui-redesign-moves.md)).
+  * **A previewed sound stops** when its Preview is no longer shown (closed, folded, another tab or module in front, the hak closed); a hak's model view is let go of once unseen.
+  * **The Outliner's type keeps what Find held**: its second click puts it back; the types of equal counts go by type, as the board's. Find's clear × is inside its field.
+  * With a Description typed and not yet set there is nothing to redo; the header's tips name their buttons.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U21, the hak editor**, as the Hak board draws it ([03](manual/03-modules.md#the-hak-editor); [moves](ui-redesign-moves.md)).
+  * **The kit's header**: Add Files… and Add Folder… (icons), Remove (N), Extract…, Extract All…, Find, Compile Models, Save, Save As…, More (Update from Folder, Rename…, Edit Table), OK and Cancel; it never overflows. Undo and Redo are the Top Bar's. A notice strip under it says a hak of the game's, and resources past 2 GiB.
+  * **The resources as a table**: Name, Type, Size, Source, a click on a head sorting by it (its arrow; again the other way), the selection kept by resource, the arrow keys while the table has them.
+  * **Preview and Details in the Right Dock**: the resource chosen (a picture, a sound with Play and Stop, a table, a model in 3D, paused at first, with its facts: nodes, faces, vertices, textures, animations, supermodel); the hak's File, Contents, Built from with Update from Folder, and its Description, set as you leave it, one step to undo. **The Outliner** lists the hak's types with their counts; a click finds the type.
+  * **The Status Bar** says "2706 resources, 183.8 MB", how many are selected and, with the pointer over the editor, its clicks.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U20's review ([04](manual/04-areas.md#making-tilesets), [02](manual/02-main-window.md#the-log); [moves](ui-redesign-moves.md)).
   * **A tile's 3D view in Preview starts paused** (its Play animates it), so the toolset rests while a tileset is open.
   * **Problems knows a stale finding by the text checked**: Undo back to it counts the findings again; a tileset closed without saving its edit, a file changed on disk or a file gone is said ("Changed since the check", "Closed without saving", "File not found"). Stale findings stay listed but are not counted in the badge; a heading's right click (or Delete) offers Remove from Problems; closing the module keeps a tileset's findings.

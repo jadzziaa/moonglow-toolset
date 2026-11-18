@@ -1562,6 +1562,7 @@ fn fits(tab: &Tab) -> bool {
                 | Tab::Dialog(_)
                 | Tab::TalkTable
                 | Tab::Tileset(_)
+                | Tab::Hak(_)
                 | Tab::PluginPanel { .. }
         )
     }

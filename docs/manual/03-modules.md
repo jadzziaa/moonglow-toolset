@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T23:03:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T11:46:44Z }
 ---
 
 # Modules
@@ -1947,55 +1947,96 @@ first few and how many more.
 **Tools › Haks** opens a hak: **New Hak**, **Open Hak…** (a `.hak` or an
 `.erf`), or **Build Hak from Folder…**, which makes a new hak from a
 folder's files, subfolders included, to look over and save.
-- **The list:** every resource with its size, and for files just added,
-  where they come from. **Find** narrows it by name or type. Click to
-  select, Ctrl+click to add to the selection, Shift+click to select from
-  the one clicked last to this one; right-click for **View**,
-  **Rename…**, **Extract…** and **Remove**. The list is by name, by type
-  or by size (the largest first).
-- **Viewing:** **View**, or a double click, shows a resource under the
-  list: a picture (a TGA or DDS; a PLT in each layer's first color), a
-  sound with **Play** (a `.bmu` holding a WAVE is marked as one the game
-  does not play), a 2DA's rows and columns as the resource browser
-  shows them, a GFF's fields, a text file's text, else its first bytes.
-  A model is drawn in the model viewer: where the game reads this hak's
-  copy (the hak is one of the module's, saved as it is) as the game
-  reads it, with **Pop Out** (in its header's More) to a tab of its own; otherwise (a hak the
-  module doesn't list, or changed and not saved) from the hak as it is
-  now, its supermodels and textures from the hak first, then from the
-  module's haks, the module and the game, as the game would read them
-  with this hak among the module's. A model that can't be read shows as
-  its text, or why.
+
+- **The header:** **Add Files…** and **Add Folder…** (their icons, at the
+  left), **Remove (N)** (the resources selected), **Extract…**,
+  **Extract All…**, **Find** (by name, or by type with a dot: `.mdl`;
+  Ctrl+F with the pointer over the editor), **Compile Models**, **Save**,
+  **Save As…**, **More** (Update from Folder, **Rename…** of the one
+  selected, **Edit Table** of a 2DA selected) and, at its end, **OK** and
+  **Cancel**. Where the editor is narrow, the buttons show their icons
+  alone (their names in their tips), then move into More; Find, Save and
+  Save As… last.
+- **The notice** under the header says what to know before saving: a hak
+  of the game's own (Save As… keeps your changes in a copy), and
+  resources that would start past 2 GiB, which the game can't read.
+- **The table:** every resource with its type's icon, its name, its type
+  ("Model", "Texture", "Table"…), its size and, for files just added,
+  the file it comes from. A click on a column's head sorts by it (its
+  arrow says which way; again, the other way; Size runs largest first).
+  Click to select, Ctrl+click to add to the selection, Shift+click to
+  select from the one clicked last to this one; right-click for
+  **View**, **Edit Table** (a 2DA), **Rename…**, **Extract…** and
+  **Remove**. With the table clicked (or reached with F6), Up, Down,
+  Page Up, Page Down, Home and End choose a resource and Enter views it;
+  the selection stays with its resources through a sort, Find, an add and
+  a remove. The Status Bar shows the hak's count and size, how many are
+  selected and, with the pointer over the editor, its clicks.
+- **Preview** (the Right Dock): the resource chosen: the one clicked (or
+  Ctrl+clicked) last where it is selected, the start of a Shift+click run,
+  else the first of those selected by name: a picture (a TGA or DDS; a PLT in each layer's
+  first color) with its size, a sound with **Play** and **Stop** (a
+  `.bmu` holding a WAVE is marked as one the game does not play; it
+  stops when another resource is chosen, or when the Preview is no longer
+  shown: closed, folded, another tab or module in front, the hak closed), a 2DA's rows and columns as the
+  resource browser shows them, a GFF's fields, a text file's text, else
+  its first bytes. A model is drawn in 3D, paused until its **Play**,
+  with its facts under it (compiled or text, size, nodes, faces,
+  vertices, textures, animations, supermodel): where the game reads this
+  hak's copy (the hak is one of the module's, saved as it is), as the
+  game reads it, and the header's **Open the Model in a Tab** shows it in
+  a tab of its own; otherwise (a hak the module doesn't list, or changed
+  and not saved) from the hak as it is now, its supermodels and textures
+  from the hak first, then from the module's haks, the module and the
+  game. A model that can't be read shows as its text, or why. The
+  header's **Close the Preview** puts the resource away until another is
+  chosen; **View** or a double click shows it again (the Right Dock
+  unfolded on the Preview).
+- **Details** (under the Preview): the hak's **File**, its **Contents**
+  ("2706 resources, 183.8 MB"), what it was **Built from** with **Update
+  from Folder**, and its **Description**, the hak's own note for people
+  (the game doesn't show it): set when you leave the field, save, close
+  the hak or bring another hak to the front, one step to undo. While it
+  is typed and not yet set, Undo sets it and takes it back, and there is
+  nothing to redo.
+- **The Outliner** (the Left Dock, also with no module open) lists the
+  hak's types with how many of each, the most first (as many: by the
+  type's number). A click on a type finds it (Find `.mdl`: the table
+  lists that type alone, its row marked); a click on it again puts back
+  what Find held before (also after choosing another type first). Typed
+  over meanwhile, Find is yours: nothing is put back over it. Its keys: Up, Down, Page Up, Page Down, Home and
+  End, Enter to find the type, letters to go to a type by its extension.
 - **Compile Models** compiles the hak's models kept as text (ASCII),
   each against its supermodel from this hak, the open module's haks or
   the game, as one step to undo (a hak of many models takes a while:
-  the window shows how far it is, and Cancel leaves the hak as it was). A model that doesn't compile, has
-  errors Verify Module would name, or whose supermodel isn't found stays
-  as text, and the log says why. (`mg pack --compile-models` does the
-  same for a folder.) The game reads models as text too: compiling
-  makes them smaller and quicker to load.
-- **Update from Folder:** a hak built with Build Hak from Folder
-  remembers the folder (from one session to the next, once saved):
-  **Update from Folder** takes the folder's files again in place of the
-  hak's, as they are now, as one step to undo. What the hak has and the
-  folder has no file of (a file added by hand, or from another folder)
-  is taken out, and the log names it: **Undo** puts it back.
+  the window shows how far it is, and Cancel leaves the hak as it was). A
+  model that doesn't compile, has errors Verify Module would name, or
+  whose supermodel isn't found stays as text, and the log says why.
+  (`mg pack --compile-models` does the same for a folder.) The game
+  reads models as text too: compiling makes them smaller and quicker to
+  load.
+- **Update from Folder** (More, and Details): a hak built with Build Hak
+  from Folder remembers the folder (from one session to the next, once
+  saved): Update from Folder takes the folder's files again in place of
+  the hak's, as they are now, as one step to undo. What the hak has and
+  the folder has no file of (a file added by hand, or from another
+  folder) is taken out, and the log names it: **Undo** puts it back.
 - **Adding:** **Add Files…** and **Add Folder…** add files. Where the hak
   already has some of them, it asks first, listing them, as Aurora's hak
   editor does: **Replace** them, **Skip Those** and add the rest, or
-  **Cancel**. A file the game couldn't read by its name
-  is left out, and the log says why: a name over 16 characters (other hak
-  tools silently cut it short), or a type the game doesn't know. Hidden
-  files, `Thumbs.db` and `desktop.ini` are skipped.
+  **Cancel**. A file the game couldn't read by its name is left out, and
+  the log says why: a name over 16 characters (other hak tools silently
+  cut it short), or a type the game doesn't know. Hidden files,
+  `Thumbs.db` and `desktop.ini` are skipped.
 - **Extracting:** **Extract…** and **Extract All…** write resources as
   files into a folder. Where the folder has some of the files already
   (the folder the hak was built from, its files edited since), it asks
   first, listing them: **Replace** them, **Skip Those** and write the
   rest, or **Cancel**. The files are written while a window shows how
   far it is, with **Cancel** (those written by then stay).
-- **Undo** and **Redo** in its toolbar, and Undo's and Redo's keys
-  with the pointer over the editor (the hak's steps, not the module's).
-  **Description** is the hak's own note, for people.
+- **Undo** and **Redo** are the Top Bar's (and their keys), with the
+  pointer over the editor, its Preview, Details or the Outliner, or the
+  table holding the keys: the hak's steps, not the module's.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. The hak
@@ -2008,15 +2049,17 @@ folder's files, subfolders included, to look over and save.
   asks: **Save** again once the cause is put right, **Don't Save**, or
   **Cancel** (Undo or **Remove** of what was added says no more of it
   either). Closing Moonglow's window, File › Exit and File › Close
-  ask of each changed hak by its name, and then go on. It warns when
-  resources would start past 2 GiB, which the game can't read. The hak
-  editor itself reads all of such a hak: extract the resources past the
+  ask of each changed hak by its name, and then go on. The hak editor
+  itself reads all of a hak past 2 GiB: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
-  Saving the module saves open haks too.
+  Saving the module saves open haks too (Ctrl+S is the module's Save).
 - **Reloading:** saving a hak the module uses reads it again.
 - **The game's own haks** (in its `data/hk`, also when opened through a
   folder that is a link into the game's) aren't written: **Save As…**
   keeps your changes in a copy.
+- **In a window of its own**, the hak brings its Preview and Details at
+  the window's right and its types at its left (folded to a strip where
+  the window is narrow).
 
 Closing a hak with unsaved changes asks first: **Save**, **Don't
 Save** or **Cancel**.

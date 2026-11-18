@@ -13940,14 +13940,108 @@ fn board_hak() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    hak_as_the_board(&mut h, &root);
+    shoot(&mut h, &board_dir(), "board_hak");
+}
+
+/// A double click on the row named `name` in the hak's list (the
+/// editor's, a row's size, left of the Right Dock: not the module tree's
+/// or a panel's).
+fn hak_row_double_click(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let width = h.ctx.content_rect().width();
+    let at = h
+        .query_all_by_label(name)
+        .map(|n| n.rect())
+        .find(|r| r.width() >= 100.0 && r.height() <= 30.0 && r.center().x < width * 0.8)
+        .unwrap_or_else(|| panic!("no row {name}"))
+        .center();
+    h.hover_at(at);
+    h.run_steps(60);
+    let button = egui::PointerButton::Primary;
+    for pressed in [true, false, true, false] {
+        let modifiers = egui::Modifiers::NONE;
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers,
+        });
+    }
+    h.run_steps(2);
+}
+
+/// Hak.png's state: `id_resources.hak` opened (the game's: its notice),
+/// a file added to it (the board's `mg_chair.mdl`, 5 bytes, its Source
+/// filled, the tab's modified dot), its models found by ".mdl",
+/// `c_masterius.mdl` viewed and three models selected. Its id.
+fn hak_as_the_board(h: &mut Harness<'static, Moonglow>, root: &std::path::Path) -> u32 {
     let id = mg_ui::hak_view::open_at(h.state_mut(), &root.join("data/hk/id_resources.hak"))
         .expect("the game's hak");
-    frames_until(&mut h, "the hak in front", |h| {
-        h.state().active_editor() == Some(&mg_ui::Tab::Hak(id))
-    });
-    h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().filter = ".mdl".into();
+    frames_until(h, "the hak drawn", |h| h.state().tab_rect(&mg_ui::Tab::Hak(id)).is_some());
+    let scratch = mg_testkit::output_dir("screens-hak");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let chair = scratch.join("mg_chair.mdl");
+    std::fs::write(&chair, b"chair").unwrap();
+    let key = |n: &str| ResKey::parse(n, ResType::MDL).unwrap();
+    {
+        let doc = h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap();
+        doc.hak.add_files(&[chair]);
+        doc.filter = "c_masterius".into();
+    }
     h.run_steps(10);
-    shoot(&mut h, &board_dir(), "board_hak");
+    hak_row_double_click(h, "c_masterius.mdl");
+    {
+        let doc = h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap();
+        doc.filter = ".mdl".into();
+        doc.selected = [key("c_masterius"), key("c_mohrg125"), key("c_mum_125")].into();
+    }
+    h.run_steps(20);
+    pictures_made(h);
+    // (The pointer over the table, as the board's hints say.)
+    let middle = h.ctx.content_rect().center();
+    h.hover_at(middle);
+    h.run_steps(5);
+    id
+}
+
+/// The hak editor beside the boards (M4's U21): a texture viewed; the hak
+/// at 1280 and in the narrow layout (1000); floating at 1600 by 900 and
+/// 1280 by 720, each in Hak.png's state ([`hak_as_the_board`]).
+#[test]
+#[ignore]
+fn hak_editor_boards() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-hak");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let id = hak_as_the_board(&mut h, &root);
+    h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().filter = ".tga".into();
+    h.run_steps(10);
+    let first = (h.state().haks.iter().find(|d| d.id == id).unwrap().hak.items().iter())
+        .map(|i| i.key)
+        .filter(|k| k.restype == ResType::TGA)
+        .min_by_key(|k| k.to_string())
+        .expect("a texture in the hak");
+    hak_row_double_click(&mut h, &first.to_string());
+    h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().selected = [first].into();
+    h.run_steps(10);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "hak-texture");
+    for (shot, width) in [("hak-1280", 1280.0), ("hak-narrow", 1000.0)] {
+        let mut h = board_window(&root, egui::vec2(width, 900.0));
+        hak_as_the_board(&mut h, &root);
+        shoot(&mut h, &dir, shot);
+    }
+    for (shot, size) in [
+        ("hak-floating", egui::vec2(1600.0, 900.0)),
+        ("hak-floating-720", egui::vec2(1280.0, 720.0)),
+    ] {
+        let mut h = board_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        hak_as_the_board(&mut h, &root);
+        shoot(&mut h, &dir, shot);
+    }
 }
 
 /// Resources.png: the Left Dock's Resources panel finding "nw_c",

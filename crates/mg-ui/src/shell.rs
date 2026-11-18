@@ -247,6 +247,10 @@ pub enum Panel {
     /// under its Preview): the textures the chosen tile's model draws,
     /// where each is found and what draws it (`tileset_view::textures`).
     Textures,
+    /// A hak's Details (M4's U21, the Hak board's Right Dock, under its
+    /// Preview): its file, what it holds, the folder it was built from with
+    /// Update from Folder, and its description (`hak_view::details`).
+    Details,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -304,7 +308,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 25] = [
+    pub(crate) const KEYED: [Panel; 26] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -330,6 +334,7 @@ impl Panel {
         Panel::Checks,
         Panel::Problems,
         Panel::Textures,
+        Panel::Details,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -362,7 +367,8 @@ impl Panel {
             | Panel::TalkFile
             | Panel::Components
             | Panel::Bindings
-            | Panel::Textures => Dock::Right,
+            | Panel::Textures
+            | Panel::Details => Dock::Right,
             Panel::Log
             | Panel::Compiler
             | Panel::Bookmarks
@@ -404,6 +410,7 @@ impl Panel {
             Panel::Checks => "Checks",
             Panel::Problems => "Problems",
             Panel::Textures => "Textures",
+            Panel::Details => "Details",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -439,6 +446,7 @@ impl Panel {
             Panel::Checks,
             Panel::Problems,
             Panel::Textures,
+            Panel::Details,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -477,6 +485,7 @@ impl Panel {
             Panel::Checks => Icon::CheckCircle,
             Panel::Problems => Icon::Problems,
             Panel::Textures => Icon::Texture,
+            Panel::Details => Icon::Info,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -536,6 +545,7 @@ impl Panel {
             Panel::Checks => "Checks: what the checks of the NUI window found",
             Panel::Problems => "Problems: what the checks found",
             Panel::Textures => "Textures: the textures the chosen tile's model draws",
+            Panel::Details => "Details: the hak's file, contents, folder and description",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -607,6 +617,11 @@ impl Panel {
             Panel::Properties => Some(crate::properties_panel::detail(app, editor)),
             Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => {
                 crate::tileset_view::panel_detail(app, editor, self)
+            }
+            // (A hak's: the resource chosen, "c_masterius.mdl", and the
+            // hak's file, the Hak board's; M4's U21.)
+            Panel::Preview | Panel::Details if crate::hak_view::hak_of(editor).is_some() => {
+                crate::hak_view::panel_detail(app, editor, self)
             }
             // (From the first frame, before the view is made: its bar keeps
             // its form.)
@@ -704,7 +719,8 @@ impl Panel {
             | Panel::Components
             | Panel::Bindings
             | Panel::Checks
-            | Panel::Textures => brings.has(self),
+            | Panel::Textures
+            | Panel::Details => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             // (Problems too, M4's U20: with nothing found, the kit's empty
@@ -759,6 +775,8 @@ impl Panel {
             // row's Copy, M4's U20.)
             Panel::Problems => Keys::Problems,
             Panel::Textures => Keys::Textures,
+            // (A hak's Details: F6 gives its Description the focus, M4's U21.)
+            Panel::Details => Keys::HakDetails,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -928,6 +946,13 @@ const NUI_BOTTOM: &[Panel] = &[Panel::Checks];
 const TILESET_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Textures]];
 const TILESET_FOLDED: &[Panel] = &[Panel::Preview, Panel::Textures];
 const TILESET_SHARES: &[u16] = &[1008, 992];
+/// A hak's Right Dock (M4's U21, the Hak board's): Preview over Details,
+/// each a section with its header; one tab bar of the two under 1400; with
+/// the hak into its window where it floats. The board's heights: Details
+/// 300 of the dock's 831, Preview the rest.
+const HAK_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Details]];
+const HAK_FOLDED: &[Panel] = &[Panel::Preview, Panel::Details];
+const HAK_SHARES: &[u16] = &[1278, 722];
 
 /// The talk table an editor's tab is, if it is one's.
 pub(crate) fn talk_of(
@@ -1054,6 +1079,19 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             right: TILESET_RIGHT,
             folded: TILESET_FOLDED,
             shares: TILESET_SHARES,
+            floats: true,
+            diagram: true,
+            ..Brings::default()
+        },
+        // (A hak's Preview over its Details and its types in the Outliner,
+        // M4's U21, whatever is open (a hak is a file of its own); with it
+        // into its window where it floats. Its Preview its own, whatever
+        // the palettes.)
+        crate::Tab::Hak(_) => Brings {
+            outliner: true,
+            right: HAK_RIGHT,
+            folded: HAK_FOLDED,
+            shares: HAK_SHARES,
             floats: true,
             diagram: true,
             ..Brings::default()
@@ -1461,6 +1499,8 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         crate::Tab::Nui(_) => WINDOW_CANVAS_AT_FIRST,
         // (A tileset's list and form side by side and its header, M4's U20.)
         crate::Tab::Tileset(_) => WINDOW_TILES_AT_FIRST,
+        // (A hak's table and header, M4's U21: the room its window had.)
+        crate::Tab::Hak(_) => WINDOW_TILES_AT_FIRST,
         _ => WINDOW_TREE_AT_FIRST,
     };
     let most = (room - keeps - 1.0).min(room * 0.4).floor();
@@ -2117,6 +2157,10 @@ pub(crate) const OVER_LAYERS_HIGH: f32 = 416.0;
 /// is dragged (M4's U20, the Tileset board's `.module-panel`: 394 high), its
 /// parts the rest.
 pub(crate) const OVER_PARTS_HIGH: f32 = 394.0;
+
+/// The Left Dock's panel over the Outliner beside a hak until its seam is
+/// dragged (the Hak board's `.module-panel`, 412; M4's U21).
+pub(crate) const OVER_TYPES_HIGH: f32 = 412.0;
 /// The Outliner's least height: its header and four rows.
 pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
@@ -3079,6 +3123,8 @@ pub(crate) fn shown(
         Some(Tab::Table(id)) => crate::table_view::panels::shown(app, &k, ctx, *id),
         // (A tileset's, M4's U20: the Tileset board's.)
         Some(Tab::Tileset(id)) => crate::tileset_view::shown(app, &k, ctx, *id),
+        // (A hak's, M4's U21: the Hak board's.)
+        Some(Tab::Hak(id)) => crate::hak_view::shown(app, &k, ctx, *id),
         Some(Tab::TalkTable) => {
             crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::shown(app))
         }
@@ -3470,6 +3516,11 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 Some(crate::outliner::Contents::Tileset(_)) => {
                     (OVER_PARTS_HIGH, app.settings.parts_panel_height)
                 }
+                // (Beside a hak, the Hak board's: the panel over its types
+                // 412 high; kept apart, M4's U21.)
+                Some(crate::outliner::Contents::Hak(_)) => {
+                    (OVER_TYPES_HIGH, app.settings.types_panel_height)
+                }
                 _ => (app.yields.module_panel_height, app.settings.module_panel_height),
             };
             let chosen = kept.map_or(at_first, |h| h as f32);
@@ -3507,6 +3558,9 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     Some(crate::outliner::Contents::Tileset(_)) => {
                         app.settings.parts_panel_height = high;
+                    }
+                    Some(crate::outliner::Contents::Hak(_)) => {
+                        app.settings.types_panel_height = high;
                     }
                     _ => app.settings.module_panel_height = high,
                 }
@@ -4148,6 +4202,10 @@ fn section_bar<R>(
                     // (A tileset's Open the Model in a Tab, the Tileset
                     // board's icon at its Preview's header's end: M4's U20.)
                     opened = crate::tileset_view::open_model_button(app, ui, editor);
+                } else if *one == Panel::Preview && crate::hak_view::hak_of(editor).is_some() {
+                    // (A hak's Open the Model in a Tab and Close, the Hak
+                    // board's icons: M4's U21.)
+                    opened = crate::hak_view::open_model_button(app, ui, editor);
                 }
                 // (A talk table's Copy the StrRef at String's header's end,
                 // the Talk board's.)
@@ -4194,6 +4252,9 @@ fn section_bar<R>(
 /// Properties' Open in Tab, or a tileset Preview's model in a tab of its own
 /// (M4's U20).
 fn opened_in_tab(app: &mut Moonglow, editor: Option<&crate::Tab>) {
+    if crate::hak_view::hak_of(editor).is_some() {
+        return crate::hak_view::open_model(app, editor);
+    }
     match crate::tileset_view::tileset_of(editor) {
         Some(_) => crate::tileset_view::open_model(app, editor),
         None => crate::properties_panel::open_in_tab(app, editor),
@@ -4218,7 +4279,8 @@ fn plugin_pane(
     // (A tileset's Preview too, its tile's diagram: M4's U20.)
     let own = panel == Panel::Preview
         && (own_preview(app, editor).is_some()
-            || crate::tileset_view::tileset_of(editor).is_some());
+            || crate::tileset_view::tileset_of(editor).is_some()
+            || crate::hak_view::hak_of(editor).is_some());
     match panel {
         Panel::Preview if own => None,
         Panel::Palette | Panel::Preview => Some(crate::plugins::Pane::Palette),
@@ -4519,8 +4581,9 @@ pub(crate) fn panel_body(
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
         Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
         Panel::Components | Panel::Bindings | Panel::Checks | Panel::Problems => Margin::ZERO,
-        Panel::Textures => Margin::ZERO,
+        Panel::Textures | Panel::Details => Margin::ZERO,
         Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => Margin::ZERO,
+        Panel::Preview if crate::hak_view::hak_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -4550,6 +4613,21 @@ pub(crate) fn panel_body(
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 crate::tileset_view::preview(app, &mut body, editor);
+            }
+            // (A hak's: the resource chosen, M4's U21.)
+            Panel::Preview if room.is_positive() && crate::hak_view::hak_of(editor).is_some() => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, "hak-preview", pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::hak_view::preview(app, &mut body, editor);
+            }
+            Panel::Details => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::hak_view::details(app, &mut body, editor);
             }
             Panel::Textures => {
                 let builder = egui::UiBuilder::new().max_rect(room);

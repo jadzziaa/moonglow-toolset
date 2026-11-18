@@ -25,6 +25,7 @@ mod form_columns;
 mod form_pages;
 mod gpu_memory;
 mod hak_closing;
+mod hak_panels;
 mod handles;
 mod icon_tips;
 mod inventories;

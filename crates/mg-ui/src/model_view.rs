@@ -221,9 +221,9 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
         if view.targets.is_some() {
             view.let_go_of_targets(vp);
         }
-        // (Not drawn yet: opened this frame. A hak's: the hak editor's own
-        // to drop, `hak_view`.)
-        if view.last_frame.is_some() && !matches!(source, Source::Hak { .. }) {
+        // (Not drawn yet: opened this frame. A hak's too, unseen since: its
+        // Preview closed, folded or behind another tab, M4's U21 review.)
+        if view.last_frame.is_some() {
             unseen.push(source.clone());
         }
     }
@@ -242,9 +242,8 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, now: f64) {
 /// What the open tabs show in a model view (a Properties window's page
 /// shows its object, the first of several; a Model tab its model), and
 /// whether a tile's tab is open (it shows its tile's model, whichever that
-/// is); a hak's tab shows its resources' models, by the hak's own
-/// sources, and its blueprints' (`Source::Resource`): those are not
-/// listed, a hak's tab told by [`a_tab_may_show`].
+/// is). (A hak's resources are shown in its Preview panel since M4's U21,
+/// drawn before the editor area, not by its tab.)
 pub(crate) fn shown_by_tabs(app: &Moonglow) -> (Vec<Source>, bool) {
     let mut tiles = false;
     let shown = (app.dock.iter_all_tabs())
@@ -260,13 +259,10 @@ pub(crate) fn shown_by_tabs(app: &Moonglow) -> (Vec<Source>, bool) {
 }
 
 /// Whether an open tab may show `source` in a model view this frame: one
-/// of [`shown_by_tabs`], or with a hak's tab open, any blueprint (a hak's
-/// own blueprints are shown by their resource), or with a tile's tab open,
-/// a model.
+/// of [`shown_by_tabs`], or with a tile's tab open, a model.
 pub(crate) fn a_tab_may_show(app: &Moonglow, source: &Source) -> bool {
     let (shown, tiles) = shown_by_tabs(app);
-    let haks = app.dock.iter_all_tabs().any(|(_, t)| matches!(t, crate::Tab::Hak(_)));
-    shown.contains(source) || haks || (tiles && source.is_model())
+    shown.contains(source) || (tiles && source.is_model())
 }
 
 /// What a model's view was read for: the load order

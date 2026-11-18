@@ -848,6 +848,10 @@ pub struct Moonglow {
     project_keys_from: Vec<(String, Option<String>)>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
+    /// The hak whose resource's sound the Preview plays, with the module
+    /// open then (`hak_view::follow_all` stops it with the hak closed or
+    /// another module).
+    pub(crate) hak_sound: Option<(u32, Option<PathBuf>)>,
     /// The 2DAs open in the table editor.
     pub tables: Vec<table_view::TableDoc>,
     pub(crate) next_table: u32,
@@ -1616,6 +1620,7 @@ impl Moonglow {
             keymap_from: Default::default(),
             project_keys_from: Vec::new(),
             haks: Vec::new(),
+            hak_sound: None,
             next_hak: 0,
             tables: Vec::new(),
             next_table: 0,
@@ -2180,6 +2185,9 @@ impl Moonglow {
         // Status Bar.
         // (What Check found of a tileset followed, its tab drawn or not.)
         tileset_view::follow_all(self);
+        // (Each hak followed: what was made of one that changed let go, a
+        // description typed set where its field was left, M4's U21.)
+        hak_view::follow_all(self, ui.ctx());
         // (A Bottom Dock panel a script asked to the front last frame.)
         shell::bottom_forward(self);
         // (The game's dialog.tlk shown made again from changed game data
@@ -2915,8 +2923,11 @@ impl Moonglow {
                 // `shell::follow_editor`.)
                 // (Not the Preview where the active editor brings its own,
                 // a blueprint's, M4's U11: no palettes come with it.)
+                // (Nor where it brings a Preview of its own drawing, a
+                // tileset's or a hak's, M4's U20 and U21.)
                 let own = panel == Panel::Preview
-                    && shell::own_preview(self, self.active_editor()).is_some();
+                    && (shell::own_preview(self, self.active_editor()).is_some()
+                        || self.active_editor().is_some_and(|t| shell::brings_of(self, t).diagram));
                 if matches!(panel, Panel::Palette | Panel::Preview) && !own {
                     self.palettes_asked = true;
                     // (Asked for, it is shown: a test that kept the dock
@@ -3199,6 +3210,7 @@ impl Moonglow {
         self.settings.columns_panel_height = None;
         self.settings.layers_panel_height = None;
         self.settings.parts_panel_height = None;
+        self.settings.types_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3314,6 +3326,8 @@ impl Moonglow {
             Some(Tab::Table(id)) => (Keys::Table, Some(*id)),
             // (A tileset's tile list, M4's U20.)
             Some(Tab::Tileset(_)) => (Keys::Tiles, None),
+            // (A hak's table of resources, M4's U21.)
+            Some(Tab::Hak(_)) => (Keys::Hak, None),
             _ => (Keys::Area, None),
         }
     }
@@ -3405,6 +3419,12 @@ impl Moonglow {
         {
             tileset_view::take_keys(ctx, *id);
         }
+        // (A hak's table: the hak's in front, M4's U21.)
+        if next == Keys::Hak
+            && let Some(Tab::Hak(id)) = self.tabs_recent.first()
+        {
+            hak_view::take_keys(ctx, *id);
+        }
         // (What has the keyboard's focus lets go of it: a stop that takes
         // it (a panel's first field, Cell's Value, References' button)
         // asks for it again as it is drawn, and the lists' keys work only
@@ -3478,6 +3498,8 @@ impl Moonglow {
             // (And Problems and a tileset's Textures, M4's U20.)
             Keys::Problems,
             Keys::Textures,
+            // (And a hak's Details, M4's U21.)
+            Keys::HakDetails,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3637,7 +3659,9 @@ impl Moonglow {
             // (A tileset's too, its Preview and Textures at its right and
             // its parts at its left, M4's U20: its list and form keeping
             // the room they had.)
-            None if matches!(tab, Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_)) => {
+            // (A hak's too, its Preview and Details at its right and its
+            // types at its left, M4's U21: its table keeping its room.)
+            None if matches!(tab, Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_) | Tab::Hak(_)) => {
                 tab.window_size()
                     + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
@@ -3658,8 +3682,10 @@ impl Moonglow {
         // not to the room between the docks: it may stand over a dock, as a
         // window dragged there does, and its panes and header keep their
         // room. The coordinator's ruling at M4's U17 review.)
-        let panes = matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_))
-            || tab == Tab::TalkTable;
+        let panes = matches!(
+            tab,
+            Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_) | Tab::Hak(_)
+        ) || tab == Tab::TalkTable;
         let wide = if tab == Tab::Options {
             room.width()
         } else if panes {

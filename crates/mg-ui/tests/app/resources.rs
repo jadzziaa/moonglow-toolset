@@ -1268,11 +1268,15 @@ fn a_hak_row_s_remove_takes_that_row_alone() {
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
     h.get_by_label("mg_a.2da").click_secondary();
     h.run();
-    h.get_by_label("Remove").click();
+    // (The row's menu's Remove, drawn after the header's.)
+    h.get_all_by_label("Remove").last().unwrap().click();
     h.run();
     assert_eq!(names(&h), ["mg_b.2da", "mg_c.2da"]);
     assert!(h.query_by_label("mg_a.2da").is_none(), "the row is gone from the list");
-    apart(&h, "Undo").click();
+    // (Undo: the Top Bar's since M4's U21, its keys over the editor.)
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
 }
@@ -1522,7 +1526,8 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
     // Edit › Undo is the hak's, the pointer gone from the editor to the
-    // menu, and names its step; so is the toolbar's.
+    // menu, and names its step; so is Redo's key (the editor's own Undo
+    // and Redo are the Top Bar's since M4's U21).
     menu(&h, "Edit").click();
     h.run();
     h.get_by_label_contains("Undo Add files").click();
@@ -1531,9 +1536,9 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
-    apart(&h, "Redo").click();
+    h.key_press_modifiers(ctrl | egui::Modifiers::SHIFT, egui::Key::Z);
     h.run();
-    assert_eq!(items(&h), 1, "redone by the toolbar's Redo");
+    assert_eq!(items(&h), 1, "redone by Redo's keys");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
     h.key_press_modifiers(ctrl, egui::Key::Z);
@@ -1627,6 +1632,7 @@ fn the_hak_editor_shows_pictures_sounds_and_tables() {
     h.run();
     mg_ui::hak_view::open_at(h.state_mut(), &path);
     h.run();
+    // (The row's menu's View: the Preview shows it, M4's U21.)
     let view = |h: &mut Harness<'_, Moonglow>, name: &str| {
         h.get_by_label(name).click_secondary();
         h.run();
@@ -1649,9 +1655,9 @@ fn the_hak_editor_shows_pictures_sounds_and_tables() {
     h.get_by_label("second");
     assert_eq!(view(&mut h, "mg_note.txt"), "plain");
     h.get_by_label_contains("just a note");
-    h.get_by_label("Close").click();
+    h.get_by_label(mg_ui::hak_view::PREVIEW_CLOSE).click();
     h.run();
-    assert!(h.state().haks[0].viewing().is_none());
+    assert!(h.state().haks[0].preview_key().is_none(), "put away");
 }
 
 /// The hak editor's Compile Models compiles the hak's models kept as
@@ -1818,14 +1824,19 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     h.get_by_label("mg_ui_test.2da").click();
     h.run();
-    h.get_by_label("Remove (1)").click();
+    // (The header's Remove, Undo and Redo the Top Bar's keys over the
+    // editor, the header's Save: M4's U21.)
+    let header = mg_ui::hak_view::HAK_HEADER;
+    h.get_by_label(header).get_by_label("Remove").click();
     h.run();
     assert!(h.state().haks[0].hak.is_dirty());
-    apart(&h, "Undo").click();
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
-    apart(&h, "Redo").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
-    apart(&h, "Save").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run();
+    h.get_by_label(header).get_by_label("Save").click();
     h.run();
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
@@ -1847,8 +1858,10 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     assert_eq!(have, ["mg_ui_new.2da", "mg_ui_other.2da", "mg_ui_test.2da"]);
     // (One step to undo, not two.)
     assert_eq!(h.state().haks[0].hak.undo_label(), Some("Update from Folder"));
-    // By size, the largest is listed first.
+    // By size, the largest is listed first (as a click on Size's head
+    // sorts it at first, M4's U21).
     h.state_mut().haks[0].sort = mg_ui::hak_view::Sort::Size;
+    h.state_mut().haks[0].descending = true;
     h.run();
     let first = |h: &Harness<'_, Moonglow>| {
         let rows: Vec<_> = h.query_all_by_label_contains(".2da").collect();
@@ -1857,9 +1870,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
             .fold((f32::MAX, None), |best, row| if row.0 < best.0 { row } else { best })
     };
     assert_eq!(first(&h).1.as_deref(), Some("mg_ui_new.2da"));
-    // View (or a double click) shows a resource under the list: a table
+    // View (or a double click) shows a resource in the Preview: a table
     // as its rows and columns.
-    assert!(h.state().haks[0].viewing().is_none());
     h.get_by_label("mg_ui_new.2da").click_secondary();
     h.run();
     // (The row's View: the menu bar has a View too.)
@@ -1868,9 +1880,9 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert_eq!(h.state().haks[0].viewing().map(|v| v.1), Some("table"));
     assert!(h.query_by_label("Label").is_some(), "its column is shown");
-    h.get_by_label("Close").click();
+    h.get_by_label(mg_ui::hak_view::PREVIEW_CLOSE).click();
     h.run();
-    assert!(h.state().haks[0].viewing().is_none());
+    assert!(h.state().haks[0].preview_key().is_none(), "put away");
     // A model of the hak the game reads (the module's hak, saved) is
     // drawn in the model viewer; changed and not saved, it is its text.
     let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
@@ -1878,7 +1890,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     std::fs::write(content.join("mg_ui_box.mdl"), &bytes).unwrap();
     h.get_by_label("Update from Folder").click();
     h.run();
-    apart(&h, "Save").click();
+    h.get_by_label(header).get_by_label("Save").click();
     h.run();
     let shown_as = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("mg_ui_box.mdl").click_secondary();

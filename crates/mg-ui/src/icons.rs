@@ -160,10 +160,9 @@ pub(crate) mod editor {
 /// How a toolbar's buttons are labelled (Options › General › Editors'
 /// toolbar buttons): a glyph and its name, or, with Icons only, the glyph
 /// alone and its name in its tip (and as its name for a screen reader),
-/// as Aurora's toolbars have them. The editors' toolbars take it from the
-/// settings each frame and show their words alone beside them
-/// ([`Tools::word_look`]); the Top Bar's quick actions are icons alone
-/// ([`Tools::icons_alone`]). The area's header reads none of it (M4's
+/// as Aurora's toolbars had them. No editor's toolbar reads it any more
+/// (the hak editor's was the last, M4's U21: each has the kit's header);
+/// the Top Bar's quick actions are icons alone ([`Tools::icons_alone`]). The area's header reads none of it (M4's
 /// U3): it yields by the editor's width (`area_view::header`).
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
@@ -213,10 +212,6 @@ pub(crate) fn area_tool_kind(label: &str) -> String {
 }
 
 impl Tools {
-    pub(crate) fn of(settings: &crate::Settings) -> Tools {
-        Tools { icons_only: settings.toolbar_icons_only }
-    }
-
     /// Icons alone, whatever the settings say (the Top Bar's quick
     /// actions: Options › General › Editors' toolbar buttons is the
     /// editors' toolbars' alone), or icons and words.
@@ -224,33 +219,10 @@ impl Tools {
         Tools { icons_only: only }
     }
 
-    /// The same, with the icons alone where `buttons` with their words
-    /// would not fit in one row of `ui`'s width (the design's rule: a
-    /// header's words yield to icons before it wraps; what still has no
-    /// room wraps to the next row).
-    pub(crate) fn fitted(self, ui: &egui::Ui, buttons: &[IconButton]) -> Tools {
-        self.fitted_after(ui, 0.0, buttons)
-    }
-
-    /// [`Tools::fitted`] for a row that begins with `before` points of
-    /// something else (the hak editor's count of what it holds, and the
-    /// room after it).
-    pub(crate) fn fitted_after(self, ui: &egui::Ui, before: f32, buttons: &[IconButton]) -> Tools {
-        let gaps = ui.spacing().item_spacing.x * buttons.len().saturating_sub(1) as f32;
-        let words: f32 = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gaps;
-        Tools { icons_only: self.icons_only || before + words > ui.available_width() }
-    }
-
     /// How a button of the main or the area toolbar is labelled: its icon
     /// and its name, or its icon alone.
     pub(crate) fn look(self) -> Label {
         if self.icons_only { Label::IconOnly } else { Label::Both }
-    }
-
-    /// How an editor's toolbar button is labelled: its words alone, or with
-    /// Icons only its icon alone.
-    pub(crate) fn word_look(self) -> Label {
-        if self.icons_only { Label::IconOnly } else { Label::WordsOnly }
     }
 
     /// A button of the main or the area toolbar: `icon` and `name`, or the
@@ -260,12 +232,6 @@ impl Tools {
         // toolbar's forty buttons took a row more with 6, in today's
         // layout, until M3 moves its switches into popovers.)
         IconButton::new(icon, name).label(self.look()).gap(mg_uikit::metrics::GAP_S)
-    }
-
-    /// An editor's toolbar button: its words, or its icon alone
-    /// ([`Tools::word_look`]), named `name` either way.
-    pub(crate) fn word_widget(self, icon: Icon, name: &str) -> IconButton {
-        IconButton::new(icon, name).label(self.word_look())
     }
 
     /// A button's tip from `tip` (with its key, where it has one; empty:
@@ -331,8 +297,6 @@ mod tests {
         let icons = Tools { icons_only: true };
         assert_eq!(both.look(), Label::Both);
         assert_eq!(icons.look(), Label::IconOnly);
-        assert_eq!(both.word_look(), Label::WordsOnly);
-        assert_eq!(icons.word_look(), Label::IconOnly);
         assert_eq!(both.tip("Reorient Camera", ""), None);
         assert_eq!(icons.tip("Reorient Camera", "").as_deref(), Some("Reorient Camera"));
         assert_eq!(both.tip("Grid", "Display Grid").as_deref(), Some("Display Grid"));

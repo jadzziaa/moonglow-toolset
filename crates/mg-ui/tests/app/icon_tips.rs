@@ -156,11 +156,20 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     let dialogs = NoDialogs { open: vec![hak_path], ..Default::default() };
     let mut app = Moonglow::new(None, Box::new(dialogs));
     app.settings.toolbar_icons_only = true;
+    // (The log closed: the hak's window, its Preview and Details at its
+    // right since M4's U21, stands over the main window's Bottom Dock, whose
+    // tools a walk would point at through it.)
+    app.settings.hide_log = true;
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
     mg_ui::hak_view::open_hak(h.state_mut());
     settle(&mut h);
     counts.push(("hak editor", walk(&mut h, "hak editor", &mut seen, &mut wrong)));
+    // (Its header's icons, the Hak board's: Add Files… and Add Folder…,
+    // the Preview's Close, each named.)
+    for name in ["Add Files…", "Add Folder…", mg_ui::hak_view::PREVIEW_CLOSE] {
+        assert!(seen.iter().any(|(n, _)| n == name), "{name} walked: {seen:?}");
+    }
     assert!(wrong.is_empty(), "{wrong:#?}");
     // (Each window had icon buttons to walk: the walk can fail.)
     for (window, n) in &counts {

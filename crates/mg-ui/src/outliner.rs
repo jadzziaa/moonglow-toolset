@@ -150,6 +150,8 @@ pub(crate) enum Owner {
     Nui(ResKey),
     /// A tileset's parts (M4's U20): its id.
     Tileset(u32),
+    /// A hak's contents by type (M4's U21): its id.
+    Hak(u32),
 }
 
 impl Owner {
@@ -160,6 +162,7 @@ impl Owner {
             crate::Tab::Table(id) => Some(Owner::Table(*id)),
             crate::Tab::Nui(key) => Some(Owner::Nui(*key)),
             crate::Tab::Tileset(id) => Some(Owner::Tileset(*id)),
+            crate::Tab::Hak(id) => Some(Owner::Hak(*id)),
             _ => None,
         }
     }
@@ -171,6 +174,7 @@ impl Owner {
             Owner::Table(id) => Contents::Columns(id),
             Owner::Nui(key) => Contents::Layers(key),
             Owner::Tileset(id) => Contents::Tileset(id),
+            Owner::Hak(id) => Contents::Hak(id),
         }
     }
 }
@@ -188,6 +192,8 @@ pub(crate) enum Contents {
     Layers(ResKey),
     /// A tileset's parts (M4's U20): its id.
     Tileset(u32),
+    /// A hak's contents by type (M4's U21): its id.
+    Hak(u32),
 }
 
 impl Contents {
@@ -200,6 +206,7 @@ impl Contents {
             Contents::Columns(id) => Some(Owner::Table(id)),
             Contents::Layers(key) => Some(Owner::Nui(key)),
             Contents::Tileset(id) => Some(Owner::Tileset(id)),
+            Contents::Hak(id) => Some(Owner::Hak(id)),
         }
     }
 }
@@ -221,6 +228,9 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
         // (A tileset's parts, whatever is open: a tileset is a file of its
         // own, M4's U20.)
         Some(crate::Tab::Tileset(id)) => Some(Contents::Tileset(*id)),
+        // (A hak's types, whatever is open: a hak is a file of its own,
+        // M4's U21.)
+        Some(crate::Tab::Hak(id)) => Some(Contents::Hak(*id)),
         _ => None,
     }
 }
@@ -233,7 +243,8 @@ pub(crate) fn keys_of(app: &Moonglow) -> Keys {
             Contents::Bookmarks(_)
             | Contents::Columns(_)
             | Contents::Layers(_)
-            | Contents::Tileset(_),
+            | Contents::Tileset(_)
+            | Contents::Hak(_),
         ) => Keys::Marks,
         _ => Keys::Outliner,
     }
@@ -282,6 +293,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Contents::Columns(id)) => _ = ui.scope(|ui| columns(app, ui, id, false)),
         Some(Contents::Layers(key)) => _ = ui.scope(|ui| layers(app, ui, key, false)),
         Some(Contents::Tileset(id)) => _ = ui.scope(|ui| tileset(app, ui, id, false)),
+        Some(Contents::Hak(id)) => _ = ui.scope(|ui| hak(app, ui, id, false)),
         None => {}
     }
 }
@@ -350,6 +362,7 @@ pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         Owner::Table(id) => _ = ui.scope(|ui| columns(app, ui, id, true)),
         Owner::Nui(key) => _ = ui.scope(|ui| layers(app, ui, key, true)),
         Owner::Tileset(id) => _ = ui.scope(|ui| tileset(app, ui, id, true)),
+        Owner::Hak(id) => _ = ui.scope(|ui| hak(app, ui, id, true)),
     }
 }
 
@@ -1156,6 +1169,173 @@ fn tileset(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
     }
 }
 
+/// Hak `id`'s contents by type as the Outliner lists them (M4's U21, the
+/// Hak board's Left Dock): the header, "Outliner" and the hak's file's
+/// name; a row for each type it holds, the most first, its icon, its
+/// extension (".mdl") and how many; only the rows in sight laid out. The
+/// row of the type Find holds (".mdl") is chosen. A click on a row finds
+/// its type (the board's: Find ".mdl", the table that type's alone), again
+/// shows every type, and gives the list the keys: Up, Down, Page Up, Page
+/// Down, Home and End from row to row, Enter finding the type, letters to a
+/// type by its extension, Escape handing them back. In the Left Dock, or in
+/// its window where it floats (`window`). A group of its own, named
+/// [`OUTLINER`].
+fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
+    let ctx = ui.ctx().clone();
+    mg_uikit::name_group(ui, OUTLINER);
+    let owner = Owner::Hak(id);
+    app.outliner.marks_now.push((owner, window));
+    let Some(facts) = crate::hak_view::outline_types(app, id) else { return };
+    let Some(at) = app.haks.iter().position(|d| d.id == id) else { return };
+    crate::side_doc::note_pointer(app, ui, &crate::Tab::Hak(id));
+    let detail = app.haks[at].title().trim_end_matches(" *").to_string();
+    let header = mg_uikit::shell::PanelHeader::new(OUTLINER).detail(detail).name(OUTLINER_HEADER);
+    header.show(ui, |ui| alone_fold(ui, window));
+    // (Folded to its header in a dock too short for its rows.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
+    let types = &facts.types;
+    let found = mg_core::text::Needle::new(&app.haks[at].filter).as_str().to_string();
+    let current = types.iter().position(|(t, _)| found == format!(".{t}"));
+    let mut cursor = match app.outliner.marks_cursor {
+        Some((k, at)) if k == owner => Some(at.min(types.len().saturating_sub(1))),
+        _ => None,
+    };
+    let here = marks_have_keys(app, &ctx, owner) && tree::keys_free(ui);
+    // (Its types with the keys: Undo and Redo are the hak's.)
+    if marks_have_keys(app, &ctx, owner) {
+        app.undo_keys = Some(crate::Tab::Hak(id));
+    }
+    let moved = here && app.outliner.marks_moved == Some(owner);
+    if moved {
+        app.outliner.marks_moved = None;
+    }
+    let mut clicked = None;
+    let scroll =
+        egui::ScrollArea::vertical().id_salt(("outliner-hak", id, window)).auto_shrink(false);
+    // (Only the rows in sight are laid out, as `ScrollArea::show_rows`
+    // does, under the list's 2 points of room.)
+    let rows = scroll.show_viewport(ui, |ui, view| {
+        mg_uikit::list_rows(ui);
+        let pitch = mg_uikit::row_pitch(ui);
+        let count = types.len();
+        ui.set_height(COLUMNS_TOP + count as f32 * pitch);
+        let first = (((view.min.y - COLUMNS_TOP) / pitch).floor().max(0.0) as usize).min(count);
+        let last = ((((view.max.y - COLUMNS_TOP) / pitch).ceil().max(0.0) as usize) + 1).min(count);
+        let top = ui.max_rect().top() + COLUMNS_TOP;
+        if moved && let Some(c) = cursor {
+            let y = top + c as f32 * pitch;
+            let row = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y + pitch);
+            ui.scroll_to_rect(row, None);
+        }
+        let shown_rows = egui::Rect::from_x_y_ranges(
+            ui.max_rect().x_range(),
+            top + first as f32 * pitch..=top + last as f32 * pitch,
+        );
+        let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(shown_rows));
+        ui.skip_ahead_auto_ids(first);
+        for (n, (t, count)) in types.iter().enumerate().take(last).skip(first) {
+            let words = format!(".{t}");
+            let said = format!("{words}, {}", crate::problems::count(*count, "resource"));
+            let r = mg_uikit::TreeRow::new(words.as_str())
+                .icon(crate::browser::kind_icon(*t))
+                .count(*count)
+                .label(said)
+                .fit()
+                .selected((here && cursor == Some(n)) || (!here && current == Some(n)))
+                .show(ui);
+            let r = r.on_hover_text(format!(
+                "{}: find them in the table",
+                crate::hak_view::kind_words(*t)
+            ));
+            if r.clicked() {
+                clicked = Some(n);
+            }
+        }
+    });
+    if here {
+        crate::palette_view::keys_outline(ui, rows.inner_rect, Keys::Marks);
+    }
+    let mut go = None;
+    if let Some(n) = clicked {
+        cursor = Some(n);
+        app.outliner.marks_cursor = Some((owner, n));
+        app.outliner.marks_keys = Some(owner);
+        give_keys(&ctx, Keys::Marks);
+        go = Some(n);
+    }
+    if here {
+        use egui::Key;
+        let keys = [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+            Key::Enter,
+        ];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.outliner.marks_cursor = None;
+            app.outliner.marks_keys = None;
+            crate::palette_view::give_arrows(&ctx, false);
+            cursor = None;
+        }
+        let last = types.len().saturating_sub(1);
+        let page = ((rows.inner_rect.height() / mg_uikit::row_pitch(ui)) as usize).max(1);
+        let at_row = cursor.unwrap_or(0).min(last);
+        let to = match pressed {
+            Some(Key::ArrowDown) => Some((at_row + 1).min(last)),
+            Some(Key::ArrowUp) => Some(at_row.saturating_sub(1)),
+            Some(Key::PageDown) => Some((at_row + page).min(last)),
+            Some(Key::PageUp) => Some(at_row.saturating_sub(page)),
+            Some(Key::Home) => Some(0),
+            Some(Key::End) => Some(last),
+            Some(Key::Enter) => {
+                go = Some(at_row);
+                Some(at_row)
+            }
+            _ => None,
+        };
+        // Letters go to the type whose extension begins with them.
+        let texts: Vec<String> = types.iter().map(|(t, _)| t.to_string()).collect();
+        let seek = |from: Option<usize>, typed: &str| {
+            let from = from.unwrap_or(texts.len().saturating_sub(1));
+            crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
+        };
+        let typed = (!types.is_empty())
+            .then(|| tree::typed_row(ui, egui::Id::new(("outliner-hak-typed", id)), cursor, &seek))
+            .flatten();
+        if let Some(to) = to.or(typed).filter(|_| !types.is_empty()) {
+            app.outliner.marks_cursor = Some((owner, to));
+            app.outliner.marks_moved = Some(owner);
+            ctx.request_repaint();
+        }
+    }
+    // A type gone to: Find holds it (its rows alone in the table), what it
+    // held kept; or, where it held that type, what it held before put back
+    // (the review's ruling: typed over meanwhile, Find is the builder's own,
+    // `hak_view::follow_all`).
+    if let Some((t, _)) = go.and_then(|n| types.get(n)) {
+        let words = format!(".{t}");
+        let d = &mut app.haks[at];
+        if found == words {
+            d.filter = d.find_before.take().unwrap_or_default();
+            d.type_find = None;
+        } else {
+            if d.type_find.is_none() {
+                d.find_before = Some(std::mem::take(&mut d.filter));
+            }
+            d.filter = words.clone();
+            d.type_find = Some(words);
+        }
+        ctx.request_repaint();
+    }
+}
+
 /// A tileset's Outliner group `g` opened (or closed) by the keys: the keys'
 /// row stays on it.
 fn toggled_now(app: &mut Moonglow, at: usize, g: usize, open: bool) -> Option<usize> {
@@ -1385,6 +1565,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         (false, Owner::Table(_)) => "Show the Outliner: the table's columns",
         (false, Owner::Nui(_)) => "Show the Outliner: the window's layers",
         (false, Owner::Tileset(_)) => "Show the Outliner: the tileset's parts",
+        (false, Owner::Hak(_)) => "Show the Outliner: the hak's contents by type",
     };
     let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
         .exact_size(STRIP)

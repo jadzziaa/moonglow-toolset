@@ -45,8 +45,9 @@ impl SideDoc for hak_view::HakDoc {
     fn title(&self) -> String {
         self.title().trim_end_matches(" *").to_string()
     }
+    /// (A description typed and not yet set counts.)
     fn has_unsaved(&self) -> bool {
-        self.hak.is_dirty()
+        self.is_dirty()
     }
     fn saved_with_module(&self, app: &Moonglow) -> bool {
         // (By whatever name the path reaches the game's folder: a hak
@@ -56,10 +57,19 @@ impl SideDoc for hak_view::HakDoc {
     fn can_undo(&self, redo: bool) -> bool {
         self.step_name(redo).is_some()
     }
+    /// (A description typed and not yet set is a step to take back: it is
+    /// set as Undo is pressed, then undone.)
+    /// (Nothing to redo while it is pending: what is typed comes first.)
     fn step_name(&self, redo: bool) -> Option<String> {
+        if self.typing_description() {
+            return (!redo).then(|| "Description".to_string());
+        }
         (if redo { self.hak.redo_label() } else { self.hak.undo_label() }).map(str::to_string)
     }
+    /// (A description typed and not yet set is set first: its step is the
+    /// one taken back.)
     fn undo(&mut self, redo: bool) {
+        self.set_typed();
         if redo {
             self.hak.redo();
         } else {
@@ -146,36 +156,15 @@ impl SideDoc for tileset_view::TilesetDoc {
     }
 }
 
-/// OK and Cancel under the window of an editor of a file that is saved
-/// when asked (a hak, a 2DA, a tileset, the talk table, a script), as the
-/// other editors have them: OK saves it and closes the window; Cancel
-/// closes it as last saved, asking first about unsaved changes
-/// ([`Moonglow::may_cancel`]). One only looked at (`read_only`) has
-/// Close. Drawn before the window's pages, of whose room it takes the
-/// foot; `before` is run once a button is pressed (a cell being typed
-/// set). Whether the window is closing: nothing more is drawn of it.
-pub(crate) fn ok_cancel(
-    app: &mut Moonglow,
-    ui: &mut egui::Ui,
-    tab: &Tab,
-    read_only: bool,
-    before: impl FnOnce(&mut Moonglow),
-) -> bool {
-    let id = egui::Id::new(("side-ok-cancel", tab));
-    let pressed = crate::blueprint::ok_cancel_saying(ui, id, read_only, OK_CANCEL_TIPS);
-    failed_foot(app, ui, tab);
-    let Some(pressed) = pressed else { return false };
-    pressed_ok_cancel(app, tab, read_only, pressed, before)
-}
-
-/// [`ok_cancel`]'s tips: OK's and Cancel's.
+/// The tips of a side editor's OK and Cancel, at its header's end: OK's
+/// and Cancel's.
 pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
     "Save and close the window",
     "Close the window without saving, asking about unsaved changes first",
 ];
 
-/// What [`ok_cancel`]'s OK or Cancel (`pressed`) does, wherever they are
-/// drawn (a script's at its header's end, M4's U12): `before` run first,
+/// What a side editor's OK or Cancel (`pressed`) does, at its header's end
+/// (a script's, M4's U12; a hak's, the last at its foot, U21): `before` run first,
 /// then OK saves and closes, Cancel closes asking about unsaved changes,
 /// Close (`read_only`) closes. Whether the window is closing.
 pub(crate) fn pressed_ok_cancel(

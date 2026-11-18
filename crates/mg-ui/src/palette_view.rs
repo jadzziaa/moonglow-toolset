@@ -463,6 +463,13 @@ pub(crate) enum Keys {
     /// A tileset's tile table (M4's U20): Up, Down, Page Up, Page Down,
     /// Home and End choose a tile, while its tileset is the active editor.
     Tiles,
+    /// A hak's table of resources (M4's U21): Up, Down, Page Up, Page Down,
+    /// Home and End choose a resource, Enter views it, while its hak is the
+    /// active editor.
+    Hak,
+    /// A hak's Details (M4's U21): no arrows of its own; F6 gives its
+    /// Description the keyboard's focus.
+    HakDetails,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

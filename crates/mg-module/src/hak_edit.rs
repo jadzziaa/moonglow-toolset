@@ -119,6 +119,10 @@ pub struct Hak {
     redo: Vec<(String, Change)>,
     saved: Option<usize>,
     stash: Arc<Stash>,
+    /// How many times its resources or description changed (a change, an
+    /// undo, a redo, a save taken): what is made from them is kept while
+    /// this stays ([`Hak::changes`]).
+    changes: u64,
 }
 
 /// What the folders of renamed resources' bytes are named, before the
@@ -207,6 +211,7 @@ impl Hak {
             redo: Vec::new(),
             saved: None,
             stash: Arc::default(),
+            changes: 0,
         }
     }
 
@@ -268,9 +273,16 @@ impl Hak {
         self.redo.clear();
     }
 
+    /// How many times its resources or description changed, by any way
+    /// (an editor's view made of them is made again when this moves).
+    pub fn changes(&self) -> u64 {
+        self.changes
+    }
+
     /// Does a change: what it replaces, then what it removes, then what it
     /// adds at the end.
     fn apply(&mut self, c: &Change) {
+        self.changes += 1;
         for (at, _, after) in &c.replaced {
             self.places.remove(&self.items[*at].key);
             self.items[*at] = after.clone();
@@ -293,6 +305,7 @@ impl Hak {
 
     /// Takes a change back, in the reverse order.
     fn revert(&mut self, c: &Change) {
+        self.changes += 1;
         for item in &c.appended {
             self.places.remove(&item.key);
         }
@@ -676,6 +689,7 @@ impl Hak {
         self.undo.clear();
         self.redo.clear();
         self.saved = Some(0);
+        self.changes += 1;
         Ok(())
     }
 }
@@ -900,6 +914,70 @@ impl Default for Hak {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `changes` moves at each change, undo, redo and save taken, and not
+    /// for what changes nothing (a description as it is): an editor's views
+    /// made of a hak are made again by it, whatever way the hak changed.
+    #[test]
+    fn changes_move_at_every_change_and_no_other_time() {
+        let mut hak = Hak::new();
+        assert_eq!(hak.changes(), 0);
+        let key = ResKey::parse("mg_one", mg_core::ResType::TXT).unwrap();
+        hak.add_sources(vec![(key, Source::Bytes(b"one".to_vec().into()))]).unwrap();
+        assert_eq!(hak.changes(), 1, "an add");
+        hak.set_description("");
+        assert_eq!(hak.changes(), 1, "the description as it is: nothing");
+        hak.set_description("Ours");
+        assert_eq!(hak.changes(), 2, "the description");
+        hak.undo();
+        assert_eq!((hak.changes(), hak.description.as_str()), (3, ""), "an undo");
+        hak.redo();
+        assert_eq!(hak.changes(), 4, "a redo");
+        let _ = hak.data(key).unwrap();
+        let _ = hak.items().len();
+        assert_eq!(hak.changes(), 4, "read: nothing");
+        let dir = std::env::temp_dir().join(format!("mg-hak-changes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        hak.save(Some(&dir.join("ours.hak"))).unwrap();
+        assert_eq!(hak.changes(), 5, "a save taken");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A hak opened and saved unchanged is the same bytes; the steps the
+    /// hak editor takes (add a file, remove one, set the description) save
+    /// as the same steps written straight to a new hak do: the editor's
+    /// views change none of what is written (M4's U21 review).
+    #[test]
+    fn saves_are_the_bytes_of_the_steps_taken() {
+        let dir = std::env::temp_dir().join(format!("mg-hak-bytes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = |n: &str| ResKey::parse(n, mg_core::ResType::TXT).unwrap();
+        let mut hak = Hak::new();
+        let src = |b: &[u8]| Source::Bytes(b.to_vec().into());
+        hak.add_sources(vec![(key("mg_one"), src(b"one")), (key("mg_two"), src(b"two"))]).unwrap();
+        let first = dir.join("first.hak");
+        hak.save(Some(&first)).unwrap();
+        let mut opened = Hak::open(&first).unwrap();
+        let again = dir.join("again.hak");
+        opened.save(Some(&again)).unwrap();
+        assert_eq!(std::fs::read(&first).unwrap(), std::fs::read(&again).unwrap(), "unchanged");
+        let file = dir.join("mg_three.txt");
+        std::fs::write(&file, "three").unwrap();
+        opened.add_files(std::slice::from_ref(&file));
+        opened.remove(&[key("mg_one")]);
+        opened.set_description("Ours");
+        let edited = dir.join("edited.hak");
+        opened.save(Some(&edited)).unwrap();
+        let mut straight = Hak::new();
+        straight
+            .add_sources(vec![(key("mg_two"), src(b"two")), (key("mg_three"), src(b"three"))])
+            .unwrap();
+        straight.set_description("Ours");
+        let made = dir.join("made.hak");
+        straight.save(Some(&made)).unwrap();
+        assert_eq!(std::fs::read(&edited).unwrap(), std::fs::read(&made).unwrap(), "the steps");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn bytes_go_into_a_new_hak_and_into_one_that_is_there() {

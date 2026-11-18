@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T08:11:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T11:46:44Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -448,29 +448,29 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| "This hak is part of the game…" warning | Notice strip under the editor header |
-| "2706 resources, 183.8 MB" | Details › Contents, and the Status Bar |
-| Update from Folder | Details › Built from, and More |
-| Compile Models | Editor header |
-| Path and description memo | Details › File and Description |
-| Add Files…, Add Folder…, Remove, Extract…, Extract All…, Save, Save As…, Find | Editor header, same names |
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
-| OK, Cancel | Editor header, right end ✓ M4 U18 |
-| By name, By type, By size | Sortable column headers |
-| Name, size and "from path" in each row | Columns Name, Size and Source |
-| Click, Ctrl+click, Shift+click, double-click | Status Bar hints |
-| Inline preview, Close, Play or Stop | Right Dock, Preview |
+| "This hak is part of the game…" warning | Notice strip under the editor header ✓ M4 U21 (its warning icon and words in `warn`) |
+| "2706 resources, 183.8 MB" | Details › Contents, and the Status Bar ✓ M4 U21 (the path in the count's tip; "3 selected" beside it where any are) |
+| Update from Folder | Details › Built from, and More ✓ M4 U21 (off with its tip for a hak not built from a folder; its report the log's, as before) |
+| Compile Models | Editor header ✓ M4 U21 (the right group; its results the log's, as before) |
+| Path and description memo | Details › File and Description ✓ M4 U21 (the path cut at its start, whole in its tip; the Description set as it is left, on Save, on closing, another hak in front: one step to undo) |
+| Add Files…, Add Folder…, Remove, Extract…, Extract All…, Save, Save As…, Find | Editor header, same names ✓ M4 U21 (Add Files… and Add Folder… their icons, the board's; Remove "Remove (3)"; Find 196 wide; More holds Update from Folder, Rename… and Edit Table) |
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header ✓ M4 U21: the hak's steps with the pointer over the editor or its panels, or the table holding the keys) |
+| OK, Cancel | Editor header, right end ✓ M4 U18 (the hak's ✓ M4 U21, after More and a line, `Hak_fix_hdr3.png`) |
+| By name, By type, By size | Sortable column headers ✓ M4 U21 (a click sorts, again the other way; Size the largest first at first) |
+| Name, size and "from path" in each row | Columns Name, Size and Source ✓ M4 U21 (and Type; the rows in sight alone laid out; its keys the active editor's) |
+| Click, Ctrl+click, Shift+click, double-click | Status Bar hints ✓ M4 U21 (Click Select, Ctrl + Click Add to selection, Shift + Click Select range, Double Click View, Right Click More, with the pointer over the editor) |
+| Inline preview, Close, Play or Stop | Right Dock, Preview ✓ M4 U21 (the resource chosen; Close and Open the Model in a Tab at its header's end; a sound's Play and Stop; a model's 3D view paused at first) |
 
 
 #### New
 
-- An Outliner of the hak's contents by type with counts.
-- A Type column and a sort arrow.
-- Model facts in Preview: nodes, faces, vertices, textures, animations, supermodel.
+- An Outliner of the hak's contents by type with counts ✓ M4 U21 (the most first, as many by the type's number; a click finds the type, Find ".mdl", again puts back what Find held).
+- A Type column and a sort arrow ✓ M4 U21.
+- Model facts in Preview: nodes, faces, vertices, textures, animations, supermodel ✓ M4 U21 (with its type, compiled or text, and its size).
 
 #### Not Drawn
 
-- The row's right-click menu and the 2 GiB warning.
+- The row's right-click menu and the 2 GiB warning (kept: the menu on a row, the warning in the notice strip ✓ M4 U21).
 
 ### Resources
 

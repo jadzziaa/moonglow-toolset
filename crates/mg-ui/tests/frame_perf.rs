@@ -1990,6 +1990,7 @@ fn frames_at_144() {
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
     talk_table(&mut h, &mut r);
     tileset(&mut h, &mut r);
+    hak(&mut h, &mut r);
     if let Some(k) = dialog {
         // (With five bookmarks, listed in the Outliner beside it since M4's
         // U15, its tree open with its indent guides.)
@@ -2103,6 +2104,52 @@ fn tileset(h: &mut App<'_>, r: &mut Report) {
         "  ({tiles} tiles; {found} found by Check; the Right Dock drawn: {}; the Outliner's parts: {})",
         h.state().right_dock_rect().is_some(),
         h.query_by_label("408 tiles").is_some()
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+}
+
+/// The game's `id_resources.hak` in the hak editor (M4's U21), docked As
+/// Tabs: its 2,706 resources sorted by type (the rows in sight alone laid
+/// out), `c_masterius.mdl` chosen; the Preview (its model's 3D view
+/// paused, as a model's starts) and Details in the Right Dock, its types in
+/// the Outliner. (The tip's copy, 549b08f3, takes the same steps without
+/// the panels' assertions: it has none of them.)
+fn hak(h: &mut App<'_>, r: &mut Report) {
+    let what = "hak id_resources.hak, its 2706 rows sorted by type";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let Some(root) = h.state().install.as_ref().map(|gi| gi.root.clone()) else { return };
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let id = mg_ui::hak_view::open_at(h.state_mut(), &root.join("data/hk/id_resources.hak"))
+        .expect("the game's hak");
+    let t = Tab::Hak(id);
+    let masterius = ResKey::parse("c_masterius", ResType::MDL).unwrap();
+    // (A file added, Hak.png's `mg_chair.mdl`: its 2,706 rows.)
+    let chair = mg_testkit::scratch_dir("frame-hak").join("mg_chair.mdl");
+    std::fs::write(&chair, b"chair").unwrap();
+    {
+        let d = h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap();
+        d.hak.add_files(&[chair]);
+        d.sort = mg_ui::hak_view::Sort::Type;
+        d.selected = [masterius].into();
+    }
+    h.run_steps(3);
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(5);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+    assert!(h.query_by_label_contains("Details, ").is_some(), "Details not shown");
+    assert!(h.query_by_label_contains(".mdl, 9").is_some(), "no Outliner");
+    let rows = h.state().haks.iter().find(|d| d.id == id).map_or(0, |d| d.hak.items().len());
+    println!(
+        "  ({rows} resources; the Right Dock drawn: {}; the Outliner's types: {})",
+        h.state().right_dock_rect().is_some(),
+        h.query_all_by_label_contains(".mdl, ").next().is_some()
     );
     view(h, r, what, Some(&t));
     close(h, &t);

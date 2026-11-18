@@ -2754,6 +2754,7 @@ pub(crate) struct SearchField<'a> {
     width: Option<f32>,
     icon: mg_uikit::Icon,
     name: Option<&'a str>,
+    clear_inside: bool,
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2777,7 +2778,16 @@ impl<'a> SearchField<'a> {
             width: None,
             icon: mg_uikit::Icon::Search,
             name: None,
+            clear_inside: false,
         }
+    }
+
+    /// Its clear button inside the field's box at its right end, as the
+    /// boards draw it (`.field .end`, the Hak board's Find), the field
+    /// `width` wide with it (M4's U21 review); else after the field.
+    pub(crate) fn clear_inside(mut self) -> Self {
+        self.clear_inside = true;
+        self
     }
 
     /// Its name for a screen reader (and tests), apart from what it says
@@ -2854,6 +2864,7 @@ impl<'a> SearchField<'a> {
             width,
             icon,
             name,
+            clear_inside,
         } = self;
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
@@ -2865,7 +2876,7 @@ impl<'a> SearchField<'a> {
                 // the button as wide as it was last drawn.)
                 let button_id = id.with("clear-width");
                 let button = ui.data(|d| d.get_temp::<f32>(button_id)).unwrap_or(26.0);
-                let button = if clear { button } else { 0.0 };
+                let button = if clear && !clear_inside { button } else { 0.0 };
                 let held = crate::blueprint::narrow(ui);
                 let room = width.map_or(ui.available_width() - button, |w| match held {
                     true => w.min(ui.available_width() - button),
@@ -2877,7 +2888,12 @@ impl<'a> SearchField<'a> {
                 // ask; drawn in the field, its words after it.)
                 let field = mg_uikit::controls::FIELD_MARGIN;
                 let glass = mg_uikit::metrics::ICON as i8 + 4;
-                let margin = egui::Margin { left: field.left + glass, ..field };
+                let mut margin = egui::Margin { left: field.left + glass, ..field };
+                // (Room at its right for the clear button drawn in it.)
+                const INSIDE: f32 = 22.0;
+                if clear_inside {
+                    margin.right += INSIDE as i8;
+                }
                 let r = ui.add(
                     mg_uikit::text_field(&mut *text)
                         .id(id)
@@ -2895,7 +2911,14 @@ impl<'a> SearchField<'a> {
                     let color = ui.visuals().weak_text_color();
                     icon.paint(ui.painter(), rect, color);
                 }
-                if clear {
+                if clear && clear_inside {
+                    let at = egui::pos2(r.rect.right() - INSIDE / 2.0, r.rect.center().y);
+                    let rect = egui::Rect::from_center_size(at, egui::vec2(INSIDE, INSIDE));
+                    let b = ui.put(rect, clear_button().name(clear_name)).on_hover_text(clear_tip);
+                    if b.clicked() {
+                        text.clear();
+                    }
+                } else if clear {
                     let b = ui.add(clear_button().name(clear_name)).on_hover_text(clear_tip);
                     let wide = b.rect.width() + ui.spacing().item_spacing.x;
                     if (wide - button).abs() > 0.1 {

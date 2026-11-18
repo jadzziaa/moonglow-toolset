@@ -816,6 +816,12 @@ pub struct Settings {
     /// chosen, so files stay as they were.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parts_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a hak,
+    /// its types (M4's U21: a seam of its own, as the parts'). `None`: not
+    /// chosen, the Hak board's (412). Written only once chosen, so files
+    /// stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub types_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart
