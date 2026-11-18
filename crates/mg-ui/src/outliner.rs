@@ -152,6 +152,8 @@ pub(crate) enum Owner {
     Tileset(u32),
     /// A hak's contents by type (M4's U21): its id.
     Hak(u32),
+    /// The faction editor's factions (M4's U22).
+    Factions,
 }
 
 impl Owner {
@@ -163,6 +165,7 @@ impl Owner {
             crate::Tab::Nui(key) => Some(Owner::Nui(*key)),
             crate::Tab::Tileset(id) => Some(Owner::Tileset(*id)),
             crate::Tab::Hak(id) => Some(Owner::Hak(*id)),
+            crate::Tab::Factions => Some(Owner::Factions),
             _ => None,
         }
     }
@@ -175,6 +178,7 @@ impl Owner {
             Owner::Nui(key) => Contents::Layers(key),
             Owner::Tileset(id) => Contents::Tileset(id),
             Owner::Hak(id) => Contents::Hak(id),
+            Owner::Factions => Contents::Factions,
         }
     }
 }
@@ -194,6 +198,8 @@ pub(crate) enum Contents {
     Tileset(u32),
     /// A hak's contents by type (M4's U21): its id.
     Hak(u32),
+    /// The faction editor's factions (M4's U22).
+    Factions,
 }
 
 impl Contents {
@@ -207,6 +213,7 @@ impl Contents {
             Contents::Layers(key) => Some(Owner::Nui(key)),
             Contents::Tileset(id) => Some(Owner::Tileset(id)),
             Contents::Hak(id) => Some(Owner::Hak(id)),
+            Contents::Factions => Some(Owner::Factions),
         }
     }
 }
@@ -231,6 +238,8 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
         // (A hak's types, whatever is open: a hak is a file of its own,
         // M4's U21.)
         Some(crate::Tab::Hak(id)) => Some(Contents::Hak(*id)),
+        // (The module's factions, M4's U22.)
+        Some(crate::Tab::Factions) if app.ws.is_some() => Some(Contents::Factions),
         _ => None,
     }
 }
@@ -244,7 +253,8 @@ pub(crate) fn keys_of(app: &Moonglow) -> Keys {
             | Contents::Columns(_)
             | Contents::Layers(_)
             | Contents::Tileset(_)
-            | Contents::Hak(_),
+            | Contents::Hak(_)
+            | Contents::Factions,
         ) => Keys::Marks,
         _ => Keys::Outliner,
     }
@@ -294,6 +304,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Contents::Layers(key)) => _ = ui.scope(|ui| layers(app, ui, key, false)),
         Some(Contents::Tileset(id)) => _ = ui.scope(|ui| tileset(app, ui, id, false)),
         Some(Contents::Hak(id)) => _ = ui.scope(|ui| hak(app, ui, id, false)),
+        Some(Contents::Factions) => _ = ui.scope(|ui| factions(app, ui, false)),
         None => {}
     }
 }
@@ -363,6 +374,7 @@ pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         Owner::Nui(key) => _ = ui.scope(|ui| layers(app, ui, key, true)),
         Owner::Tileset(id) => _ = ui.scope(|ui| tileset(app, ui, id, true)),
         Owner::Hak(id) => _ = ui.scope(|ui| hak(app, ui, id, true)),
+        Owner::Factions => _ = ui.scope(|ui| factions(app, ui, true)),
     }
 }
 
@@ -1336,6 +1348,132 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
     }
 }
 
+/// The module's factions as the Outliner lists them (M4's U22, the
+/// Factions board's Left Dock): the header, "Outliner", "Factions" and how
+/// many; a row for each faction, the chosen one chosen; only the rows in
+/// sight laid out. A click on a row chooses its faction and gives the list
+/// the keys: Up, Down, Page Up, Page Down, Home and End from row to row,
+/// each choosing its faction, letters to a faction by its name, Escape
+/// handing them back. In the Left Dock, or in its window where it floats
+/// (`window`). A group of its own, named [`OUTLINER`].
+fn factions(app: &mut Moonglow, ui: &mut Ui, window: bool) {
+    let ctx = ui.ctx().clone();
+    mg_uikit::name_group(ui, OUTLINER);
+    let owner = Owner::Factions;
+    app.outliner.marks_now.push((owner, window));
+    let Some((names, chosen)) = crate::faction_view::outline(app) else { return };
+    let header =
+        mg_uikit::shell::PanelHeader::new(OUTLINER).detail("Factions").name(OUTLINER_HEADER);
+    header.show(ui, |ui| {
+        alone_fold(ui, window);
+        ui.add(mg_uikit::Badge::count(names.len()));
+    });
+    // (Folded to its header in a dock too short for its rows.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
+    let here = marks_have_keys(app, &ctx, owner) && tree::keys_free(ui);
+    let cursor = Some((chosen as usize).min(names.len().saturating_sub(1)));
+    // (The chosen faction brought into sight where it was chosen elsewhere:
+    // the matrix, the Reactions panel, an Add.)
+    let seen_id = egui::Id::new(("outliner-factions-chosen", window));
+    let elsewhere = ctx.data(|d| d.get_temp::<u32>(seen_id)) != Some(chosen);
+    if elsewhere {
+        ctx.data_mut(|d| d.insert_temp(seen_id, chosen));
+    }
+    let moved = (here && app.outliner.marks_moved == Some(owner)) || elsewhere;
+    if moved {
+        app.outliner.marks_moved = None;
+    }
+    let mut clicked = None;
+    let scroll =
+        egui::ScrollArea::vertical().id_salt(("outliner-factions", window)).auto_shrink(false);
+    // (Only the rows in sight are laid out, as `ScrollArea::show_rows`
+    // does, under the list's 2 points of room.)
+    let rows = scroll.show_viewport(ui, |ui, view| {
+        mg_uikit::list_rows(ui);
+        let pitch = mg_uikit::row_pitch(ui);
+        let count = names.len();
+        ui.set_height(COLUMNS_TOP + count as f32 * pitch);
+        let first = (((view.min.y - COLUMNS_TOP) / pitch).floor().max(0.0) as usize).min(count);
+        let last = ((((view.max.y - COLUMNS_TOP) / pitch).ceil().max(0.0) as usize) + 1).min(count);
+        let top = ui.max_rect().top() + COLUMNS_TOP;
+        if moved && let Some(c) = cursor {
+            let y = top + c as f32 * pitch;
+            let row = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y + pitch);
+            ui.scroll_to_rect(row, None);
+        }
+        let shown_rows = egui::Rect::from_x_y_ranges(
+            ui.max_rect().x_range(),
+            top + first as f32 * pitch..=top + last as f32 * pitch,
+        );
+        let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(shown_rows));
+        ui.skip_ahead_auto_ids(first);
+        for (n, name) in names.iter().enumerate().take(last).skip(first) {
+            let r = mg_uikit::TreeRow::new(name.as_str())
+                .icon(mg_uikit::Icon::Faction)
+                .fit()
+                .selected(cursor == Some(n))
+                .show(ui);
+            if r.clicked() {
+                clicked = Some(n);
+            }
+        }
+    });
+    if here {
+        crate::palette_view::keys_outline(ui, rows.inner_rect, Keys::Marks);
+    }
+    let mut go = None;
+    if let Some(n) = clicked {
+        app.outliner.marks_cursor = Some((owner, n));
+        app.outliner.marks_keys = Some(owner);
+        give_keys(&ctx, Keys::Marks);
+        go = Some(n);
+    }
+    if here {
+        use egui::Key;
+        let keys = [Key::ArrowDown, Key::ArrowUp, Key::PageDown, Key::PageUp, Key::Home, Key::End];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.outliner.marks_cursor = None;
+            app.outliner.marks_keys = None;
+            crate::palette_view::give_arrows(&ctx, false);
+        }
+        let last = names.len().saturating_sub(1);
+        let page = ((rows.inner_rect.height() / mg_uikit::row_pitch(ui)) as usize).max(1);
+        let at = (chosen as usize).min(last);
+        let to = match pressed {
+            Some(Key::ArrowDown) => Some((at + 1).min(last)),
+            Some(Key::ArrowUp) => Some(at.saturating_sub(1)),
+            Some(Key::PageDown) => Some((at + page).min(last)),
+            Some(Key::PageUp) => Some(at.saturating_sub(page)),
+            Some(Key::Home) => Some(0),
+            Some(Key::End) => Some(last),
+            _ => None,
+        };
+        // Letters go to the faction whose name begins with them (the names
+        // folded only as letters are typed, not at each frame).
+        let seek = |from: Option<usize>, typed: &str| {
+            let texts: Vec<String> = names.iter().map(|n| mg_core::text::fold(n)).collect();
+            let from = from.unwrap_or(texts.len().saturating_sub(1));
+            crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
+        };
+        let typed = (!names.is_empty())
+            .then(|| tree::typed_row(ui, egui::Id::new("outliner-factions-typed"), cursor, &seek))
+            .flatten();
+        if let Some(to) = to.or(typed).filter(|_| !names.is_empty()) {
+            app.outliner.marks_cursor = Some((owner, to));
+            app.outliner.marks_moved = Some(owner);
+            go = Some(to);
+        }
+    }
+    if let Some(n) = go {
+        crate::faction_view::choose(app, n as u32);
+        ctx.request_repaint();
+    }
+}
+
 /// A tileset's Outliner group `g` opened (or closed) by the keys: the keys'
 /// row stays on it.
 fn toggled_now(app: &mut Moonglow, at: usize, g: usize, open: bool) -> Option<usize> {
@@ -1566,6 +1704,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         (false, Owner::Nui(_)) => "Show the Outliner: the window's layers",
         (false, Owner::Tileset(_)) => "Show the Outliner: the tileset's parts",
         (false, Owner::Hak(_)) => "Show the Outliner: the hak's contents by type",
+        (false, Owner::Factions) => "Show the Outliner: the factions",
     };
     let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
         .exact_size(STRIP)

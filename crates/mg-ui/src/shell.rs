@@ -251,6 +251,26 @@ pub enum Panel {
     /// Preview): its file, what it holds, the folder it was built from with
     /// Update from Folder, and its description (`hak_view::details`).
     Details,
+    /// A journal's entry chosen (M4's U22, the Journal board's Right Dock):
+    /// its ID, Finish category and Text in the editing language, its
+    /// detail "[0030] of M1Q5_Bertrand" (`journal_view::entry_panel`).
+    Entry,
+    /// A journal's category (M4's U22), under Entry: the one chosen, or the
+    /// chosen entry's (its parent): Name, Tag, Priority, XP and Comments
+    /// (`journal_view::category_panel`).
+    Category,
+    /// The faction editor's chosen faction (M4's U22, the Factions board's
+    /// Right Dock): its name and parent, read-only, and Global effect
+    /// (`faction_view::faction_panel`).
+    Faction,
+    /// The faction editor's chosen reaction (M4's U22), under Faction: the
+    /// sentence, the slider and the Hostile, Neutral, Friendly scale
+    /// (`faction_view::reaction_panel`).
+    Reaction,
+    /// How the chosen faction regards the others (M4's U22), under
+    /// Reaction, in Advanced: a row a faction, Full detail at its foot
+    /// (`faction_view::reactions_panel`).
+    Reactions,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -308,7 +328,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 26] = [
+    pub(crate) const KEYED: [Panel; 31] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -335,6 +355,11 @@ impl Panel {
         Panel::Problems,
         Panel::Textures,
         Panel::Details,
+        Panel::Entry,
+        Panel::Category,
+        Panel::Faction,
+        Panel::Reaction,
+        Panel::Reactions,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -368,7 +393,12 @@ impl Panel {
             | Panel::Components
             | Panel::Bindings
             | Panel::Textures
-            | Panel::Details => Dock::Right,
+            | Panel::Details
+            | Panel::Entry
+            | Panel::Category
+            | Panel::Faction
+            | Panel::Reaction
+            | Panel::Reactions => Dock::Right,
             Panel::Log
             | Panel::Compiler
             | Panel::Bookmarks
@@ -411,6 +441,11 @@ impl Panel {
             Panel::Problems => "Problems",
             Panel::Textures => "Textures",
             Panel::Details => "Details",
+            Panel::Entry => "Entry",
+            Panel::Category => "Category",
+            Panel::Faction => "Faction",
+            Panel::Reaction => "Reaction",
+            Panel::Reactions => "Reactions",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -447,6 +482,11 @@ impl Panel {
             Panel::Problems,
             Panel::Textures,
             Panel::Details,
+            Panel::Entry,
+            Panel::Category,
+            Panel::Faction,
+            Panel::Reaction,
+            Panel::Reactions,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -486,6 +526,11 @@ impl Panel {
             Panel::Problems => Icon::Problems,
             Panel::Textures => Icon::Texture,
             Panel::Details => Icon::Info,
+            Panel::Entry => Icon::Description,
+            Panel::Category => Icon::Journal,
+            Panel::Faction => Icon::Faction,
+            Panel::Reaction => Icon::Edit,
+            Panel::Reactions => Icon::List,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -546,6 +591,11 @@ impl Panel {
             Panel::Problems => "Problems: what the checks found",
             Panel::Textures => "Textures: the textures the chosen tile's model draws",
             Panel::Details => "Details: the hak's file, contents, folder and description",
+            Panel::Entry => "Entry: the journal's entry chosen",
+            Panel::Category => "Category: the journal's category chosen, or the entry's",
+            Panel::Faction => "Faction: the faction chosen, its parent and Global effect",
+            Panel::Reaction => "Reaction: how the chosen faction regards the one chosen",
+            Panel::Reactions => "Reactions: how the chosen faction regards the others",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -651,6 +701,12 @@ impl Panel {
             // (A tileset's: "Tile 16, tcn01_c02_01" and "of tcn01_c02_01
             // (21)", the Tileset board's; M4's U20.)
             Panel::Textures => crate::tileset_view::panel_detail(app, editor, self),
+            // (The Journal board's "[0030] of M1Q5_Bertrand" and the
+            // category's tag; the Factions board's "Victim (Danger) toward
+            // Hostile" and "How Victim (Danger) regards the others": M4's
+            // U22.)
+            Panel::Entry | Panel::Category => crate::journal_view::panel_detail(app, self),
+            Panel::Reaction | Panel::Reactions => crate::faction_view::panel_detail(app, self),
             _ => None,
         }
     }
@@ -720,7 +776,12 @@ impl Panel {
             | Panel::Bindings
             | Panel::Checks
             | Panel::Textures
-            | Panel::Details => brings.has(self),
+            | Panel::Details
+            | Panel::Entry
+            | Panel::Category
+            | Panel::Faction
+            | Panel::Reaction
+            | Panel::Reactions => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             // (Problems too, M4's U20: with nothing found, the kit's empty
@@ -777,6 +838,13 @@ impl Panel {
             Panel::Textures => Keys::Textures,
             // (A hak's Details: F6 gives its Description the focus, M4's U21.)
             Panel::Details => Keys::HakDetails,
+            // (A journal's and the faction editor's, M4's U22: F6 gives the
+            // panel's first field the focus; Reactions' its first row.)
+            Panel::Entry => Keys::JournalEntry,
+            Panel::Category => Keys::JournalCategory,
+            Panel::Faction => Keys::FactionPanel,
+            Panel::Reaction => Keys::Reaction,
+            Panel::Reactions => Keys::Reactions,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -953,6 +1021,27 @@ const TILESET_SHARES: &[u16] = &[1008, 992];
 const HAK_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Details]];
 const HAK_FOLDED: &[Panel] = &[Panel::Preview, Panel::Details];
 const HAK_SHARES: &[u16] = &[1278, 722];
+/// A journal's Right Dock (M4's U22, the Journal board's): Entry over
+/// Category, each a section with its header; one tab bar of the two under
+/// 1400; with the journal into its window where it floats. The board's
+/// heights: Entry 454 of the dock's 844, Category the rest.
+const JOURNAL_RIGHT: &[Section] = &[&[Panel::Entry], &[Panel::Category]];
+const JOURNAL_FOLDED: &[Panel] = &[Panel::Entry, Panel::Category];
+const JOURNAL_SHARES: &[u16] = &[1076, 924];
+/// The faction editor's Right Dock in Advanced (M4's U22, the Factions
+/// board's): Faction over Reaction over Reactions, each a section with its
+/// header; one tab bar of the three under 1400; with the editor into its
+/// window where it floats. The board's heights: Faction 132 and Reaction
+/// 148 of the dock's 844, Reactions the rest.
+const FACTIONS_RIGHT: &[Section] = &[&[Panel::Faction], &[Panel::Reaction], &[Panel::Reactions]];
+const FACTIONS_FOLDED: &[Panel] = &[Panel::Faction, Panel::Reaction, Panel::Reactions];
+const FACTIONS_SHARES: &[u16] = &[469, 526, 2005];
+/// In Basic the editor is the chart of how the chosen faction regards the
+/// others (the moves' "Not Drawn" Basic chart view): Reactions is not
+/// drawn beside it, Faction and Reaction are.
+const FACTIONS_BASIC_RIGHT: &[Section] = &[&[Panel::Faction], &[Panel::Reaction]];
+const FACTIONS_BASIC_FOLDED: &[Panel] = &[Panel::Faction, Panel::Reaction];
+const FACTIONS_BASIC_SHARES: &[u16] = &[313, 1687];
 
 /// The talk table an editor's tab is, if it is one's.
 pub(crate) fn talk_of(
@@ -1096,6 +1185,26 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             diagram: true,
             ..Brings::default()
         },
+        // (A journal's Entry and Category, M4's U22, with a module open;
+        // with it into its window where it floats. No Outliner: the board's
+        // Left Dock is the module tree alone.)
+        crate::Tab::Journal if app.ws.is_some() => Brings {
+            right: JOURNAL_RIGHT,
+            folded: JOURNAL_FOLDED,
+            shares: JOURNAL_SHARES,
+            floats: true,
+            ..Brings::default()
+        },
+        // (The faction editor's Faction, Reaction and Reactions and its
+        // factions in the Outliner, M4's U22, with a module open; Reactions
+        // in Advanced alone. With it into its window where it floats.)
+        crate::Tab::Factions if app.ws.is_some() => {
+            let (right, folded, shares) = match app.faction_view.advanced {
+                true => (FACTIONS_RIGHT, FACTIONS_FOLDED, FACTIONS_SHARES),
+                false => (FACTIONS_BASIC_RIGHT, FACTIONS_BASIC_FOLDED, FACTIONS_BASIC_SHARES),
+            };
+            Brings { outliner: true, right, folded, shares, floats: true, ..Brings::default() }
+        }
         crate::Tab::Table(_) => Brings {
             outliner: true,
             right: TABLE_RIGHT,
@@ -1501,6 +1610,8 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         crate::Tab::Tileset(_) => WINDOW_TILES_AT_FIRST,
         // (A hak's table and header, M4's U21: the room its window had.)
         crate::Tab::Hak(_) => WINDOW_TILES_AT_FIRST,
+        // (The faction editor's matrix and header, M4's U22.)
+        crate::Tab::Factions => WINDOW_FACTIONS_AT_FIRST,
         _ => WINDOW_TREE_AT_FIRST,
     };
     let most = (room - keeps - 1.0).min(room * 0.4).floor();
@@ -1718,6 +1829,10 @@ pub(crate) const WINDOW_TILES_AT_FIRST: f32 = 918.0;
 /// Outliner (M4's U18): what its window gives the editor before its panes
 /// come into it (760, its lines less), so that its header yields no sooner.
 pub(crate) const WINDOW_CANVAS_AT_FIRST: f32 = 758.0;
+/// The room a floating faction editor's matrix keeps beside its window's
+/// Outliner (M4's U22): what its window gives the editor before its panes
+/// come into it (780, its lines less), so that its header yields no sooner.
+pub(crate) const WINDOW_FACTIONS_AT_FIRST: f32 = 778.0;
 /// The name of an editor's window's bottom pane's tab bar.
 pub(crate) const WINDOW_BOTTOM: &str = "Window's Bottom Pane";
 
@@ -2161,6 +2276,10 @@ pub(crate) const OVER_PARTS_HIGH: f32 = 394.0;
 /// The Left Dock's panel over the Outliner beside a hak until its seam is
 /// dragged (the Hak board's `.module-panel`, 412; M4's U21).
 pub(crate) const OVER_TYPES_HIGH: f32 = 412.0;
+/// The Left Dock's panel over the Outliner beside the faction editor until
+/// its seam is dragged (the Factions board's `.module-panel`, 452; M4's
+/// U22).
+pub(crate) const OVER_FACTIONS_HIGH: f32 = 452.0;
 /// The Outliner's least height: its header and four rows.
 pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
@@ -3125,6 +3244,9 @@ pub(crate) fn shown(
         Some(Tab::Tileset(id)) => crate::tileset_view::shown(app, &k, ctx, *id),
         // (A hak's, M4's U21: the Hak board's.)
         Some(Tab::Hak(id)) => crate::hak_view::shown(app, &k, ctx, *id),
+        // (The journal's and the faction editor's, M4's U22: their boards'.)
+        Some(Tab::Journal) => crate::journal_view::shown(app, &k, ctx),
+        Some(Tab::Factions) => crate::faction_view::shown(app, &k, ctx),
         Some(Tab::TalkTable) => {
             crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::shown(app))
         }
@@ -3378,6 +3500,7 @@ fn edge_dragged(ctx: &egui::Context, id: &str) -> bool {
 /// Outliner's after its tabs') under the chevron that brings it back.
 pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
     app.left_rect = None;
+    app.strips[0] = None;
     let held = panels(app, Dock::Left);
     let front = left_shown(app);
     if front.is_none() && !outliner_alone(app) {
@@ -3411,6 +3534,8 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 strip.show(ui)
             });
+        // (Where a floating editor first opens clear of it, `Moonglow::strips`.)
+        app.strips[0] = Some(shown.response.rect);
         match shown.inner {
             Some(StripClick::Panel(i)) if i < held.len() => app.show_dock_panel(held[i]),
             // (The Outliner's: the dock unfolded, the keys the Outliner's,
@@ -3521,6 +3646,11 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 Some(crate::outliner::Contents::Hak(_)) => {
                     (OVER_TYPES_HIGH, app.settings.types_panel_height)
                 }
+                // (Beside the faction editor, the Factions board's: the
+                // panel over its factions 452 high; kept apart, M4's U22.)
+                Some(crate::outliner::Contents::Factions) => {
+                    (OVER_FACTIONS_HIGH, app.settings.factions_panel_height)
+                }
                 _ => (app.yields.module_panel_height, app.settings.module_panel_height),
             };
             let chosen = kept.map_or(at_first, |h| h as f32);
@@ -3561,6 +3691,9 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     Some(crate::outliner::Contents::Hak(_)) => {
                         app.settings.types_panel_height = high;
+                    }
+                    Some(crate::outliner::Contents::Factions) => {
+                        app.settings.factions_panel_height = high;
                     }
                     _ => app.settings.module_panel_height = high,
                 }
@@ -3741,6 +3874,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
     app.right_rect = None;
+    app.strips[1] = None;
     app.preview_rect = None;
     app.late_slots.clear();
     app.right_columns = false;
@@ -3777,6 +3911,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 strip.show(ui)
             });
+        app.strips[1] = Some(shown.response.rect);
         match shown.inner {
             Some(StripClick::Panel(i)) => app.show_dock_panel(held[i]),
             Some(StripClick::Unfold) => app.show_panel(Id::ViewPalettes, true),
@@ -4416,9 +4551,19 @@ pub(crate) fn section_heights(room: f32, shares: &[f32]) -> Vec<f32> {
 /// [`SECTION_LEAST`], or what its panel needs to show whole at rest (a
 /// conversation's Conversation panel, its three rows at the editor's
 /// text size: M4's U14 review).
+/// The Faction panel's least height: its header and its three rows (the
+/// Factions board's `.faction-panel`, 132).
+const FACTION_LEAST: f32 = 132.0;
+/// The Reaction panel's: its header, sentence, slider and scale (148).
+const REACTION_LEAST: f32 = 148.0;
+
 fn section_least(app: &Moonglow, section: &[Panel]) -> f32 {
     match section {
         [Panel::Conversation] => crate::dialog_view::conversation_least(app),
+        // (The faction editor's Faction and Reaction, their rows whole: the
+        // board's 132 and 148, M4's U22.)
+        [Panel::Faction] => FACTION_LEAST,
+        [Panel::Reaction] => REACTION_LEAST,
         _ => SECTION_LEAST,
     }
 }
@@ -4582,6 +4727,8 @@ pub(crate) fn panel_body(
         Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
         Panel::Components | Panel::Bindings | Panel::Checks | Panel::Problems => Margin::ZERO,
         Panel::Textures | Panel::Details => Margin::ZERO,
+        Panel::Entry | Panel::Category => Margin::ZERO,
+        Panel::Faction | Panel::Reaction | Panel::Reactions => Margin::ZERO,
         Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if crate::hak_view::hak_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
@@ -4628,6 +4775,28 @@ pub(crate) fn panel_body(
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 crate::hak_view::details(app, &mut body, editor);
+            }
+            // (A journal's and the faction editor's, M4's U22.)
+            Panel::Entry | Panel::Category => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::Entry => crate::journal_view::entry_panel(app, &mut body, editor),
+                    _ => crate::journal_view::category_panel(app, &mut body, editor),
+                }
+            }
+            Panel::Faction | Panel::Reaction | Panel::Reactions => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                match panel {
+                    Panel::Faction => crate::faction_view::faction_panel(app, &mut body, editor),
+                    Panel::Reaction => crate::faction_view::reaction_panel(app, &mut body, editor),
+                    _ => crate::faction_view::reactions_panel(app, &mut body, editor),
+                }
             }
             Panel::Textures => {
                 let builder = egui::UiBuilder::new().max_rect(room);

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T21:20:55Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -915,8 +915,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors and the conversation editor's line colors
-  follow it, the Factions' sliders keep Aurora's red and blue (legible
-  on both: `conversation_and_factions_in_both_themes`), and the area
+  follow it, the Faction Editor's sliders keep Aurora's red and blue
+  (legible on both: `conversation_and_factions_in_both_themes`, which
+  shows Basic's chart), and so do its matrix cells' frames and the
+  Reactions panel's bars (legible on both: `screens.rs`'s
+  `board_factions` in the light theme, Advanced with Reactions beside
+  it, shows the red and blue cells and a friendly bar), and the area
   view's overlays are drawn over the 3D view, whatever the theme. What
   else a builder who uses it finds wanting waits on such a pass. (S) (a
   senior builder's review, October 2026)

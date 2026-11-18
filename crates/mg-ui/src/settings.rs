@@ -822,6 +822,12 @@ pub struct Settings {
     /// stay as they were.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub types_panel_height: Option<u32>,
+    /// The Left Dock's panel over the Outliner beside the faction editor,
+    /// listing the factions (M4's U22: a seam of its own, as the types').
+    /// `None`: not chosen, the Factions board's (452). Written only once
+    /// chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factions_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart

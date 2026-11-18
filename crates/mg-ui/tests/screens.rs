@@ -9801,10 +9801,9 @@ fn script_selection_menu() {
     eprintln!("{}", out.display());
 }
 
-/// The journal editor's lower half (the selection's fields): a category
-/// chosen, the pane dragged taller, then Root chosen, which has one line
-/// to show. The pane stays as tall as it was dragged to; it went back to
-/// that one line (as the conversation editor's did, fixed before).
+/// The journal editor in an empty module (M4's U22: its fields are the
+/// Right Dock's Entry and Category, no lower half): a category added and
+/// chosen, at 1280, narrow, and in its own window with Root chosen.
 #[test]
 #[ignore]
 fn journal_lower_half_kept() {
@@ -9832,25 +9831,6 @@ fn journal_lower_half_kept() {
     shoot(&mut h, &out, "journal-narrow");
     place(&mut h, &mg_ui::Tab::Journal, (60.0, 60.0), (1000.0, 680.0));
     h.run_steps(4);
-    let panel = egui::Id::new("journal-fields");
-    let r = egui::containers::panel::PanelState::load(&h.ctx, panel).unwrap().outer_rect;
-    let from = egui::pos2(r.center().x, r.top() + 2.0);
-    let button = |pos, pressed| egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
-    h.hover_at(from);
-    h.run_steps(1);
-    h.event(button(from, true));
-    h.run_steps(1);
-    for k in 1..=6 {
-        h.hover_at(from - egui::vec2(0.0, 25.0 * k as f32));
-        h.run_steps(1);
-    }
-    h.event(button(from - egui::vec2(0.0, 150.0), false));
-    shoot(&mut h, &out, "journal-dragged-taller");
     h.get_by_label("Root").click();
     shoot(&mut h, &out, "journal-root-chosen");
 }
@@ -14061,9 +14041,9 @@ fn board_resource() {
 }
 
 /// Journal.png: the module's journal As Tabs, its first category open
-/// and its third entry chosen. Today the fields are the editor's bottom
-/// pane, not the board's Entry and Category panels in the Right Dock; the
-/// Status Bar has no counts.
+/// and its third entry chosen, and the fourth category open below it as
+/// the board's second ("Aldo and Hector" in Chapter1), its Entry and
+/// Category panels in the Right Dock (M4's U22).
 #[test]
 #[ignore]
 fn board_journal() {
@@ -14074,17 +14054,17 @@ fn board_journal() {
     {
         let view = &mut h.state_mut().journal_view;
         view.open.insert(0);
+        view.open.insert(3);
         view.selected = Some(mg_ui::journal_view::Node::Entry(0, 2));
     }
     h.run_steps(10);
+    rest_over_the_tree(&mut h, 4);
     shoot(&mut h, &board_dir(), "board_journal");
 }
 
 /// Factions.png: the faction editor As Tabs, Advanced, Victim (Danger)
-/// chosen. Today Add Faction…, Remove Faction, Change Name… and Global
-/// Effect sit at the matrix's right, not in a header; no Faction,
-/// Reaction and Reactions panels in the Right Dock, no Outliner of
-/// factions.
+/// toward Hostile chosen, its Faction, Reaction and Reactions panels in
+/// the Right Dock and its factions in the Outliner (M4's U22).
 #[test]
 #[ignore]
 fn board_factions() {
@@ -14092,15 +14072,186 @@ fn board_factions() {
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     board_front(&mut h, &mg_ui::Tab::Factions);
-    h.state_mut().faction_view.advanced = true;
+    choose_victim(&mut h, true);
+    shoot(&mut h, &board_dir(), "board_factions");
+}
+
+/// The faction editor in front Advanced (or Basic), the cell of Victim
+/// (Danger) toward Hostile chosen, as the board has it.
+fn choose_victim(h: &mut Harness<'_, Moonglow>, advanced: bool) {
+    let factions = mg_module::factions::Factions::of_module(&h.state().ws.as_ref().unwrap().module);
+    let victim = factions.factions.iter().position(|f| f.name == "Victim (Danger)");
+    let view = &mut h.state_mut().faction_view;
+    view.advanced = advanced;
+    view.selected = victim.map_or(1, |v| v as u32);
+    view.target = 1;
+    h.run_steps(5);
+    // (Over a cell, as the board's Status Bar has a cell's hints (Click,
+    // Drag, Double Click), at its left end, clear of its number, which is
+    // at its right: Merchant's row, Aribeth's column, away from the cell
+    // chosen. Basic: at rest, the board's Basic having no hints.)
+    // (The harness keeps no AccessKit boxes here: placed in the pane, under
+    // its tab bar (28) and the header (34), the matrix's margin (6) and
+    // the column headers (22 and a gap of 4); the row headers 8 and 136
+    // wide and a gap of 4; cells 56 by 22 with gaps of 4.)
+    // (The Outliner scrolled as the board's: Fenthick its first row in
+    // sight, Victim (Danger) chosen in its middle.)
+    if let Some(list) = h.state().left_dock_rect() {
+        h.hover_at(egui::pos2(list.center().x, list.bottom() - 60.0));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -6.0 * 22.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(10);
+    }
+    // (No cell's tip over the matrix in the picture: the board shows none.)
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 1.0e6);
+    match pane_of(h, &mg_ui::Tab::Factions).filter(|_| advanced) {
+        Some(r) => {
+            let cells = r.min + egui::vec2(8.0 + 136.0 + 4.0, 28.0 + 34.0 + 6.0 + 22.0 + 4.0);
+            h.hover_at(cells + egui::vec2(5.0 * 60.0 + 4.0, 2.0 * 26.0 + 2.0));
+        }
+        None => no_pointer(h),
+    }
     h.run_steps(3);
-    // (In the list at the matrix's right, the last of its name.)
-    if let Some(victim) = h.query_all_by_label("Victim (Danger)").last() {
-        victim.click();
+}
+
+/// No pointer in the picture (it left the window): where the board shows
+/// no hints of the pointer's, it draws over nothing.
+fn no_pointer(h: &mut Harness<'_, Moonglow>) {
+    h.event(egui::Event::PointerGone);
+    h.run_steps(3);
+}
+
+/// The pointer resting in the journal's tree, over its chosen row `row`
+/// (Root the 0th; lit already, so nothing else is): the board's Status Bar
+/// has the tree's hints.
+fn rest_over_the_tree(h: &mut Harness<'_, Moonglow>, row: usize) {
+    // (Placed in the pane: under its tab bar (28) and the header (34), the
+    // tree's margin (6) and rows of 22; where it draws over none of the
+    // row's words: an entry's indent, left of its ID, or past a
+    // category's words at the row's right end (its arrow, in its indent,
+    // has a tip). No tip over the tree: the board shows none.)
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 1.0e6);
+    let y = 28.0 + 34.0 + 6.0 + 22.0 * row as f32 + 2.0;
+    let entry =
+        matches!(h.state().journal_view.selected, Some(mg_ui::journal_view::Node::Entry(..)));
+    match pane_of(h, &mg_ui::Tab::Journal) {
+        Some(r) if entry => h.hover_at(egui::pos2(r.left() + 12.0, r.top() + y)),
+        Some(r) => h.hover_at(egui::pos2(r.right() - 40.0, r.top() + y)),
+        None => no_pointer(h),
+    }
+    h.run_steps(3);
+}
+
+/// The pane `tab` is drawn in (its tab bar and body).
+fn pane_of(h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab) -> Option<egui::Rect> {
+    let app = h.state();
+    app.dock.iter_leaves().find(|(_, leaf)| leaf.tabs.contains(tab)).map(|(_, leaf)| leaf.rect)
+}
+
+/// `tab` opened and drawn (docked, the active editor; or floating, in a
+/// window of its own).
+fn board_tab(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    frames_until(h, "the tab drawn", |h| h.state().tab_rect(tab).is_some());
+    h.run_steps(5);
+}
+
+/// Journal.png's state: the journal in front, its first category open and
+/// its third entry chosen (`entry`), or the category itself.
+fn journal_as_the_board(h: &mut Harness<'static, Moonglow>, entry: bool) {
+    board_tab(h, &mg_ui::Tab::Journal);
+    {
+        let view = &mut h.state_mut().journal_view;
+        view.open.insert(0);
+        view.selected = Some(match entry {
+            true => mg_ui::journal_view::Node::Entry(0, 2),
+            false => mg_ui::journal_view::Node::Category(0),
+        });
+    }
+    h.run_steps(10);
+    rest_over_the_tree(h, if entry { 4 } else { 1 });
+}
+
+/// Factions.png's state: the faction editor in front, Advanced (or Basic),
+/// Victim (Danger) chosen.
+fn factions_as_the_board(h: &mut Harness<'static, Moonglow>, advanced: bool) {
+    board_tab(h, &mg_ui::Tab::Factions);
+    choose_victim(h, advanced);
+}
+
+/// The journal and the faction editor beside their boards (M4's U22): an
+/// entry and a category chosen; Basic and Advanced; each at 1280 and in the
+/// narrow layout (1000), and floating at 1600 by 900 and 1280 by 720.
+#[test]
+#[ignore]
+fn journal_and_faction_boards() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-journal-factions");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    journal_as_the_board(&mut h, false);
+    shoot(&mut h, &dir, "journal-category");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    factions_as_the_board(&mut h, false);
+    shoot(&mut h, &dir, "factions-basic");
+    for (shot, width) in [("1280", 1280.0), ("narrow", 1000.0)] {
+        let mut h = board_window(&root, egui::vec2(width, 900.0));
+        journal_as_the_board(&mut h, true);
+        shoot(&mut h, &dir, &format!("journal-{shot}"));
+        let mut h = board_window(&root, egui::vec2(width, 900.0));
+        factions_as_the_board(&mut h, true);
+        shoot(&mut h, &dir, &format!("factions-{shot}"));
+    }
+    for (shot, size) in
+        [("floating", egui::vec2(1600.0, 900.0)), ("floating-720", egui::vec2(1280.0, 720.0))]
+    {
+        let mut h = board_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        journal_as_the_board(&mut h, true);
+        shoot(&mut h, &dir, &format!("journal-{shot}"));
+        let mut h = board_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        factions_as_the_board(&mut h, true);
+        shoot(&mut h, &dir, &format!("factions-{shot}"));
+    }
+}
+
+/// The faults U22's review found, where a picture shows them fixed: PC
+/// chosen from the Outliner in Advanced (no cell ringed, the panels'
+/// notes), and Basic's hint over a chart row's name (Click alone).
+/// (Reactions reaching its foot, the board's panels and a floating window
+/// clear of the strip are in `board_factions`, `board_journal` and
+/// `journal_and_faction_boards`' `factions-floating-720`.)
+#[test]
+#[ignore]
+fn faction_editor_review_fixes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-journal-factions");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &mg_ui::Tab::Factions);
+    choose_victim(&mut h, true);
+    h.state_mut().faction_view.selected = 0;
+    h.state_mut().faction_view.full_detail = true;
+    h.run_steps(5);
+    no_pointer(&mut h);
+    shoot(&mut h, &dir, "fix-pc-chosen");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &mg_ui::Tab::Factions);
+    choose_victim(&mut h, false);
+    // (Over Commoner's name in the chart, left of its slider: under the
+    // tab bar (28), the header (34), the chart's heading and two rows.)
+    if let Some(r) = pane_of(&h, &mg_ui::Tab::Factions) {
+        h.hover_at(r.min + egui::vec2(60.0, 28.0 + 34.0 + 30.0 + 2.0 * 26.0 + 8.0));
     }
     h.run_steps(5);
-    rest_pointer(&mut h);
-    shoot(&mut h, &board_dir(), "board_factions");
+    shoot(&mut h, &dir, "fix-basic-name-hint");
 }
 
 /// Options.png: Tools › Options As Tabs, on General. Today one column of

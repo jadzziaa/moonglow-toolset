@@ -29,6 +29,7 @@ mod hak_panels;
 mod handles;
 mod icon_tips;
 mod inventories;
+mod journal_factions;
 mod lists_together;
 mod looks;
 mod menus;

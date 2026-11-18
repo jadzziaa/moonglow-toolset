@@ -470,6 +470,27 @@ pub(crate) fn ok_cancel_header(
     out.end
 }
 
+/// After a panel of an editor with OK and Cancel is drawn, before the
+/// editor (the journal's Entry and Category, M4's U22): what it asked for
+/// this frame (`app.actions` from `pending` on) noted for the editor's
+/// Cancel (`tab`, its `targets`), and a text field of it with the
+/// keyboard the editor's, as a field of the editor's own is
+/// ([`window_drawn_but`]).
+pub(crate) fn panel_drawn(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    pending: usize,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+) {
+    note_changes(app, pending, tab, targets, &[]);
+    let pass = ctx.cumulative_pass_nr();
+    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none() && h.drawn == pass) {
+        let (tab, targets) = (tab.clone(), targets.to_vec());
+        held.window = Some(HeldIn { tab, targets, kept: Vec::new() });
+    }
+}
+
 /// After a window with [`ok_cancel`] is drawn: notes what it asked for
 /// this frame (`app.actions` from `pending` on), and closes it if OK or
 /// Cancel was pressed.
@@ -847,6 +868,13 @@ fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> e
     {
         return id.with(("blueprint", name, host));
     }
+    // (A journal's entry or category, in its panels: by the object, as it
+    // moves, M4's U22.)
+    if key.restype == ResType::JRL
+        && let Some(id) = crate::journal_view::field_id(app, path)
+    {
+        return id.with(("blueprint", name, host));
+    }
     egui::Id::new(("blueprint", key, path, name, host))
 }
 
@@ -911,6 +939,19 @@ pub(crate) fn found_kept(
         let needle = mg_core::text::Needle::new(find);
         Arc::new((0..choices.len()).filter(|&i| needle.finds(&choices[i].text)).collect())
     })
+}
+
+/// How many rows of text a field of several lines shows to reach from
+/// `ui`'s cursor down to `bottom` (its frame and margins taken off): the
+/// room its panel gives it, which its width does not change. At least
+/// three.
+fn rows_to(ui: &Ui, bottom: f32) -> usize {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let row = ui.fonts_mut(|f| f.row_height(&font)).max(1.0);
+    // (egui's margin of a field, 2 above and below, and its frame's line.)
+    let frame = 2.0 * 2.0 + 2.0;
+    let room = bottom - ui.cursor().top() - frame;
+    ((room / row).floor().max(3.0)) as usize
 }
 
 /// The color of text that is the talk table's (a StrRef's), not a
@@ -1036,6 +1077,12 @@ impl Form<'_> {
 
     fn id(&self, name: &str) -> egui::Id {
         window_state_id(self.app, self.key, &self.path, name)
+    }
+
+    /// The id of its text field of `label` (a panel's F6 gives it the
+    /// keyboard's focus).
+    pub(crate) fn field_id(&self, label: &str) -> egui::Id {
+        self.id(label)
     }
 
     /// The id its lists are kept by (`situated::pick_list` and the
@@ -1461,6 +1508,113 @@ impl Form<'_> {
         });
     }
 
+    /// [`locstring_memo`](Self::locstring_memo) as the Journal board's
+    /// Entry has it: whose text it is where it is not its own ("StrRef
+    /// 63176", in the talk table's color) in the heading's row before the
+    /// languages button, not under the text; and the text reaching down to
+    /// `bottom` (the room its panel gives it), however wide.
+    pub(crate) fn locstring_memo_to(&mut self, ui: &mut Ui, what: &str, label: &str, bottom: f32) {
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let language = crate::text::edit_language().name().unwrap_or("?");
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let mut languages = false;
+        mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
+            languages = crate::widgets::languages_button(ui);
+            if let Some((from, why)) = &borrowed {
+                let text = egui::RichText::new(from.as_str())
+                    .size(mg_uikit::metrics::SMALL_SIZE)
+                    .color(color);
+                ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+            }
+        });
+        if languages {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
+        self.mark_mixed(ui, label);
+        let id = self.id(label);
+        let rows = rows_to(ui, bottom);
+        let typed = ui
+            .scope(|ui| {
+                if borrowed.is_some() {
+                    ui.visuals_mut().override_text_color = Some(color);
+                }
+                let buffers = &mut self.app.buffers;
+                crate::widgets::commit_loc_text_in(
+                    buffers,
+                    ui,
+                    id,
+                    &shown,
+                    Some(rows),
+                    f32::INFINITY,
+                    None,
+                )
+            })
+            .inner;
+        if let Some(v) = typed {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        self.hold_text(ui, what, label, &shown, true, move |text| {
+            Value::LocString(with_edited_text(current.clone(), &text))
+        });
+    }
+
+    /// [`memo`](Self::memo) reaching down to `bottom` (the room its panel
+    /// gives it), however wide: the Journal board's Comments.
+    pub(crate) fn memo_to(&mut self, ui: &mut Ui, what: &str, label: &str, bottom: f32) {
+        self.mark_mixed(ui, label);
+        let current = decode(self.root.string(label).unwrap_or_default());
+        let id = self.id(label);
+        let rows = rows_to(ui, bottom);
+        let buffers = &mut self.app.buffers;
+        let typed = crate::widgets::commit_text_in(
+            buffers,
+            ui,
+            id,
+            &current,
+            Some(rows),
+            f32::INFINITY,
+            None,
+        );
+        if let Some(v) = typed {
+            self.set(what, label, Value::String(encode(&v)));
+        }
+        self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
+    }
+
+    /// [`locstring`](Self::locstring) as the Journal board's Category Name
+    /// has it: the whole field's width for the name, the languages button
+    /// beside it, and whose text it is where it is not its own (the talk
+    /// table's color) said by its tip, not inside the field over the name.
+    pub(crate) fn locstring_whole(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let id = self.id(label);
+        let button = ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
+        let width = (ui.available_width() - button).max(60.0);
+        let field = ui.scope(|ui| {
+            if borrowed.is_some() {
+                ui.visuals_mut().override_text_color = Some(color);
+            }
+            crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
+        });
+        if let Some((from, why)) = &borrowed {
+            field.response.on_hover_text(format!("{from}: {why}"));
+        }
+        if let Some(v) = field.inner {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        let held = current.clone();
+        self.hold_text(ui, what, label, &shown, true, move |text| {
+            Value::LocString(with_edited_text(held.clone(), &text))
+        });
+        if crate::widgets::languages_button(ui) {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
+    }
+
     /// Sets several fields in one command.
     pub(crate) fn set_fields(&mut self, what: &str, fields: Vec<(&str, Value)>) {
         let edits = self
@@ -1665,6 +1819,54 @@ impl Form<'_> {
         if let Some(v) = commit_number(ui, self.int(label), range) {
             self.set_int(what, label, v, FieldType::Byte);
         }
+    }
+
+    /// [`number`](Self::number) `width` wide, its number at its right end
+    /// (the Journal board's ID and XP): egui's field centers it, so it is
+    /// drawn with its text unseen and the number painted at the right;
+    /// typed in, the field's own text shows (at the right too, from the
+    /// layout). Its response.
+    pub(crate) fn number_at_right(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        range: std::ops::RangeInclusive<i64>,
+        width: f32,
+    ) -> egui::Response {
+        self.mark_mixed(ui, label);
+        let current = self.int(label);
+        let size = egui::vec2(width, mg_uikit::metrics::CONTROL_HEIGHT);
+        let layout = egui::Layout::right_to_left(egui::Align::Center);
+        let (set, r) = ui
+            .allocate_ui_with_layout(size, layout, |ui| {
+                ui.spacing_mut().interact_size.x = width;
+                // (The field's id, as `drag_number_shown` takes it.)
+                let editing = ui.memory(|m| m.has_focus(ui.next_auto_id()));
+                if !editing {
+                    ui.visuals_mut().override_text_color = Some(egui::Color32::TRANSPARENT);
+                }
+                let (set, shown, r) =
+                    crate::widgets::drag_number_shown(ui, current, |d| d.range(range));
+                if !editing {
+                    let style = ui.style().drag_value_text_style.clone();
+                    let font = style.resolve(ui.style());
+                    let color = ui.style().interact(&r).text_color();
+                    let galley = ui.painter().layout_no_wrap(shown.to_string(), font, color);
+                    let inner = r.rect.shrink2(ui.spacing().button_padding);
+                    let at = egui::pos2(
+                        inner.right() - galley.size().x,
+                        inner.center().y - galley.size().y / 2.0,
+                    );
+                    ui.painter().galley(at, galley, color);
+                }
+                (set, r)
+            })
+            .inner;
+        if let Some(v) = set {
+            self.set_int(what, label, v, FieldType::Byte);
+        }
+        r
     }
 
     /// [`number`](Self::number) with Aurora's pair of arrows after the
@@ -2201,6 +2403,16 @@ pub(crate) fn narrow(ui: &Ui) -> bool {
 
 /// Where [`form_ui`] keeps whether the form it draws is narrow.
 const NARROW_ID: &str = "blueprint-form-narrow";
+
+/// `add` drawn as a narrow form's ([`narrow`]): a panel's fields (the
+/// journal's Entry and Category, M4's U22) fill the room they are given,
+/// never wider.
+pub(crate) fn narrow_form<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), true));
+    let r = add(ui);
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
+    r
+}
 
 /// A form's grid of labels and values, two columns (the pages' `Grid`s):
 /// in a narrow room ([`narrow`]) each column at most half the width, its labels wrapping there, the value column taking the

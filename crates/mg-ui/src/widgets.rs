@@ -5371,22 +5371,6 @@ pub(crate) fn language_tokens(app: &Moonglow, language: Language) -> Vec<String>
     tokens
 }
 
-/// Expand All and Collapse All for a list of `what`s (groups, categories)
-/// that open and close: `Some(true)` or `Some(false)` on the frame one is
-/// clicked, to give to each header's `open`.
-pub(crate) fn fold_buttons(ui: &mut Ui, what: &str) -> Option<bool> {
-    let mut fold = None;
-    ui.horizontal_wrapped(|ui| {
-        if ui.small_button("Expand All").on_hover_text(format!("Open every {what}")).clicked() {
-            fold = Some(true);
-        }
-        if ui.small_button("Collapse All").on_hover_text(format!("Close every {what}")).clicked() {
-            fold = Some(false);
-        }
-    });
-    fold
-}
-
 /// Edit beside a script's name, the field `field` ([`resref_field`]):
 /// the name to give [`Action::EditScript`](crate::Action::EditScript) when
 /// it is clicked. There for any name, as soon as one is typed (the field

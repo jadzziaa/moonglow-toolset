@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T11:46:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T21:20:55Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -500,20 +500,20 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Add | Header word button |
-| Copy, Cut, Paste, Delete | Header icon buttons |
-| Expand All, Collapse All | Header icon buttons |
-| OK, Cancel | Right end of the header |
-| Root, category rows, entry rows | Tree rows; an End badge marks an entry that finishes |
-| Entry fields: ID, Finish Category, Text, language | Right Dock, Entry panel |
-| Category fields: Name, Tag, Priority, XP, Comments | Right Dock, Category panel |
-| Hints | Status Bar: Click, Double Click, Ctrl+Z, Ctrl+Shift+Z |
+| Add | Header word button ✓ M4 U22 (off where nothing can be added; its tip says what it adds) |
+| Copy, Cut, Paste, Delete | Header icon buttons ✓ M4 U22 (off with nothing chosen; Paste off with nothing copied, or an entry copied and no category chosen) |
+| Expand All, Collapse All | Header icon buttons ✓ M4 U22 (after a line) |
+| OK, Cancel | Right end of the header ✓ M4 U22 (Cancel sets back the panels' edits too) |
+| Root, category rows, entry rows | Tree rows; an End badge marks an entry that finishes ✓ M4 U22 (indent guides; the rows in sight alone laid out; a category's name and an entry's text from the talk table where they are StrRefs) |
+| Entry fields: ID, Finish Category, Text, language | Right Dock, Entry panel ✓ M4 U22 ("Finish category", sentence case; what is typed follows its entry) |
+| Category fields: Name, Tag, Priority, XP, Comments | Right Dock, Category panel ✓ M4 U22 (what is typed follows its category) |
+| Hints | Status Bar: Click, Double Click, Ctrl+Z, Ctrl+Shift+Z ✓ M4 U22 (Click and Double Click over the tree, none while a field is typed in; the counts of categories and entries; no Save hint, the owner's ruling) |
 
 
 #### New
 
-- The Category panel shows the parent while an entry is selected.
-- A subtitle on the Entry panel tab.
+- The Category panel shows the parent while an entry is selected ✓ M4 U22.
+- A subtitle on the Entry panel tab ✓ M4 U22 ("[0002] of Category000"; the Category's its tag).
 
 #### Not Drawn
 
@@ -523,27 +523,27 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Basic, Advanced | Segmented control in the header |
-| Advanced grid | The matrix filling the editor, with frozen row headers |
-| Basic chart | Right Dock, Reactions panel (not drawn in Basic) |
-| Full Detail | Checkbox in the Reactions panel |
-| Factions list | Left Dock, Outliner |
-| Add Faction…, Remove Faction, Change Name… | Header word buttons |
-| Global Effect | Right Dock, Faction panel |
-| Attitude words and the hover sentence | Reactions panel and cell tooltips |
-| OK, Cancel | Right end of the header |
+| Basic, Advanced | Segmented control in the header ✓ M4 U22 (the kit's switch, named Mode) |
+| Advanced grid | The matrix filling the editor, with frozen row headers ✓ M4 U22 (the column headers frozen too; a chosen cell; the cells in sight alone laid out; its keys the active editor's: arrows, a number typed, Enter; Tab not bound) |
+| Basic chart | Right Dock, Reactions panel (not drawn in Basic) ✓ M4 U22: done otherwise than planned. The Reactions panel was built and is drawn in Advanced; Basic keeps the chart as its view (the board drew it Not Drawn; the switch's Basic has nothing else to show) |
+| Full Detail | Checkbox in the Reactions panel ✓ M4 U22 ("Full detail") |
+| Factions list | Left Dock, Outliner ✓ M4 U22 (`outliner::Owner::Factions`: a click chooses, the arrows, Page Up and Down, Home and End move, a letter goes by name) |
+| Add Faction…, Remove Faction, Change Name… | Header word buttons ✓ M4 U22 (Remove and Change Name… off for a standard faction, their tips saying why) |
+| Global Effect | Right Dock, Faction panel ✓ M4 U22 ("Global effect"; off for a standard faction) |
+| Attitude words and the hover sentence | Reactions panel and cell tooltips ✓ M4 U22 (and the Reaction panel's sentence) |
+| OK, Cancel | Right end of the header ✓ M4 U22 (Cancel sets back the window's changes, a removal's renumbering too) |
 
 
 #### New
 
-- A selectable cell with a Reaction panel: slider, sentence and the Hostile, Neutral, Friendly scale.
-- A read-only Parent field (today only in Add Faction).
-- Frozen row headers, and the hint "Select a reaction".
+- A selectable cell with a Reaction panel: slider, sentence and the Hostile, Neutral, Friendly scale ✓ M4 U22 (the slider one Undo step as it is let go).
+- A read-only Parent field (today only in Add Faction) ✓ M4 U22 (in the Faction panel, with a read-only Name).
+- Frozen row headers, and the hint "Select a reaction" ✓ M4 U22 (Click Select a reaction, Drag Change a reaction, Double Click Type a value over the matrix; "N factions" and "M added by the module").
 
 #### Not Drawn
 
 - The Add Faction and Change Faction Name windows, which stay modal.
-- The Basic chart view.
+- The Basic chart view (kept as Basic's view ✓ M4 U22: the switch's Basic has nothing else to show; the Reactions panel stands beside it).
 
 ### Dialogs and Wizards
 

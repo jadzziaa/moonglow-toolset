@@ -1557,11 +1557,11 @@ fn journal_editor_builds_what_aurora_builds() {
     click(&mut h, "Add");
     click(&mut h, "Root");
     click(&mut h, "Add");
-    click(&mut h, "Category000  [Category000]");
+    click(&mut h, "Category000 [Category000]");
     click(&mut h, "Add");
-    click(&mut h, "Category000  [Category000]");
+    click(&mut h, "Category000 [Category000]");
     click(&mut h, "Add");
-    click(&mut h, "Category001  [Category001]");
+    click(&mut h, "Category001 [Category001]");
     click(&mut h, "Add");
     let key = ResKey::parse("module", ResType::JRL).unwrap();
     let ws = h.state_mut().ws.as_mut().unwrap();

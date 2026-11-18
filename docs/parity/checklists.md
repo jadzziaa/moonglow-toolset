@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T01:53:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T18:28:02Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -102,13 +102,13 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Faction list | list, selection | ✅ |
+| Faction list | the Outliner's factions (M4 U22): a click chooses, the arrows, Page Up and Down, Home and End move, a letter goes by name; and the matrix's row headers | ✅ [the_outliner_s_factions_choose_and_its_keys_move] |
 | Add Faction: name, Global Effect (default on), parent among the standard factions after PC | same; reputations copied from the parent both ways, missing entries written as 100, exactly as Aurora writes the file | ✅ (`aurora_factions.rs`: identical file) [faction_editor_adds_and_removes_factions] |
 | Remove Faction (not the standard five), with a confirmation | same, without the confirmation (undoable instead); later factions renumbered as Aurora does; refused while objects use the faction (Aurora's handling of such objects is not captured yet) | ✅ / ◐ |
 | Change Faction Name | Change Name… | ✅ |
-| Global Effect per faction | checkbox (custom factions) | ✅ |
-| Basic: OpenGL chart of how the selected faction regards the others (drag bars to edit), Full Detail | sliders per faction with Aurora's colors, Full Detail adds how the others regard it | ✅ (sliders instead of a drawn chart) |
-| Advanced: grid, row regards column, editable 0–100 | same grid, colored, hover says hostile/neutral/friendly like Aurora's status bar | ✅ |
+| Global Effect per faction | "Global effect" in the Right Dock's Faction panel (custom factions; M4 U22), beside a read-only Name and Parent | ✅ [the_faction_and_reaction_panels_change_in_one_step_each] |
+| Basic: OpenGL chart of how the selected faction regards the others (drag bars to edit), Full Detail | Basic of the header's switch: sliders per faction with Aurora's colors, Full Detail adds how the others regard it (one Undo step as a slider is let go) | ✅ (sliders instead of a drawn chart) |
+| Advanced: grid, row regards column, editable 0–100 | the matrix (M4 U22): row and column headers frozen, cells framed red where hostile and blue where friendly, the hover sentence like Aurora's status bar; a click chooses a cell, the arrows move, a number typed and Enter set it, a drag or a double click edits (one Undo step each); the chosen cell's Reaction panel (sentence, slider, value, the scale) and the Reactions panel (Full detail) in the Right Dock; only the cells in sight laid out | ✅ [the_matrix_is_chosen_by_a_click_and_its_keys_move_and_type], [a_dragged_cell_changes_in_one_step], [a_hundred_factions_are_read_once_and_drawn_in_sight] |
 | Reputations in the engine | 36 creature pairs report `GetReputation` as written, after adding, editing and removing | ✅ (`engine_factions.rs`) |
 | OK / Cancel | the same, over live edits (one undoable command each): Cancel sets back what the window changed, as one step | ✅ [the_editors_cancel_sets_back_what_they_changed] |
 
@@ -116,12 +116,12 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Tree Root → categories → entries (`[0001] - text`) | same (`[0001] text`, "(finishes)" marked) | ✅ |
+| Tree Root → categories → entries (`[0001] - text`) | same (`[0001] text`), an End badge on an entry that finishes, indent guides; names and texts from the talk table where they are StrRefs (M4 U22) | ✅ |
 | Add: with Root a category, with a category an entry, disabled on an entry | same | ✅ [journal_editor_builds_what_aurora_builds] |
 | New category: CategoryNNN name and tag, priority Lowest, XP 0, no picture; new entry: next ID, text EntryNNN | same; the file equals Aurora's | ✅ (`aurora_journal.rs`, and through the UI) |
-| Copy, Cut, Paste, Delete | same (paste appends; IDs are kept) | ✅ |
-| Category: Name + `…`, Tag (32), Priority (Highest…Lowest), XP, Comments | same | ✅ |
-| Entry: ID, Finish Category, Text + `…` | same | ✅ |
+| Copy, Cut, Paste, Delete | the header's icons, Expand All and Collapse All after them (M4 U22; paste appends; IDs are kept) | ✅ [expand_all_and_collapse_all_open_and_close_every_category] |
+| Category: Name + `…`, Tag (32), Priority (Highest…Lowest), XP, Comments | the Right Dock's Category panel (M4 U22; the parent of the entry chosen); what is typed follows its category | ✅ [typed_text_follows_its_category] |
+| Entry: ID, Finish Category, Text + `…` | the Right Dock's Entry panel (M4 U22; "Finish category", its subtitle "[0002] of Category000") | ✅ [the_journal_s_header_and_panels_follow_the_choice] |
 | Apply / OK / Cancel | OK and Cancel, over live edits (one undoable command each): Cancel sets back what the window changed, as one step; no Apply, as every edit is applied as it is made | ✅ [the_editors_cancel_sets_back_what_they_changed] |
 | In the engine | `GetJournalQuestExperience` returns each category's XP by tag | ✅ (`engine_journal.rs`) |
 

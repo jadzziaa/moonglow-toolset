@@ -793,9 +793,12 @@ impl Id {
             Id::Undo => app
                 .local_can_undo(false)
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some())),
-            Id::Redo => app
-                .local_can_undo(true)
-                .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
+            Id::Redo => app.local_can_undo(true).unwrap_or_else(|| {
+                app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())
+                    // (Not with something typed in the journal's panels
+                    // waiting to be set: M4's U22 review.)
+                    && !crate::journal_view::typing_pending(app)
+            }),
             Id::ResizeArea
             | Id::RotateArea
             | Id::ChangeTileset

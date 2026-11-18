@@ -470,6 +470,19 @@ pub(crate) enum Keys {
     /// A hak's Details (M4's U21): no arrows of its own; F6 gives its
     /// Description the keyboard's focus.
     HakDetails,
+    /// A journal's Entry and Category (M4's U22): no arrows of their own;
+    /// F6 gives the panel's first field the keyboard's focus.
+    JournalEntry,
+    JournalCategory,
+    /// The faction editor's matrix (M4's U22): the arrows choose a cell,
+    /// a digit starts typing its value, Enter types or sets it, while the
+    /// faction editor is the active editor.
+    Factions,
+    /// The faction editor's Faction, Reaction and Reactions (M4's U22): F6
+    /// gives the panel's first control the keyboard's focus.
+    FactionPanel,
+    Reaction,
+    Reactions,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

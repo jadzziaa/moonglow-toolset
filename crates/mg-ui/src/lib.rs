@@ -958,6 +958,10 @@ pub struct Moonglow {
     /// (`shell::left_dock`; `None` from the start of each frame until it
     /// is drawn).
     pub(crate) left_rect: Option<egui::Rect>,
+    /// Where the Left and the Right Dock's strips were drawn at the last
+    /// frame, where folded: a floating editor first opens clear of them
+    /// (`open_window`).
+    pub(crate) strips: [Option<egui::Rect>; 2],
     /// Where the Right Dock was drawn at this frame, unfolded
     /// (`shell::right_dock`; `None` from the start of each frame until it
     /// is drawn).
@@ -1654,6 +1658,7 @@ impl Moonglow {
             window_bottoms: HashMap::new(),
             window_rights: HashMap::new(),
             left_rect: None,
+            strips: [None; 2],
             left_panel: Panel::Module,
             left_drawn: None,
             outliner: Default::default(),
@@ -1961,6 +1966,7 @@ impl Moonglow {
         // it: M4's U16.)
         self.active_tab_now = table_view::front_of_focused(self);
         table_view::keep_tab_for_the_grid(self, ui.ctx());
+        faction_view::keep_tab_for_the_matrix(self, &ui.ctx().clone());
         // (The game's text is read by the open module's table, if its haks
         // have one: `encoding.2da`.)
         let codepage = self.game.as_deref().map(GameData::codepage);
@@ -2443,6 +2449,10 @@ impl Moonglow {
         // A Properties text field that was typed in and is not drawn any
         // more: set now, as it would have been when left, and among what
         // its window's Cancel sets back.
+        // (A journal's number field not seen with the keyboard this frame
+        // has nothing typed waiting: `journal_view::typing_pending`.)
+        let pass = ui.ctx().cumulative_pass_nr();
+        self.journal_view.number_typed = self.journal_view.number_typed.filter(|p| *p == pass);
         if let Some(held) = self.held_text.take_if(|h| h.drawn != ui.ctx().cumulative_pass_nr()) {
             if let Some(command) = held.command {
                 if let Some(w) = &held.window {
@@ -3211,6 +3221,7 @@ impl Moonglow {
         self.settings.layers_panel_height = None;
         self.settings.parts_panel_height = None;
         self.settings.types_panel_height = None;
+        self.settings.factions_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3328,6 +3339,8 @@ impl Moonglow {
             Some(Tab::Tileset(_)) => (Keys::Tiles, None),
             // (A hak's table of resources, M4's U21.)
             Some(Tab::Hak(_)) => (Keys::Hak, None),
+            // (The faction editor's matrix, M4's U22.)
+            Some(Tab::Factions) => (Keys::Factions, None),
             _ => (Keys::Area, None),
         }
     }
@@ -3500,6 +3513,12 @@ impl Moonglow {
             Keys::Textures,
             // (And a hak's Details, M4's U21.)
             Keys::HakDetails,
+            // (And a journal's and the faction editor's panels, M4's U22.)
+            Keys::JournalEntry,
+            Keys::JournalCategory,
+            Keys::FactionPanel,
+            Keys::Reaction,
+            Keys::Reactions,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3637,6 +3656,22 @@ impl Moonglow {
             .unwrap_or(screen);
         // Below the menu and toolbar (the main pane's top), never over them.
         let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
+        // Placed clear of a folded dock's strip: a window's resize handles
+        // reach past its edges by egui's corner grab
+        // (`resize_grab_radius_corner`, 10), and over the strip's buttons
+        // (Show the Left Dock) a click would take hold of the window's
+        // corner instead (M4's U22 review). Its size is still fitted to
+        // the room (the margin takes the strip), narrowed only where it
+        // would not fit beside it. (A dock open is the window's to lie
+        // over, as it was.)
+        const GRAB: f32 = 10.0;
+        let mut clear = room;
+        if let Some(strip) = self.strips[0] {
+            clear.min.x = clear.min.x.max(strip.right() + GRAB + 1.0);
+        }
+        if let Some(strip) = self.strips[1] {
+            clear.max.x = clear.max.x.min(strip.left() - GRAB - 1.0);
+        }
         // As wide and tall as one of its kind was last left.
         let left = kept_by_kind(&self.settings.window_sizes, &tab);
         // (One left too small to use, by an older version, is passed over.)
@@ -3661,14 +3696,23 @@ impl Moonglow {
             // the room they had.)
             // (A hak's too, its Preview and Details at its right and its
             // types at its left, M4's U21: its table keeping its room.)
-            None if matches!(tab, Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_) | Tab::Hak(_)) => {
+            // (The faction editor's too, its Faction, Reaction and
+            // Reactions at its right and its factions at its left, M4's
+            // U22: its matrix keeping its room.)
+            None if matches!(
+                tab,
+                Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_) | Tab::Hak(_) | Tab::Factions
+            ) =>
+            {
                 tab.window_size()
                     + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
             // (A talk table's, its String, References and Talk Table at
             // its right, M4's U17: that much wider, its list keeping the
             // room it had.)
-            None if tab == Tab::TalkTable => {
+            // (The journal's too, its Entry and Category at its right,
+            // M4's U22.)
+            None if tab == Tab::TalkTable || tab == Tab::Journal => {
                 tab.window_size() + egui::vec2(RIGHT_DOCK_LEAST + 1.0, 0.0)
             }
             None => tab.window_size(),
@@ -3684,7 +3728,13 @@ impl Moonglow {
         // room. The coordinator's ruling at M4's U17 review.)
         let panes = matches!(
             tab,
-            Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_) | Tab::Hak(_)
+            Tab::Dialog(_)
+                | Tab::Table(_)
+                | Tab::Nui(_)
+                | Tab::Tileset(_)
+                | Tab::Hak(_)
+                | Tab::Factions
+                | Tab::Journal
         ) || tab == Tab::TalkTable;
         let wide = if tab == Tab::Options {
             room.width()
@@ -3699,6 +3749,7 @@ impl Moonglow {
         } else {
             egui::vec2(want.x.min(wide), want.y.min(room.height() * 0.9))
         };
+        let size = egui::vec2(size.x.min(clear.width()), size.y);
         let windows = self
             .dock
             .iter_surfaces()
@@ -3706,7 +3757,7 @@ impl Moonglow {
             .count();
         let step = 28.0 * (windows % 8) as f32;
         let mut at = main.center() - size / 2.0 + egui::vec2(step, step);
-        at.x = at.x.min(room.right() - size.x).max(room.left());
+        at.x = at.x.min(clear.right() - size.x).max(clear.left());
         at.y = at.y.min(room.bottom() - size.y).max(room.top());
         self.dock.add_window(vec![tab.clone()]);
         self.put_window(&tab, egui::Rect::from_min_size(at, size));
@@ -5086,6 +5137,11 @@ impl Moonglow {
                 }
                 // (So is Q and E's turning, not yet a command.)
                 if action == Action::Undo && area_view::drop_key_turn(self) {
+                    return;
+                }
+                // (Nothing to redo while what is typed in the journal's
+                // panels waits to be set: `journal_view::typing_pending`.)
+                if action == Action::Redo && journal_view::typing_pending(self) {
                     return;
                 }
                 let Some(ws) = &mut self.ws else { return };

@@ -1176,9 +1176,15 @@ fn a_faction_s_removal_cancelled_numbers_its_objects_back() {
     let factions =
         |app: &Moonglow| Factions::of_module(&app.ws.as_ref().unwrap().module).factions.len();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
-    h.run_steps(4);
-    h.get_by_label("Guards").click();
-    h.run_steps(2);
+    settle(&mut h);
+    // (The factions are the Outliner's, M4's U22: in the editor's window,
+    // folded to its strip at this width; its button opens it, Guards'
+    // row clicked.)
+    h.get_by_label(mg_ui::OUTLINER).click();
+    settle(&mut h);
+    crate::conversation_outliner::outliner_row(&h, "Guards").expect("Guards' row").click();
+    settle(&mut h);
+    assert_eq!(h.state().faction_view.selected, guards, "Guards chosen");
     h.get_by_label("Remove Faction").click();
     h.run_steps(3);
     assert_eq!(factions(h.state()), 6, "Guards removed");
@@ -1240,9 +1246,15 @@ fn a_faction_an_open_object_was_just_given_is_not_removed() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Joins", vec![joins])));
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
-    h.run_steps(4);
-    h.get_by_label("Guards").click();
-    h.run_steps(2);
+    settle(&mut h);
+    // (The factions are the Outliner's, M4's U22: in the editor's window,
+    // folded to its strip at this width; its button opens it, Guards'
+    // row clicked.)
+    h.get_by_label(mg_ui::OUTLINER).click();
+    settle(&mut h);
+    crate::conversation_outliner::outliner_row(&h, "Guards").expect("Guards' row").click();
+    settle(&mut h);
+    assert_eq!(h.state().faction_view.selected, guards, "Guards chosen");
     h.get_by_label("Remove Faction").click();
     h.run_steps(3);
     let module = &h.state().ws.as_ref().unwrap().module;
@@ -2854,7 +2866,7 @@ fn a_journal_field_its_file_lacks_is_written_in_its_own_type() {
     assert_eq!(category(&mut h).get("XP"), Some(&Value::Dword(500)));
     h.state_mut().journal_view.selected = Some(Node::Entry(0, 0));
     h.run_steps(3);
-    h.get_by_label("Finish Category").click();
+    h.get_by_label("Finish category").click();
     h.run_steps(3);
     let entry = category(&mut h).list("EntryList").unwrap()[0].clone();
     assert_eq!(entry.get("End"), Some(&Value::Word(1)));

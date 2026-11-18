@@ -1984,8 +1984,8 @@ fn frames_at_144() {
     h.state_mut().palette.filter.clear();
 
     resources_panel(&mut h, &mut r, "resource browser");
-    tab(&mut h, &mut r, "Faction Editor", Tab::Factions);
-    tab(&mut h, &mut r, "Journal Editor", Tab::Journal);
+    factions(&mut h, &mut r);
+    journal(&mut h, &mut r);
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
     talk_table(&mut h, &mut r);
@@ -2154,6 +2154,101 @@ fn hak(h: &mut App<'_>, r: &mut Report) {
     view(h, r, what, Some(&t));
     close(h, &t);
     h.state_mut().settings.open_editors = was;
+}
+
+/// The Faction Editor (M4's U22), docked As Tabs: Advanced's matrix with
+/// its frozen headers, the second faction's cell toward the first chosen,
+/// Faction, Reaction and Reactions in the Right Dock and the factions in
+/// the Outliner (asserted shown). How many factions it draws is printed.
+fn factions(h: &mut App<'_>, r: &mut Report) {
+    let what = "Faction Editor";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    let folded = h.state().right_dock_shows().is_none();
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let t = Tab::Factions;
+    {
+        let v = &mut h.state_mut().faction_view;
+        v.advanced = true;
+        v.selected = 2;
+        v.target = 1;
+    }
+    open(h, t.clone());
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Reaction));
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&t).is_some_and(|at| at.surface.is_main()), "not docked");
+    assert!(h.state().right_dock_rect().is_some(), "no Right Dock");
+    assert!(h.query_by_label("Global effect").is_some(), "Faction not shown");
+    assert!(h.query_by_label("Full detail").is_some(), "Reactions not shown");
+    let outliner =
+        h.query_all_by_label(mg_ui::OUTLINER).any(|g| g.query_by_label("Hostile").is_some());
+    assert!(outliner, "no Outliner of the factions");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let count = mg_module::factions::Factions::of_module(&ws.module).factions.len();
+    let cells = h
+        .query_by_label(mg_ui::faction_view::MATRIX)
+        .map_or(0, |m| m.query_all_by_label_contains(" toward ").count());
+    println!(
+        "  ({count} factions, {cells} cells laid out; the Right Dock drawn: {}; the Outliner: {outliner})",
+        h.state().right_dock_rect().is_some(),
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+    // (The Right Dock folded again as it was found: the views after
+    // unfold it on the panel they ask for.)
+    if folded {
+        fold_palette(h);
+    }
+}
+
+/// The Journal Editor (M4's U22), docked As Tabs: its first category opened
+/// and its first entry chosen, Entry and Category in the Right Dock
+/// (asserted shown). How many categories and entries it has is printed.
+fn journal(h: &mut App<'_>, r: &mut Report) {
+    let what = "Journal Editor";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    let folded = h.state().right_dock_shows().is_none();
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let t = Tab::Journal;
+    {
+        let v = &mut h.state_mut().journal_view;
+        v.open = [0].into();
+        v.selected = Some(mg_ui::journal_view::Node::Entry(0, 0));
+    }
+    open(h, t.clone());
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Entry));
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&t).is_some_and(|at| at.surface.is_main()), "not docked");
+    assert!(h.state().right_dock_rect().is_some(), "no Right Dock");
+    assert!(h.query_by_label("Finish category").is_some(), "Entry not shown");
+    let jrl = ResKey::parse("module", ResType::JRL).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let cats: Vec<mg_gff::Struct> = ws
+        .doc(&jrl)
+        .ok()
+        .and_then(|g| g.root.list("Categories").map(<[_]>::to_vec))
+        .unwrap_or_default();
+    let entries: usize = cats.iter().map(|c| mg_module::journal::entries(c).len()).sum();
+    println!(
+        "  ({} categories, {entries} entries; the Right Dock drawn: {})",
+        cats.len(),
+        h.state().right_dock_rect().is_some(),
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+    if folded {
+        fold_palette(h);
+    }
 }
 
 /// The game's `dialog.tlk` (M4's U17), docked As Tabs: its 112,228 lines

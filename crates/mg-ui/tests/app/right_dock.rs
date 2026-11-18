@@ -1305,36 +1305,49 @@ fn a_floating_window_leaves_the_right_dock_as_it_is() {
 }
 
 /// Two panes in the editor area's middle, the area's on the left and a
-/// tool's (the Faction Editor's) on the right: the Right Dock follows the
-/// one with the focus, its tab in front; the area opened again (from the
-/// module tree, a link) while the tool's has the focus gives its pane the
-/// focus.
+/// tool's on the right: the Right Dock follows the one with the focus,
+/// its tab in front; the area opened again (from the module tree, a link)
+/// while the tool's has the focus gives its pane the focus. The tool is
+/// Module Properties, which brings no Right Dock (none is drawn beside
+/// it), and the Faction Editor, which brings its own panels since M4's
+/// U22.
 #[test]
 fn the_right_dock_follows_the_pane_with_the_focus() {
-    let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
-    {
-        let dock = &mut h.state_mut().dock;
-        let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
-        dock.main_surface_mut().split_right(node, 0.6, vec![Tab::Factions]);
+    for tool in [Tab::ModuleProperties, Tab::Factions] {
+        let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
+        {
+            let dock = &mut h.state_mut().dock;
+            if let Some(at) = dock.find_tab(&tool) {
+                dock.remove_tab(at);
+            }
+            let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
+            dock.main_surface_mut().split_right(node, 0.6, vec![tool.clone()]);
+        }
+        settle(&mut h);
+        let what = format!("{tool:?}");
+        let tools_own = |h: &Harness<'_, Moonglow>| match tool {
+            Tab::Factions => right_tabs(h) == ["Faction", "Reaction"],
+            _ => !right_dock_drawn(h),
+        };
+        click_tab(&mut h, &tool);
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&tool), "{what}");
+        assert!(!palette_shown(h.state()), "{what}: the tool's pane: not the area's panels");
+        assert!(tools_own(&h), "{what}: the tool's own (none, or its panels in Basic)");
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "{what}");
+        assert!(palette_shown(h.state()), "{what}: the area's pane: the Right Dock");
+        click_tab(&mut h, &tool);
+        settle(&mut h);
+        assert!(tools_own(&h), "{what}: the tool's again");
+        // The area opened again (from the module tree, say: it is open in
+        // the other pane) is the active editor, its pane given the focus.
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "{what}");
+        assert!(palette_shown(h.state()), "{what}: the area opened: the Right Dock");
     }
-    settle(&mut h);
-    click_tab(&mut h, &Tab::Factions);
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
-    assert!(!right_dock_drawn(&h), "the tool's pane: no Right Dock");
-    click_tab(&mut h, &Tab::Area(area));
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
-    assert!(palette_shown(h.state()), "the area's pane: the Right Dock");
-    click_tab(&mut h, &Tab::Factions);
-    settle(&mut h);
-    assert!(!right_dock_drawn(&h));
-    // The area opened again (from the module tree, say: it is open in the
-    // other pane) is the active editor, its pane given the focus.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
-    assert!(palette_shown(h.state()), "the area opened: the Right Dock");
 }
 
 /// With the last area closed, the placeholder that says none is open

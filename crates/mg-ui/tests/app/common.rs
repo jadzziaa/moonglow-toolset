@@ -669,6 +669,22 @@ pub(crate) fn header_holds<S>(h: &mut Harness<'_, S>, group: &str, names: &[&str
 /// [`header_holds`] for the `nth` header named `group` (by where it is:
 /// top to bottom, then left to right; `mg_uikit::header::records`).
 #[track_caller]
+/// Runs frames until the window rests, as [`settle`] does for any state:
+/// a view with work of its own under way (a table's look read on a
+/// thread, which asks for frames until it is done) is waited for, not
+/// taken as never resting after kittest's four steps (the M4 U22 review's
+/// `the_table_header_holds_every_control_from_420_to_1600` under load).
+pub(crate) fn rest<S>(h: &mut Harness<'_, S>) {
+    let started = std::time::Instant::now();
+    loop {
+        match h.try_run() {
+            Ok(_) => return,
+            Err(e) if started.elapsed() > SETTLE_TIME => panic!("the UI keeps repainting: {e}"),
+            Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
+        }
+    }
+}
+
 pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usize, names: &[&str]) {
     use mg_uikit::header::{self, Place};
     let record = |h: &Harness<'_, S>| {
@@ -752,7 +768,7 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
     if record(h).open.as_deref() != Some(header::MORE) {
         let rows = h.query_all_by_label(group).nth(nth).expect("its group");
         rows.get_by_label(header::MORE).click();
-        h.run();
+        rest(h);
     }
     let popover = record(h).popover.expect("More's popover drawn");
     for name in &in_more {
@@ -763,7 +779,7 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
         // into sight.)
         if !popover.expand(0.5).contains_rect(rect_of(&node)) {
             node.scroll_to_me();
-            h.run();
+            rest(h);
         }
         // (A group, a segmented control's, is scrolled to by its first
         // part: egui scrolls to widgets, not to a scope.)
@@ -780,7 +796,7 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
             }
         };
         if scrolled {
-            h.run();
+            rest(h);
         }
         let node = h.get_by_label(&more).get_by_label(name);
         let r = rect_of(&node);
@@ -790,7 +806,7 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
         );
     }
     h.key_press(egui::Key::Escape);
-    h.run();
+    rest(h);
     assert!(h.query_by_label(&more).is_none(), "{group}'s More stayed open");
 }
 
