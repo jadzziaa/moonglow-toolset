@@ -1184,18 +1184,23 @@ pub(crate) struct Shown {
     pub(crate) pop_out: bool,
     /// Its camera as a session left it (a tab opened again).
     pub(crate) restore: bool,
+    /// Paused where it is first made (a tileset's Preview, M4's U20: a
+    /// tile's water and emitters, and the game's programs that read the
+    /// clock, asked for a frame every step; its Play animates it, and the
+    /// choice is kept as long as the view is).
+    pub(crate) paused: bool,
 }
 
 /// The viewer as a model's tab: the info line over its header.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
-    show(app, ui, source, Shown { info: true, pop_out: false, restore: true });
+    show(app, ui, source, Shown { info: true, pop_out: false, restore: true, paused: false });
 }
 
 /// The viewer in an editor's page (a hak's resource, a tile): no info
 /// line (the page is narrower than a window), and Pop Out in its header's
 /// More. Whether Pop Out was clicked.
 pub(crate) fn embedded(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) -> bool {
-    show(app, ui, source, Shown { info: false, pop_out: true, restore: false })
+    show(app, ui, source, Shown { info: false, pop_out: true, restore: false, paused: false })
 }
 
 /// The viewer as `shown`, in the Preview panel. Whether Pop Out was
@@ -1213,6 +1218,14 @@ pub const MODEL_HEADER: &str = "Model header";
 /// nodes and meshes, the blueprint's parts and the supermodel (the
 /// Creature board's "c_aribeth: 27 nodes, 18 meshes, supermodel a_fa");
 /// `None` where it has no view or no model.
+#[doc(hidden)]
+impl ModelView {
+    /// The pass it was last drawn in (for the tests: a view really drawn).
+    pub fn drawn_in(&self) -> Option<u64> {
+        self.shown_in
+    }
+}
+
 pub(crate) fn info(app: &Moonglow, source: &Source) -> Option<String> {
     let view = app.model_views.get(source)?;
     let model = view.model.as_ref().ok()?;
@@ -1246,6 +1259,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
             let _ = ws.flush();
         }
         let mut view = ModelView::open(app, &source);
+        if shown.paused {
+            view.playing = false;
+        }
         // (Its camera as a session left it, a tab opened again.)
         if shown.restore
             && let Some((orbit, _)) = app.open_tabs.take_view(&source.tab()).and_then(|v| v.orbit())

@@ -64,7 +64,10 @@ fn undo_over_a_tileset_editor_is_the_tileset_s() {
         "A table",
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
-    let mut h = harness(app, 1300.0, 900.0);
+    // (Wide enough for the tileset's window, with its Preview and
+    // Outliner beside its page since M4's U20, to stand clear of the
+    // module tree hovered below.)
+    let mut h = harness(app, 1800.0, 900.0);
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     h.run();
@@ -191,29 +194,29 @@ fn tileset_made_edited_saved_with_its_palette() {
     h.run();
     h.get_by_label("Add Group").click();
     h.run();
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run();
     assert!(h.state().tilesets[0].tileset().unwrap().groups.is_empty());
-    apart(&h, "Redo").click();
+    tool(&h, "Redo").click();
     h.run();
     let t = h.state().tilesets[0].tileset().unwrap().clone();
     assert_eq!((t.tiles.len(), t.groups.len()), (1, 1));
     assert_eq!(t.tiles[0].corners[0].0, "Grass");
 
     // Saved, its palette made, checked.
-    apart(&h, "Save").click();
+    tileset_tool(&mut h, "Save").click();
     h.run();
     let saved =
         mg_set::Tileset::parse(&std::fs::read(&set_path).unwrap(), mg_core::Codepage::default())
             .unwrap();
     assert_eq!(saved.groups.len(), 1);
-    h.get_by_label("Make Palette").click();
+    tileset_tool(&mut h, "Make Palette").click();
     h.run();
     let pal = mg_gff::Gff::read(&std::fs::read(dir.join("zzz01palstd.itp")).unwrap()).unwrap();
     assert_eq!(pal.file_type, *b"ITP ");
-    h.get_by_label("Check").click();
+    tileset_tool(&mut h, "Check").click();
     h.run();
-    let findings = h.state().tilesets[0].findings.clone().unwrap();
+    let findings = tileset_problems(&h, &set_path);
     assert!(
         findings.iter().any(|f| f.message.contains("zzz01_a01_01")),
         "the tile's model is missing: {findings:?}"
@@ -256,7 +259,7 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     h.run_steps(3);
     mg_ui::tileset_view::open(h.state_mut());
     h.run_steps(3);
-    h.get_by_label("Make Palette").click();
+    tileset_tool(&mut h, "Make Palette").click();
     h.run_steps(3);
     let palette = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let path = h.state().tilesets[0].palette_path();
@@ -306,9 +309,9 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     assert_eq!((corners(&t, "Meadow"), corners(&t, "Grass")), (named, 0), "every tile followed");
     assert!(t.warnings.is_empty(), "nothing undeclared: {:?}", t.warnings);
     h.render().unwrap().save(shots.join("after.png")).unwrap();
-    h.get_by_label("Check").click();
+    tileset_tool(&mut h, "Check").click();
     h.run_steps(3);
-    let findings = h.state().tilesets[0].findings.clone().unwrap();
+    let findings = tileset_problems(&h, &path);
     assert!(
         !findings.iter().any(|f| f.message.contains("Meadow") || f.message.contains("Grass")),
         "{findings:?}"
@@ -326,7 +329,7 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     let t = h.state().tilesets[0].tileset().unwrap().clone();
     assert_eq!((t.crossers[road].name.as_str(), edges(&t, "Lane")), ("Lane", roads));
     // Saved: the palette follows both.
-    apart(&h, "Save").click();
+    tileset_tool(&mut h, "Save").click();
     h.run_steps(3);
     let p = palette(&h);
     assert!(p.contains(&"meadow".into()) && p.contains(&"lane".into()), "{p:?}");
@@ -337,10 +340,10 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     assert_eq!(saved.terrains[grass].name, "Meadow");
     // Undone, one step each, and saved: as it was, the palette too.
     for _ in 0..2 {
-        apart(&h, "Undo").click();
+        tool(&h, "Undo").click();
         h.run_steps(3);
     }
-    apart(&h, "Save").click();
+    tileset_tool(&mut h, "Save").click();
     h.run_steps(3);
     assert_eq!(std::fs::read(&path).unwrap(), ttr, "the file as it was, byte for byte");
     let p = palette(&h);
@@ -390,13 +393,34 @@ fn a_tileset_group_s_name_is_typed() {
     h.key_press(egui::Key::Tab);
     h.run();
     assert_eq!(group(&h).name, "Bridge");
-    // What Check found is of the file as it was: an undo or a redo, like
-    // any change, clears it.
-    for step in [mg_ui::tileset_view::TilesetDoc::undo, mg_ui::tileset_view::TilesetDoc::redo] {
-        h.state_mut().tilesets[0].findings = Some(Vec::new());
+    // What Check found is of the text checked (M4's U20: Problems): an
+    // undo makes it stale, a redo back to that text current again, a
+    // second undo stale again.
+    use mg_ui::problems::{Source, Stale};
+    let id = h.state().tilesets[0].id;
+    let source = Source::Tileset(set_path.clone());
+    let finding = mg_module::doctor::Finding {
+        severity: mg_module::doctor::Severity::Warning,
+        check: "set-transition".into(),
+        source: "tileset".into(),
+        resource: ResKey::parse("zzz02", ResType::SET).unwrap(),
+        at: "[GENERAL] Transition".into(),
+        message: "Transition is 0".into(),
+    };
+    mg_ui::tileset_view::record_check(h.state_mut(), id, &[finding]);
+    h.run();
+    let stale = |h: &Harness<'_, Moonglow>| h.state().problems.of(&source).unwrap().stale;
+    assert_eq!(stale(&h), None, "checked");
+    for (step, want) in [
+        (mg_ui::tileset_view::TilesetDoc::undo as fn(&mut _), Some(Stale::Changed)),
+        (mg_ui::tileset_view::TilesetDoc::redo, None),
+        (mg_ui::tileset_view::TilesetDoc::undo, Some(Stale::Changed)),
+    ] {
         step(&mut h.state_mut().tilesets[0]);
-        assert!(h.state().tilesets[0].findings.is_none());
+        h.run();
+        assert_eq!(stale(&h), want);
     }
+    mg_ui::tileset_view::TilesetDoc::redo(&mut h.state_mut().tilesets[0]);
     assert_eq!(group(&h).name, "Bridge");
 }
 
@@ -4516,12 +4540,29 @@ fn a_tile_s_textures_show_where_the_tile_is_looked_at() {
         d.change(|f| f.set("TILE10", "Model", "mg_tex"));
     }
     h.run_steps(4);
-    h.get_by_label_contains("Textures of mg_tex (");
+    // (In its Textures panel since M4's U20: the count in its header, a row
+    // a texture, what it is in its tip.)
+    h.get_by_label_contains("of mg_tex (");
     h.get_by_label_contains("1 missing)");
-    assert_eq!(h.query_all_by_label("ttr01_grass02").count(), 2, "its name and its picture");
-    assert_eq!(h.query_all_by_label("mg_gone").count(), 1, "missing: its name, no picture");
-    h.get_by_label("Missing: no DDS, TGA or PLT of the name in the load order");
-    h.get_by_label("diffuse of sign");
+    let rows = h.get_by_label(mg_ui::tileset_view::TEXTURE_ROWS);
+    assert_eq!(rows.query_all_by_label("ttr01_grass02").count(), 1, "its name");
+    // (Its picture in its row's tip, where the tile's page drew it beside
+    // the name: its name and its picture, named by it, in the tip.)
+    let grass = rows.get_by_label("ttr01_grass02").rect();
+    let tip = tip_at(&mut h, grass).expect("its tip");
+    assert!(tip.contains("DDS 512×512"), "its file in the tip: {tip}");
+    // (The picture is made a frame or more after the tip shows: waited
+    // for, by a deadline.)
+    let started = std::time::Instant::now();
+    while h.query_all_by_label("ttr01_grass02").count() < 3 {
+        assert!(started.elapsed().as_secs() < 20, "its picture in the tip, named by it");
+        h.run_steps(1);
+    }
+    let rows = h.get_by_label(mg_ui::tileset_view::TEXTURE_ROWS);
+    let gone = rows.get_by_label("mg_gone").rect();
+    let tip = tip_at(&mut h, gone).expect("its tip");
+    assert!(tip.contains("Missing: no DDS, TGA or PLT of the name in the load order"), "{tip}");
+    assert!(tip.contains("diffuse of sign"), "{tip}");
     let shots = mg_testkit::scratch_dir("ui-tile-textures");
     h.render().unwrap().save(shots.join("tileset-editor.png")).unwrap();
 }

@@ -63,6 +63,7 @@ mod talk_panels;
 mod tile_edges;
 mod tile_properties;
 mod tiles;
+mod tileset_panels;
 mod transition_setup;
 mod transition_triggers;
 mod tree;

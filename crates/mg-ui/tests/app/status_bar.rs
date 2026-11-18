@@ -329,8 +329,10 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     h.state_mut().log.clear();
     settle(&mut h);
     let names: Vec<String> = bar_controls(&h, "Status Bar").into_iter().map(|c| c.0).collect();
-    // (The switches: the Log's and Search Results', M4's U13.)
-    assert_eq!(names, ["Log", "Search Results", MODULE, format!("…/{FOLDER}").as_str()]);
+    // (The switches: the Log's, Problems' and Search Results', M4's U13
+    // and U20.)
+    let folder = format!("…/{FOLDER}");
+    assert_eq!(names, ["Log", "Problems", "Search Results", MODULE, folder.as_str()]);
     let folder = &format!("…/{FOLDER}");
     let folder_width = in_bar(&h, folder).unwrap().rect().width();
     let mut differ = Vec::new();
@@ -932,11 +934,12 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
             assert!(reached.contains(&i), "{stage:?} never seen: {seen:?}");
         }
     }
-    // Nothing under the icon tabs' width (Search Results' and the Log's
-    // side by side since M4's U13: two of 34); the icons alone from there.
+    // Nothing under the icon tabs' width (Problems', Search Results' and
+    // the Log's side by side since M4's U20: three of 34); the icons alone
+    // from there.
     for (w, stage) in &seen {
         if *stage == 0 {
-            assert!(*w < 68.0, "no tab in a dock {w} wide");
+            assert!(*w < 102.0, "no tab in a dock {w} wide");
         }
     }
 }

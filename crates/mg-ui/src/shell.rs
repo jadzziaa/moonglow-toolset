@@ -238,6 +238,15 @@ pub enum Panel {
     /// message and its fix (Bind It, Turn It Off, Add Close Handler)
     /// (`nui_view::checks::panel`); its Status Bar switch counts them.
     Checks,
+    /// Problems (M4's U20): the Bottom Dock's global panel of findings,
+    /// whatever the editor in front, each source's last (the tileset
+    /// editor's Check; U28 adds Build Module and Verify), a click going to
+    /// where one is (`problems::body`); its Status Bar switch counts them.
+    Problems,
+    /// A tileset's Textures (M4's U20, the Tileset board's Right Dock,
+    /// under its Preview): the textures the chosen tile's model draws,
+    /// where each is found and what draws it (`tileset_view::textures`).
+    Textures,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -295,7 +304,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 23] = [
+    pub(crate) const KEYED: [Panel; 25] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -319,15 +328,19 @@ impl Panel {
         Panel::Components,
         Panel::Bindings,
         Panel::Checks,
+        Panel::Problems,
+        Panel::Textures,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
-    /// board's Compiler, Bookmarks, then Search Results, Log.
-    pub(crate) const BOTTOM_TABS: &'static [Panel] = &[Panel::SearchResults, Panel::Log];
+    /// board's Compiler, Bookmarks, then Search Results, Log; Problems before
+    /// Search Results, as the GalleryWide board's tabs have them (M4's U20).
+    pub(crate) const BOTTOM_TABS: &'static [Panel] =
+        &[Panel::Problems, Panel::SearchResults, Panel::Log];
     /// The global panels' switches before the editor's own in the Status
-    /// Bar (the Script board's Log, Problems: U20 adds Problems), and
-    /// after them (its Search Results).
-    pub(crate) const SWITCHES_BEFORE: &'static [Panel] = &[Panel::Log];
+    /// Bar (every board's Log, Problems: M4's U20), and after them (its
+    /// Search Results).
+    pub(crate) const SWITCHES_BEFORE: &'static [Panel] = &[Panel::Log, Panel::Problems];
     pub(crate) const SWITCHES_AFTER: &'static [Panel] = &[Panel::SearchResults];
 
     /// The dock it lives in.
@@ -348,12 +361,14 @@ impl Panel {
             | Panel::String
             | Panel::TalkFile
             | Panel::Components
-            | Panel::Bindings => Dock::Right,
+            | Panel::Bindings
+            | Panel::Textures => Dock::Right,
             Panel::Log
             | Panel::Compiler
             | Panel::Bookmarks
             | Panel::SearchResults
-            | Panel::Checks => Dock::Bottom,
+            | Panel::Checks
+            | Panel::Problems => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
             #[cfg(test)]
@@ -387,6 +402,8 @@ impl Panel {
             Panel::Components => "Components",
             Panel::Bindings => "Bindings",
             Panel::Checks => "Checks",
+            Panel::Problems => "Problems",
+            Panel::Textures => "Textures",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -420,6 +437,8 @@ impl Panel {
             Panel::Components,
             Panel::Bindings,
             Panel::Checks,
+            Panel::Problems,
+            Panel::Textures,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -456,6 +475,8 @@ impl Panel {
             Panel::Components => Icon::Nui,
             Panel::Bindings => Icon::Link,
             Panel::Checks => Icon::CheckCircle,
+            Panel::Problems => Icon::Problems,
+            Panel::Textures => Icon::Texture,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -513,6 +534,8 @@ impl Panel {
             Panel::Components => "Components: the controls to add to the NUI window",
             Panel::Bindings => "Bindings: the NUI window's binds",
             Panel::Checks => "Checks: what the checks of the NUI window found",
+            Panel::Problems => "Problems: what the checks found",
+            Panel::Textures => "Textures: the textures the chosen tile's model draws",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -559,6 +582,9 @@ impl Panel {
             // (A NUI designer's errors and warnings, the NUI board's "1":
             // in `error` where any is an error, else in `warn`.)
             Panel::Checks => crate::nui_view::checks::badge(app, editor),
+            // (Every source's errors and warnings, the board's "3" in
+            // `error`: M4's U20.)
+            Panel::Problems => crate::problems::badge(app),
             #[cfg(test)]
             Panel::Sample(n) if n >= SAMPLE_BOTTOM => {
                 Some(mg_uikit::Badge::count(usize::from(n - SAMPLE_BOTTOM)))
@@ -579,6 +605,9 @@ impl Panel {
                 crate::nui_view::panels::detail(app, editor, self)
             }
             Panel::Properties => Some(crate::properties_panel::detail(app, editor)),
+            Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => {
+                crate::tileset_view::panel_detail(app, editor, self)
+            }
             // (From the first frame, before the view is made: its bar keeps
             // its form.)
             Panel::Preview => own_preview(app, editor).map(|source| {
@@ -604,6 +633,9 @@ impl Panel {
             Panel::Bindings if crate::nui_view::panels::nui_of(editor).is_some() => {
                 crate::nui_view::panels::detail(app, editor, self)
             }
+            // (A tileset's: "Tile 16, tcn01_c02_01" and "of tcn01_c02_01
+            // (21)", the Tileset board's; M4's U20.)
+            Panel::Textures => crate::tileset_view::panel_detail(app, editor, self),
             _ => None,
         }
     }
@@ -646,6 +678,9 @@ impl Panel {
             Panel::Palette => app.palette_dock && (app.palettes_asked || brings.has(self)),
             // (With the palettes, theirs or asked for by name; or a kind's
             // own, brought without them: a blueprint's, U11.)
+            // (A tileset's own, its tile's diagram: M4's U20, whatever the
+            // palettes.)
+            Panel::Preview if brings.diagram => true,
             Panel::Preview => match brings.has(self) && !brings.has(Panel::Palette) {
                 true => app.palette_dock,
                 false => Panel::Palette.available_with(app, brings),
@@ -668,10 +703,13 @@ impl Panel {
             | Panel::TalkFile
             | Panel::Components
             | Panel::Bindings
-            | Panel::Checks => brings.has(self),
+            | Panel::Checks
+            | Panel::Textures => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
-            Panel::SearchResults => true,
+            // (Problems too, M4's U20: with nothing found, the kit's empty
+            // state.)
+            Panel::SearchResults | Panel::Problems => true,
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -717,6 +755,10 @@ impl Panel {
             Panel::Bindings => Keys::NuiBindings,
             // (F6 gives its first row's control the focus, M4's U19.)
             Panel::Checks => Keys::NuiChecks,
+            // (F6 gives its first row's link the focus; Textures' its first
+            // row's Copy, M4's U20.)
+            Panel::Problems => Keys::Problems,
+            Panel::Textures => Keys::Textures,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -746,6 +788,9 @@ pub(crate) struct Brings {
     pub(crate) folded: &'static [Panel],
     pub(crate) bottom: &'static [Panel],
     pub(crate) floats: bool,
+    /// Its Preview is its own drawing, not a model the palettes choose (a
+    /// tileset's tile diagram, M4's U20): shown whatever the palettes.
+    pub(crate) diagram: bool,
     /// The global Bottom Dock panels that follow the editor into its
     /// window, after its own on the window's bottom pane (Floating.png's
     /// script: Search Results, U13), where it `floats`.
@@ -876,6 +921,14 @@ const NUI_WINDOW_SHARES: &[u16] = &[440, 1040, 520];
 /// its window's bottom pane where it floats.
 const NUI_BOTTOM: &[Panel] = &[Panel::Checks];
 
+/// A tileset's Right Dock (M4's U20, the Tileset board's): Preview over
+/// Textures, each a section with its header; one tab bar of the two under
+/// 1400; with the tileset into its window where it floats. The board's
+/// heights: Preview 419 of the dock's 831, Textures the rest.
+const TILESET_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Textures]];
+const TILESET_FOLDED: &[Panel] = &[Panel::Preview, Panel::Textures];
+const TILESET_SHARES: &[u16] = &[1008, 992];
+
 /// The talk table an editor's tab is, if it is one's.
 pub(crate) fn talk_of(
     app: &Moonglow,
@@ -991,6 +1044,18 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             window_shares: NUI_WINDOW_SHARES,
             bottom: NUI_BOTTOM,
             floats: true,
+            ..Brings::default()
+        },
+        // (A tileset's Preview over its Textures and its parts in the
+        // Outliner, M4's U20, whatever is open (a tileset is a file of its
+        // own); with it into its window where it floats.)
+        crate::Tab::Tileset(_) => Brings {
+            outliner: true,
+            right: TILESET_RIGHT,
+            folded: TILESET_FOLDED,
+            shares: TILESET_SHARES,
+            floats: true,
+            diagram: true,
             ..Brings::default()
         },
         crate::Tab::Table(_) => Brings {
@@ -1354,7 +1419,7 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                         chosen = Some(section[at]);
                     }
                     if bar.opened {
-                        crate::properties_panel::open_in_tab(app, Some(tab));
+                        opened_in_tab(app, Some(tab));
                     }
                     if let Some(tool) = bar.node {
                         crate::dialog_view::node_tool(app, Some(tab), tool);
@@ -1394,6 +1459,8 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         crate::Tab::Table(_) => WINDOW_GRID_AT_FIRST,
         // (A NUI designer's canvas and header, M4's U18.)
         crate::Tab::Nui(_) => WINDOW_CANVAS_AT_FIRST,
+        // (A tileset's list and form side by side and its header, M4's U20.)
+        crate::Tab::Tileset(_) => WINDOW_TILES_AT_FIRST,
         _ => WINDOW_TREE_AT_FIRST,
     };
     let most = (room - keeps - 1.0).min(room * 0.4).floor();
@@ -1602,6 +1669,11 @@ pub(crate) const WINDOW_LEFT_LEAST: f32 = 150.0;
 /// window opens wider by its right pane and the Outliner's where the
 /// screen allows (`Moonglow::open_window`).
 pub(crate) const WINDOW_GRID_AT_FIRST: f32 = 1038.0;
+/// The room a floating tileset's page keeps beside its window's Outliner
+/// (M4's U20): what its window gave the editor before its panes came into
+/// it (920, its lines less), so that its list and form stand side by side
+/// and its header yields no sooner.
+pub(crate) const WINDOW_TILES_AT_FIRST: f32 = 918.0;
 /// The room a floating NUI designer's canvas keeps beside its window's
 /// Outliner (M4's U18): what its window gives the editor before its panes
 /// come into it (760, its lines less), so that its header yields no sooner.
@@ -2041,6 +2113,10 @@ pub(crate) const OVER_COLUMNS_HIGH: f32 = 254.0;
 /// seam is dragged (M4's U18, the NUI board's `.module-panel`: 416 high),
 /// its Layers the rest.
 pub(crate) const OVER_LAYERS_HIGH: f32 = 416.0;
+/// The Left Dock's panel over the Outliner beside a tileset until its seam
+/// is dragged (M4's U20, the Tileset board's `.module-panel`: 394 high), its
+/// parts the rest.
+pub(crate) const OVER_PARTS_HIGH: f32 = 394.0;
 /// The Outliner's least height: its header and four rows.
 pub(crate) const OUTLINER_LEAST: f32 = 116.0;
 
@@ -2320,6 +2396,7 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 Panel::Checks => {
                     "Show what the checks of the NUI window found, or close them".into()
                 }
+                Panel::Problems => "Show what the checks found, or close it".into(),
                 _ => format!("Show the {} panel, or close it", p.name()),
             };
             (p, bottom_shows(app, p), tip, p.badge(app, app.active_editor()))
@@ -3000,6 +3077,8 @@ pub(crate) fn shown(
         }
         // (A table's, M4's U16: the Table board's.)
         Some(Tab::Table(id)) => crate::table_view::panels::shown(app, &k, ctx, *id),
+        // (A tileset's, M4's U20: the Tileset board's.)
+        Some(Tab::Tileset(id)) => crate::tileset_view::shown(app, &k, ctx, *id),
         Some(Tab::TalkTable) => {
             crate::talk_view::panels::shown(app, ctx, crate::talk_view::Which::shown(app))
         }
@@ -3386,6 +3465,11 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                 Some(crate::outliner::Contents::Layers(_)) => {
                     (OVER_LAYERS_HIGH, app.settings.layers_panel_height)
                 }
+                // (Beside a tileset, the Tileset board's: the panel over its
+                // parts 394 high; kept apart, M4's U20.)
+                Some(crate::outliner::Contents::Tileset(_)) => {
+                    (OVER_PARTS_HIGH, app.settings.parts_panel_height)
+                }
                 _ => (app.yields.module_panel_height, app.settings.module_panel_height),
             };
             let chosen = kept.map_or(at_first, |h| h as f32);
@@ -3420,6 +3504,9 @@ pub(crate) fn left_dock(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     Some(crate::outliner::Contents::Layers(_)) => {
                         app.settings.layers_panel_height = high;
+                    }
+                    Some(crate::outliner::Contents::Tileset(_)) => {
+                        app.settings.parts_panel_height = high;
                     }
                     _ => app.settings.module_panel_height = high,
                 }
@@ -3797,7 +3884,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                     chosen = Some(section[at]);
                 }
                 if bar.opened {
-                    crate::properties_panel::open_in_tab(app, editor.as_ref());
+                    opened_in_tab(app, editor.as_ref());
                 }
                 if let Some(tool) = bar.node {
                     crate::dialog_view::node_tool(app, editor.as_ref(), tool);
@@ -3893,6 +3980,7 @@ pub(crate) fn bottom_forward(app: &mut Moonglow) {
         app.window_rights.retain(|tab, _| dock.find_tab(tab).is_some());
     }
     nui_forward(app);
+    problems_forward(app);
     let asks = std::mem::take(&mut app.script_tools.forward);
     if asks.is_empty() {
         return;
@@ -3944,6 +4032,24 @@ pub(crate) fn bottom_forward(app: &mut Moonglow) {
     }
 }
 
+/// A source of Problems found something (M4's U20: a tileset's Check):
+/// Problems to the front of the main window's Bottom Dock (Problems is the
+/// main window's, a floating tileset's too), opening it where asked to
+/// (`open`: anything found, as a search's hits open Search Results, U13's
+/// rule for what was asked for); nothing found leaves a closed dock closed,
+/// and a dock open on the log on it, as a search that found nothing does.
+fn problems_forward(app: &mut Moonglow) {
+    let Some(open) = app.problems.forward.take() else { return };
+    if !panels(app, Dock::Bottom).contains(&Panel::Problems) {
+        return;
+    }
+    let on_log = bottom_shows(app, Panel::Log);
+    if open || (!app.settings.hide_log && !on_log) {
+        focus_bottom(app, Panel::Problems);
+        app.settings.hide_log = false;
+    }
+}
+
 /// A NUI designer's checks found more errors (`nui_view::checks`, M4's
 /// U19): its Checks to the front, opening the Bottom Dock where the
 /// designer is the active docked editor (or its source group is), or its
@@ -3981,7 +4087,10 @@ pub(crate) fn follow_bottom(app: &Moonglow, ctx: &egui::Context) {
     let t = &app.script_tools;
     let pass = ctx.cumulative_pass_nr();
     let stale = t.bottom_drawn.is_some_and(|(p, least)| p == pass && least != t.made);
-    if stale || !t.forward.is_empty() || !app.nui_checks_forward.is_empty() {
+    // (Problems drawn this pass before its findings changed: once more.)
+    let problems = app.problems.forward.is_some()
+        || app.problems.drawn.is_some_and(|(p, r)| p == pass && r != app.problems.revision());
+    if stale || !t.forward.is_empty() || !app.nui_checks_forward.is_empty() || problems {
         ctx.request_repaint();
     }
 }
@@ -4033,6 +4142,12 @@ fn section_bar<R>(
                     crate::nui_view::panels::bindings_plus(ui, editor);
                 } else if *one == Panel::Properties {
                     opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
+                } else if *one == Panel::Preview
+                    && crate::tileset_view::tileset_of(editor).is_some()
+                {
+                    // (A tileset's Open the Model in a Tab, the Tileset
+                    // board's icon at its Preview's header's end: M4's U20.)
+                    opened = crate::tileset_view::open_model_button(app, ui, editor);
                 }
                 // (A talk table's Copy the StrRef at String's header's end,
                 // the Talk board's.)
@@ -4075,6 +4190,16 @@ fn section_bar<R>(
     SectionBar { chosen: bar.changed.then_some(at), inner, opened: false, node }
 }
 
+/// A section header's open in a tab clicked ([`SectionBar::opened`]):
+/// Properties' Open in Tab, or a tileset Preview's model in a tab of its own
+/// (M4's U20).
+fn opened_in_tab(app: &mut Moonglow, editor: Option<&crate::Tab>) {
+    match crate::tileset_view::tileset_of(editor) {
+        Some(_) => crate::tileset_view::open_model(app, editor),
+        None => crate::properties_panel::open_in_tab(app, editor),
+    }
+}
+
 /// The plugins' "pane last clicked in" for a press in `panel`: a panel an
 /// editor brings counts as that editor's pane (U2, `17-plugin-api.md`):
 /// the Palette's and the Preview's the palette (the Preview shows the
@@ -4090,7 +4215,10 @@ fn plugin_pane(
     // (A form's own Preview, M4's U11, is its form's: no pane of its own
     // for plugins. A Preview asked for by name beside a form without a
     // model, a store's, is the palette's.)
-    let own = panel == Panel::Preview && own_preview(app, editor).is_some();
+    // (A tileset's Preview too, its tile's diagram: M4's U20.)
+    let own = panel == Panel::Preview
+        && (own_preview(app, editor).is_some()
+            || crate::tileset_view::tileset_of(editor).is_some());
     match panel {
         Panel::Preview if own => None,
         Panel::Palette | Panel::Preview => Some(crate::plugins::Pane::Palette),
@@ -4390,7 +4518,9 @@ pub(crate) fn panel_body(
         // panel's edge.)
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
         Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => Margin::ZERO,
-        Panel::Components | Panel::Bindings | Panel::Checks => Margin::ZERO,
+        Panel::Components | Panel::Bindings | Panel::Checks | Panel::Problems => Margin::ZERO,
+        Panel::Textures => Margin::ZERO,
+        Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
         _ => Margin { left: 8, right: 8, top: 6, bottom: 4 },
     };
@@ -4410,6 +4540,24 @@ pub(crate) fn panel_body(
             // bar; where an editor's tab may show the same model, after
             // the editor area in this room, so that the tab keeps its
             // view.)
+            // (A tileset's: its tile's diagram, the door sentence and the
+            // model, M4's U20.)
+            Panel::Preview
+                if room.is_positive() && crate::tileset_view::tileset_of(editor).is_some() =>
+            {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, "tileset-preview", pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::tileset_view::preview(app, &mut body, editor);
+            }
+            Panel::Textures => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::tileset_view::textures(app, &mut body, editor);
+            }
             Panel::Preview if room.is_positive() => {
                 if host == Host::Dock {
                     app.preview_rect = Some(room);
@@ -4507,7 +4655,11 @@ pub(crate) fn panel_body(
                 }
             }
             // (The Bottom Dock's, or a script's window's bottom pane's.)
-            Panel::Compiler | Panel::Bookmarks | Panel::SearchResults | Panel::Checks => {
+            Panel::Compiler
+            | Panel::Bookmarks
+            | Panel::SearchResults
+            | Panel::Checks
+            | Panel::Problems => {
                 let builder = egui::UiBuilder::new().max_rect(room);
                 let builder = LateSlot::salted(builder, host, panel.name(), pane);
                 let mut body = ui.new_child(builder);
@@ -4516,6 +4668,7 @@ pub(crate) fn panel_body(
                     Panel::Compiler => crate::script_panels::compiler(app, &mut body, editor),
                     Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
                     Panel::Checks => crate::nui_view::checks::panel(app, &mut body, editor),
+                    Panel::Problems => crate::problems::body(app, &mut body),
                     _ => crate::search_results::body(app, &mut body),
                 }
             }
@@ -4610,9 +4763,12 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             let most = held.iter().map(|p| p.tools()).max().unwrap_or(0);
             // (A NUI designer's Checks says what they count at the bar's
             // end, the NUI board's "crier: 0 errors · 1 warning".)
-            let detail = (front == Panel::Checks)
-                .then(|| crate::nui_view::checks::detail(app, editor.as_ref()))
-                .flatten();
+            let detail = match front {
+                Panel::Checks => crate::nui_view::checks::detail(app, editor.as_ref()),
+                // (Problems' counts, "2 errors · 1 warning": M4's U20.)
+                Panel::Problems => crate::problems::detail(app),
+                _ => None,
+            };
             let detail_width = detail.as_ref().map_or(0.0, |d| {
                 let font = egui::TextStyle::Small.resolve(ui.style());
                 let galley = ui.fonts_mut(|f| f.layout_no_wrap(d.clone(), font, t.text_3));
@@ -4934,10 +5090,17 @@ mod dock_tests {
         );
         assert!(drawn(&h).contains(&(S0, Host::Dock)) && drawn(&h).contains(&(S1, Host::Dock)));
         assert!(h.state().sample_late_drawn.contains(&(S0, welcome)), "the late slot drawn");
-        // (The global ones after the editor's own: Search Results and the
-        // Log, M4's U13; Search Results' switch after the editor's.)
-        assert_eq!(tabs_of(&h, BOTTOM_DOCK), ["Sample 8", "Sample 9", "Search Results", "Log"]);
-        assert_eq!(switches_shown(&h), ["Log", "Sample 8", "Sample 9", "Search Results"]);
+        // (The global ones after the editor's own: Problems, Search
+        // Results and the Log, M4's U13 and U20; the Log's and Problems'
+        // switches before the editor's, Search Results' after.)
+        assert_eq!(
+            tabs_of(&h, BOTTOM_DOCK),
+            ["Sample 8", "Sample 9", "Problems", "Search Results", "Log"]
+        );
+        assert_eq!(
+            switches_shown(&h),
+            ["Log", "Problems", "Sample 8", "Sample 9", "Search Results"]
+        );
         let badge = switch(&h, "Sample 9").accesskit_node().value();
         assert_eq!(badge.as_deref(), Some("1"), "its count");
         // The Bottom Dock in front: the editor's first own panel.
@@ -5056,7 +5219,7 @@ mod dock_tests {
         assert_eq!(tabs_of(&h, &format!("{WINDOW_RIGHT}, Section 2")), ["Sample 1"]);
         assert_eq!(tabs_of(&h, WINDOW_BOTTOM), ["Sample 8", "Sample 9"]);
         assert!(h.state().right_rect.is_none(), "the Welcome page brings no Right Dock");
-        let globals = ["Log", "Search Results"];
+        let globals = ["Log", "Problems", "Search Results"];
         assert_eq!(switches_shown(&h), globals, "the window's own panels have no switch");
     }
 

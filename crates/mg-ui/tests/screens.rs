@@ -6838,13 +6838,12 @@ fn tile_textures() {
         place(&mut h, &editor, (40.0, 20.0), (900.0, 870.0));
         h.run_steps(20);
         shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor"));
-        // Its details scrolled down to the textures.
-        h.get_by_label_contains("Textures of ").scroll_to_me();
-        h.run_steps(20);
+        // Its textures: its window's Textures panel, under its Preview
+        // (M4's U20; the tile's page listed them under its fields before).
+        assert!(h.query_by_label(mg_ui::tileset_view::TEXTURE_ROWS).is_some(), "Textures");
         shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor-scrolled"));
+        // (Narrow: the window's right pane gives way, the page its own.)
         place(&mut h, &editor, (40.0, 20.0), (420.0, 870.0));
-        h.run_steps(20);
-        h.get_by_label_contains("Textures of ").scroll_to_me();
         h.run_steps(20);
         shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor-narrow"));
     }
@@ -13799,8 +13798,135 @@ fn board_tileset() {
     frames_until(&mut h, "the tileset open", |h| !h.state().tilesets.is_empty());
     h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
     h.state_mut().tilesets[0].tile = Some(16);
+    // (Changed, as the board's "tcn01.set (modified)": a field off the
+    // Tiles page.)
+    h.state_mut().tilesets[0].change(|f| f.set("GENERAL", "SelectorHeight", "6"));
     h.run_steps(10);
     shoot(&mut h, &board_dir(), "board_tileset");
+}
+
+/// The tileset editor and Problems (M4's U20), beside `board_tileset`, in
+/// the boards' window (a copy of the game's tcn01, tile 16 chosen): each
+/// page (`tileset-general`, `tileset-terrain`, `tileset-rules`,
+/// `tileset-groups`); Problems open with nothing in it
+/// (`tileset-problems-empty`) and with Check's findings
+/// (`tileset-problems`: tile 17's model renamed to one nowhere, group 0's
+/// first tile -1); the window at 1280 (`tileset-1280`) and in the narrow
+/// layout (`tileset-narrow`, 1000); floating at 1600 by 900 and 1280 by 720
+/// (`tileset-floating`, `tileset-floating-720`); the game's tcn01.set only
+/// looked at, in the resource view (`tileset-read-only`).
+#[test]
+#[ignore]
+fn tileset_panels() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let scratch = mg_testkit::scratch_dir("screens-tileset-panels");
+    let tcn = {
+        let install = GameInstall::new(&root, None, "en");
+        let game = mg_resman::ResMan::for_game(&install).unwrap();
+        game.get(&ResKey::parse("tcn01", ResType::SET).unwrap()).unwrap().into_owned()
+    };
+    let open = |h: &mut Harness<'static, Moonglow>, text: &[u8], name: &str| {
+        let path = scratch.join(name);
+        std::fs::write(&path, text).unwrap();
+        mg_ui::tileset_view::open_path(h.state_mut(), path);
+        frames_until(h, "the tileset open", |h| !h.state().tilesets.is_empty());
+        let id = h.state().tilesets[0].id;
+        frames_until(h, "the tileset drawn", |h| {
+            h.state().tab_rect(&mg_ui::Tab::Tileset(id)).is_some()
+        });
+        h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+        h.state_mut().tilesets[0].tile = Some(16);
+        h.run_steps(10);
+    };
+    let page = |h: &mut Harness<'static, Moonglow>, page: mg_ui::tileset_view::Page| {
+        h.state_mut().tilesets[0].page = page;
+        h.run_steps(10);
+    };
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    open(&mut h, &tcn, "tcn01.set");
+    use mg_ui::tileset_view::Page;
+    for (p, shot) in [
+        (Page::General, "tileset-general"),
+        (Page::Terrain, "tileset-terrain"),
+        (Page::Rules, "tileset-rules"),
+        (Page::Groups, "tileset-groups"),
+    ] {
+        page(&mut h, p);
+        shoot(&mut h, &dir, shot);
+    }
+    page(&mut h, Page::Tiles);
+    h.get_by_label("Status Bar").get_by_label("Problems").click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "tileset-problems-empty");
+    // Check's findings: a model nowhere and a group's first tile -1.
+    let mut text = String::from_utf8_lossy(&tcn).into_owned();
+    let model =
+        mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[17].model.clone();
+    text = text.replacen(&format!("Model={model}"), "Model=tcn01_zz17", 1);
+    let group = text.find("[GROUP0]").unwrap();
+    let tile0 = group + text[group..].find("Tile0=").unwrap();
+    let end = tile0 + text[tile0..].find("\r\n").unwrap();
+    text.replace_range(tile0..end, "Tile0=-1");
+    h.state_mut().tilesets[0].change(|f| *f = mg_set::edit::SetFile::parse(&text));
+    h.run_steps(5);
+    h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
+        .get_by_label(mg_ui::tileset_view::CHECK)
+        .click();
+    h.run_steps(10);
+    shoot(&mut h, &dir, "tileset-problems");
+    // A stale set beside a current one (U20's review): a second copy
+    // checked, the first changed since its Check.
+    let first = h.state().tilesets[0].id;
+    let two = scratch.join("tcn02.set");
+    std::fs::write(&two, text.as_bytes()).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), two);
+    h.run_steps(10);
+    h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
+        .get_by_label(mg_ui::tileset_view::CHECK)
+        .click();
+    h.run_steps(10);
+    if let Some(d) = h.state_mut().tilesets.iter_mut().find(|d| d.id == first) {
+        d.change(|f| f.set("TILE16", "PathNode", "Q"));
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "tileset-problems-stale");
+    // A hole chosen: tile 20 with no model.
+    let mut hole = String::from_utf8_lossy(&tcn).into_owned();
+    let model20 =
+        mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[20].model.clone();
+    hole = hole.replacen(&format!("Model={model20}\r\n"), "", 1);
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    open(&mut h, hole.as_bytes(), "tcn01.set");
+    h.state_mut().tilesets[0].tile = Some(20);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "tileset-hole");
+    // The Preview's 3D view drawn, paused (a window tall enough for it
+    // under the diagram).
+    let mut h = board_window(&root, egui::vec2(1600.0, 1400.0));
+    open(&mut h, &tcn, "tcn01.set");
+    h.run_steps(20);
+    shoot(&mut h, &dir, "tileset-3d-paused");
+    for (shot, width) in [("tileset-1280", 1280.0), ("tileset-narrow", 1000.0)] {
+        let mut h = board_window(&root, egui::vec2(width, 900.0));
+        open(&mut h, &tcn, "tcn01.set");
+        shoot(&mut h, &dir, shot);
+    }
+    for (shot, size) in [
+        ("tileset-floating", egui::vec2(1600.0, 900.0)),
+        ("tileset-floating-720", egui::vec2(1280.0, 720.0)),
+    ] {
+        let mut h = board_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        open(&mut h, &tcn, "tcn01.set");
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, shot);
+    }
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let key = ResKey::parse("tcn01", ResType::SET).unwrap();
+    board_front(&mut h, &mg_ui::Tab::Resource(key));
+    shoot(&mut h, &dir, "tileset-read-only");
 }
 
 /// Hak.png: a game hak (`id_resources.hak`, opened, never saved) in the

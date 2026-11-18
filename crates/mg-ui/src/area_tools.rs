@@ -872,7 +872,8 @@ pub(crate) fn own_preview_body(
             ui.add(egui::Label::new(egui::RichText::new(info).weak()).truncate());
         });
     }
-    let shown = crate::model_view::Shown { info: false, pop_out: true, restore: false };
+    let shown =
+        crate::model_view::Shown { info: false, pop_out: true, restore: false, paused: false };
     if crate::model_view::panel(app, ui, source, shown) {
         app.actions.push(crate::Action::OpenTab(tab));
     }

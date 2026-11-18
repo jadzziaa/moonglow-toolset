@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T00:51:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T08:11:27Z }
 ---
 
 # Areas
@@ -2007,11 +2007,46 @@ area's music and ambient sounds and every placed sound (`sound-silent`).
 
 **Tools › Tilesets** edits a tileset's `.set` file: **New Tileset…**
 starts one, **Open Tileset…** opens one (a copy of a game tileset, or one
-being made beside its models). An edit changes only the lines it is
-about, so comments, order and spacing stay. **Undo**, **Redo** and
-**Save** are in the editor's toolbar (Undo's and Redo's keys are the
-tileset's too with the pointer over the editor); saving the module saves
-open tilesets too, and closing one with unsaved changes asks first.
+being made beside its models). A game's or a hak's tileset opened from the
+Resources panel is only looked at, as its text. An edit changes only the
+lines it is about, so comments, order and spacing stay.
+
+The editor's **header** holds the five pages as a switch (General,
+Terrains and Crossers, Painting Rules, Tiles, Groups), **Save** (the
+tileset's file), **Make Palette**, **Check** and **Render Minimap
+Pictures**, and **OK** (save and close) and **Cancel** (close as last
+saved, asking first about unsaved changes) at its end. Where the editor is
+narrow the buttons show their icons alone, then go into **⋯** (More), the
+switch and Save last. **Undo** and **Redo** are the Top Bar's: they take
+the tileset's steps while the pointer is over the editor or its panels, or
+it was worked in last (Ctrl+Z and Ctrl+Y the same); saving the module
+(Ctrl+S) saves open tilesets too, and closing one with unsaved changes
+asks first.
+
+Beside it, the **Right Dock** holds **Preview** over **Textures**:
+Preview draws the chosen tile as a diagram, each corner's terrain and
+height at its corners, each edge's crosser at its sides, the model's name,
+orientation and doors in the middle (the name in red where the game data
+has not the model), each door in a sentence under it ("Door 1:
+doortypes.2da row 0, at (-0.58, 3.00, 0.20), turned 270°"), and, where
+the panel is tall enough, the model in 3D under the diagram (paused at
+first: its own Play animates its water and emitters, Pause stops them); the
+icon at
+its header's end opens the model in a tab of its own. Textures lists what
+the model draws, a row a texture (red where it is missing; a click chooses
+one and shows its Copy); its tip shows
+its picture, its file, where in the load order it comes from, what draws
+it and through which materials; a right click copies its name or views
+its material or TXI ([A tile's textures](#a-tiles-textures)). The
+**Outliner** lists the tileset's parts: General, Terrains, Crossers,
+Primary rules, Secondary rules, Tiles and Groups, each with its count; a
+group's arrow opens it, a click on a row goes to its page and row (a tile
+or a group chosen), and its keys are those of the other Outliners (F6
+reaches it). The Status Bar counts the tiles, groups, terrains and
+crossers (the file's path in their tip) and says the keys: on Tiles,
+Click Choose a tile, and Ctrl + F Find with the pointer over the page.
+Ctrl+S is the module's Save (with no module open it saves nothing); the
+header's Save saves the tileset alone. A floating tileset brings its panels into its window.
 - **General:** the name, the name players see, the height step, the
   border, default and floor terrains, interior, height transitions, and
   grass.
@@ -2034,8 +2069,13 @@ open tilesets too, and closing one with unsaved changes asks first.
   the tileset's and each height typed. **Add Rule** adds one at the end
   (every terrain the first, at height 0) and **Remove Last Rule** takes
   the last away, the list's count following.
-- **Tiles:** every tile with its corners and edges; **Find** by model or
-  terrain. Per tile: model, walkmesh, minimap picture, path node,
+- **Tiles:** the tiles as a table (#, Model, Corners, Edges, only the rows
+  in sight drawn), the bar over it holding **Find** (by model or terrain;
+  Ctrl+F with the pointer over the page), **Duplicate Tile**, **Add Tile**
+  and **Remove Last Tile** (the minus); a click chooses a tile and gives
+  the table the arrow keys (Up, Down, Page Up, Page Down, Home, End). The
+  chosen tile's form is at the table's right (under it in a narrow
+  editor). Per tile: model, walkmesh, minimap picture, path node,
   orientation, corner terrains and heights, edge crossers, lights,
   animation loops and its **Doors**: the hooks a door placed on the tile
   stands at (`[TILEnDOORm]`), each with its `doortypes.2da` row (its
@@ -2045,11 +2085,8 @@ open tilesets too, and closing one with unsaved changes asks first.
   the tile's `Doors` count following (a count that is no count, as some
   custom tilesets have, becomes the doors there are). **Add Tile** and **Duplicate Tile** add at the end, and
   **Remove Last Tile** takes the last away: areas store tiles by number,
-  so tiles in the middle stay where they are. **Preview** shows the
-  model when the game data has it, and under the tile's fields are the
-  textures its model draws: each one's picture, file, where in the load
-  order it comes from, what draws it and the missing ones marked
-  ([A tile's textures](#a-tiles-textures)).
+  so tiles in the middle stay where they are. What is typed in a field is
+  set on its own tile as you leave it, a button pressed included.
   A **hole** (a tile the file has no `[TILEn]` section for, or one
   without `Model=`, as an old tileset merged by hand may have) is
   listed as one, in orange, and said over its fields: the game draws it
@@ -2060,7 +2097,7 @@ open tilesets too, and closing one with unsaved changes asks first.
   game leaves out.
 - **Groups:** each group's name, size and tiles, the bottom row first.
 
-The toolbar also has:
+The header also has:
 - **Make Palette** writes `<tileset>palstd.itp` beside the `.set`, the
   palette the painter offers: one-tile groups as Features, the others as
   Groups, the terrains and crossers, the eraser and (with height
@@ -2073,7 +2110,22 @@ The toolbar also has:
   some in folders of their own: City, Cliff). `mg tileset-palette` does
   the same.
 - **Check** runs Verify's tileset checks: counts that disagree with the
-  sections, tiles whose models are missing, groups that won't paint.
+  sections, tiles whose models are missing, groups that won't paint. What
+  it finds goes to **Problems** in the Bottom Dock, under the tileset's
+  file name with its counts, errors first, in place of what the last
+  Check of that file found; the Bottom Dock opens on it when Check finds
+  anything (nothing found is said in the log and in Problems, and opens
+  nothing). A click on a finding's place ("Tile 17, Model", "Group 0,
+  Tile0") brings the tileset forward, opened again if it was closed, on
+  that page and row, the field it names taking the keyboard. While the
+  text is not what was checked (open, or the file on disk once it is
+  closed), its findings stay listed but say "Changed since the check" (or
+  "Closed without saving", or "File not found" for a file no longer
+  there) and are not counted; an Undo back to the text checked makes them
+  count again. The Problems switch in the Status Bar counts the current
+  findings, red where one is an error. A right click on a file's heading
+  in Problems (or Delete with the heading focused) offers **Remove from
+  Problems**; closing the module keeps a tileset's findings.
 - **Render Minimap Pictures** draws each tile from above with Moonglow's
   renderer and saves it as its minimap picture (32 pixels, a TGA named
   by the tile's `ImageMap2D`, which tiles without one get as

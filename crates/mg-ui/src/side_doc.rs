@@ -379,7 +379,15 @@ impl Moonglow {
         match *tab {
             Tab::Hak(id) => self.haks.retain(|d| d.id != id),
             Tab::Table(id) => self.tables.retain(|d| d.id != id),
-            Tab::Tileset(id) => self.tilesets.retain(|d| d.id != id),
+            Tab::Tileset(id) => {
+                // (What Check found is current where the file on disk is
+                // what was checked; else Problems says why not, M4's U20.)
+                if let Some(d) = self.tilesets.iter().find(|d| d.id == id) {
+                    let (path, dirty) = (d.path.clone(), d.is_dirty());
+                    crate::tileset_view::closed(self, &path, dirty);
+                }
+                self.tilesets.retain(|d| d.id != id)
+            }
             // (Lines typed for the module's fields are the module's: its
             // own changes are dropped, those kept.)
             Tab::TalkTable if self.talk.as_ref().is_some_and(|t| t.has_typed_unsaved()) => {

@@ -1060,6 +1060,47 @@ pub(crate) fn dialog_tool<'t>(
     }
 }
 
+/// The tileset editor's header's control `name` (M4's U20, the kit's
+/// header `tileset_view::TILESET_HEADER`): a command (Save, Make Palette,
+/// Check, Render Minimap Pictures) or a page of its switch (General,
+/// Terrains and Crossers, Painting Rules, Tiles, Groups), wherever it is at
+/// this width: on the row, or in More, which is opened for it. The first
+/// tileset header's.
+#[track_caller]
+pub(crate) fn tileset_tool<'t>(
+    h: &'t mut Harness<'_, Moonglow>,
+    name: &'t str,
+) -> egui_kittest::Node<'t> {
+    use mg_uikit::header::{self, Place};
+    let header_name = mg_ui::tileset_view::TILESET_HEADER;
+    let rec = header::records(&h.ctx, header_name).into_iter().next().expect("a tileset header");
+    let pages = ["General", "Terrains and Crossers", "Painting Rules", "Tiles", "Groups"];
+    let item = if pages.contains(&name) { mg_ui::tileset_view::PAGE } else { name };
+    let place = rec.places.iter().find(|(n, _)| n == item).map(|(_, p)| *p);
+    let more = header::more_name(header_name);
+    if place == Some(Place::More) && h.query_by_label(&more).is_none() {
+        h.get_by_label(header_name).get_by_label(header::MORE).click();
+        settle(h);
+    }
+    let h: &'t Harness<'_, Moonglow> = h;
+    match place {
+        Some(Place::More) => h.get_by_label(TILESET_MORE).get_by_label(name),
+        Some(Place::Row | Place::Icon) => h.get_by_label(header_name).get_by_label(name),
+        other => panic!("{name} in the tileset header: {other:?} ({:?})", rec.places),
+    }
+}
+
+/// What Problems holds of the tileset file at `path` (M4's U20): its last
+/// Check's findings, errors first.
+#[track_caller]
+pub(crate) fn tileset_problems(
+    h: &Harness<'_, Moonglow>,
+    path: &std::path::Path,
+) -> Vec<mg_ui::problems::Problem> {
+    let source = mg_ui::problems::Source::Tileset(path.to_path_buf());
+    h.state().problems.of(&source).expect("the tileset was checked").problems.clone()
+}
+
 /// The 2DA editor's header's control `name` (M4's U16, the kit's header
 /// `table_view::TABLE_HEADER`), wherever it is at this width: on the row
 /// (a joined group's toggle, "How cells show"'s, by its own name), or in
@@ -1172,6 +1213,8 @@ pub(crate) fn choice<'t>(h: &'t Harness<'_, Moonglow>, name: &'t str) -> egui_ki
 
 /// The table header's More's popover.
 pub(crate) const TABLE_MORE: &str = "More in 2DA table header";
+/// The tileset editor's header's More's popover (M4's U20).
+pub(crate) const TILESET_MORE: &str = "More in Tileset header";
 
 /// Clicks the table header's control `name` ([`table_tool`]: through More
 /// where it is there) and runs the frames that follow.

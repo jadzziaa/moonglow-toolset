@@ -136,7 +136,7 @@ fn drawn_in_contains(h: &Harness<'_, Moonglow>, label: &str, rect: egui::Rect) -
 fn the_switches_open_and_close_their_panels() {
     let (mut h, keys) =
         scripts_window(Mode::Tabs, "ui-script-switches", &[("hello", "void main() {}\n")], 1600.0);
-    assert_eq!(switches(&h), ["Log", "Compiler", "Bookmarks", "Search Results"]);
+    assert_eq!(switches(&h), ["Log", "Problems", "Compiler", "Bookmarks", "Search Results"]);
     assert_eq!(h.state().bottom_dock_shows(), None, "closed, a new installation's");
     for (name, panel, body) in [
         ("Compiler", Panel::Compiler, mg_ui::COMPILER_MESSAGES),
@@ -166,7 +166,7 @@ fn the_switches_open_and_close_their_panels() {
     // alone, the dock on the Log.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
     settle(&mut h);
-    assert_eq!(switches(&h), ["Log", "Search Results"]);
+    assert_eq!(switches(&h), ["Log", "Problems", "Search Results"]);
     assert_eq!(h.state().bottom_dock_shows(), Some(Panel::Log));
     // The script again: its Compiler.
     click_tab(&mut h, &Tab::Script(keys[0]));
@@ -181,7 +181,7 @@ fn the_switches_open_and_close_their_panels() {
         &[("hello", "void main() {}\n")],
         1600.0,
     );
-    assert_eq!(switches(&h), ["Log", "Search Results"]);
+    assert_eq!(switches(&h), ["Log", "Problems", "Search Results"]);
     for (name, body) in [
         ("Bookmarks", mg_ui::BOOKMARKED_LINES),
         ("Search Results", mg_ui::SEARCH_HITS),

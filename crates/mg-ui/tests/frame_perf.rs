@@ -1989,6 +1989,7 @@ fn frames_at_144() {
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
     talk_table(&mut h, &mut r);
+    tileset(&mut h, &mut r);
     if let Some(k) = dialog {
         // (With five bookmarks, listed in the Outliner beside it since M4's
         // U15, its tree open with its indent guides.)
@@ -2039,6 +2040,73 @@ fn frames_at_144() {
         }
     }
     r.end();
+}
+
+/// A copy of the game's tcn01 in the tileset editor (M4's U20), docked
+/// As Tabs: its tile table of 408 rows (the rows in sight alone laid out)
+/// on the Tiles page, tile 16 chosen; Check run on it (two faults put in:
+/// tile 17's model one nowhere, group 0's first tile -1), its findings in
+/// Problems, in front of the Bottom Dock; the Preview and Textures in the
+/// Right Dock (the tile's 3D view paused, as a tile's starts), its parts
+/// in the Outliner. (The tip's copy, 3229ef5c, takes
+/// the same steps, its findings listed under its row; it has no Problems
+/// to show.)
+fn tileset(h: &mut App<'_>, r: &mut Report) {
+    let what = "tileset tcn01, its tile table of 408 rows";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let key = ResKey::parse("tcn01", ResType::SET).unwrap();
+    let set = {
+        let game = h.state().game.as_deref().expect("the game's data");
+        game.resman.get(&key).unwrap().into_owned()
+    };
+    let mut text = String::from_utf8_lossy(&set).into_owned();
+    let t = mg_set::Tileset::parse(&set, mg_core::Codepage::default()).unwrap();
+    text = text.replacen(&format!("Model={}", t.tiles[17].model), "Model=tcn01_zz17", 1);
+    let group = text.find("[GROUP0]").unwrap();
+    let tile0 = group + text[group..].find("Tile0=").unwrap();
+    let end = tile0 + text[tile0..].find("\r\n").unwrap();
+    text.replace_range(tile0..end, "Tile0=-1");
+    let path = mg_testkit::scratch_dir("frame-tileset").join("tcn01.set");
+    std::fs::write(&path, text).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    h.run_steps(3);
+    let id = h.state().tilesets.last().expect("the tileset open").id;
+    let t = Tab::Tileset(id);
+    {
+        let d = h.state_mut().tilesets.iter_mut().find(|d| d.id == id).unwrap();
+        d.page = mg_ui::tileset_view::Page::Tiles;
+        d.tile = Some(16);
+    }
+    h.run_steps(3);
+    click(h, "Check");
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before, the Bottom Dock closed.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Problems));
+    h.run_steps(5);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems), "Problems not shown");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+    assert!(h.query_by_label_contains("Textures, of ").is_some(), "Textures not shown");
+    assert!(h.query_by_label("408 tiles").is_some(), "the Outliner's parts not shown");
+    let tiles = h
+        .state()
+        .tilesets
+        .iter()
+        .find(|d| d.id == id)
+        .map_or(0, |d| d.tileset().map_or(0, |t| t.tiles.len()));
+    let found: usize = h.state().problems.sets().iter().map(|s| s.problems.len()).sum();
+    println!(
+        "  ({tiles} tiles; {found} found by Check; the Right Dock drawn: {}; the Outliner's parts: {})",
+        h.state().right_dock_rect().is_some(),
+        h.query_by_label("408 tiles").is_some()
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
 }
 
 /// The game's `dialog.tlk` (M4's U17), docked As Tabs: its 112,228 lines

@@ -88,6 +88,7 @@ pub mod plugin_events;
 pub mod plugin_kinds;
 pub mod plugins;
 pub mod prefabs;
+pub mod problems;
 mod project_commands;
 pub mod properties_panel;
 pub mod quick_open;
@@ -797,6 +798,13 @@ pub struct Moonglow {
     /// Search Results' hits (M4's U13): the last search's, whatever the
     /// editor in front (`search_results`).
     pub search_results: search_results::SearchResults,
+    /// Problems' findings, by the source that found them (M4's U20: the
+    /// tileset editor's Check; `problems`).
+    pub problems: problems::Problems,
+    /// The textures of each tile model a tileset's Textures listed, and
+    /// how many of them are missing, by the model's name: its header's
+    /// count (`tileset_view::panel_detail`, made before the panel is).
+    pub(crate) textures_seen: HashMap<String, (usize, usize)>,
     /// The NUI window whose last Build failed, and why: shown by its Build button.
     pub(crate) nui_build_error: Option<(String, String)>,
     /// The NUI designers whose checks found more errors this frame: their
@@ -1589,6 +1597,8 @@ impl Moonglow {
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
             search_results: search_results::SearchResults::default(),
+            problems: problems::Problems::default(),
+            textures_seen: HashMap::new(),
             nui_build_error: None,
             nui_checks_forward: Vec::new(),
             nui_widened: HashMap::new(),
@@ -2168,6 +2178,8 @@ impl Moonglow {
         // issue 10): a side dock's button at its tab bar's end (folded,
         // the chevron at its strip's top), the Bottom Dock's switch in the
         // Status Bar.
+        // (What Check found of a tileset followed, its tab drawn or not.)
+        tileset_view::follow_all(self);
         // (A Bottom Dock panel a script asked to the front last frame.)
         shell::bottom_forward(self);
         // (The game's dialog.tlk shown made again from changed game data
@@ -3186,6 +3198,7 @@ impl Moonglow {
         self.settings.bookmarks_panel_height = None;
         self.settings.columns_panel_height = None;
         self.settings.layers_panel_height = None;
+        self.settings.parts_panel_height = None;
         // (The sections' shares and the tabs in front, per kind.)
         self.settings.dock_layouts.clear();
         self.settings.window_places.clear();
@@ -3299,6 +3312,8 @@ impl Moonglow {
         match self.tabs_recent.first() {
             Some(Tab::TalkTable) => (Keys::Talk, None),
             Some(Tab::Table(id)) => (Keys::Table, Some(*id)),
+            // (A tileset's tile list, M4's U20.)
+            Some(Tab::Tileset(_)) => (Keys::Tiles, None),
             _ => (Keys::Area, None),
         }
     }
@@ -3384,6 +3399,12 @@ impl Moonglow {
         let at = (now as isize + by).rem_euclid(panes.len() as isize) as usize;
         let (next, table) = panes[at];
         palette_view::give_keys(ctx, next);
+        // (A tileset's tile list: the tileset's in front, M4's U20.)
+        if next == Keys::Tiles
+            && let Some(Tab::Tileset(id)) = self.tabs_recent.first()
+        {
+            tileset_view::take_keys(ctx, *id);
+        }
         // (What has the keyboard's focus lets go of it: a stop that takes
         // it (a panel's first field, Cell's Value, References' button)
         // asks for it again as it is drawn, and the lists' keys work only
@@ -3454,6 +3475,9 @@ impl Moonglow {
             Keys::NuiBindings,
             // (And its Checks, M4's U19.)
             Keys::NuiChecks,
+            // (And Problems and a tileset's Textures, M4's U20.)
+            Keys::Problems,
+            Keys::Textures,
         ];
         self.dialog_panel_focus = node.contains(&next).then_some(next);
         // (In two columns, the column the keys go to is the dock's panel.)
@@ -3610,7 +3634,10 @@ impl Moonglow {
             // (A table's, its Cell and References at its right and its
             // columns at its left, M4's U16: that much wider, its grid
             // keeping the room it had.)
-            None if matches!(tab, Tab::Table(_) | Tab::Nui(_)) => {
+            // (A tileset's too, its Preview and Textures at its right and
+            // its parts at its left, M4's U20: its list and form keeping
+            // the room they had.)
+            None if matches!(tab, Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_)) => {
                 tab.window_size()
                     + egui::vec2(RIGHT_DOCK_LEAST + 1.0 + shell::WINDOW_LEFT_WIDE + 1.0, 0.0)
             }
@@ -3631,8 +3658,8 @@ impl Moonglow {
         // not to the room between the docks: it may stand over a dock, as a
         // window dragged there does, and its panes and header keep their
         // room. The coordinator's ruling at M4's U17 review.)
-        let panes =
-            matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_)) || tab == Tab::TalkTable;
+        let panes = matches!(tab, Tab::Dialog(_) | Tab::Table(_) | Tab::Nui(_) | Tab::Tileset(_))
+            || tab == Tab::TalkTable;
         let wide = if tab == Tab::Options {
             room.width()
         } else if panes {

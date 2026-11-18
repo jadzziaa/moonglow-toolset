@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T01:19:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T08:11:27Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -313,25 +313,24 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header, M4) |
-| Save beside the pages | Editor header, left of the command group: it saves the tileset file |
-| Five pages | Page switch in the header |
-| Make Palette, Check, Render Minimap Pictures | Header |
-| OK, Cancel | Right end of the header |
-| Path line and counts | Status Bar |
-| Check's findings | Problems panel in the Bottom Dock |
-| Find, Duplicate Tile, Add Tile, Remove Last Tile | Bar above the tile list |
-| Tile list | A table: #, Model, Corners, Edges |
-| Model, Walkmesh, Minimap picture, Path node, Orientation, flags, corners, edges | The form at the right of the body |
-| Doors grid, Add Door, Remove Last Door | Under the form |
-| Preview button | Right Dock, Preview panel, with a button to open the model in a tab |
-| Textures of the model | Right Dock, Textures panel |
-
+| Undo, Redo | The Top Bar's Undo and Redo, which act on the active editor (the Top Bar's act on the editor last worked in ✓ M3 T2, its fix round; the editor's own buttons go with its header ✓ M4 U20: the tileset's steps with the pointer over the editor or its panels, or worked in last) |
+| Save beside the pages | Editor header, left of the command group: it saves the tileset file ✓ M4 U20 (primary, the last into More with the switch) |
+| Five pages | Page switch in the header ✓ M4 U20 (General, Terrains and Crossers, Painting Rules, Tiles, Groups: the kit's segmented control, into More last) |
+| Make Palette, Check, Render Minimap Pictures | Header ✓ M4 U20 (their icons, their words where the row has room) |
+| OK, Cancel | Right end of the header ✓ M4 U20 |
+| Path line and counts | Status Bar ✓ M4 U20 ("408 tiles, 89 groups, 5 terrains, 4 crossers", the path in their tip) |
+| Check's findings | Problems panel in the Bottom Dock ✓ M4 U20 (a source per tileset file, replaced by its next Check; its switch counts the current ones, those of a text not as checked listed and marked; a click goes to the tile and field, the tileset opened again where closed; Remove from Problems on a heading) |
+| Find, Duplicate Tile, Add Tile, Remove Last Tile | Bar above the tile list ✓ M4 U20 (Remove Last Tile the minus) |
+| Tile list | A table: #, Model, Corners, Edges ✓ M4 U20 (the 2DA grid's look, the rows in sight alone, its keys the active editor's) |
+| Model, Walkmesh, Minimap picture, Path node, Orientation, flags, corners, edges | The form at the right of the body ✓ M4 U20 (under the table in a narrow editor) |
+| Doors grid, Add Door, Remove Last Door | Under the form ✓ M4 U20 |
+| Preview button | Right Dock, Preview panel, with a button to open the model in a tab ✓ M4 U20 (the icon at its header's end; the model in 3D under the diagram where the panel has room, paused at first) |
+| Textures of the model | Right Dock, Textures panel ✓ M4 U20 (a row a texture, what it is in its tip, Copy on the chosen row) |
 
 #### New
 
-- An Outliner of the tileset: General, Terrains, Crossers, rules, Tiles, Groups, with counts.
-- The Preview diagram, and the door sentence under it.
+- An Outliner of the tileset: General, Terrains, Crossers, rules, Tiles, Groups, with counts ✓ M4 U20 (Primary rules and Secondary rules apart, as the board draws them).
+- The Preview diagram, and the door sentence under it ✓ M4 U20.
 
 ### Area Editor, Paint
 
@@ -401,7 +400,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Palette type strip | Combo, "Placeables" | ✓ M3 T14 (a dropdown with the type's icon under 300 px of dock); ✓ M4 U6 (Standard and Custom beside it, the name's row gone there) |
 | Expand All, Collapse All | End of the Group By row | ✓ M4 U6 (the row drawn in the narrow dock whether the project offers groupings or not) |
 | Palette, Preview, Properties | Three tabs of one Right Dock panel | Palette and Preview tabs at 280 ✓ M3 T5, T6 and T14; ✓ M4 U6 (Palette, Properties, Preview; Properties' detail and Open in Tab at its own top there) |
-| Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4; Search Results ✓ M4 U13 (its icon alone under 1400, after the Log's and the editor's own); Problems with its panel (U20) |
+| Log, Problems, Search Results switches | Icons only | The Log's ✓ M3 T14 (under 1400, and first of the bar's yields wherever the rest does not fit beside its word); Problems and Search Results come with their panels in M4; Search Results ✓ M4 U13 (its icon alone under 1400, after the Log's and the editor's own); Problems ✓ M4 U20 (its icon alone under 1400, after the Log's, its count beside it; beside a NUI designer before Checks) |
 | Game folder in the Status Bar | Dropped at this width | ✓ M3 T14 (under 1400) |
 | Menus, file buttons, Snap, Turn, More, shelf, compass | Unchanged | Menus and file buttons ✓ M3 T2 (the Top Bar's at every width); Snap, Turn and More ✓ M4 U3; the shelf and the compass ✓ M4 U4 (the shelf's tools that a short view has no room for in its More Tools) |
 

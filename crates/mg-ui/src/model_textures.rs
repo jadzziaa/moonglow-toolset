@@ -300,6 +300,181 @@ pub(crate) fn section(
     });
 }
 
+/// How many textures `model` draws, and how many of them are missing
+/// (none: it can't be listed); a tileset's Textures header says so.
+pub(crate) fn counts(
+    app: &Moonglow,
+    ui: &Ui,
+    model: &str,
+    area_env: Option<&str>,
+) -> Option<(usize, usize)> {
+    let l = listing(app, ui, model, area_env);
+    if l.problem.is_some() {
+        return None;
+    }
+    Some((l.rows.len(), l.rows.iter().filter(|r| r.missing()).count()))
+}
+
+/// A tileset's Textures panel's rows (M4's U20, the Tileset board's
+/// `.tex`): a row a texture `model` draws, its icon and its name in the
+/// code font (in `error` where it is missing; "read as" where the game
+/// cuts it), what it is (its picture, its file, where the load order finds
+/// it, its TXI, what draws it and through which materials) in its tip, a
+/// right click its menu, Copy at its right; only the rows in sight laid
+/// out. `focus`: F6 brought the keys here, the first Copy takes them.
+pub(crate) fn panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    model: &str,
+    area_env: Option<&str>,
+    focus: bool,
+) {
+    let l = listing(app, ui, model, area_env);
+    mg_uikit::name_group(ui, crate::tileset_view::TEXTURE_ROWS);
+    let t = mg_uikit::tokens(ui.ctx());
+    let words = |ui: &mut Ui, text: String| {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.add_space(10.0);
+            ui.add(egui::Label::new(egui::RichText::new(text).color(t.text_3)).wrap());
+        });
+    };
+    if let Some(p) = &l.problem {
+        words(ui, p.clone());
+        return;
+    }
+    if l.rows.is_empty() {
+        words(ui, format!("{model} draws no textures."));
+        return;
+    }
+    let mono = egui::FontId::monospace(12.0);
+    let area =
+        egui::ScrollArea::vertical().id_salt(("texture-rows", model)).auto_shrink([false, false]);
+    let mut first = focus;
+    // (The row chosen, by a click, as the board's `.list-row.sel`: Copy at
+    // its right alone; F6 chooses the first.)
+    let chosen_id = egui::Id::new(("texture-chosen", model.to_ascii_lowercase()));
+    let mut chosen: Option<String> = ui.data(|d| d.get_temp(chosen_id));
+    if focus {
+        chosen = l.rows.first().map(|r| r.name.clone());
+    }
+    let mut choose = None;
+    mg_uikit::show_rows(area, ui, l.rows.len(), |ui, shown| {
+        for row in &l.rows[shown] {
+            let is_chosen = chosen.as_deref() == Some(row.name.as_str());
+            let line = ui.horizontal(|ui| {
+                ui.set_min_height(mg_uikit::row_height(ui));
+                if is_chosen {
+                    let r =
+                        ui.max_rect().with_max_y(ui.max_rect().top() + mg_uikit::row_height(ui));
+                    ui.painter().rect_filled(r, 0.0, t.accent_fill);
+                }
+                ui.add_space(6.0);
+                let missing = row.missing();
+                let color = match (is_chosen, missing) {
+                    (true, _) => t.on_fill,
+                    (false, true) => t.error,
+                    (false, false) => t.text_2,
+                };
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                mg_uikit::Icon::Texture.paint(ui.painter(), rect, color);
+                let copy_room = mg_uikit::metrics::CONTROL_HEIGHT + 8.0;
+                let room = (ui.available_width() - copy_room).max(40.0);
+                let text = egui::RichText::new(&row.name).font(mono.clone()).color(
+                    match (is_chosen, missing) {
+                        (true, _) => t.on_fill,
+                        (false, true) => t.error,
+                        (false, false) => t.text,
+                    },
+                );
+                let name = ui
+                    .scope(|ui| {
+                        ui.set_max_width(room);
+                        ui.add(egui::Label::new(text).truncate().sense(egui::Sense::click()))
+                    })
+                    .inner;
+                let name = name.on_hover_ui(|ui| tip(app, ui, row));
+                if name.clicked() || name.secondary_clicked() {
+                    choose = Some(row.name.clone());
+                }
+                mg_uikit::context_menu(&name, |ui| menu(app, ui, row));
+                if is_chosen {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let copy =
+                            mg_uikit::IconButton::new(mg_uikit::Icon::Copy, "Copy").icon_only(true);
+                        let r = ui.add(copy).on_hover_text(format!("Copy {}: its name", row.name));
+                        if std::mem::take(&mut first) {
+                            r.request_focus();
+                        }
+                        if r.clicked() {
+                            ui.ctx().copy_text(row.name.clone());
+                        }
+                    });
+                }
+            });
+            if line.response.clicked() {
+                choose = Some(row.name.clone());
+            }
+        }
+    });
+    if let Some(name) = choose.filter(|n| chosen.as_ref() != Some(n)) {
+        chosen = Some(name);
+        ui.ctx().request_repaint();
+    }
+    ui.data_mut(|d| match chosen {
+        Some(name) => {
+            d.insert_temp(chosen_id, name);
+        }
+        None => {
+            d.remove_temp::<String>(chosen_id);
+        }
+    });
+}
+
+/// A texture's tip in a tileset's Textures panel: its picture, its name
+/// (and what the game reads it as), its file, where it is found, its TXI,
+/// what draws it and through which materials, as Tile Properties' rows say
+/// beside it.
+fn tip(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
+    ui.horizontal_top(|ui| {
+        picture(app, ui, row);
+        ui.vertical(|ui| {
+            ui.strong(&row.name);
+            let cut = ResRef::cut(&row.name).map(|r| r.to_string().to_ascii_lowercase());
+            if let Some(cut) = cut.filter(|c| *c != row.name) {
+                ui.weak(format!("Read as {cut}: the game cuts a name longer than 16 characters"));
+            }
+            match &row.file {
+                Some(f) => {
+                    let mut line =
+                        format!("{} · {}", file_line(f), crate::images::origin_name(&f.layer));
+                    if f.txi.is_some() {
+                        line.push_str(" · TXI");
+                    }
+                    ui.weak(line);
+                }
+                None if row.drawn() => {
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        "Missing: no DDS, TGA or PLT of the name in the load order",
+                    );
+                }
+                None => {}
+            }
+            for (line, _) in use_lines(row) {
+                ui.weak(line);
+            }
+            for (m, layer) in &row.materials {
+                ui.weak(match layer {
+                    Some(l) => format!("{m}.mtr from {}", crate::images::origin_name(l)),
+                    None => format!("{m}.mtr found nowhere"),
+                });
+            }
+        });
+    });
+}
+
 /// A texture's row: its picture beside its name and what it is.
 fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
     ui.horizontal_top(|ui| {

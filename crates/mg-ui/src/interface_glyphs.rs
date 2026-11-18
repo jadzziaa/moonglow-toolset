@@ -119,6 +119,13 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     ),
     ("crates/mg-ui/src/tileset_view.rs", '×', 1, Proportional, "a group's size (\"3×2\"), data"),
     (
+        "crates/mg-ui/src/tileset_view/panels.rs",
+        '×',
+        1,
+        Proportional,
+        "a group's size in the Outliner (\"3×2\"), data",
+    ),
+    (
         "crates/mg-ui/src/tileset_view.rs",
         '→',
         1,

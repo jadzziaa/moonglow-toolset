@@ -454,6 +454,15 @@ pub(crate) enum Keys {
     /// A NUI designer's Checks (M4's U19), in the Bottom Dock: no arrows of
     /// its own; F6 gives its first row's control the focus.
     NuiChecks,
+    /// Problems (M4's U20), in the Bottom Dock: no arrows of its own; F6
+    /// gives its first row's link the focus.
+    Problems,
+    /// A tileset's Textures (M4's U20): no arrows of their own; F6 gives
+    /// the first texture's Copy the focus.
+    Textures,
+    /// A tileset's tile table (M4's U20): Up, Down, Page Up, Page Down,
+    /// Home and End choose a tile, while its tileset is the active editor.
+    Tiles,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

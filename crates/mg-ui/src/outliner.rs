@@ -148,6 +148,8 @@ pub(crate) enum Owner {
     Table(u32),
     /// A NUI designer's Layers (M4's U18): its window's key.
     Nui(ResKey),
+    /// A tileset's parts (M4's U20): its id.
+    Tileset(u32),
 }
 
 impl Owner {
@@ -157,6 +159,7 @@ impl Owner {
             crate::Tab::Dialog(key) => Some(Owner::Dialog(*key)),
             crate::Tab::Table(id) => Some(Owner::Table(*id)),
             crate::Tab::Nui(key) => Some(Owner::Nui(*key)),
+            crate::Tab::Tileset(id) => Some(Owner::Tileset(*id)),
             _ => None,
         }
     }
@@ -167,6 +170,7 @@ impl Owner {
             Owner::Dialog(key) => Contents::Bookmarks(key),
             Owner::Table(id) => Contents::Columns(id),
             Owner::Nui(key) => Contents::Layers(key),
+            Owner::Tileset(id) => Contents::Tileset(id),
         }
     }
 }
@@ -182,6 +186,8 @@ pub(crate) enum Contents {
     Columns(u32),
     /// A NUI designer's Layers (M4's U18): its window's key.
     Layers(ResKey),
+    /// A tileset's parts (M4's U20): its id.
+    Tileset(u32),
 }
 
 impl Contents {
@@ -193,6 +199,7 @@ impl Contents {
             Contents::Bookmarks(key) => Some(Owner::Dialog(key)),
             Contents::Columns(id) => Some(Owner::Table(id)),
             Contents::Layers(key) => Some(Owner::Nui(key)),
+            Contents::Tileset(id) => Some(Owner::Tileset(id)),
         }
     }
 }
@@ -211,6 +218,9 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
         Some(crate::Tab::Nui(key) | crate::Tab::NuiSource(key)) if app.ws.is_some() => {
             Some(Contents::Layers(*key))
         }
+        // (A tileset's parts, whatever is open: a tileset is a file of its
+        // own, M4's U20.)
+        Some(crate::Tab::Tileset(id)) => Some(Contents::Tileset(*id)),
         _ => None,
     }
 }
@@ -219,7 +229,12 @@ pub(crate) fn contents(app: &Moonglow) -> Option<Contents> {
 /// (`Keys::Outliner`), a conversation's bookmarks' (`Keys::Marks`).
 pub(crate) fn keys_of(app: &Moonglow) -> Keys {
     match contents(app) {
-        Some(Contents::Bookmarks(_) | Contents::Columns(_) | Contents::Layers(_)) => Keys::Marks,
+        Some(
+            Contents::Bookmarks(_)
+            | Contents::Columns(_)
+            | Contents::Layers(_)
+            | Contents::Tileset(_),
+        ) => Keys::Marks,
         _ => Keys::Outliner,
     }
 }
@@ -266,6 +281,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Contents::Bookmarks(key)) => _ = ui.scope(|ui| bookmarks(app, ui, key, false)),
         Some(Contents::Columns(id)) => _ = ui.scope(|ui| columns(app, ui, id, false)),
         Some(Contents::Layers(key)) => _ = ui.scope(|ui| layers(app, ui, key, false)),
+        Some(Contents::Tileset(id)) => _ = ui.scope(|ui| tileset(app, ui, id, false)),
         None => {}
     }
 }
@@ -333,6 +349,7 @@ pub(crate) fn window_ui(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         Owner::Dialog(key) => _ = ui.scope(|ui| bookmarks(app, ui, key, true)),
         Owner::Table(id) => _ = ui.scope(|ui| columns(app, ui, id, true)),
         Owner::Nui(key) => _ = ui.scope(|ui| layers(app, ui, key, true)),
+        Owner::Tileset(id) => _ = ui.scope(|ui| tileset(app, ui, id, true)),
     }
 }
 
@@ -816,6 +833,344 @@ fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool) {
     crate::nui_view::panels::layers(app, ui, key, window);
 }
 
+/// Tileset `id`'s parts as the Outliner lists them (M4's U20, the Tileset
+/// board's Left Dock): the header, "Outliner" and the tileset's name and
+/// the name it shows, with Expand All and Collapse All; General, then
+/// Terrains, Crossers, Primary rules, Secondary rules, Tiles and Groups,
+/// each with its icon and count (a group with none quiet, no arrow), each
+/// opened to list its parts (a terrain's or crosser's name, a rule, a tile
+/// by its number and model, a group by its number, name and size); only
+/// the rows in sight laid out. A click on a row goes to its page and its
+/// row (the tile or group chosen) and gives the list the keys: Up, Down,
+/// Page Up, Page Down, Home and End from row to row, Right and Left open
+/// and close a group (Left from a part goes to its group), Enter goes to
+/// the row, letters to a row by its words, Escape hands them back. In the
+/// Left Dock, or in its window where it floats (`window`). A group of its
+/// own, named [`OUTLINER`].
+fn tileset(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
+    use crate::tileset_view::{OUTLINE_GROUPS, OutlineRow, outline_counts, part_words};
+    let ctx = ui.ctx().clone();
+    mg_uikit::name_group(ui, OUTLINER);
+    let owner = Owner::Tileset(id);
+    app.outliner.marks_now.push((owner, window));
+    let Some(at) = app.tilesets.iter().position(|d| d.id == id) else { return };
+    crate::side_doc::note_pointer(app, ui, &crate::Tab::Tileset(id));
+    let doc = &app.tilesets[at];
+    let set = doc.shared();
+    let detail = match &set {
+        Some(t) => {
+            let shown =
+                t.general.unlocalized_name.clone().filter(|n| !n.is_empty()).or_else(|| {
+                    let game = app.game.as_deref()?;
+                    (!t.general.display_name.is_none())
+                        .then(|| game.string(t.general.display_name))
+                        .flatten()
+                });
+            // (Named by its file, the board's "tcn01 City Exterior".)
+            let stem = doc.path.file_stem().map(|s| s.to_string_lossy().to_lowercase());
+            let stem = stem.unwrap_or_else(|| t.general.name.to_lowercase());
+            match shown {
+                Some(n) if !n.eq_ignore_ascii_case(&stem) => format!("{stem} {n}"),
+                _ => stem,
+            }
+        }
+        None => doc.title(),
+    };
+    let header = mg_uikit::shell::PanelHeader::new(OUTLINER).detail(detail).name(OUTLINER_HEADER);
+    let folded_all = header
+        .show(ui, |ui| {
+            let mut asked = None;
+            let expand =
+                mg_uikit::IconButton::new(mg_uikit::Icon::ExpandAll, "Expand All").icon_only(true);
+            if ui.add(expand).on_hover_text("Open every group").clicked() {
+                asked = Some(true);
+            }
+            let collapse = mg_uikit::IconButton::new(mg_uikit::Icon::CollapseAll, "Collapse All")
+                .icon_only(true);
+            if ui.add(collapse).on_hover_text("Close every group").clicked() {
+                asked = Some(false);
+            }
+            alone_fold(ui, window);
+            asked
+        })
+        .inner;
+    if let Some(open) = folded_all {
+        app.tilesets[at].outline_open = [open; 6];
+    }
+    // (Folded to its header in a dock too short for its rows.)
+    if ui.available_height() < mg_uikit::row_height(ui) {
+        return;
+    }
+    let Some(set) = set else { return };
+    let doc = &app.tilesets[at];
+    let rows = crate::tileset_view::outline_rows(doc);
+    let counts = outline_counts(&set);
+    let open = doc.outline_open;
+    // (The row of what the editor has chosen: its tile or group, where
+    // their groups are open.)
+    // (Its place found by the groups' counts, not by a walk of the rows.)
+    let current = match doc.page {
+        crate::tileset_view::Page::Tiles => doc.tile.map(|t| OutlineRow::Part(4, t)),
+        crate::tileset_view::Page::Groups => doc.group.map(|g| OutlineRow::Part(5, g)),
+        _ => None,
+    }
+    .and_then(|r| crate::tileset_view::outline_index(r, &open, &counts));
+    let mut cursor = match app.outliner.marks_cursor {
+        Some((k, at)) if k == owner => Some(at.min(rows.len().saturating_sub(1))),
+        _ => None,
+    };
+    let here = marks_have_keys(app, &ctx, owner) && tree::keys_free(ui);
+    if marks_have_keys(app, &ctx, owner) {
+        app.undo_keys = Some(crate::Tab::Tileset(id));
+    }
+    let moved = here && app.outliner.marks_moved == Some(owner);
+    if moved {
+        app.outliner.marks_moved = None;
+    }
+    let mut clicked = None;
+    let mut toggled = None;
+    let scroll =
+        egui::ScrollArea::vertical().id_salt(("outliner-tileset", id, window)).auto_shrink(false);
+    let shown = scroll.show_viewport(ui, |ui, view| {
+        mg_uikit::list_rows(ui);
+        let pitch = mg_uikit::row_pitch(ui);
+        let count = rows.len();
+        ui.set_height(COLUMNS_TOP + count as f32 * pitch);
+        let first = (((view.min.y - COLUMNS_TOP) / pitch).floor().max(0.0) as usize).min(count);
+        let last = ((((view.max.y - COLUMNS_TOP) / pitch).ceil().max(0.0) as usize) + 1).min(count);
+        let top = ui.max_rect().top() + COLUMNS_TOP;
+        if moved && let Some(c) = cursor {
+            let y = top + c as f32 * pitch;
+            let row = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y + pitch);
+            ui.scroll_to_rect(row, None);
+        }
+        let indent = ui.spacing().indent;
+        for (n, row) in rows.iter().enumerate().take(last).skip(first) {
+            let y = top + n as f32 * pitch;
+            let mut rect = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), y..=y + pitch);
+            if matches!(row, OutlineRow::Part(..)) {
+                rect.min.x += indent;
+            }
+            let mut ui =
+                ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("outline-row", n)));
+            let marked = (here && cursor == Some(n)) || (!here && current == Some(n));
+            match *row {
+                OutlineRow::General => {
+                    let r = mg_uikit::TreeRow::new("General")
+                        .icon(mg_uikit::Icon::Info)
+                        .label("General settings")
+                        .selected(marked)
+                        .show(&mut ui);
+                    if r.clicked() {
+                        clicked = Some(n);
+                    }
+                }
+                OutlineRow::Group(g) => {
+                    let (name, icon, word, _) = OUTLINE_GROUPS[g];
+                    let mut tree_row = mg_uikit::TreeRow::new(name)
+                        .icon(icon)
+                        .count(counts[g])
+                        .label(crate::problems::count(counts[g], word))
+                        .selected(marked);
+                    if counts[g] == 0 {
+                        tree_row = tree_row.dim();
+                    } else {
+                        tree_row = tree_row.arrow_apart();
+                    }
+                    let shown = tree_row.show_parts(&mut ui);
+                    if counts[g] > 0 {
+                        let icon = match open[g] {
+                            true => mg_uikit::Icon::ChevronDown,
+                            false => mg_uikit::Icon::ChevronRight,
+                        };
+                        let color = mg_uikit::tokens(&ctx).text_2;
+                        let r = shown
+                            .arrow
+                            .shrink2(egui::vec2(0.0, (shown.arrow.height() - 14.0) / 2.0));
+                        let r = egui::Rect::from_center_size(r.center(), egui::vec2(14.0, 14.0));
+                        icon.paint(ui.painter(), r, color);
+                    }
+                    // (Its arrow a button of its own: it opens and closes
+                    // the group; the row goes to its page.)
+                    let arrow = (counts[g] > 0).then(|| {
+                        let id = ui.id().with(("outline-arrow", g));
+                        let r = ui.interact(shown.arrow, id, egui::Sense::click());
+                        let said = match open[g] {
+                            true => format!("Close {name}"),
+                            false => format!("Open {name}"),
+                        };
+                        r.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &said)
+                        });
+                        r
+                    });
+                    if arrow.as_ref().is_some_and(egui::Response::clicked) {
+                        toggled = Some(g);
+                    } else if shown.response.clicked() {
+                        clicked = Some(n);
+                    }
+                }
+                OutlineRow::Part(g, p) => {
+                    let words = part_words(&set, g, p);
+                    // (Named with its kind, "Terrain: Grass", "Tile 16:
+                    // tcn01_c02_01": apart from the list's and the
+                    // boxes' words of the same.)
+                    let said = crate::tileset_view::part_label(&set, g, p);
+                    let r = mg_uikit::TreeRow::new(words.as_str())
+                        .label(said)
+                        .fit()
+                        .selected(marked)
+                        .show(&mut ui);
+                    if r.clicked() {
+                        clicked = Some(n);
+                    }
+                }
+            }
+        }
+    });
+    if here {
+        crate::palette_view::keys_outline(ui, shown.inner_rect, Keys::Marks);
+    }
+    let mut go = None;
+    if let Some(n) = clicked {
+        cursor = Some(n);
+        app.outliner.marks_cursor = Some((owner, n));
+        app.outliner.marks_keys = Some(owner);
+        give_keys(&ctx, Keys::Marks);
+        go = Some(n);
+    }
+    if let Some(g) = toggled {
+        let o = &mut app.tilesets[at].outline_open;
+        o[g] = !o[g];
+        ctx.request_repaint();
+    }
+    if here {
+        use egui::Key;
+        let keys = [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+            Key::ArrowRight,
+            Key::ArrowLeft,
+            Key::Enter,
+        ];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.outliner.marks_cursor = None;
+            app.outliner.marks_keys = None;
+            crate::palette_view::give_arrows(&ctx, false);
+            cursor = None;
+        }
+        let last = rows.len().saturating_sub(1);
+        let page = ((shown.inner_rect.height() / mg_uikit::row_pitch(ui)) as usize).max(1);
+        let at_row = cursor.unwrap_or(0).min(last);
+        let row = rows.get(at_row).copied();
+        let to = match (pressed, row) {
+            (Some(Key::ArrowDown), _) => Some((at_row + 1).min(last)),
+            (Some(Key::ArrowUp), _) => Some(at_row.saturating_sub(1)),
+            (Some(Key::PageDown), _) => Some((at_row + page).min(last)),
+            (Some(Key::PageUp), _) => Some(at_row.saturating_sub(page)),
+            (Some(Key::Home), _) => Some(0),
+            (Some(Key::End), _) => Some(last),
+            (Some(Key::ArrowRight), Some(OutlineRow::Group(g))) if counts[g] > 0 => match open[g] {
+                false => toggled_now(app, at, g, true),
+                true => return_at(at_row + 1),
+            },
+            (Some(Key::ArrowLeft), Some(OutlineRow::Group(g))) if open[g] => {
+                toggled_now(app, at, g, false)
+            }
+            (Some(Key::ArrowLeft), Some(OutlineRow::Part(g, _))) => {
+                rows.iter().position(|r| *r == OutlineRow::Group(g))
+            }
+            (Some(Key::Enter), _) => {
+                go = Some(at_row);
+                Some(at_row)
+            }
+            _ => None,
+        };
+        // Letters go to the row whose words begin with them (a part's
+        // number left out).
+        // (The rows' words made only as letters are typed: a tileset's
+        // thousands of tiles each frame the list has the keys.)
+        let texts = || -> Vec<String> {
+            rows.iter()
+                .map(|r| match *r {
+                    OutlineRow::General => "general".to_string(),
+                    OutlineRow::Group(g) => mg_core::text::fold(OUTLINE_GROUPS[g].0),
+                    OutlineRow::Part(g, p) => {
+                        let w = part_words(&set, g, p);
+                        let w = match g {
+                            2..=5 => {
+                                w.split_once(' ').map_or(w.clone(), |(_, rest)| rest.to_string())
+                            }
+                            _ => w,
+                        };
+                        mg_core::text::fold(&w)
+                    }
+                })
+                .collect()
+        };
+        let seek = |from: Option<usize>, typed: &str| {
+            let texts = texts();
+            let from = from.unwrap_or(texts.len().saturating_sub(1));
+            crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))
+        };
+        let typed = (!rows.is_empty())
+            .then(|| {
+                tree::typed_row(ui, egui::Id::new(("outliner-tileset-typed", id)), cursor, &seek)
+            })
+            .flatten();
+        if let Some(to) = to.or(typed).filter(|_| !rows.is_empty()) {
+            app.outliner.marks_cursor = Some((owner, to));
+            app.outliner.marks_moved = Some(owner);
+            ctx.request_repaint();
+        }
+    }
+    if let Some(n) = go
+        && let Some(row) = rows.get(n).copied()
+    {
+        let d = &mut app.tilesets[at];
+        use crate::tileset_view::Page;
+        match row {
+            OutlineRow::General => d.page = Page::General,
+            OutlineRow::Group(g) => d.page = OUTLINE_GROUPS[g].3,
+            OutlineRow::Part(g, p) => {
+                d.page = OUTLINE_GROUPS[g].3;
+                match g {
+                    4 => {
+                        d.tile = Some(p);
+                        if !d.filter.is_empty() {
+                            d.filter.clear();
+                        }
+                    }
+                    5 => d.group = Some(p),
+                    _ => {}
+                }
+            }
+        }
+        ctx.request_repaint();
+    }
+}
+
+/// A tileset's Outliner group `g` opened (or closed) by the keys: the keys'
+/// row stays on it.
+fn toggled_now(app: &mut Moonglow, at: usize, g: usize, open: bool) -> Option<usize> {
+    app.tilesets[at].outline_open[g] = open;
+    let d = &app.tilesets[at];
+    crate::tileset_view::outline_rows(d)
+        .iter()
+        .position(|r| *r == crate::tileset_view::OutlineRow::Group(g))
+}
+
+/// The keys' row moved to `at`.
+fn return_at(at: usize) -> Option<usize> {
+    Some(at)
+}
+
 /// The Columns' tip on a column's eye, shown or hidden (the Table board's).
 const HIDE_TIP: &str =
     "Hide Column: hide it while the table is open. Its cells are kept and saved.";
@@ -1029,6 +1384,7 @@ pub(crate) fn strip(app: &mut Moonglow, ui: &mut Ui, owner: Owner) {
         (false, Owner::Dialog(_)) => "Show the Outliner: the conversation's bookmarks",
         (false, Owner::Table(_)) => "Show the Outliner: the table's columns",
         (false, Owner::Nui(_)) => "Show the Outliner: the window's layers",
+        (false, Owner::Tileset(_)) => "Show the Outliner: the tileset's parts",
     };
     let shown = egui::Panel::left(egui::Id::new(("outliner-strip", owner)))
         .exact_size(STRIP)
