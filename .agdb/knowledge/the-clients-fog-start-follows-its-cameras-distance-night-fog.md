@@ -11,6 +11,7 @@ asks:
   - "How does the client's camera distance change the fog start?"
   - "Why are distant things darker and crisper than the game's in a fogged area?"
   - "What does View::camera do in mg-area?"
+  - "Does View::camera take the script's camera distance or the fitted eye distance?"
 fingerprint: v2-1b94690a256f1e64
 created: 2026-11-19
 author: augustaugur
