@@ -1,0 +1,15 @@
+[package]
+name = "mg-testkit-gpu"
+description = "A few GPU devices at a time in a test binary: the place a test holds before it opens a device, taken alone by a client of Moonglow's crates and re-exported by mg-testkit"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# (No dependency: a client that takes the GPU hold alone builds none of
+# mg-testkit's server runner, updater or signing.)
+[dependencies]
+
+[lints]
+workspace = true

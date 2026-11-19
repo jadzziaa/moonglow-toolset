@@ -3018,11 +3018,16 @@ version = "0.0.0"
 dependencies = [
  "mg-resman",
  "mg-serve",
+ "mg-testkit-gpu",
  "mg-update",
  "minisign",
  "naga",
  "wgpu-types",
 ]
+
+[[package]]
+name = "mg-testkit-gpu"
+version = "0.0.0"
 
 [[package]]
 name = "mg-tiles"

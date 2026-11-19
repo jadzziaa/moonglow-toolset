@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T20:07:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:27:42Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -126,7 +126,7 @@ alternatives are GPL, LGPL or incomplete; §8).
 ## 4. Architecture
 
 A Cargo workspace, layered bottom-up. A crate may only depend on crates above it
-in this list (test code may also use `mg-testkit`). All of these exist.
+in this list (test code may also use `mg-testkit` and `mg-testkit-gpu`). All of these exist.
 
 | Crate | Responsibility |
 | --- | --- |
@@ -162,6 +162,9 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `apps/moonglow` | the GUI application |
 
 Test support: `mg-testkit` (corpus locator, oracle tools, engine runner),
+`mg-testkit-gpu` (the GPU hold, `gpu::hold`, and the places tests take
+turns at, with no dependency: mg-testkit re-exports it, and a client of the
+crates takes it alone),
 `mg-corpus-tests` (corpus, differential and engine tests). Tools:
 `tools/aurora/` (Aurora under Wine, on the desktop or on an off-screen display driven by
 scripts; form decoder, inventory generator, wizard capture), `tools/nwclient/`
