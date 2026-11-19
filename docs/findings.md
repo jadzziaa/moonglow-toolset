@@ -726,7 +726,8 @@ value. The fog color is the stored color, in gamma space.
 
 - **Checked:** game client, `client_render.rs` `fog_uniforms_match_the_client`
   (the camera as a player enters) and `night_fog.rs`
-  `fog_start_follows_the_camera` (cameras from 5.5 to 25 m, pitch 45 and
+  `fog_start_follows_the_camera` (cameras from 5.5 to 25 m, the start moving
+  back past 20 m as before it, pitch 45 and
   84, amounts 0 to 30, day and night), the shader's uniforms read back by
   a debug copy of the game's own shader include in a scratch `override`;
   `night_fog_matches_the_client` compares the pictures (The Domains of

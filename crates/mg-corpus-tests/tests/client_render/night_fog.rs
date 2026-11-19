@@ -204,7 +204,10 @@ impl Setup {
 /// `MG_CLIENT_PICTURES`). The
 /// things' rest is the armoire's own light, not the fog: what is left is
 /// largest with the least fog (`rural_night_45`, 27.8 against 23.5 at
-/// 20 m), and the fog painted (`MG_FOG_PAINT=fog`) is the same on them.
+/// 20 m), and the fog painted (`MG_FOG_PAINT=fog`) is the same on them
+/// (`rural_night_45`'s things at 10, 15 and 20 m 131.2, 134.3 and 137.6
+/// in the client against 131.0, 134.0 and 137.0 on the game's path, of
+/// 255 at 25.5 a fog unit).
 /// With the player's post effects the client's ground is 2 to 2.5 darker.
 #[test]
 #[ignore]
@@ -248,8 +251,10 @@ fn night_fog_matches_the_client() {
 /// Read 2026-11-19 (89.8193.37), the player 20 m in: amount 12, clip 22:
 /// 3.50 at 5.5 m (pitch 84 and 45 alike), 6.00 at 8, 10.00 at 12, 18.00
 /// at 20; clip 45: 6.00 at 8. Amount 0, clip 45: 15.50 at 5.5, 22.00 at
-/// 12, 30.00 at 20. Amount 30: -11.98 at 8. Amount 12 clip 22 at 25 m
-/// (pitch 30): 20.99, a metre before the end. The end 22.00 or 45.01 in
+/// 12, 30.00 at 20, 35.01 at 25 (pitch 45 and 84; clip 60 by day: 35.00):
+/// past 20 m the start goes on moving back. Amount 12 clip 45: 14.01 at
+/// 16. Amount 30: -11.98 at 8. Amount 12 clip 22 at 25 m (pitch 30):
+/// 20.99, a metre before the end. The end 22.00 or 45.01 in
 /// each. (`SetCameraFacing(90, 12, 45)` given as the player enters keeps
 /// the client's own camera, 20 m: 18.00 and 30.00.)
 #[test]
@@ -282,6 +287,8 @@ fn fog_start_follows_the_camera() {
                 (0, 45.0, 5.5, 84.0, false),
                 (0, 45.0, 12.0, 84.0, true),
                 (30, 45.0, 8.0, 84.0, true),
+                (12, 45.0, 16.0, 84.0, true),
+                (0, 45.0, 25.0, 45.0, true),
             ]
         });
     let mut failures = Vec::new();

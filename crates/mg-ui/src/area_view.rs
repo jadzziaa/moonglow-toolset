@@ -3531,10 +3531,7 @@ fn viewport(
             let size = ui.available_size().max(egui::vec2(32.0, 32.0));
             mg_area::Sight::of(&o.camera(), size.x / size.y)
         }),
-        // (The fog starts nearer for a view nearer its target, as the
-        // game's for its camera; from farther off than the game's camera
-        // goes, `view_fog` moves it back.)
-        camera: view.orbit.map_or(mg_area::GAME_CAMERA, |o| o.distance.min(mg_area::GAME_CAMERA)),
+        camera: fog_camera(view.orbit.map(|o| o.distance)),
     };
     // The grass far off, put together by chunks on a thread of its own
     // (drawn tile by tile until it is, the same tufts: the picture stays as
@@ -6316,6 +6313,15 @@ fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3,
 /// camera as a player enters, NWScript's SetCameraFacing): the view's fog
 /// is measured from that near its target.
 const GAME_CAMERA: f32 = mg_area::GAME_CAMERA;
+
+/// The game's camera whose fog a view `distance` from its target shows
+/// (`View::camera`): as near as the view, as the game's fog starts nearer
+/// for its camera nearer the player, but no farther than [`GAME_CAMERA`]
+/// (from farther off, [`view_fog`] moves the fog back); the game's own
+/// as a player enters without a view yet.
+fn fog_camera(distance: Option<f32>) -> f32 {
+    distance.map_or(GAME_CAMERA, |d| d.min(GAME_CAMERA))
+}
 
 /// The game's fog `f` (for its camera at [`GAME_CAMERA`] or nearer:
 /// `View::camera`) as a view `distance` from its target shows it. The
@@ -9135,8 +9141,12 @@ mod tests {
     #[test]
     fn the_fog_is_measured_from_a_game_camera_near_the_target() {
         let city = mg_render::Fog { start: -5.0, end: 45.0, color: Vec3::splat(0.4) };
-        // As near as the game's camera: the game's fog.
+        // As near as the game's camera: the game's fog, for its camera as
+        // near as the view (`fog_camera`: the area gives it).
         assert_eq!(view_fog(city, 15.0), city);
+        assert_eq!(fog_camera(Some(15.0)), 15.0);
+        assert_eq!(fog_camera(Some(60.0)), GAME_CAMERA);
+        assert_eq!(fog_camera(None), GAME_CAMERA);
         assert_eq!(view_fog(city, GAME_CAMERA), city);
         // From 60 m: moved back 40 m, so the target (60 m off) is as clear
         // as the game shows a player 20 m from its camera.

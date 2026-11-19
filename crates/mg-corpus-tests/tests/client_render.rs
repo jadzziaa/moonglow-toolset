@@ -456,6 +456,14 @@ fn scripted_camera(pc: Vec3, facing: f32) -> Camera {
     }
 }
 
+/// How far the client's camera of [`save_area_module_facing`] stands from
+/// the player, as the client keeps it (what its fog's start follows:
+/// `mg_area::View::camera`): its own as the player enters (20 m) looking
+/// north, the script's 12 m else.
+fn scripted_camera_distance(facing: f32) -> f32 {
+    if facing == FACING { mg_area::GAME_CAMERA } else { 12.0 }
+}
+
 /// Exploration (`MG_FIT=1`): the distance, pitch and focus of the camera
 /// over `pc` looking along `facing` that match the client's picture best
 /// (gray levels, outside the GUI), printed.

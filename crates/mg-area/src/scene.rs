@@ -2100,6 +2100,10 @@ mod tests {
             (0, 45.0, 5.5, 15.5, 45.0),
             (0, 45.0, 12.0, 22.0, 45.0),
             (0, 45.0, 20.0, 30.0, 45.0),
+            // Past the entry camera's 20 m it goes on moving back.
+            (0, 45.0, 25.0, 35.0, 45.0),
+            (0, 60.0, 25.0, 35.0, 60.0),
+            (12, 45.0, 16.0, 14.0, 45.0),
             (30, 45.0, 8.0, -12.0, 45.0),
             // The camera as a player enters (fog_uniforms_match_the_client).
             (10, 45.0, GAME_CAMERA, 20.0, 45.0),
