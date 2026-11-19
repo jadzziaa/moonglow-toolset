@@ -3531,6 +3531,10 @@ fn viewport(
             let size = ui.available_size().max(egui::vec2(32.0, 32.0));
             mg_area::Sight::of(&o.camera(), size.x / size.y)
         }),
+        // (The fog starts nearer for a view nearer its target, as the
+        // game's for its camera; from farther off than the game's camera
+        // goes, `view_fog` moves it back.)
+        camera: view.orbit.map_or(mg_area::GAME_CAMERA, |o| o.distance.min(mg_area::GAME_CAMERA)),
     };
     // The grass far off, put together by chunks on a thread of its own
     // (drawn tile by tile until it is, the same tufts: the picture stays as
@@ -6309,11 +6313,12 @@ fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3,
 }
 
 /// The farthest the game's camera stands from the player (metres; the
-/// classic camera's limit, NWScript's SetCameraFacing): the view's fog is
-/// measured from that near its target.
-const GAME_CAMERA: f32 = 20.0;
+/// camera as a player enters, NWScript's SetCameraFacing): the view's fog
+/// is measured from that near its target.
+const GAME_CAMERA: f32 = mg_area::GAME_CAMERA;
 
-/// The game's fog `f` as a view `distance` from its target shows it. The
+/// The game's fog `f` (for its camera at [`GAME_CAMERA`] or nearer:
+/// `View::camera`) as a view `distance` from its target shows it. The
 /// game measures fog from its camera, which stays near the player (at most
 /// [`GAME_CAMERA`] off); the view often looks from much farther, where the
 /// game's fog would hide what it looks at. So the fog is the game's as a

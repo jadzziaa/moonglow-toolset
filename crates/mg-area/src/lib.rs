@@ -51,7 +51,7 @@ pub mod walk;
 
 pub use grass_view::{CHUNK, GrassDraw, Grown, chunk_of, grass_chosen};
 pub use mg_rules::rows::{REPLACE_TEX, replacement_row, replacement_value};
-pub use scene::{AreaScene, BareLight, Sight, Usage, View, fog, overview};
+pub use scene::{AreaScene, BareLight, GAME_CAMERA, Sight, Usage, View, fog, fog_from, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;

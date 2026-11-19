@@ -104,6 +104,10 @@ pub struct View {
     /// draws it ([`crate::border`]), the fog's color past it; else nothing
     /// is, as in Aurora.
     pub border: bool,
+    /// How far the game's camera stands from the player it looks at,
+    /// metres: the fog starts as much nearer than at the game's own
+    /// [`GAME_CAMERA`] ([`fog_from`]). [`View::of`] gives that.
+    pub camera: f32,
 }
 
 impl View {
@@ -123,6 +127,7 @@ impl View {
             creature_shadows: true,
             light_shadows: true,
             border: false,
+            camera: GAME_CAMERA,
         }
     }
 
@@ -1572,7 +1577,7 @@ impl AreaScene {
                 });
             }
         }
-        let fog = view.fog.then(|| fog(l, view.night));
+        let fog = view.fog.then(|| fog_from(l, view.night, view.camera));
         // What lies past everything drawn: the fog's color, as the client
         // clears to it (an area without a skybox shows it past its tile
         // border, whatever its fog amount: `notes_tile_border.md`), where
@@ -1849,14 +1854,29 @@ fn sun_direction() -> Vec3 {
     Vec3::new(4000.0, 4500.0, 7000.0).normalize()
 }
 
-/// The area's fog, as the client sets it (its fog uniforms read back in
-/// `client_render.rs`): always on, ending at `FogClipDist` and starting
-/// `FogAmount` metres nearer than 30 m (so past 30 it starts behind the
-/// camera), at most 1 m before its end; its colour as stored (gamma space).
+/// How far the game's camera stands from the player as a player enters
+/// an area (its distance as the client keeps it, metres): the camera the
+/// fog's start is given for by [`fog`].
+pub const GAME_CAMERA: f32 = 20.0;
+
+/// The area's fog as the client sets it for its camera at [`GAME_CAMERA`]
+/// ([`fog_from`]).
 pub fn fog(l: &Lighting, night: bool) -> Fog {
+    fog_from(l, night, GAME_CAMERA)
+}
+
+/// The area's fog as the client sets it for its camera `camera` metres
+/// from the player (its fog uniforms read back in `client_render.rs`'s
+/// `fog_uniforms_match_the_client` and `night_fog::fog_start_follows_the_camera`):
+/// always on, by day and at night, ending at `FogClipDist` and starting
+/// `FogAmount` metres nearer than 30 m less the camera's distance short
+/// of 20 m (so a camera zoomed in to 5.5 m with an amount of 12 has it
+/// start 3.5 m off, and past 30 it starts behind the camera), at most
+/// 1 m before its end; its colour as stored (gamma space).
+pub fn fog_from(l: &Lighting, night: bool, camera: f32) -> Fog {
     let sky = l.sky(night);
     let end = l.fog_clip;
-    let start = (30.0 - f32::from(sky.fog_amount)).min(end - 1.0);
+    let start = (30.0 - f32::from(sky.fog_amount) + camera - GAME_CAMERA).min(end - 1.0);
     let c = sky.fog_color;
     let ch = |shift: u32| ((c >> shift) & 0xFF) as f32 / 255.0;
     Fog { start, end, color: Vec3::new(ch(0), ch(8), ch(16)) }
@@ -2051,12 +2071,82 @@ mod tests {
             creature_shadows: false,
             light_shadows: false,
             border: false,
+            camera: GAME_CAMERA,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
         assert_eq!(object_time(ObjectKind::Creature, false, &view), 7.5);
         let still = View { animate: false, ..view };
         assert_eq!(object_time(ObjectKind::Creature, false, &still), 0.0);
+    }
+
+    /// The fog's start follows the game's camera: the client's fog
+    /// uniforms read back (`client_render.rs`'s `night_fog` readings,
+    /// 2026-11-19, game 89.8193.37) for its camera that far from the
+    /// player, by day and at night alike: (fog amount, clip, camera) and
+    /// the client's start and end.
+    #[test]
+    fn the_fog_starts_nearer_for_a_nearer_camera() {
+        let client = [
+            // The Shard of The Domains of Dread at night, its camera
+            // (SetCameraFacing(90, 5.5, 84)), and nearer and farther.
+            (12, 22.0, 5.5, 3.5, 22.0),
+            (12, 22.0, 8.0, 6.0, 22.0),
+            (12, 22.0, 12.0, 10.0, 22.0),
+            (12, 22.0, 20.0, 18.0, 22.0),
+            (12, 45.0, 8.0, 6.0, 45.0),
+            // Past the clip, at most a metre before it.
+            (12, 22.0, 25.0, 21.0, 22.0),
+            (0, 45.0, 5.5, 15.5, 45.0),
+            (0, 45.0, 12.0, 22.0, 45.0),
+            (0, 45.0, 20.0, 30.0, 45.0),
+            (30, 45.0, 8.0, -12.0, 45.0),
+            // The camera as a player enters (fog_uniforms_match_the_client).
+            (10, 45.0, GAME_CAMERA, 20.0, 45.0),
+            (0, 25.0, GAME_CAMERA, 24.0, 25.0),
+        ];
+        for (amount, clip, camera, start, end) in client {
+            for night in [false, true] {
+                let sky =
+                    crate::Sky { fog_amount: amount, fog_color: 0x0040_3020, ..Default::default() };
+                let l = Lighting {
+                    sun: sky,
+                    moon: sky,
+                    is_night: night,
+                    day_night_cycle: false,
+                    fog_clip: clip,
+                    sky_box: 0,
+                    env_map: None,
+                    shadow_opacity: 0,
+                    flags: 1,
+                    wind_power: 0,
+                    sun_direction: None,
+                    moon_direction: None,
+                    wallpaper: None,
+                };
+                let f = fog_from(&l, night, camera);
+                let what = format!("amount {amount}, clip {clip}, camera {camera}");
+                assert!((f.start - start).abs() < 0.01 && f.end == end, "{what}: {f:?}");
+                assert_eq!(f.color, Vec3::new(0x20 as f32, 0x30 as f32, 0x40 as f32) / 255.0);
+            }
+        }
+        // `fog` is the fog for the camera as a player enters.
+        let l = Lighting {
+            sun: crate::Sky { fog_amount: 12, ..Default::default() },
+            moon: crate::Sky { fog_amount: 12, ..Default::default() },
+            is_night: true,
+            day_night_cycle: false,
+            fog_clip: 22.0,
+            sky_box: 0,
+            env_map: None,
+            shadow_opacity: 0,
+            flags: 1,
+            wind_power: 0,
+            sun_direction: None,
+            moon_direction: None,
+            wallpaper: None,
+        };
+        assert_eq!(fog(&l, true), fog_from(&l, true, GAME_CAMERA));
     }
 
     #[test]
@@ -2107,6 +2197,7 @@ mod tests {
             creature_shadows: true,
             light_shadows: false,
             border: false,
+            camera: GAME_CAMERA,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -2175,6 +2266,7 @@ mod tests {
             creature_shadows: true,
             light_shadows: true,
             border: false,
+            camera: GAME_CAMERA,
         };
         assert!(both.light_shadows_of(&l).is_some());
         let lights_alone = View { creature_shadows: false, ..both };
