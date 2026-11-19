@@ -105,11 +105,12 @@ const FACING: f32 = 90.0;
 const AHEAD: f32 = 3.0;
 /// The view the client shows for `SetCameraFacing(90, 12, 45)`: field of
 /// view (degrees), focus height, distance, pitch (degrees from straight
-/// down).
-const FIT_FOV: f32 = 48.0;
-const FIT_FOCUS: f32 = 1.25;
-const FIT_DISTANCE: f32 = 19.0;
-const FIT_PITCH: f32 = 50.0;
+/// down): the client's own camera there, which does not take the command
+/// given at once ([`Camera::GAME_ENTRY`], where the fit is kept).
+const FIT_FOV: f32 = Camera::GAME_FOV;
+const FIT_FOCUS: f32 = Camera::GAME_FOCUS;
+const FIT_DISTANCE: f32 = Camera::GAME_ENTRY.0;
+const FIT_PITCH: f32 = Camera::GAME_ENTRY.1;
 
 const ENTER: &str = r#"
 void Log(string s) { WriteTimestampedLogEntry(s); }
@@ -326,23 +327,9 @@ fn fitted_camera(pc: Vec3, fov: f32, focus: f32, distance: f32, pitch: f32) -> C
 }
 
 /// [`fitted_camera`] looking along another facing (degrees anticlockwise
-/// from east).
+/// from east): the game's camera as mg-render has it ([`Camera::game`]).
 fn camera_facing(pc: Vec3, facing: f32, fov: f32, focus: f32, distance: f32, pitch: f32) -> Camera {
-    let elevation = (90.0 - pitch).to_radians();
-    let facing = facing.to_radians();
-    let focus = pc + Vec3::new(0.0, 0.0, focus);
-    let dir = Vec3::new(
-        -facing.cos() * elevation.cos(),
-        -facing.sin() * elevation.cos(),
-        elevation.sin(),
-    );
-    Camera {
-        eye: focus + dir * distance,
-        target: focus,
-        fov_y: fov.to_radians(),
-        near: 0.1,
-        far: 200.0,
-    }
+    Camera::game(pc, facing, distance, pitch, focus, fov)
 }
 
 /// How far a picture of Moonglow's is from the client's: the mean
@@ -454,8 +441,8 @@ fn off_and_on(
 /// second after the player enters (as [`save_area_module_facing`] turns
 /// it): field of view and focus as [`fitted_camera`]'s, this distance and
 /// pitch (fitted to its pictures: [`fit_turned_camera`]).
-const TURNED_DISTANCE: f32 = 11.0;
-const TURNED_PITCH: f32 = 44.0;
+const TURNED_DISTANCE: f32 = Camera::GAME_SCRIPTED_12_45.0;
+const TURNED_PITCH: f32 = Camera::GAME_SCRIPTED_12_45.1;
 
 /// [`camera_facing`] for the camera [`save_area_module_facing`] gives the
 /// client: [`fitted_camera`]'s looking north, else turned.
