@@ -31,7 +31,7 @@ fn main() {
             orientation: i as u8,
             main_lights: [3, 0],
             // A flame: `fx_flame01`'s animation "2" at the tile's `sl1` (the
-            // file's value; a server sends one less).
+            // file's value; Moonglow Client saw a server send one less, once).
             source_lights: [NonZeroU8::new(2), None],
             ..Tile::new(0)
         })

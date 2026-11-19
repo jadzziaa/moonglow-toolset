@@ -751,7 +751,13 @@ impl AreaScene {
     ///   object with what it shows by place: one taken out of `area` alone
     ///   would have the objects after it drawn with their neighbors' looks
     ///   until the next update of the objects, which, finding fewer
-    ///   objects than it shows, shows them all anew.
+    ///   objects than it shows, shows them all anew; and for good, were
+    ///   another pushed before it (as many objects again: nothing tells).
+    ///   So each one taken out is told here before any is added.
+    ///
+    /// Objects added are taken to be at the end: the area's model read
+    /// whole again (its objects in the GIT's order, by kind) is shown with
+    /// [`AreaScene::update`].
     ///
     /// None of these loads a model already loaded, or builds a tile again.
     /// An object's `index` (its place among those of its kind) keys its
