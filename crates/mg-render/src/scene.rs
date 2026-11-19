@@ -493,9 +493,9 @@ impl Camera {
 /// What is not known: how the client turns a script's distance and pitch
 /// into an eye in general. At 12 and 45 it is 0.92 of the distance and a
 /// degree less pitch; the tests that ask for other cameras use that ratio
-/// unfitted (`batch4.rs`, `shadows.rs`); the head pictures' 3 m and 80
-/// degrees looked like 2.6 m and 82 degrees about 1.4 m up (`heads.rs`,
-/// by eye); Moonglow Client fitted the Shard's 5.5 m and 84 degrees as
+/// unfitted (`batch4.rs`, `shadows.rs`); for the head pictures' 3 m and
+/// 80 degrees `heads.rs` draws from 2.6 m and 82 degrees about 1.4 m up,
+/// "from about where the client looks"; Moonglow Client fitted the Shard's 5.5 m and 84 degrees as
 /// 5.25 m and 83 degrees about 1.5 m up (its `first-picture.md`). No rule
 /// is drawn from them here: a caller passes the distance and pitch it
 /// wants the picture taken from.
