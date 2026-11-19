@@ -35,6 +35,7 @@ default = ["edit"]
 edit = ["dep:mg-edit", "dep:mg-module"]
 
 [dev-dependencies]
+mg-testkit.workspace = true
 mg-tlk.workspace = true
 
 [lints]
