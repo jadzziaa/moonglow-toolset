@@ -485,38 +485,66 @@ fn page(
                 &w.appearance_find,
             );
             let shown: Vec<&Choice> = found.iter().map(|&i| &appearances[i]).collect();
-            let gap = 4.0;
-            let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
-            let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);
-            let tall = side + crate::widgets::tile_label_height(ui);
+            // (Pictures from 96 points, grown to share the width.)
+            let side = 96.0;
+            let tall = side + mg_uikit::gallery::label_height(false, 2, false);
             let gender = w.gender;
-            egui::ScrollArea::vertical()
+            let current = shown.iter().position(|c| usize::from(w.appearance) == c.row);
+            let shown_area = egui::ScrollArea::vertical()
                 .id_salt("cw-appearances")
                 .max_height((ui.available_height() * 0.5).max(tall + 8.0))
                 .auto_shrink([false, false])
-                .show_rows(ui, tall, shown.len().div_ceil(per_row), |ui, lines| {
-                    ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                    for line in lines {
-                        ui.horizontal(|ui| {
-                            for c in shown.iter().skip(line * per_row).take(per_row) {
-                                let mut look = mg_preview::CreatureLook::new(c.row as u16);
-                                look.gender = gender;
-                                let made =
-                                    looks.ready.made(crate::model_view::Pictured::Look(look));
-                                let on = usize::from(w.appearance) == c.row;
-                                let (r, seen) =
-                                    crate::widgets::picture_tile(ui, side, &c.text, on, made);
-                                if seen {
-                                    looks.shown.push(look);
-                                }
-                                if r.on_hover_text(format!("{} (row {})", c.text, c.row)).clicked()
-                                {
-                                    w.appearance = c.row as u16;
-                                }
-                            }
-                        });
+                .show(ui, |ui| {
+                    let id = egui::Id::new("cw-appearance-pictures");
+                    let keys = !egui::Popup::is_any_open(ui.ctx());
+                    let grid = mg_uikit::gallery::GalleryGrid::new(id, shown.len(), side)
+                        .cursor(current)
+                        .keys_allowed(keys)
+                        .name("Appearances");
+                    let look_of = |c: &Choice| {
+                        let mut look = mg_preview::CreatureLook::new(c.row as u16);
+                        look.gender = gender;
+                        look
+                    };
+                    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                        let c = shown[i];
+                        let made = looks.ready.made(crate::model_view::Pictured::Look(look_of(c)));
+                        let on = usize::from(w.appearance) == c.row;
+                        let picture = crate::widgets::cell_picture(made);
+                        mg_uikit::gallery::GalleryCell::new(&c.text, picture)
+                            .kind(mg_uikit::Icon::Creature)
+                            .selected(on)
+                            .paint(ui, rect, tile, cell, r);
+                        if r.clone().on_hover_text(format!("{} (row {})", c.text, c.row)).clicked()
+                        {
+                            w.appearance = c.row as u16;
+                        }
+                    });
+                    // (The keys choose as they move: a picker's.)
+                    if let Some(i) = out.moved.or(out.activated) {
+                        w.appearance = shown[i].row as u16;
                     }
+                    looks.shown.extend(out.ahead.clone().map(|i| look_of(shown[i])));
+                    out
                 });
+            // (Opened at the appearance chosen, once each time the page is
+            // shown: a pass missed is the page left.)
+            let placed_id = egui::Id::new("cw-appearances-placed");
+            let pass = ui.ctx().cumulative_pass_nr();
+            let (last, placed) =
+                ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
+            let placed = placed && last + 1 >= pass;
+            let placed = placed
+                || match current {
+                    Some(at) => crate::widgets::open_gallery_at(
+                        ui.ctx(),
+                        &shown_area,
+                        &shown_area.inner,
+                        at,
+                    ),
+                    None => true,
+                };
+            ui.data_mut(|d| d.insert_temp(placed_id, (pass, placed)));
             ui.separator();
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Portrait");

@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:25:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -627,11 +627,11 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Palette: the List and Gallery switch, the size slider, fold arrows, item count, New…, More | Palette toolbar, in the same order; the slider shows with Gallery on |
-| Palette: Group by, category headings with counts | Unchanged; the pictures wrap inside each heading |
-| Gallery cell: picture, name on two lines, favorite star, hover enlargement with ResRef and Tag | The shared picture cell; the hover enlargement as a tooltip beside the dock |
-| Tiles palette: Exact Tile, terrain and crosser headings with their tiles as pictures | Tiles palette toolbar and list, the tile's model name under each picture |
-| Tile Properties: All tiles (ignore fit), Variant (N fit here) with its Size slider, the variant grid | Tile Properties panel in the Right Dock; the Turn choices and search appear with All tiles on (not drawn) ✓ M4 U5 (the panel; its pictures today's until U25's shared cell) |
+| Palette: the List and Gallery switch, the size slider, fold arrows, item count, New…, More | Palette toolbar in the GalleryPalette board's order: fold arrows, item count, List and Gallery, the size slider in the room left (with Gallery on; a row of its own under a dock of about 370), New…, More ✓ M4 U25 |
+| Palette: Group by, category headings with counts | Unchanged, and the Group by row shown with Gallery on too (Category, grayed, where the project offers no grouping, as the GalleryPalette board draws it); the pictures wrap inside each heading ✓ M4 U25 |
+| Gallery cell: picture, name on two lines, favorite star, hover enlargement with ResRef and Tag | The shared picture cell; the hover enlargement as a tooltip beside the dock ✓ M4 U25 |
+| Tiles palette: Exact Tile, terrain and crosser headings with their tiles as pictures | Tiles palette toolbar (in the Gallery in the GalleryTiles board's order: List, Gallery, Exact Tile, the size slider, fold arrows, item count) and list, the tile's model name under each picture ✓ M4 U25 |
+| Tile Properties: All tiles (ignore fit), Variant (N fit here) with its Size slider, the variant grid | Tile Properties panel in the Right Dock; the Turn choices and search appear with All tiles on (not drawn) ✓ M4 U5 (the panel); ✓ M4 U25 (its pictures in the shared cell's small variant, their own slider) |
 | Appearance Gallery window: Placeables, Creatures, Doors; hint line with Use the Selection; Find; size slider; count | A document tab: the kind switch, Find, slider and count in its header, the hint line as a strip under it |
 | Appearance Gallery: click, double click, drag, right-click Give to the Selection | Unchanged; the common ones are Status Bar hints |
 | Select Portrait: three radio choices, Race, Gender or Category, the portrait grid, preview, count, OK, Cancel | A dialog by the dialog pattern; the count at the footer's left |
@@ -643,6 +643,6 @@ Every control of the screens mocked in the second round and its home in the mock
 #### New
 
 - A Preview panel and an Appearance panel beside the Appearance Gallery.
-- Counts on the Tiles gallery's terrain and crosser headings.
+- Counts on the Tiles gallery's terrain and crosser headings. ✓ M4 U25
 - A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs (the close button ✓ M3 T11).
 

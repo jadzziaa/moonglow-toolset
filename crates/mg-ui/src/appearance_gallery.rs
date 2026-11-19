@@ -108,6 +108,11 @@ impl Kind {
         game.appearance_problem(self.object(), &object).map(|p| p.to_string())
     }
 
+    /// The kind's icon, a picture's while it is made.
+    fn icon(self) -> mg_uikit::Icon {
+        crate::icons::object(self.object())
+    }
+
     fn object(self) -> mg_area::ObjectKind {
         match self {
             Kind::Placeable => mg_area::ObjectKind::Placeable,
@@ -158,40 +163,6 @@ impl Gallery {
 /// leaves.
 pub(crate) fn tile_side(app: &Moonglow) -> f32 {
     f32::from(app.settings.gallery_tile.unwrap_or(DEFAULT_TILE)).clamp(MIN_TILE, MAX_TILE)
-}
-
-/// How many pictures of at least `side` points, `gap` apart, go across
-/// `room`, and the side that makes them fill it (a row of pictures of the
-/// size asked for left a strip of the window empty beside them).
-pub(crate) fn fitted(room: f32, side: f32, gap: f32) -> (usize, f32) {
-    let per_row = (((room + gap) / (side + gap)).floor() as usize).max(1);
-    let fills = ((room - gap * (per_row - 1) as f32) / per_row as f32).floor();
-    // (One picture alone isn't blown up to a whole window's width.)
-    (per_row, fills.clamp(side.min(room.max(MIN_TILE)), side * 2.0))
-}
-
-/// Pictures in rows that wrap, as the Galleries lay theirs out (the
-/// blueprint palettes', the tiles palette's tiles and groups): as many of
-/// at least `asked` points across as fit, grown to fill the row, `GAP`
-/// apart; `add` lays them out, given their side. The row is of the pane's
-/// visible width, and `ui` is narrowed to it: a pane once wider than it
-/// shows, for a row that didn't wrap, would keep that width and the
-/// pictures run past its edge.
-pub(crate) fn picture_rows<R>(
-    ui: &mut egui::Ui,
-    asked: f32,
-    add: impl FnOnce(&mut egui::Ui, f32) -> R,
-) -> R {
-    const GAP: f32 = 4.0;
-    let seen = ui.clip_rect().right() - ui.cursor().left();
-    let room = ui.available_width().min(seen) - 1.0;
-    let side = fitted(room, asked, GAP).1;
-    ui.set_max_width(room);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
-        add(ui, side)
-    })
-    .inner
 }
 
 const DEFAULT_TILE: u16 = 128;
@@ -252,75 +223,75 @@ fn grid(
     let rows: Vec<&mg_rules::Choice> = found.iter().map(|&i| &all[i]).collect();
     let ready = &app.thumbnails;
     let (mut shown, mut pick) = (Vec::new(), Clicked::default());
-    let gap = 4.0;
-    // (The room less the scroll bar's.)
-    let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
-    let (per_row, side) = fitted(room, side, gap);
-    let tall = side + crate::widgets::tile_label_height(ui);
-    // A row and the space after it, as `show_rows` steps them: the scroll
-    // area's spacing, not the `gap` set inside the rows (that put the
-    // current one a pixel a row further down than it was).
-    let height = tall + ui.spacing().item_spacing.y;
-    let mut area = egui::ScrollArea::vertical().id_salt(kind).auto_shrink([false, false]);
-    if !state.placed {
-        state.placed = true;
-        if let Some(at) = current.and_then(|now| rows.iter().position(|c| c.row as i64 == now)) {
-            area = area.vertical_scroll_offset((at / per_row) as f32 * height);
+    let icon = kind.icon();
+    let id = egui::Id::new(("appearance-gallery", kind));
+    let keys = !crate::shell::keys_blocked(ui.ctx());
+    let at = current.and_then(|now| rows.iter().position(|c| c.row as i64 == now));
+    let grid = mg_uikit::gallery::GalleryGrid::new(id, rows.len(), side)
+        .cursor(at)
+        .keys_allowed(keys)
+        .name(kind.name());
+    let area = egui::ScrollArea::vertical().id_salt(kind).auto_shrink([false, false]);
+    let shown_area = area.show(ui, |ui| {
+        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+            let c = rows[i];
+            let key = kind.pictured(&table, c.row, dressed);
+            let made = match key {
+                Some(k) => ready.made(k),
+                None => Some(None),
+            };
+            let chosen = current == Some(c.row as i64) || taking == Some(c.row as i64);
+            // (Marked where it has no model: a builder chose such rows and
+            // saw nothing say why.)
+            let problem = kind.problem(&game, c.row);
+            mg_uikit::gallery::GalleryCell::new(&c.text, crate::widgets::cell_picture(made))
+                .kind(icon)
+                .selected(chosen)
+                .no_model(problem.is_some())
+                .paint(ui, rect, tile, cell, r);
+            let mut about = format!("{} ({name}.2da row {})", c.text, c.row);
+            if let Some(p) = &problem {
+                about = format!("{about}\n{p}");
+            }
+            let r = r.clone().on_hover_text(about);
+            if r.double_clicked() {
+                pick.double = Some(c.row as i64);
+            } else if r.clicked() {
+                pick.click = Some(c.row as i64);
+            }
+            if give {
+                mg_uikit::context_menu(&r, |ui| {
+                    if ui.button("Give to the Selection").clicked() {
+                        pick.give = Some(c.row as i64);
+                        ui.close();
+                    }
+                });
+            }
+            // Dragged into an area's view: a placeable of it there.
+            if kind == Kind::Placeable && r.drag_started() {
+                r.dnd_set_drag_payload(DraggedAppearance { row: c.row, name: c.text.clone() });
+            }
+        });
+        // (Enter or Space on the keys' picture: its click.)
+        if let Some(i) = out.activated {
+            pick.click = Some(rows[i].row as i64);
         }
-    }
-    area.show_rows(ui, tall, rows.len().div_ceil(per_row), |ui, lines| {
-        ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-        for line in lines {
-            ui.horizontal(|ui| {
-                for c in rows.iter().skip(line * per_row).take(per_row) {
-                    let key = kind.pictured(&table, c.row, dressed);
-                    let made = match key {
-                        Some(k) => ready.made(k),
-                        None => Some(None),
-                    };
-                    let chosen = current == Some(c.row as i64) || taking == Some(c.row as i64);
-                    let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, chosen, made);
-                    if let (true, Some(k)) = (seen, key) {
-                        shown.push(k);
-                    }
-                    // (Marked where it has no model: a builder chose such
-                    // rows and saw nothing say why.)
-                    let problem = if seen { kind.problem(&game, c.row) } else { None };
-                    let mut about = format!("{} ({name}.2da row {})", c.text, c.row);
-                    if let Some(p) = &problem {
-                        crate::palette_view::no_model_mark(ui, r.rect);
-                        about = format!(
-                            "{about}
-{p}"
-                        );
-                    }
-                    let r = r.on_hover_text(about);
-                    if r.double_clicked() {
-                        pick.double = Some(c.row as i64);
-                    } else if r.clicked() {
-                        pick.click = Some(c.row as i64);
-                    }
-                    if give {
-                        mg_uikit::context_menu(&r, |ui| {
-                            if ui.button("Give to the Selection").clicked() {
-                                pick.give = Some(c.row as i64);
-                                ui.close();
-                            }
-                        });
-                    }
-                    // Dragged into an area's view: a placeable of it there.
-                    if kind == Kind::Placeable && r.drag_started() {
-                        r.dnd_set_drag_payload(DraggedAppearance {
-                            row: c.row,
-                            name: c.text.clone(),
-                        });
-                    }
-                }
-            });
+        // (Those in sight and a row ahead: kept while they are, and made if
+        // they aren't yet, a few a frame.)
+        for i in out.ahead.clone() {
+            shown.extend(kind.pictured(&table, rows[i].row, dressed));
         }
+        out
     });
-    // (Those in sight: kept while they are, and made if they aren't yet,
-    // a few a frame.)
+    // (Opened at the row chosen, once, where the grid put it.)
+    if !state.placed {
+        state.placed = match at {
+            Some(at) => {
+                crate::widgets::open_gallery_at(ui.ctx(), &shown_area, &shown_area.inner, at)
+            }
+            None => true,
+        };
+    }
     app.thumbnails.show(shown);
     Some(pick)
 }
@@ -496,22 +467,4 @@ fn start_wizard(app: &mut Moonglow, kind: Kind, row: i64) {
     let of = if kind == Kind::Door { BlueprintKind::Door } else { BlueprintKind::Placeable };
     let w = crate::blueprint_wizard::BlueprintWizard::new(of).given(kind.fields(row), &name);
     app.blueprint_wizard = Some(w);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pictures_fill_the_width() {
-        // 500 points, pictures of 128 with 4 between: three fit, and grow
-        // to fill it.
-        let (per_row, side) = fitted(500.0, 128.0, 4.0);
-        assert_eq!(per_row, 3);
-        assert!(3.0 * side + 2.0 * 4.0 <= 500.0 && 3.0 * side + 2.0 * 4.0 > 496.0, "{side}");
-        // Narrower than one: the one, as wide as the room.
-        assert_eq!(fitted(100.0, 128.0, 4.0), (1, 100.0));
-        // A lone picture isn't blown up past twice its size.
-        assert_eq!(fitted(250.0, 128.0, 4.0).0, 1);
-    }
 }

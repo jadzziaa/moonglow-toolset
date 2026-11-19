@@ -1700,6 +1700,9 @@ pub struct Thumbnails {
     /// Asked for this frame and not made (or made before the module last
     /// changed), in the order asked.
     wanted: Vec<Kept>,
+    /// The pictures asked for this frame, made or not, counted: every one
+    /// ([`Thumbnails::shown_now`], for the tests of what asks).
+    shown_now: usize,
     /// The frames, counted, and the module's revision in this one.
     frame: u64,
     revision: Option<u64>,
@@ -1815,6 +1818,7 @@ impl Thumbnails {
         self.revision = revision;
         self.female = female;
         self.wanted.clear();
+        self.shown_now = 0;
     }
 
     /// What pictures `item` (an item's fields: as it would be with another
@@ -1859,6 +1863,7 @@ impl Thumbnails {
     /// changed since).
     pub(crate) fn show(&mut self, keys: impl IntoIterator<Item = Pictured>) {
         for key in keys {
+            self.shown_now += 1;
             let kept = self.kept_as(key);
             match self.made.get_mut(&kept) {
                 Some(made) => {
@@ -1916,6 +1921,14 @@ impl Thumbnails {
     /// How many pictures asked for this frame are still to make.
     pub fn waiting(&self) -> usize {
         self.wanted.len()
+    }
+
+    /// How many pictures were asked for in the frame drawn last, made or
+    /// not, each time one was: for the tests of what asks for them (only
+    /// those in sight and a row ahead, never a whole palette).
+    #[doc(hidden)]
+    pub fn shown_now(&self) -> usize {
+        self.shown_now
     }
 
     /// How many pictures were asked for and are made or still to make:

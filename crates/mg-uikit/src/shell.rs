@@ -117,6 +117,15 @@ pub const RIGHT_DOCK_WIDE: f32 = 741.0;
 /// (`WideArea.html`'s `.dock-col.pal-col`: `flex: 0 0 340px`); the second
 /// column takes the rest.
 pub const RIGHT_COLUMN: f32 = 340.0;
+
+/// The Right Dock in the wide layout's two columns while the palettes
+/// show their Gallery (GalleryWide's `--right-w`), until it is dragged:
+/// its first column [`RIGHT_COLUMN_GALLERY`].
+pub const RIGHT_DOCK_GALLERY: f32 = 881.0;
+
+/// The Right Dock's first column there (GalleryWide's `.pal-col`), until
+/// the seam is dragged.
+pub const RIGHT_COLUMN_GALLERY: f32 = 480.0;
 /// The height of the Left Dock's upper panel over the Outliner at first in
 /// the wide layout (`WideArea.html` and `GalleryWide.html`'s
 /// `.module-panel`: `flex: 0 0 760px`, in a 1440 window).

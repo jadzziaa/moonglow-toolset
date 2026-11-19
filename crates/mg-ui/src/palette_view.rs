@@ -117,8 +117,15 @@ pub struct PaletteView {
     arrived: std::collections::HashSet<ResRef>,
     /// Blueprints' tags, for the search: by palette (and module revision).
     tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
-    /// Each blueprint's tag as it was read, for [`tags_read`].
+    /// Each blueprint's tag as it was read, for [`tags_read`] and
+    /// [`tag_of`].
     tags_read: HashMap<ResKey, TagRead>,
+    /// The hovered blueprint's Tag (none: it has none), for its tooltip or
+    /// the Gallery's enlargement ([`tag_of`]).
+    hover_tag: Option<(ResKey, Option<String>)>,
+    /// How many blueprints' Tags were read one by one for a hover
+    /// ([`tag_of`]; counted for the tests).
+    pub tags_read_one_by_one: usize,
     /// More blueprints chosen with Ctrl+click (with `selected`): custom
     /// ones for bulk edits, placeables to paint (`paint_mode`).
     pub chosen: Vec<ResKey>,
@@ -213,6 +220,10 @@ struct Listed {
     /// In the Gallery, where each blueprint's picture is (by its row):
     /// Up and Down go a row of pictures at a time.
     places: HashMap<usize, egui::Rect>,
+    /// Where each row's top is (by its row), and the list's height in
+    /// sight: Page Up and Page Down go a list's height at a time.
+    tops: HashMap<usize, f32>,
+    page: f32,
 }
 
 /// A branch as listed: the branch it is in, its own row, and whether it
@@ -236,8 +247,9 @@ enum Step {
 }
 
 impl Listed {
-    fn branch(&mut self, branch: Branch, parent: Option<usize>) -> usize {
+    fn branch(&mut self, branch: Branch, parent: Option<usize>, top: f32) -> usize {
         self.branches.push(Listing { branch, parent, row: self.rows.len(), open: false });
+        self.tops.insert(self.rows.len(), top);
         self.rows.push((self.branches.len() - 1, None));
         self.branches.len() - 1
     }
@@ -289,6 +301,9 @@ impl Listed {
         if let Some(step) = self.step_pictures(row, key) {
             return step;
         }
+        if let Some(step) = self.step_far(row, key) {
+            return step;
+        }
         let (branch, blueprint) = self.rows[row];
         let next = (row + 1..self.rows.len()).find(|r| self.shows(*r));
         match key {
@@ -314,6 +329,55 @@ impl Listed {
 }
 
 impl Listed {
+    /// [`Listed::step`] by Home and End (the first and the last row
+    /// showing) and by Page Up and Page Down (the farthest row showing a
+    /// list's height in sight away, headings and closed headings counted
+    /// as rows; in a row of pictures, the one nearest across; at least the
+    /// next row). `None`: another key.
+    fn step_far(&self, row: usize, key: egui::Key) -> Option<Step> {
+        use egui::Key::{End, Home, PageDown, PageUp};
+        let mut showing = (0..self.rows.len()).filter(|r| self.shows(*r));
+        let to = match key {
+            Home => showing.next(),
+            End => showing.next_back(),
+            PageDown | PageUp => {
+                let down = key == PageDown;
+                let here = self.tops.get(&row).copied().unwrap_or(0.0);
+                let reach = here + if down { self.page } else { -self.page };
+                let within = |r: &usize| {
+                    let top = self.tops.get(r).copied().unwrap_or(here);
+                    if down { top <= reach + 0.5 } else { top >= reach - 0.5 }
+                };
+                let past: Vec<usize> = match down {
+                    true => (row + 1..self.rows.len()).filter(|r| self.shows(*r)).collect(),
+                    false => (0..row).rev().filter(|r| self.shows(*r)).collect(),
+                };
+                let reached: Vec<usize> = past.iter().copied().take_while(within).collect();
+                match reached.last() {
+                    // (The farthest line reached: of a row of pictures, the
+                    // picture nearest across.)
+                    Some(&far) => {
+                        let line = self.tops.get(&far).copied();
+                        let x = self.places.get(&row).map(|r| r.center().x);
+                        let across = |r: &usize| match (x, self.places.get(r)) {
+                            (Some(x), Some(p)) => (p.center().x - x).abs(),
+                            _ => 0.0,
+                        };
+                        // (Left to right: from a heading, the first.)
+                        let mut same: Vec<usize> = (reached.iter().copied())
+                            .filter(|r| self.tops.get(r).copied() == line)
+                            .collect();
+                        same.sort_unstable();
+                        same.into_iter().min_by(|a, b| across(a).total_cmp(&across(b)))
+                    }
+                    None => past.first().copied(),
+                }
+            }
+            _ => return None,
+        };
+        Some(to.filter(|to| *to != row).map_or(Step::Stay, Step::To))
+    }
+
     /// [`Listed::step`] from a picture in the Gallery: Up and Down to the
     /// nearest picture of the row of pictures above or below (past the
     /// first or the last row, out of the category's pictures), Left and
@@ -530,6 +594,15 @@ pub(crate) fn a_list_has_the_keys(ctx: &egui::Context) -> bool {
         .any(|k| keys_are(ctx, k))
 }
 
+/// Whether the blueprint palette's Gallery is shown and has the keys (its
+/// hints are the Status Bar's then: `area_view::bar`).
+pub(crate) fn gallery_has_the_keys(app: &Moonglow, ctx: &egui::Context) -> bool {
+    app.settings.palette_gallery
+        && !app.palette.tiles
+        && pictured(app.palette.kind)
+        && keys_are(ctx, Keys::Palette)
+}
+
 pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
     has_arrows(ctx)
         && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
@@ -555,6 +628,13 @@ pub(crate) fn letters_taken(ctx: &egui::Context) -> bool {
 }
 
 impl PaletteView {
+    /// Puts `palette` in place of the game's standard palette of `kind`:
+    /// for the tests (a palette of thousands of blueprints).
+    #[doc(hidden)]
+    pub fn set_standard(&mut self, kind: BlueprintKind, palette: Palette) {
+        self.standard.insert(kind, Arc::new(palette));
+    }
+
     /// Whether the arrow keys' cursor is at a category's own row (not at
     /// a blueprint's).
     pub fn at_category(&self) -> bool {
@@ -617,6 +697,8 @@ impl Default for PaletteView {
             arrived: Default::default(),
             tags: HashMap::new(),
             tags_read: HashMap::new(),
+            hover_tag: None,
+            tags_read_one_by_one: 0,
             chosen: Vec::new(),
             tiles: false,
             prefabs: false,
@@ -1008,6 +1090,32 @@ enum Pick {
     Plugin(usize, Vec<ResKey>),
 }
 
+/// The Tag of the blueprint `key` (none: it has none), for the hovered
+/// one: read from its bytes once and kept with the palette's search's
+/// (`tags_read`), read again only where the module's bytes of it changed;
+/// no palette is walked for it.
+fn tag_of(app: &mut Moonglow, key: ResKey) -> Option<String> {
+    let own = app.ws.as_ref().and_then(|w| w.module.shared(&key));
+    let same = |from: &Option<Arc<[u8]>>| match (from, own) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (a, b) => a.is_none() && b.is_none(),
+    };
+    if let Some((from, tag)) = app.palette.tags_read.get(&key)
+        && same(from)
+    {
+        return tag.clone();
+    }
+    let game = app.game.as_deref()?;
+    let tag = (own.map(|d| Gff::read(d)))
+        .or_else(|| game.resman.get(&key).ok().map(|d| Gff::read(&d)))
+        .and_then(Result::ok)
+        .and_then(|g| g.root.string("Tag").map(crate::text::decode));
+    let own = own.cloned();
+    app.palette.tags_read_one_by_one += 1;
+    app.palette.tags_read.insert(key, (own, tag.clone()));
+    tag
+}
+
 /// A blueprint's Tag: the module's as it is now (edits not yet saved in
 /// it), else the game's (the load order's).
 fn blueprint_tag(app: &mut Moonglow, key: ResKey) -> Option<String> {
@@ -1179,6 +1287,10 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
     );
 }
 
+/// The least width the palette toolbar's size slider takes beside the
+/// List and Gallery switch; with less room, a row of its own.
+pub(crate) const SLIDER_LEAST: f32 = 60.0;
+
 /// How long the pointer rests on a palette row before its blueprint's
 /// picture and what there is to say of it are asked for: long enough that
 /// a turning wheel, which scrolls another row under a resting pointer each
@@ -1226,6 +1338,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if seen > 0.0 && seen < ui.available_width() {
         ui.set_max_width(seen);
     }
+    // (What the Gallery's enlargement stands beside: the Right Dock, the
+    // palettes' one host (they never float: a dragged-out area's window
+    // brings no Palette); the pane where it is not known yet.)
+    let panel = app.right_rect.unwrap_or(ui.max_rect().intersect(ui.clip_rect()));
     let mut view = std::mem::take(&mut app.palette);
     // The palette shown when Moonglow was last closed, once.
     if !std::mem::replace(&mut view.restored, true) {
@@ -1565,8 +1681,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let fold_by_group = narrow_row;
     // The list's toolbar, right over the list: every category opened or
     // closed, how many blueprints the list has (of the search, if any),
-    // names or pictures, a new blueprint, and the rest under "more".
+    // names or pictures, the pictures' size (with the Gallery on), a new
+    // blueprint, and the rest under "more" (the GalleryPalette board's
+    // order: the slider takes the room between the switch and New…, on a
+    // row of its own under them where less than [`SLIDER_LEAST`] is left).
     let mut categories = None;
+    let gallery_on = app.settings.palette_gallery && pictured(kind);
     ui.horizontal_wrapped(|ui| {
         if !fold_by_group {
             view.fold = fold_icons(ui, "category", &app.keymap);
@@ -1608,14 +1728,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 app.settings.palette_gallery = true;
             }
         });
-        if ui
+        // (New… and More's width as drawn last time: the slider's room is
+        // what is left before them.)
+        let tail_id = egui::Id::new("palette-toolbar-tail");
+        let tail = ui.data(|d| d.get_temp::<f32>(tail_id)).unwrap_or(120.0);
+        let room = ui.available_size_before_wrap().x - tail - ui.spacing().item_spacing.x;
+        let slider_here = shown && room >= SLIDER_LEAST;
+        if slider_here {
+            ui.scope(|ui| {
+                ui.spacing_mut().slider_width = room;
+                crate::appearance_gallery::size_slider(app, ui);
+            });
+        }
+        let new = ui
             .add_enabled(app.ws.is_some(), egui::Button::new("New…"))
-            .on_hover_text("A new blueprint (the type's wizard)")
-            .clicked()
-        {
+            .on_hover_text("A new blueprint (the type's wizard)");
+        if new.clicked() {
             crate::commands::Id::new_blueprint(view.kind).run(app, ui.ctx());
         }
-        mg_uikit::menu_button(ui, "More", |ui| {
+        let more = mg_uikit::menu_button(ui, "More", |ui| {
             mg_uikit::menu_rows(ui);
             if ui
                 .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
@@ -1651,13 +1782,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         })
         .response
         .on_hover_text("The module's categories, Refresh Palette and every placeable appearance");
-        if shown {
-            // (A slider doesn't wrap of itself: on a row of its own where
-            // this one has no room for it.)
-            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
-                ui.end_row();
+        // (Kept only where the two stand on one row.)
+        if (new.rect.center().y - more.rect.center().y).abs() < 1.0 {
+            let width = more.rect.right() - new.rect.left();
+            if (width - tail).abs() > 0.5 {
+                ui.data_mut(|d| d.insert_temp(tail_id, width));
+                ui.ctx().request_discard("the palette's toolbar measured");
             }
-            crate::appearance_gallery::size_slider(app, ui);
+        }
+        if shown && !slider_here {
+            // (A row of its own, the toolbar's width.)
+            ui.end_row();
+            ui.scope(|ui| {
+                ui.spacing_mut().slider_width = ui.available_size_before_wrap().x.max(40.0);
+                crate::appearance_gallery::size_slider(app, ui);
+            });
         }
     });
     // A search typed opens every category with a match, as it is typed.
@@ -1679,7 +1818,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let mut by = (app.settings.palette_group_by.get(ext))
         .and_then(|id| offered.iter().position(|g| g.id == *id));
     let mut nested = !app.settings.palette_flat.iter().any(|e| e == ext);
-    if !offered.is_empty() || fold_by_group {
+    // (And with the Gallery on, as the GalleryPalette and GalleryWide
+    // boards draw it: Category alone, grayed, where the project offers no
+    // grouping.)
+    if !offered.is_empty() || fold_by_group || gallery_on {
         ui.horizontal_wrapped(|ui| {
             ui.label("Group by").on_hover_text(
                 "The palette's categories, or a grouping from the project's moonglow.toml \
@@ -1788,10 +1930,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // move through.
     let pressed = (keys_are(ui.ctx(), Keys::Palette) && !ui.ctx().egui_wants_keyboard_input())
         .then(|| {
-            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter};
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, End, Enter, Home};
+            use egui::Key::{PageDown, PageUp};
             ui.input(|i| {
                 let plain = i.modifiers.is_none();
-                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter]
+                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter, Home, End, PageUp, PageDown]
                     .into_iter()
                     .find(|k| plain && i.key_pressed(*k))
             })
@@ -1849,9 +1992,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ready: &app.thumbnails,
         shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
+        hover_tag: view.hover_tag.as_ref().map(|(k, t)| (*k, t.as_deref())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
         picks: Vec::new(),
         hovered: None,
+        enlarged: None,
         resrefs,
         cr,
         hide_empty: app.settings.palette_hides_empty,
@@ -1909,7 +2054,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             });
         }
     });
-    crate::widgets::home_and_end(ui, &mut list);
+    // (Home and End scroll the list where the keys are not the palette's:
+    // where they are, they move its cursor, below.)
+    if pressed.is_none() && !keys_are(ui.ctx(), Keys::Palette) {
+        crate::widgets::home_and_end(ui, &mut list);
+    }
     keys_outline(ui, list.inner_rect, Keys::Palette);
     if brush {
         let keys = crate::paint_mode::chosen_keys(tree.sel.selected, &tree.sel.chosen);
@@ -1939,7 +2088,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // drawn, or its category opens or closes (when the palette is drawn
     // next). A blueprint it comes to is selected, as by a click; on a
     // category, the blueprint selected stays in hand.
-    if let (Some(key), Some(listed)) = (pressed, tree.listed.take()) {
+    if let (Some(key), Some(mut listed)) = (pressed, tree.listed.take()) {
+        listed.page = list.inner_rect.height();
         let from = tree
             .cursor
             .as_ref()
@@ -1968,8 +2118,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             None => {
                 let mut showing = (0..listed.rows.len()).filter(|r| listed.shows(*r));
                 let to = match key {
-                    egui::Key::ArrowDown => showing.next(),
-                    egui::Key::ArrowUp => showing.next_back(),
+                    egui::Key::ArrowDown | egui::Key::Home | egui::Key::PageDown => showing.next(),
+                    egui::Key::ArrowUp | egui::Key::End | egui::Key::PageUp => showing.next_back(),
                     _ => None,
                 };
                 to.map_or(Step::Stay, Step::To)
@@ -1999,6 +2149,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     view.cursor = tree.cursor.take();
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
+    let enlarged = tree.enlarged.take();
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
     }
@@ -2047,6 +2198,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let lines = about(app, key);
         app.palette.about = Some((key, lines));
         ui.ctx().request_repaint();
+    }
+    // Its Tag, read for it alone (the search reads every blueprint's):
+    // once, and kept.
+    if let Some(key) = hovered
+        && app.palette.hover_tag.as_ref().is_none_or(|(k, _)| *k != key)
+    {
+        let tag = match tags.get(&key.resref) {
+            Some(tag) => Some(tag.clone()),
+            None => tag_of(app, key),
+        };
+        app.palette.hover_tag = Some((key, tag));
+        ui.ctx().request_repaint();
+    }
+    // The Gallery's enlargement: a tooltip beside the dock, never over it
+    // or the cell it tells of, never outside the window, gone while
+    // something is dragged (the List's tip is at the pointer, as before).
+    if let Some(e) = enlarged.filter(|e| hovered == Some(e.key))
+        && !egui::DragAndDrop::has_any_payload(ui.ctx())
+    {
+        enlargement(app, ui, &e, panel);
     }
 
     for pick in picks {
@@ -2222,10 +2393,16 @@ struct Tree<'a> {
     shown: Vec<ResKey>,
     /// And what there is to say of it.
     about: Option<(ResKey, &'a [String])>,
+    /// The hovered blueprint's Tag, read for its hover ([`tag_of`]).
+    hover_tag: Option<(ResKey, Option<&'a str>)>,
     sel: Selection,
     picks: Vec<Pick>,
     /// The blueprint hovered now.
     hovered: Option<ResKey>,
+    /// In the Gallery, the cell hovered now: its blueprint, where it is,
+    /// its name and challenge rating (for its enlargement beside the
+    /// dock).
+    enlarged: Option<Enlarged>,
     /// Options › General: ResRefs beside names, and creatures' challenge
     /// ratings.
     resrefs: bool,
@@ -2388,7 +2565,8 @@ impl Tree<'_> {
         }
         let (game, kind, custom) = (self.game, self.kind, self.custom);
         let branch = Branch::Category(path.to_vec());
-        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), parent));
+        let top = ui.cursor().top();
+        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), parent, top));
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
         // (A group counts every blueprint in it, in its categories too.)
@@ -2503,7 +2681,13 @@ impl Tree<'_> {
 
     /// A blueprint's row in a branch: with the branch, its place in the
     /// keys' listing and the blueprint the cursor is at in it.
-    fn row(&mut self, ui: &mut egui::Ui, b: &PaletteBlueprint, within: Within<'_>) {
+    fn row(
+        &mut self,
+        ui: &mut egui::Ui,
+        b: &PaletteBlueprint,
+        within: Within<'_>,
+        cell: Option<Cell>,
+    ) {
         let (branch, listing, cursor) = within;
         let (kind, custom) = (self.kind, self.custom);
         let key = ResKey::new(b.resref, kind.restype());
@@ -2511,34 +2695,36 @@ impl Tree<'_> {
         // is no more is in the custom palette too, as in Aurora's.)
         let mine = custom && self.own.contains(&b.resref);
         if let (Some(at), Some(listed)) = (listing, &mut self.listed) {
+            let top = cell.as_ref().map_or(ui.cursor().top(), |c| c.at.top());
+            listed.tops.insert(listed.rows.len(), top);
             listed.rows.push((at, Some(key)));
         }
         // (The row the keys moved the cursor to is brought into view.)
         let reveal = self.reveal && cursor == Some(key);
+        // In the Gallery, a cell where the grid's arithmetic puts it: out of
+        // sight, its place alone (for the keys), and its picture asked for
+        // in the row ahead.
+        if let Some(cell) = &cell {
+            if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
+                listed.places.insert(listed.rows.len() - 1, cell.at);
+            }
+            if reveal {
+                ui.scroll_to_rect(cell.at, None);
+            }
+            if cell.ahead {
+                self.shown.push(key);
+            }
+            if !cell.drawn {
+                return;
+            }
+        }
         // Rows out of sight take their room only (a palette may list
         // thousands).
         let height = ui.spacing().interact_size.y;
         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
-        if !self.gallery && !reveal && !ui.is_rect_visible(room) {
+        if cell.is_none() && !reveal && !ui.is_rect_visible(room) {
             ui.allocate_space(egui::vec2(1.0, height));
             return;
-        }
-        // (So a picture's: its room, in this line of them or, this one
-        // full, the next, before its name and label are made.)
-        if self.gallery && !reveal {
-            let size = egui::vec2(self.side, self.side + crate::widgets::tile_label_height(ui));
-            let top = ui.cursor().min.y;
-            let lines = egui::Rect::from_x_y_ranges(
-                ui.max_rect().x_range(),
-                top..=top + 2.0 * size.y + ui.spacing().item_spacing.y,
-            );
-            if !ui.is_rect_visible(lines) {
-                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-                if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
-                    listed.places.insert(listed.rows.len() - 1, rect);
-                }
-                return;
-            }
         }
         let name = shown_name(&b.name, self.game);
         let favorite = self.favorites.contains(&b.resref);
@@ -2547,20 +2733,11 @@ impl Tree<'_> {
         // Dragged into an area view, it is placed where it is dropped; onto
         // a custom category, it moves there. (A favorite marked with a
         // bookmark: before its name in the list, at a picture's top right.)
-        let r = if self.gallery {
-            let r = self.tile(ui, key, &label);
-            if favorite && ui.is_rect_visible(r.rect) {
-                let side = egui::Vec2::splat(mg_uikit::metrics::ICON_SMALL);
-                let at = r.rect.right_top() + egui::vec2(-side.x - 3.0, 3.0);
-                let color = mg_uikit::tokens(ui.ctx()).thumb_flag;
-                crate::icons::FAVORITE.paint(
-                    ui.painter(),
-                    egui::Rect::from_min_size(at, side),
-                    color,
-                );
-            }
-            if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
-                listed.places.insert(listed.rows.len() - 1, r.rect);
+        let r = if let Some(cell) = &cell {
+            let r = self.cell(ui, b, cell, &name, &label);
+            if r.hovered() && !egui::DragAndDrop::has_any_payload(ui.ctx()) {
+                let (at, name, cr) = (cell.at, name.clone(), b.cr);
+                self.enlarged = Some(Enlarged { key, at, name, cr });
             }
             r
         } else {
@@ -2580,7 +2757,7 @@ impl Tree<'_> {
         if r.hovered() {
             self.hovered = Some(key);
         }
-        if reveal {
+        if reveal && cell.is_none() {
             r.scroll_to_me(None);
         }
         if r.clicked() {
@@ -2592,23 +2769,29 @@ impl Tree<'_> {
         let thumb = self.thumb.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
         let about = self.about.filter(|(k, _)| *k == key).map_or(&[][..], |(_, lines)| lines);
         let tags = self.tags;
-        let r = r.on_hover_ui(|ui| {
-            ui.strong(&name);
-            ui.label(format!("ResRef {}", b.resref));
-            if let Some(t) = tags.get(&b.resref).filter(|t| !t.is_empty()) {
-                ui.label(format!("Tag {t}"));
-            }
-            if let Some(cr) = b.cr {
-                ui.label(format!("Challenge rating {cr}"));
-            }
-            if let Some(id) = thumb {
-                let size = 180.0;
-                ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
-            }
-            for line in about {
-                ui.label(line);
-            }
-        });
+        let read = self.hover_tag.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
+        let r = if cell.is_some() {
+            r
+        } else {
+            r.on_hover_ui(|ui| {
+                ui.strong(&name);
+                ui.label(format!("ResRef {}", b.resref));
+                let tag = tags.get(&b.resref).map(String::as_str).or(read);
+                if let Some(t) = tag.filter(|t| !t.is_empty()) {
+                    ui.label(format!("Tag {t}"));
+                }
+                if let Some(cr) = b.cr {
+                    ui.label(format!("Challenge rating {cr}"));
+                }
+                if let Some(id) = thumb {
+                    let size = 180.0;
+                    ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
+                }
+                for line in about {
+                    ui.label(line);
+                }
+            })
+        };
         if r.clicked() {
             // Ctrl+click chooses several: custom blueprints for bulk
             // edits, placeables (custom or the game's) to paint; Shift+click
@@ -2822,7 +3005,8 @@ impl Tree<'_> {
             return;
         }
         let branch = Branch::Remembered(title);
-        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), None));
+        let top = ui.cursor().top();
+        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), None, top));
         let within = self.cursor_in(&branch).flatten();
         let behind = ui.painter().add(egui::Shape::Noop);
         let shown = egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
@@ -2876,43 +3060,175 @@ impl Tree<'_> {
 
     fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
         if self.gallery {
-            // As many across as fit, grown to fill the palette's width.
-            let asked = self.side;
-            crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
-                self.side = side;
-                for b in rows {
-                    self.row(ui, b, within);
-                }
-            });
-            self.side = asked;
+            self.grid(ui, rows, within);
         } else {
             for b in rows {
-                self.row(ui, b, within);
+                self.row(ui, b, within, None);
             }
         }
         self.choose_range(rows);
     }
 
-    /// A blueprint in the Gallery: its picture over its name, cut short
-    /// (whole on hover). Until the picture is made, or for a blueprint
-    /// with nothing to draw, its name alone.
-    fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
+    /// A category's blueprints in the Gallery: the kit's grid, its cells
+    /// grown from the slider's side to share the palette's width, laid out
+    /// by arithmetic. Only the cells in sight are drawn, and their pictures
+    /// and a row's ahead asked for; the rest are gone through only where
+    /// the keys need every place (a key pressed, the cursor brought into
+    /// sight, a Shift+click's range).
+    fn grid(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
+        use mg_uikit::gallery::{GridLayout, label_height};
+        let seen = ui.clip_rect().right() - ui.cursor().left();
+        let room = ui.available_width().min(seen).max(1.0);
+        let layout = GridLayout::grow(room, self.side, label_height(false, 2, self.detail()));
+        let size = egui::vec2(room, layout.height(rows.len()));
+        let (rect, grid) = ui.allocate_exact_size(size, egui::Sense::hover());
+        // (A list of all of the category's pictures to a screen reader:
+        // those out of sight are not built, the keys reach them.)
+        grid.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Pictures"));
+        mg_uikit::gallery::said_as_list(ui.ctx(), grid.id, rows.len());
+        let clip = ui.clip_rect();
+        let in_sight = layout.rows_in(rect.top(), clip.y_range(), rows.len());
+        let drawn = layout.cells_of(in_sight.clone(), rows.len());
+        let ahead = in_sight.start..(in_sight.end + 1).min(layout.rows(rows.len()));
+        let ahead = layout.cells_of(ahead, rows.len());
+        let every = self.listed.is_some() || self.reveal || self.range.is_some();
+        let (cursor, tile) = (within.2, layout.tile);
+        for (i, b) in rows.iter().enumerate() {
+            let key = ResKey::new(b.resref, self.kind.restype());
+            if !every && !ahead.contains(&i) && cursor != Some(key) {
+                continue;
+            }
+            let at = layout.rect(rect.min, i);
+            let (drawn, ahead) = (drawn.contains(&i), ahead.contains(&i));
+            let cell = Cell { at, tile, drawn, ahead, index: i, of: rows.len() };
+            self.row(ui, b, within, Some(cell));
+        }
+        // (The keys' cell, built, told to a screen reader as the list's
+        // active one: `cell`'s id.)
+        let kind = self.kind.restype();
+        let on = rows.iter().position(|b| cursor == Some(ResKey::new(b.resref, kind)));
+        if let Some(i) = on.filter(|i| drawn.contains(i)) {
+            let key = ResKey::new(rows[i].resref, kind);
+            let cell = ui.id().with(("palette-cell", key)).accesskit_id();
+            ui.ctx().accesskit_node_builder(grid.id, |n| n.set_active_descendant(cell));
+        }
+    }
+
+    /// Whether the Gallery's cells have a detail line: a creature's
+    /// challenge rating, or ResRefs (Options › General).
+    fn detail(&self) -> bool {
+        self.resrefs || (self.cr && self.kind == BlueprintKind::Creature)
+    }
+
+    /// A blueprint in the Gallery: the kit's cell, its picture over its
+    /// name (two lines, then an ellipsis), its ResRef or challenge rating
+    /// on the detail line, the bookmark of a favorite, the "No model" badge
+    /// of one whose appearance has no model. Its response, said by its
+    /// whole label (`label`).
+    fn cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        b: &PaletteBlueprint,
+        cell: &Cell,
+        name: &str,
+        label: &str,
+    ) -> egui::Response {
+        let key = ResKey::new(b.resref, self.kind.restype());
         let pictured = crate::model_view::Pictured::Resource(key);
         let made = self.ready.made(pictured);
-        let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
-        if seen {
-            self.shown.push(key);
+        let id = ui.id().with(("palette-cell", key));
+        let r = ui.interact(cell.at, id, egui::Sense::CLICK | egui::Sense::DRAG);
+        let state = mg_uikit::gallery::CellState {
+            hovered: r.hovered(),
+            cursor: self.cursor.as_ref().is_some_and(|c| c.blueprint == Some(key)),
+            keys: keys_are(ui.ctx(), Keys::Palette),
+        };
+        let cr = b.cr.filter(|_| self.cr).map(|cr| format!("CR {cr}"));
+        let detail = match (self.resrefs, cr) {
+            (true, Some(cr)) => Some(format!("{}  {cr}", b.resref)),
+            (true, None) => Some(b.resref.to_string()),
+            (false, cr) => cr,
+        };
+        let icon = mg_area::ObjectKind::from_restype(key.restype).map(crate::icons::object);
+        let mut cell_ =
+            mg_uikit::gallery::GalleryCell::new(name, crate::widgets::cell_picture(made))
+                .said(label)
+                .detail(detail.as_deref())
+                .selected(self.sel.has(key))
+                .favorite(self.favorites.contains(&b.resref))
+                .no_model(self.ready.no_model(pictured));
+        if let Some(icon) = icon {
+            cell_ = cell_.kind(icon);
         }
-        // (Marked where its appearance has no model, as the Appearance
-        // Gallery marks a row: its Properties say why.)
-        if seen && self.ready.no_model(pictured) {
-            no_model_mark(ui, r.rect);
-            return r.on_hover_text(
-                "Its appearance has no model to draw: its Properties say why (Verify too)",
-            );
-        }
+        cell_.paint(ui, cell.at, cell.tile, state, &r);
+        mg_uikit::gallery::said_in_list(ui.ctx(), r.id, cell.index, cell.of);
         r
     }
+}
+
+/// The width of the Gallery's enlargement: its picture's and the frame's
+/// margins.
+const ENLARGED: f32 = 180.0 + 16.0;
+
+/// The Gallery's enlargement of the cell `e`: its name, ResRef, Tag and
+/// challenge rating, its picture 180 points large (once made) and what
+/// there is to say of it, as a tooltip beside `dock` (the Right Dock, or
+/// the palette's own window where it floats) at the cell's top
+/// ([`mg_uikit::gallery::show_beside`]).
+fn enlargement(app: &Moonglow, ui: &egui::Ui, e: &Enlarged, dock: egui::Rect) {
+    let view = &app.palette;
+    let thumb = view.thumb.filter(|(k, _)| *k == e.key).and_then(|(_, t)| t);
+    let about = view.about.as_ref().filter(|(k, _)| *k == e.key).map_or(&[][..], |(_, l)| l);
+    let tag = (view.hover_tag.as_ref())
+        .filter(|(k, _)| *k == e.key)
+        .and_then(|(_, t)| t.as_deref())
+        .filter(|t| !t.is_empty());
+    let no_model = app.thumbnails.blueprint_has_no_model(e.key);
+    let id = egui::Id::new("palette-enlargement");
+    // (Measured anew for another cell, or as its picture, Tag or lines
+    // come.)
+    let what = (e.key, thumb.is_some(), tag, about.len(), no_model);
+    mg_uikit::gallery::show_beside(ui.ctx(), id, e.at, dock, ENLARGED, what, |ui| {
+        ui.strong(&e.name);
+        ui.label(format!("ResRef {}", e.key.resref));
+        if let Some(t) = tag {
+            ui.label(format!("Tag {t}"));
+        }
+        if let Some(cr) = e.cr {
+            ui.label(format!("Challenge rating {cr}"));
+        }
+        if let Some(id) = thumb {
+            ui.image(egui::load::SizedTexture::new(id, egui::vec2(180.0, 180.0)));
+        }
+        if no_model {
+            ui.label("Its appearance has no model to draw: its Properties say why (Verify too)");
+        }
+        for line in about {
+            ui.label(line);
+        }
+    });
+}
+
+/// The Gallery's cell under the pointer: its blueprint, where it is, its
+/// name and challenge rating.
+struct Enlarged {
+    key: ResKey,
+    at: egui::Rect,
+    name: String,
+    cr: Option<f32>,
+}
+
+/// Where a blueprint's cell is in the Gallery's grid of its category: its
+/// rectangle and its tile's size, and whether it is drawn (in sight) and
+/// its picture asked for (in sight, or in the row ahead).
+struct Cell {
+    at: egui::Rect,
+    tile: egui::Vec2,
+    drawn: bool,
+    ahead: bool,
+    /// Its place among its category's pictures, and how many there are.
+    index: usize,
+    of: usize,
 }
 
 /// The blueprints of `list` (Favorites or Recent: `ext:resref` each) that
@@ -2930,20 +3246,6 @@ fn remembered_in(palette: &Palette, kind: BlueprintKind, list: &[String]) -> Vec
     let all: HashMap<ResRef, &PaletteBlueprint> =
         palette.blueprints().into_iter().rev().map(|(_, b)| (b.resref, b)).collect();
     wanted.iter().filter_map(|r| all.get(r).map(|b| (*b).clone())).collect()
-}
-
-/// A picture's mark for an appearance with no model: a frame and "No
-/// model" in the error color, as the Appearance Gallery marks a row.
-pub(crate) fn no_model_mark(ui: &egui::Ui, rect: egui::Rect) {
-    let red = ui.visuals().error_fg_color;
-    ui.painter().rect_stroke(rect, 3.0, egui::Stroke::new(1.5, red), egui::StrokeKind::Inside);
-    ui.painter().text(
-        rect.left_top() + egui::vec2(5.0, 4.0),
-        egui::Align2::LEFT_TOP,
-        "No model",
-        egui::TextStyle::Body.resolve(ui.style()),
-        red,
-    );
 }
 
 /// What a palette's hover says of a blueprint that has no model to show:
@@ -3317,13 +3619,13 @@ mod tests {
         use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
         let key = |name: &str| ResKey::parse(name, mg_core::ResType::UTP).unwrap();
         let mut l = Listed::default();
-        let category = l.branch(Branch::Category(vec![0]), None); // row 0
+        let category = l.branch(Branch::Category(vec![0]), None, 0.0); // row 0
         for (i, name) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
             l.rows.push((category, Some(key(name)))); // rows 1 to 5
             let at = egui::pos2(10.0 * (i % 3) as f32, 10.0 * (i / 3) as f32);
             l.places.insert(i + 1, egui::Rect::from_min_size(at, egui::vec2(8.0, 8.0)));
         }
-        l.branch(Branch::Category(vec![1]), None); // row 6
+        l.branch(Branch::Category(vec![1]), None, 0.0); // row 6
         l.branches[category].open = true;
         assert_eq!(l.step(1, ArrowDown), Step::To(4), "a under d");
         assert_eq!(l.step(3, ArrowDown), Step::To(5), "the nearest across: e under c");
@@ -3337,6 +3639,52 @@ mod tests {
         assert_eq!(l.step(6, ArrowUp), Step::To(5), "a category's row: as in the list");
     }
 
+    /// Home and End, Page Up and Page Down: a heading (row 0, at 0) over a
+    /// category's seven pictures three to a row (rows 1 to 7, 100 apart),
+    /// a closed heading (row 8, at 330) and another (row 9, at 352); a
+    /// list's height in sight of 250. Home and End to the first and last
+    /// row showing; a page down from a picture to the farthest row of
+    /// pictures within the page, the one nearest across, or past the
+    /// pictures to the headings; a page up likewise; from a row with no
+    /// row within the page, the next.
+    #[test]
+    fn home_end_and_the_page_keys_go_through_headings_and_pictures() {
+        use egui::Key::{End, Home, PageDown, PageUp};
+        let key = |name: &str| ResKey::parse(name, mg_core::ResType::UTP).unwrap();
+        let mut l = Listed { page: 250.0, ..Default::default() };
+        let category = l.branch(Branch::Category(vec![0]), None, 0.0); // row 0
+        for i in 0..7 {
+            l.tops.insert(l.rows.len(), 22.0 + 100.0 * (i / 3) as f32);
+            l.rows.push((category, Some(key(&format!("p{i}"))))); // rows 1 to 7
+            let at = egui::pos2(100.0 * (i % 3) as f32, 22.0 + 100.0 * (i / 3) as f32);
+            l.places.insert(i + 1, egui::Rect::from_min_size(at, egui::vec2(90.0, 90.0)));
+        }
+        let closed = l.branch(Branch::Category(vec![1]), None, 330.0); // row 8
+        l.rows.push((closed, Some(key("hidden")))); // 9: in a closed heading
+        l.tops.insert(9, 340.0);
+        l.branch(Branch::Category(vec![2]), None, 352.0); // row 10
+        l.branches[category].open = true;
+        assert_eq!(l.step(4, Home), Step::To(0), "the first row");
+        assert_eq!(l.step(4, End), Step::To(10), "the last row showing");
+        assert_eq!(l.step(0, Home), Step::Stay);
+        assert_eq!(l.step(10, End), Step::Stay);
+        // From p1 (row 2, at 22): rows within 272 are those at 122 and
+        // 222; the farthest at 222, p7 alone there.
+        assert_eq!(l.step(2, PageDown), Step::To(7));
+        // From p4 (row 5, at 122): within 372, the headings at 330 and
+        // 352 (the closed one's picture not showing): the last.
+        assert_eq!(l.step(5, PageDown), Step::To(10));
+        // From p6 (row 7, at 222) up: within -28, the heading at 0.
+        assert_eq!(l.step(7, PageUp), Step::To(0));
+        // From the last heading (at 352) up: within 102, p3 to p5 at 122,
+        // the nearest across of none (a heading): the first of them.
+        assert_eq!(l.step(10, PageUp), Step::To(4));
+        // A page shorter than a row: at least the next row.
+        l.page = 50.0;
+        assert_eq!(l.step(2, PageDown), Step::To(3), "the next row");
+        assert_eq!(l.step(5, PageUp), Step::To(4));
+    }
+
     /// The arrow keys in a tree: Favorites (open) with one blueprint, a
     /// category (open) holding a closed category and two blueprints, and
     /// a closed category after it.
@@ -3345,14 +3693,14 @@ mod tests {
         use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
         let key = |name: &str| ResKey::parse(name, mg_core::ResType::UTP).unwrap();
         let mut l = Listed::default();
-        let favorites = l.branch(Branch::Remembered("Favorites"), None); // row 0
+        let favorites = l.branch(Branch::Remembered("Favorites"), None, 0.0); // row 0
         l.rows.push((favorites, Some(key("chest")))); // 1
-        let outer = l.branch(Branch::Category(vec![0]), None); // 2
-        let inner = l.branch(Branch::Category(vec![0, 0]), Some(outer)); // 3
+        let outer = l.branch(Branch::Category(vec![0]), None, 0.0); // 2
+        let inner = l.branch(Branch::Category(vec![0, 0]), Some(outer), 0.0); // 3
         l.rows.push((inner, Some(key("hidden")))); // 4: drawn, its branch closing
         l.rows.push((outer, Some(key("chest")))); // 5
         l.rows.push((outer, Some(key("barrel")))); // 6
-        let last = l.branch(Branch::Category(vec![1]), None); // 7
+        let last = l.branch(Branch::Category(vec![1]), None, 0.0); // 7
         l.branches[favorites].open = true;
         l.branches[outer].open = true;
         // Down and Up: the rows showing, not those of a closed branch.

@@ -312,10 +312,11 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
             }
         }
     });
-    // (Named widgets: the dock's leaves with a name.)
+    // (Named widgets: the dock's leaves with a name; not a gallery's grid,
+    // a list of the cells drawn in it, which egui gives it beside it.)
     let ids: std::collections::HashMap<u64, &String> = own
         .iter()
-        .filter(|(name, _, _)| !name.ends_with("\"\""))
+        .filter(|(name, _, _)| !name.ends_with("\"\"") && !name.starts_with("List "))
         .map(|(name, _, id)| (*id, name))
         .collect();
     h.ctx.viewport(|v| {

@@ -5067,91 +5067,6 @@ pub(crate) fn mark_clipboard(ctx: &egui::Context, what: &str) {
     ctx.copy_text(format!("Moonglow Toolset: {what}"));
 }
 
-/// The room under a gallery's picture for its name: two lines of text.
-pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
-    2.0 * ui.text_style_height(&egui::TextStyle::Body) + 4.0
-}
-
-/// Where a picture of texture `id` is drawn in `room`: as large as fits,
-/// in its own shape (a texture twice as wide as tall isn't stretched to a
-/// square), centered. The whole room where its size isn't known.
-pub(crate) fn letterboxed(
-    ctx: &egui::Context,
-    id: egui::TextureId,
-    room: egui::Rect,
-) -> egui::Rect {
-    let size = ctx.tex_manager().read().meta(id).map(|m| m.size);
-    let Some([w, h]) = size.filter(|[w, h]| *w > 0 && *h > 0) else { return room };
-    let (w, h) = (w as f32, h as f32);
-    let scale = (room.width() / w).min(room.height() / h);
-    egui::Rect::from_center_size(room.center(), egui::vec2(w * scale, h * scale))
-}
-
-/// A picture over its name, in a gallery: `side` points square and its
-/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
-/// is nothing to draw; `None`: not made yet). Its response, and whether
-/// it is in sight (to have its picture made).
-pub(crate) fn picture_tile(
-    ui: &mut Ui,
-    side: f32,
-    label: &str,
-    chosen: bool,
-    made: Option<Option<egui::TextureId>>,
-) -> (egui::Response, bool) {
-    let size = egui::vec2(side, side + tile_label_height(ui));
-    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
-    if !ui.is_rect_visible(rect) {
-        return (r, false);
-    }
-    let visuals = ui.style().interact_selectable(&r, chosen);
-    if chosen || r.hovered() {
-        ui.painter().rect_filled(rect, 3.0, visuals.weak_bg_fill);
-    }
-    if chosen {
-        let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
-        ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
-    }
-    let picture = egui::Rect::from_min_size(rect.min, egui::vec2(side, side)).shrink(2.0);
-    // (The name in the text's own size, on up to two lines: in small type
-    // on one, long names were hard to read and cut short.)
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    // (Chosen, on the selection's fill: the fill's own text color, the
-    // weak mark at 85% of it, as the mock's selected row's count.)
-    let (text, weak) = match chosen {
-        true => (visuals.text_color(), visuals.text_color().gamma_multiply(0.85)),
-        false => (ui.visuals().text_color(), ui.visuals().weak_text_color()),
-    };
-    match made {
-        Some(Some(id)) => {
-            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            let at = letterboxed(ui.ctx(), id, picture);
-            ui.painter().image(id, at, uv, egui::Color32::WHITE);
-        }
-        _ => {
-            let mark = if made.is_none() { "…" } else { "(no picture)" };
-            ui.painter().text(
-                picture.center(),
-                egui::Align2::CENTER_CENTER,
-                mark,
-                font.clone(),
-                weak,
-            );
-        }
-    }
-    let name = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + 2.0, picture.bottom()),
-        rect.max - egui::vec2(2.0, 0.0),
-    );
-    let mut job = egui::text::LayoutJob::simple(label.to_string(), font, text, name.width());
-    job.wrap.max_rows = 2;
-    job.wrap.break_anywhere = false;
-    job.halign = egui::Align::Center;
-    let galley = ui.painter().layout_job(job);
-    ui.painter().galley(egui::pos2(name.center().x, name.top() + 1.0), galley, text);
-    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, chosen, label));
-    (r, true)
-}
-
 /// Enter in a dialog: what its main button (Create, OK, Next, Finish) does,
 /// when nothing else has the keyboard: after typing in a one-line field
 /// (which lets go of it on Enter), or with nothing focused. Not while a
@@ -5266,21 +5181,57 @@ fn number_name(ui: &Ui) -> Option<String> {
         .then_some(text)
 }
 
-/// How large a gallery's pictures are: a slider of their side in `range`
-/// (its value not shown, `text` beside it where given). The side moved
-/// to, rounded, when it is moved.
+/// How large a gallery's pictures are: the kit's slider of their side in
+/// `range` (its value not shown, `text` beside it where given), a point a
+/// step. The side moved to, rounded, when it is moved.
 pub(crate) fn picture_size_slider(
     ui: &mut egui::Ui,
     mut side: f32,
     range: std::ops::RangeInclusive<f32>,
     text: Option<&str>,
 ) -> Option<u16> {
-    let mut slider = egui::Slider::new(&mut side, range).show_value(false);
-    if let Some(text) = text {
-        slider = slider.text(text);
-    }
-    let moved = mg_uikit::slider(ui, slider).on_hover_text("How large the pictures are").changed();
+    let r = mg_uikit::gallery::size_slider(ui, &mut side, range, text);
+    let moved = r.on_hover_text("How large the pictures are").changed();
     moved.then(|| side.round() as u16)
+}
+
+/// Opens a gallery's scroll (`shown`) at cell `at` of its grid, as `grid`
+/// laid it out this frame: the scroll's own offset set (for the next
+/// frame), so that no scroll around it moves (an item's page), the cell's
+/// row at the top or the scroll at its end. Whether it is there already
+/// (called each frame until it is: the first frames of a tab lay it out
+/// at another width).
+pub(crate) fn open_gallery_at<R>(
+    ctx: &egui::Context,
+    shown: &egui::scroll_area::ScrollAreaOutput<R>,
+    grid: &mg_uikit::gallery::GridOutput,
+    at: usize,
+) -> bool {
+    let Some(layout) = grid.layout.as_ref() else { return false };
+    let cell = layout.rect(grid.rect.min, at);
+    let top = shown.inner_rect.top() - shown.state.offset.y;
+    let most = (shown.content_size.y - shown.inner_rect.height()).max(0.0);
+    let wanted = (cell.top() - top).clamp(0.0, most);
+    if (shown.state.offset.y - wanted).abs() < 1.0 {
+        return true;
+    }
+    let mut state = shown.state;
+    state.offset.y = wanted;
+    state.store(ctx, shown.id);
+    ctx.request_repaint();
+    false
+}
+
+/// A picture as [`Thumbnails::made`](crate::model_view::Thumbnails::made)
+/// gives it (`Some(None)`: nothing to draw; `None`: not made yet), for
+/// the kit's gallery cell.
+pub(crate) fn cell_picture(made: Option<Option<egui::TextureId>>) -> mg_uikit::gallery::Picture {
+    use mg_uikit::gallery::Picture;
+    match made {
+        Some(Some(id)) => Picture::Ready(id),
+        Some(None) => Picture::Missing,
+        None => Picture::Making,
+    }
 }
 
 /// A PLT color (0 to 175) chosen among a palette's swatches (a TGA of

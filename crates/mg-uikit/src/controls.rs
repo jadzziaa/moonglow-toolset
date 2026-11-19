@@ -615,9 +615,9 @@ pub fn code_frame() -> egui::Frame {
 /// A slider in the theme (the mock's `.slider`): egui's [`egui::Slider`]
 /// (its drag, keys, value field and accessible value are egui's), drawn in
 /// a scope where its rail is an `inset` well, the part up to its thumb
-/// `accent-fill`, and its thumb ringed in `text-2`: at rest filled as the
-/// rail (egui fills the rail and the resting thumb alike), under the
-/// pointer or held `slider-thumb`; [read only](read_only), quiet in
+/// `accent-fill`, and its thumb ringed in `text-2` and filled
+/// `slider-thumb`, at rest, under the pointer or held (M4's U25: at rest it
+/// had been the rail's color, egui filling both alike); [read only](read_only), quiet in
 /// `text-3` and the same under the pointer. `slider(ui, Slider::new(&mut v, 0..=100))`
 /// for `ui.add(..)`; egui's own where no theme was applied.
 pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
@@ -640,18 +640,48 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
             }
             return ui.add(slider);
         }
-        // (The rail is the resting state's fill; the thumb each state's
-        // fill, ringed in its text stroke, which is the value's text too.)
-        w.inactive.bg_fill = t.inset;
+        // (The thumb each state's fill, `slider-thumb` at rest too, ringed in
+        // its text stroke, which is the value's text too. egui fills the
+        // rail with the resting state's fill as well: the rail, the first
+        // shape the slider paints, is filled again as the `inset` well
+        // once painted. M4's U25 settled the thumb at rest, which had
+        // been the rail's color.)
+        w.inactive.bg_fill = t.slider_thumb;
         w.hovered.bg_fill = t.slider_thumb;
         w.active.bg_fill = t.slider_thumb;
         for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
             state.fg_stroke = Stroke::new(1.0, t.text_2);
         }
         v.selection.bg_fill = t.accent_fill;
-        ui.add(slider)
+        let layer = ui.layer_id();
+        let first = ui.ctx().graphics_mut(|g| g.entry(layer).next_idx());
+        let r = ui.add(slider);
+        rail_as_well(ui.ctx(), layer, first, t.slider_thumb, t.inset);
+        r
     })
     .inner
+}
+
+/// The slider's rail, the first shape painted on `layer` from `first`, a
+/// rectangle filled `thumb` (egui fills the rail as the thumb at rest),
+/// filled `well` instead; nothing where the slider painted nothing (out
+/// of sight).
+fn rail_as_well(
+    ctx: &egui::Context,
+    layer: egui::LayerId,
+    first: egui::layers::ShapeIdx,
+    thumb: egui::Color32,
+    well: egui::Color32,
+) {
+    ctx.graphics_mut(|g| {
+        g.entry(layer).mutate_shape(first, |s| {
+            if let egui::Shape::Rect(rail) = &mut s.shape
+                && rail.fill == thumb
+            {
+                rail.fill = well;
+            }
+        });
+    });
 }
 
 /// Paints a chevron (the drawn set's `chevron-right`, 12 px, a stroke as
@@ -1141,6 +1171,36 @@ mod tests {
         // (Its textures are not taken by a renderer: let go of them.)
         out.textures_delta.clear();
         out
+    }
+
+    /// The slider's thumb at rest is `slider-thumb` (the mock's `text-2`;
+    /// white in light), not the rail's color, and the rail stays the
+    /// `inset` well, in both themes (M4's U25 settled it).
+    #[test]
+    fn a_slider_s_thumb_at_rest_is_not_the_rail_s_color() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let mut v = 40.0_f32;
+            let out = frame(Some(theme), |ui| {
+                slider(ui, egui::Slider::new(&mut v, 0.0..=100.0).show_value(false));
+            });
+            let rects: Vec<egui::epaint::RectShape> = (out.shapes.iter())
+                .filter_map(|c| match &c.shape {
+                    Shape::Rect(r) => Some(r.clone()),
+                    _ => None,
+                })
+                .collect();
+            let rail = rects.iter().max_by(|a, b| a.rect.width().total_cmp(&b.rect.width()));
+            let rail = rail.expect("the rail");
+            assert_eq!(rail.fill, t.inset, "{theme:?}: the rail");
+            // (The thumb: the shortest across, standing taller than the
+            // rail.)
+            let thumb = (rects.iter().filter(|r| r.rect.height() > rail.rect.height()))
+                .min_by(|a, b| a.rect.width().total_cmp(&b.rect.width()));
+            let thumb = thumb.expect("the thumb");
+            assert_eq!(thumb.fill, t.slider_thumb, "{theme:?}: the thumb at rest");
+            assert_ne!(thumb.fill, rail.fill, "{theme:?}");
+        }
     }
 
     /// Rows after `list_rows` are 22 apart with no gap, whatever is in

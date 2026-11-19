@@ -4012,6 +4012,9 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     // (The editor its panels draw for: the active docked one.)
     let editor = app.active_editor().cloned();
     let shown = panel.show(ui, |ui| {
+        // (Where it is drawn, from now on: the Gallery's enlargement stands
+        // beside it.)
+        app.right_rect = Some(ui.max_rect());
         dock_pane(ui);
         let pane = ui.max_rect();
         let pane_id = ui.unique_id();
@@ -4674,8 +4677,16 @@ fn right_alone(app: &Moonglow) -> bool {
 fn right_layout_width(app: &Moonglow) -> f32 {
     match app.yields.wide && right_alone(app) {
         true => RIGHT_DOCK_WIDE_ONE,
+        false if gallery_wide(app) => mg_uikit::shell::RIGHT_DOCK_GALLERY,
         false => app.yields.right_dock_width,
     }
+}
+
+/// Whether the Right Dock stands in the wide layout's two columns with the
+/// palettes showing their Gallery (Options keep the switch: toggling it
+/// writes no width; a width or column dragged to still wins).
+fn gallery_wide(app: &Moonglow) -> bool {
+    app.yields.wide && app.settings.palette_gallery && !right_alone(app)
 }
 
 /// The Right Dock's width as chosen for the layout of this frame: the one
@@ -4718,7 +4729,12 @@ pub(crate) fn first_column(app: &Moonglow, width: f32) -> f32 {
     let kept = (editor_kind(app).and_then(|k| app.settings.dock_layouts.get(k)))
         .and_then(|l| l.column)
         .map(f32::from);
-    let first = kept.unwrap_or_else(|| Yields::right_first_column(width));
+    let layout = match gallery_wide(app) {
+        // (Held to leave the second column its least by the clamp below.)
+        true => mg_uikit::shell::RIGHT_COLUMN_GALLERY,
+        false => Yields::right_first_column(width),
+    };
+    let first = kept.unwrap_or(layout);
     let most = (width - 1.0 - RIGHT_DOCK_LEAST).max(RIGHT_DOCK_LEAST);
     first.clamp(RIGHT_DOCK_LEAST.min(most), most).round()
 }

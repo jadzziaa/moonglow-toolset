@@ -12,7 +12,8 @@
 //! header), the tool [shelf], and the kit's own [button], drawn disabled
 //! in its own tokens rather than faded; what stands over a 3D view
 //! (the compass and the view's corner buttons, [overlay]); and a
-//! [dialog]'s parts, so far the empty state of a pane with nothing in it.
+//! [dialog]'s parts, so far the empty state of a pane with nothing in it;
+//! and the [gallery] cell, its grid and the pictures' size slider.
 //!
 //! Egui is its one UI dependency, and it uses no other Moonglow crate.
 //! With the `dock` feature it also takes egui_dock, for the editor area's
@@ -33,6 +34,7 @@ pub mod dialog;
 pub mod dock;
 pub mod fonts;
 pub mod form;
+pub mod gallery;
 pub mod header;
 pub mod icons;
 pub mod marks;

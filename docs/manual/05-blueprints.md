@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-16T13:02:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
 ---
 
 # Blueprints
@@ -32,14 +32,18 @@ the top:
   every category with a match (close one again as you look); cleared,
   each category is open or closed again as it was before the search,
   in the List and the Gallery alike.
-- **The list's toolbar**, right over the list: the two arrows open and
-  close every category, the count says how many blueprints the list has
-  (or the search found), the two view buttons are **List** and
-  **Gallery**, **New…** makes a blueprint, and **More** has
-  **Categories…**, **Refresh Palette** and, for placeables, **All
-  Appearances…**.
+- **The list's toolbar**, right over the list, in this order: the two
+  arrows open and close every category, the count says how many
+  blueprints the list has (or the search found), the two view buttons
+  are **List** and **Gallery**, then (with the Gallery on) the
+  pictures' size slider in the room left, **New…** makes a blueprint,
+  and **More** has **Categories…**, **Refresh Palette** and, for
+  placeables, **All Appearances…**. Where less than 60 points are left
+  for the slider (a Right Dock under about 370 points), it takes a row
+  of its own under the others.
 - **Group by** and **Then by Category**, under the toolbar, where the
-  project groups the palette another way (below).
+  project groups the palette another way (below), and with the Gallery
+  on (**Category**, grayed, where the project offers no other).
 
 - **Standard**: the game's blueprints (and those of the module's haks),
   in the game's categories.
@@ -218,11 +222,37 @@ The palette's buttons:
 - **List** and **Gallery** (the two view buttons of the list's toolbar): Gallery shows the blueprints as pictures in a grid rather than a
   list of names, to choose by eye (creatures, doors, items and
   placeables, the types with a model, and waypoints by their flags).
-  Whether it is on is kept between sessions. A picture is clicked, dragged and
-  right-clicked as a name is; with the keys, Up and Down go a row of
-  pictures at a time and Left and Right a picture (Left from the first:
-  to its category); the pictures are made a few at a time as
-  they come into sight. A shield is pictured from its front (its model
+  Whether it is on is kept between sessions. With Gallery on, the
+  toolbar has the pictures' **size** slider after the view buttons (it
+  takes a row of its own where the pane is too narrow for it), the same
+  size as the Appearance Gallery's, kept; the pictures grow to fill the
+  pane's width. Each category's heading says how many blueprints it
+  has. A picture has its name under it on up to two lines (a longer one
+  ends in an ellipsis), and the ResRef or challenge rating on a third
+  where Options show them. A picture is clicked, dragged and
+  right-clicked as a name is; with the keys (click a picture or a
+  category, or Down from the search), Up and Down go a row of pictures
+  at a time and Left and Right a picture (Left from the first: to its
+  category), Home and End to the list's first and last row (a category
+  or a picture), Page Up and Page Down a list's height of rows (headings
+  and closed categories count as rows), and the row they reach is
+  brought into sight. While the Gallery has the keys with nothing held
+  to place (a category clicked), the Status Bar lists its own (**Drag**
+  Place, **Up** / **Down** Row of pictures, **Left** / **Right** One
+  picture, **Click** Select, **Alt** + **Right Drag** Turn where the
+  area's selection turns, **Ctrl** + **Drag** Move view); with a picture
+  clicked, its blueprint is held to place, and the Status Bar shows
+  placing's hints (**Placing** and the ResRef, **Click** Place,
+  **Shift** + **Click** Place more, the turn) with the Gallery's arrows
+  after them. The pointer resting on a picture shows it larger with its
+  name, ResRef, Tag (read from its blueprint once, for the picture
+  hovered) and challenge rating left of the Right Dock, never over the
+  dock or the picture (above or below it where there is no room beside
+  the dock), and not while something is dragged. In a window 2560
+  points wide or more, the Gallery's column of the Right Dock is 480
+  points wide (drag the line between the columns to change it; that
+  width is kept). The pictures are made a few at a time as they come
+  into sight, and only those in sight and the row after them. A shield is pictured from its front (its model
   faces its bearer), and a thing made for a wall from the side that
   shows it; the light goes round with the view. Each fills its picture
   as it stands, a long or tall thing too (a dragon, a banner).

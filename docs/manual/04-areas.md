@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:26:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
 ---
 
 # Areas
@@ -1322,7 +1322,11 @@ as Aurora's Terrain tab does:
   can be closed again after, and cleared, each heading is open or closed
   again as it was before), **Expand All** and **Collapse All**,
   how many there are, and **List** or **Gallery**, the same switch
-  as the blueprint palettes', with the pictures' size beside it. Over
+  as the blueprint palettes', with **Exact Tile** after them. In the
+  List the arrows and the count come first; in the Gallery the switch,
+  Exact Tile and the pictures' size slider (in the room left, on a row
+  of its own where too little is) come first, the arrows and the count
+  at the row's end. Over
   them, the palette's name row says the area's tileset (**City Exterior
   (tcn01)**); each folder (Features, Groups, Terrain) has its count at
   its row's end, and in the Gallery each terrain and crosser the count of
@@ -1331,8 +1335,11 @@ as Aurora's Terrain tab does:
   closes, with every tile it can make under it as pictures: each variant,
   and each transition to another terrain (none of a group's). A tile is
   seen from the south-west, as an area opens, or from the corner that
-  shows much more of it (a chasm's wall, which faces into the chasm). Its name
-  still chooses the brush. Click a picture to paint with that tile itself:
+  shows much more of it (a chasm's wall, which faces into the chasm), its
+  model's name under it on one line (cut short with an ellipsis where the
+  picture is narrower). Its name
+  still chooses the brush. With the keys (click a picture), the arrows
+  choose the next picture as the blueprint Gallery's go. Click a picture to paint with that tile itself:
   a click places it, a drag places it in every tile the pointer passes,
   and a right click turns it a quarter, as a group. Drag a picture into
   the area to place it where you drop it. The tiles around fit themselves
@@ -1541,10 +1548,13 @@ the option above is on). Click another and it is put there at once (one
 step to undo), the panel showing the new tile. Widen the Right Dock and
 the pictures fill it. The **Size** slider
 beside the variants makes the pictures larger (up to 224 points), to tell
-tiles much alike apart; it is remembered. Under the pointer, a picture
-shown smaller shows at its largest beside it. The same model turned
-another way is listed again, its picture turned so (seen from the
-south-west) and the turn written under it.
+tiles much alike apart (64 to 224 points, 84 at first); it is
+remembered. Each picture has its model's name under it, on one line.
+Under the pointer, a picture shown smaller shows at its largest beside
+the panel, never over the pictures. The same model turned another way
+is listed again, its picture turned so (seen from the south-west) and
+the turn written under its name. The arrow keys move among the
+pictures once one is clicked, and Enter puts the one they reach there.
 
 Above them, under **Lights and Loops**, are the tiles' **Main light 1**
 and **2** and **Source light 1** and **2** colors and their **Animation

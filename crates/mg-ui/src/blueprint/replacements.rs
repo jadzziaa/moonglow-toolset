@@ -614,55 +614,70 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
         ui.separator();
         let preview = 200.0;
         ui.horizontal_top(|ui| {
-            let gap = 4.0;
             let room = wide - preview - 3.0 * ui.spacing().item_spacing.x;
-            let room_inside = room - ui.spacing().scroll.bar_width - 10.0;
-            let (per_row, side) = crate::appearance_gallery::fitted(room_inside, side, gap);
-            let height = side + crate::widgets::tile_label_height(ui);
             let layout = egui::Layout::top_down(egui::Align::Min);
             ui.allocate_ui_with_layout(egui::vec2(room, tall), layout, |ui| {
                 ui.set_width(room);
-                let mut area = egui::ScrollArea::vertical()
+                let area = egui::ScrollArea::vertical()
                     .id_salt(id.with("grid"))
                     .max_height(tall)
                     .auto_shrink([false, false]);
-                if !state.placed {
-                    state.placed = true;
-                    if let Some(at) = (state.chosen.as_ref())
-                        .and_then(|c| shown.iter().position(|&i| name_at(i) == c))
-                    {
-                        area = area.vertical_scroll_offset(
-                            (at / per_row) as f32 * (height + ui.spacing().item_spacing.y),
-                        );
+                let current = (state.chosen.as_ref())
+                    .and_then(|c| shown.iter().position(|&i| name_at(i) == c));
+                // (Not while a menu or popup is open over it: the dialog is
+                // itself what has the keys, so not `keys_blocked`.)
+                let keys = !egui::Popup::is_any_open(ui.ctx());
+                let grid =
+                    mg_uikit::gallery::GalleryGrid::new(id.with("pictures"), shown.len(), side)
+                        .cursor(current)
+                        .keys_allowed(keys)
+                        .name("Textures");
+                let shown_area = area.show(ui, |ui| {
+                    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                        let name = name_at(shown[i]);
+                        let made = picture_made(f, name);
+                        let chosen = state.chosen.as_deref() == Some(name.as_str());
+                        mg_uikit::gallery::GalleryCell::new(
+                            name,
+                            crate::widgets::cell_picture(made),
+                        )
+                        .kind(mg_uikit::Icon::Texture)
+                        .selected(chosen)
+                        .paint(ui, rect, tile, cell, r);
+                        if r.clicked() {
+                            state.chosen = Some(name.clone());
+                        }
+                        if r.double_clicked() {
+                            state.chosen = Some(name.clone());
+                            ok = true;
+                        }
+                    });
+                    // (The keys choose as they move: a picker's; Enter is OK.)
+                    if let Some(i) = out.moved.or(out.activated) {
+                        state.chosen = Some(name_at(shown[i]).clone());
                     }
-                }
-                area.show_rows(ui, height, shown.len().div_ceil(per_row), |ui, lines| {
-                    ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                    for line in lines {
-                        super::row(ui, |ui| {
-                            for &i in shown.iter().skip(line * per_row).take(per_row) {
-                                let name = name_at(i);
-                                let made = picture_made(f, name);
-                                let chosen = state.chosen.as_deref() == Some(name.as_str());
-                                let (r, seen) =
-                                    crate::widgets::picture_tile(ui, side, name, chosen, made);
-                                if seen {
-                                    in_sight.push(thumb_key(name, GALLERY_THUMB));
-                                }
-                                if seen && made.is_none() {
-                                    wanted.push(name.clone());
-                                }
-                                if r.clicked() {
-                                    state.chosen = Some(name.clone());
-                                }
-                                if r.double_clicked() {
-                                    state.chosen = Some(name.clone());
-                                    ok = true;
-                                }
-                            }
-                        });
+                    // (Those in sight and a row ahead: made, a few a frame.)
+                    for i in out.ahead.clone() {
+                        let name = name_at(shown[i]);
+                        in_sight.push(thumb_key(name, GALLERY_THUMB));
+                        if picture_made(f, name).is_none() {
+                            wanted.push(name.clone());
+                        }
                     }
+                    out
                 });
+                // (Opened at the one chosen, once, where the grid put it.)
+                if !state.placed {
+                    state.placed = match current {
+                        Some(at) => crate::widgets::open_gallery_at(
+                            ui.ctx(),
+                            &shown_area,
+                            &shown_area.inner,
+                            at,
+                        ),
+                        None => true,
+                    };
+                }
             });
             ui.vertical(|ui| {
                 ui.set_width(preview);

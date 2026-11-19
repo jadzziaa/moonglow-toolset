@@ -1,6 +1,18 @@
 # Update log
 
 ## 2026-11-19
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U25's review ([05](manual/05-blueprints.md), [04](manual/04-areas.md); [moves](ui-redesign-moves.md)).
+  * **Placing from the Gallery**: with a blueprint held, the Status Bar says placing's keys (Click Place, Shift + Click Place more, Turn) and the Gallery's arrows, not Click Select.
+  * **The palette's Gallery keys**: Home, End, Page Up and Page Down; nothing in a gallery moves while a menu is open; each picker opens at the one chosen, the Creature Wizard's appearances too, and a gallery opened again starts there.
+  * **The enlargement** says the blueprint's Tag (read once), stands beside the Right Dock and never over it, at its own size from its first frame, and above or below the picture where there is no room beside the dock.
+  * **The toolbars** in the boards' order: the palette's slider after List and Gallery, before New… and More, with Group by kept under it with Gallery on; the tiles palette's slider after Exact Tile.
+  * **To a screen reader**, each gallery is a list with its count, each picture its place in it.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U25, the gallery cell**, as the GalleryPalette, GalleryTiles and GalleryWide boards draw it ([05](manual/05-blueprints.md), [04](manual/04-areas.md); [moves](ui-redesign-moves.md)).
+  * **One picture cell for every gallery**: the palette's Gallery, the Appearance Gallery, Select Texture, the armor part pictures, the Creature Wizard's appearances, the tiles palette's Gallery and Tile Properties' variants; a name on up to two lines then an ellipsis (a tile's model on one), a ResRef or challenge rating under it, rows that fill the pane's width, said selected to a screen reader.
+  * **The keys**: each gallery is one Tab stop; Up and Down go a row, Left and Right a picture, Home, End, Page Up and Page Down, the picture they reach brought into sight; the palette's Gallery lists them in the Status Bar while it has them.
+  * **The palette's Gallery**: each heading's count, the size slider with Gallery on, the picture under the pointer shown larger beside the dock (never over the pictures, gone while dragging), and a 480-point column in the wide layout. Only the pictures in sight and a row after them are asked for, however large the palette.
+  * **Tile Properties' variants** in the small cell with their own slider (64 to 224, 84 at first), the enlargement beside the panel.
+  * **The slider's thumb at rest** is drawn in its own color, not the rail's.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U24's review ([01](manual/01-getting-started.md), [02](manual/02-main-window.md)).
   * **The Welcome page and the keys**: Tab and Shift+Tab reach every recent module and Learn link, those below the edge too, each scrolled into sight as it takes the keys; Enter or Space opens a recent module; nothing on the page acts by the keys while a menu or dialog has them.
   * **The update told once**: a floating editor over the page's update line has the strip under the Top Bar tell it (a dialog over it moves nothing); Check for Updates… from the page no longer moves the page; the strip and the page read the notice the same way.

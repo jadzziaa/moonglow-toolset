@@ -1978,6 +1978,44 @@ fn frames_at_144() {
         view_in(&mut h, &mut r, &format!("standard placeable palette, {what}"), rect, |_, _| {});
         fold_palette(&mut h);
     }
+    // The large palette (M4's U25): the standard placeables' Gallery with
+    // every category open, no search, its pictures made, the wheel
+    // turned over it from the top on.
+    h.state_mut().settings.gallery_tile = Some(64);
+    palette(&mut h, BlueprintKind::Placeable, false, "");
+    show_palette(&mut h);
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.query_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(300);
+    let rect = palette_rect(&h);
+    view_in(&mut h, &mut r, "standard placeable palette, Gallery, every category", rect, |_, _| {});
+    fold_palette(&mut h);
+    h.state_mut().settings.palette_open.clear();
+    h.state_mut().settings.palette_gallery = false;
+    h.state_mut().settings.gallery_tile = None;
+    // An armor's Appearance page (M4's U25): the game's nw_aarcl001
+    // viewed, its first part's pictures under its lists, made.
+    let armor = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
+    let gff = {
+        let game = h.state().game.as_deref().expect("the game's data");
+        mg_gff::Gff::read(&game.resman.get(&armor).expect("nw_aarcl001")).unwrap()
+    };
+    h.state_mut().ws.as_mut().expect("the module").view(armor, gff);
+    h.state_mut().blueprint_pages.insert((armor, mg_edit::GffPath::root()), "Appearance");
+    open(&mut h, Tab::Blueprint(armor));
+    h.run_steps(300);
+    assert!(
+        h.query_all_by_label_contains("Pictures of").next().is_some(),
+        "the armor's part pictures"
+    );
+    view(
+        &mut h,
+        &mut r,
+        "armor nw_aarcl001, Appearance page pictures",
+        Some(&Tab::Blueprint(armor)),
+    );
+    close(&mut h, &Tab::Blueprint(armor));
     h.state_mut().settings.palette_gallery = false;
     h.state_mut().settings.gallery_tile = None;
     h.state_mut().background_jobs = background;

@@ -699,7 +699,6 @@ fn armor_part_choices(game: &GameData, table: &str) -> Vec<Choice> {
 /// made.
 fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     const SIDE: f32 = 96.0;
-    const GAP: f32 = 4.0;
     let id = f.id("uti-part-gallery");
     let all: Vec<&(&str, &[&str], &str)> = ARMOR_PARTS.iter().chain(&LOWER_PARTS).collect();
     let mut at: usize = ui.data(|d| d.get_temp(id)).unwrap_or(1).min(all.len() - 1);
@@ -716,48 +715,56 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let choices = armor_part_choices(game, table);
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let (female, pieces) = (on_woman(f), PART_PIECES[at]);
-    let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
-    let (per_row, side) = crate::appearance_gallery::fitted(room, SIDE, GAP);
-    let tall = side + crate::widgets::tile_label_height(ui);
+    let tall = SIDE + mg_uikit::gallery::label_height(false, 2, false);
     let (mut keys, mut chosen) = (Vec::new(), None);
-    let rows = choices.len().div_ceil(per_row);
-    let mut area = egui::ScrollArea::vertical()
+    let gap = mg_uikit::gallery::GAP.y;
+    let area = egui::ScrollArea::vertical()
         .id_salt(id.with(at))
-        .max_height(2.0 * tall + 3.0 * ui.spacing().item_spacing.y)
+        .max_height(2.0 * tall + gap)
         .auto_shrink([false, true]);
     // Opened at the part the armor has (once for each part, once it is in
     // sight: scrolled out of it, the offset was not kept).
     let placed = id.with(("placed", at));
     let in_sight =
         ui.is_rect_visible(ui.available_rect_before_wrap().with_max_y(ui.cursor().top() + tall));
-    if in_sight && !ui.data(|d| d.get_temp::<bool>(placed).unwrap_or(false)) {
-        ui.data_mut(|d| d.insert_temp(placed, true));
-        if let Some(i) = choices.iter().position(|c| c.row as i64 == current) {
-            let height = tall + ui.spacing().item_spacing.y;
-            area = area.vertical_scroll_offset((i / per_row) as f32 * height);
+    let here = choices.iter().position(|c| c.row as i64 == current);
+    let keys_allowed = !crate::shell::keys_blocked(ui.ctx());
+    let grid = mg_uikit::gallery::GalleryGrid::new(id.with(("pictures", at)), choices.len(), SIDE)
+        .cursor(here)
+        .keys_allowed(keys_allowed)
+        .name(format!("Pictures of {text}"));
+    let shown = area.show(ui, |ui| {
+        let key_of = |f: &mut Form<'_>, n: u16| {
+            let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
+            f.app.thumbnails.item_part(&item, female, Some(pieces))
+        };
+        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+            let c = &choices[i];
+            let n = c.row as u16;
+            let key = key_of(f, n);
+            let made = f.app.thumbnails.made(key);
+            mg_uikit::gallery::GalleryCell::new(&c.text, crate::widgets::cell_picture(made))
+                .kind(mg_uikit::Icon::Item)
+                .selected(i64::from(n) == current)
+                .paint(ui, rect, tile, cell, r);
+            if r.clone().on_hover_text(format!("{text} {}", c.text)).clicked() {
+                chosen = Some(n);
+            }
+        });
+        // (Enter or Space on the keys' picture: its click.)
+        if let Some(i) = out.activated {
+            chosen = Some(choices[i].row as u16);
         }
-    }
-    area.show_rows(ui, tall, rows, |ui, lines| {
-        ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
-        for line in lines {
-            super::row(ui, |ui| {
-                for c in choices.iter().skip(line * per_row).take(per_row) {
-                    let n = c.row as u16;
-                    let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
-                    let key = f.app.thumbnails.item_part(&item, female, Some(pieces));
-                    let made = f.app.thumbnails.made(key);
-                    let here = i64::from(n) == current;
-                    let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, here, made);
-                    if seen {
-                        keys.push(key);
-                    }
-                    if r.on_hover_text(format!("{text} {}", c.text)).clicked() {
-                        chosen = Some(n);
-                    }
-                }
-            });
-        }
+        keys.extend(out.ahead.clone().map(|i| key_of(f, choices[i].row as u16)));
+        out
     });
+    if in_sight && !ui.data(|d| d.get_temp::<bool>(placed).unwrap_or(false)) {
+        let done = match here {
+            Some(at) => crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at),
+            None => true,
+        };
+        ui.data_mut(|d| d.insert_temp(placed, done));
+    }
     f.app.thumbnails.show(keys);
     if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
         set_part(f, text, labels, i64::from(n));

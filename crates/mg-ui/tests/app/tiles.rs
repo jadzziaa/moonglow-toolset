@@ -736,12 +736,10 @@ fn tile_properties_choose_a_variant_by_picture() {
     let other = variants.iter().find(|(p, _)| p.tile != now.tile).unwrap();
     h.get_by_label_contains(&format!("Variant ({} fit here)", variants.len()));
     let before_undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
-    // (A picture has no name of its own: the one over its model's name.)
+    // (A picture is the kit's cell, named by its model and turn.)
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(other.0.orientation % 4)];
-    let picture = h
-        .query_all_by_label(&format!("{}{turn}", other.1))
-        .next()
-        .map(|n| n.rect().center_top() - egui::vec2(0.0, 40.0));
+    let picture =
+        h.query_all_by_label(&format!("{}{turn}", other.1)).next().map(|n| n.rect().center());
     if let Some(at) = picture {
         h.hover_at(at);
         press(&h, at, true, egui::Modifiers::NONE);
@@ -2687,51 +2685,53 @@ fn tile_variant_pictures_take_the_size_set() {
             break;
         }
     }
-    // How far apart the first two are, across (their names, under them).
+    // (The variants in sight in the panel's scroll: only the rows in sight
+    // are drawn.)
+    h.get_by_label_contains("fit here)").scroll_to_me();
+    h.run_steps(3);
+    // How far apart the first two are, across: their cells (the kit's small
+    // variant, 6 apart).
+    let rect = |h: &Harness<'_, Moonglow>, k: usize| {
+        let (p, model): &(mg_tiles::Placement, String) = &variants[k];
+        let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
+        h.get_by_label(&format!("{model}{turn}")).rect()
+    };
     let apart = |h: &Harness<'_, Moonglow>| {
-        let rect = |k: usize| {
-            let (p, model) = &variants[k];
-            let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
-            h.get_by_label(&format!("{model}{turn}")).rect()
-        };
-        let (a, b) = (rect(0), rect(1));
+        let (a, b) = (rect(h, 0), rect(h, 1));
         assert_eq!(a.top(), b.top(), "on one row");
         b.left() - a.left()
     };
-    // (The first column's width and the grid's gap of 6: the picture's
-    // side, and its button's padding either side where the column holds
-    // the chosen picture, framed (a grid's column is as wide as its
-    // widest). Which column holds it depends on how many go across, which
-    // the window's width decides: worked out from where it is drawn.)
-    let padding = 2.0 * h.ctx.global_style().spacing.button_padding.x;
-    let current = (variants.iter())
-        .position(|(p, _)| Some(*p) == h.state().tile_props.as_ref().and_then(|t| t.variant));
-    let in_first = |h: &Harness<'_, Moonglow>| {
-        let rect = |k: usize| {
-            let (p, model) = &variants[k];
-            let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
-            h.get_by_label(&format!("{model}{turn}")).rect()
-        };
-        current.is_some_and(|c| (rect(c).left() - rect(0).left()).abs() < 1.0)
-    };
     let fits = |h: &Harness<'_, Moonglow>, side: f32| {
-        let want = side + 6.0 + if in_first(h) { padding } else { 0.0 };
-        (apart(h) - want).abs() < 1.0
+        let want = side + mg_uikit::gallery::SMALL_GAP;
+        (apart(h) - want).abs() < 1.0 && (rect(h, 0).width() - side).abs() < 1.0
     };
-    assert!(fits(&h, 200.0), "200 points and the gaps: {}", apart(&h));
+    assert!(fits(&h, 200.0), "200 points and the gap: {}", apart(&h));
     h.get_by_label("Size");
     let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
     h.render().unwrap().save(dir.join("large.png")).unwrap();
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
-    assert!(fits(&h, 84.0), "84 points and the gaps: {}", apart(&h));
-    // Small, a picture under the pointer shows at its largest beside it.
-    let (p, model) = &variants[1];
-    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
-    let name = h.get_by_label(&format!("{model}{turn}")).rect();
-    h.hover_at(name.center_top() - egui::vec2(0.0, 40.0));
+    assert!(fits(&h, 84.0), "84 points and the gap: {}", apart(&h));
+    // Small, a picture under the pointer shows at its largest beside the
+    // panel, not over the cell it tells of.
+    let cell = rect(&h, 1);
+    h.hover_at(cell.center());
     h.run_steps(60);
+    let title = format!("Tile {}: ", variants[1].0.tile);
+    h.get_by_label_contains(&title);
+    // (The whole enlargement, its title and picture: the tooltip layer's
+    // areas, not its title's label alone, which stands over the picture.)
+    let tips: Vec<egui::Rect> = h.ctx.memory(|m| {
+        (m.layer_ids())
+            .filter(|l| l.order == egui::Order::Tooltip && m.areas().is_visible(l))
+            .filter_map(|l| m.area_rect(l.id))
+            .collect()
+    });
+    assert!(!tips.is_empty(), "no enlargement");
+    for tip in tips {
+        assert!(!tip.intersects(cell), "the enlargement {tip:?} over its cell {cell:?}");
+    }
     h.render().unwrap().save(dir.join("hovered.png")).unwrap();
     h.render().unwrap().save(dir.join("usual.png")).unwrap();
 }
@@ -3124,8 +3124,7 @@ fn tile_properties_put_any_tile_alone() {
     let rows = props.every.len();
     let drawn = h.query_all_by_label_contains(" ↺90°").count();
     assert!(drawn < rows, "only the rows in sight are drawn: {drawn} of {rows}");
-    let at = h.get_all_by_label(&format!("{model} ↺90°")).next().unwrap().rect().center_top()
-        - egui::vec2(0.0, 40.0);
+    let at = h.get_all_by_label(&format!("{model} ↺90°")).next().unwrap().rect().center();
     h.hover_at(at);
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);
@@ -3183,8 +3182,7 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     h.render().unwrap().save(shots.join("found.png")).unwrap();
     // One found, put in by its picture.
     let (id, model) = found[0].clone();
-    let at = h.get_all_by_label(&model).next().expect("its picture").rect().center_top()
-        - egui::vec2(0.0, 40.0);
+    let at = h.get_all_by_label(&model).next().expect("its picture").rect().center();
     h.hover_at(at);
     press(&h, at, true, egui::Modifiers::NONE);
     press(&h, at, false, egui::Modifiers::NONE);

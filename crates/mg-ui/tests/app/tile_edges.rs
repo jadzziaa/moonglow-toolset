@@ -352,8 +352,7 @@ fn build(h: &mut Harness<'_, Moonglow>, area: ResRef, case: &Case) -> usize {
         h.run_steps(3);
         type_into_hint(h, mg_ui::tile_select::ALL_TILES_SEARCH, &model);
         h.run_steps(10);
-        let at = h.get_all_by_label(&model).next().expect("its picture").rect().center_top()
-            - egui::vec2(0.0, 40.0);
+        let at = h.get_all_by_label(&model).next().expect("its picture").rect().center();
         h.hover_at(at);
         press(h, at, true, egui::Modifiers::NONE);
         press(h, at, false, egui::Modifiers::NONE);

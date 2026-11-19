@@ -967,7 +967,7 @@ pub struct Moonglow {
     pub(crate) strips: [Option<egui::Rect>; 2],
     /// Where the Right Dock was drawn at this frame, unfolded
     /// (`shell::right_dock`; `None` from the start of each frame until it
-    /// is drawn).
+    /// is drawn, its panels' room while they are).
     pub(crate) right_rect: Option<egui::Rect>,
     /// Where the Bottom Dock was drawn at the last frame
     /// ([`Moonglow::bottom_dock_rect`]).

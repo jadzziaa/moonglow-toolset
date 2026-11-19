@@ -12298,17 +12298,28 @@ fn rest_pointer(h: &mut Harness<'_, Moonglow>) {
 /// The palette's Gallery on Placeables with its categories `open` opened
 /// out (by their headings), its pictures made.
 fn palette_gallery(h: &mut Harness<'_, Moonglow>, open: &[&str]) {
+    palette_gallery_of(h, mg_module::palette::BlueprintKind::Placeable, open);
+}
+
+/// [`palette_gallery`] on the palette of `kind`.
+fn palette_gallery_of(
+    h: &mut Harness<'_, Moonglow>,
+    kind: mg_module::palette::BlueprintKind,
+    open: &[&str],
+) {
     {
         let app = h.state_mut();
         app.settings.palette_gallery = true;
         (app.palette.tiles, app.palette.custom) = (false, false);
-        app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        app.palette.kind = kind;
     }
     h.run_steps(5);
     // (The palette's headings, in the Right Dock: not the module tree's.)
     let palette = h.ctx.content_rect().width() * 0.6;
+    let dock = h.state().right_dock_rect();
+    let in_dock = |r: egui::Rect| dock.map_or(r.left() > palette, |d| d.contains(r.center()));
     for heading in open {
-        let found = h.query_all_by_label_contains(heading).find(|n| n.rect().left() > palette);
+        let found = h.query_all_by_label_contains(heading).find(|n| in_dock(n.rect()));
         if let Some(n) = found {
             n.click();
         }
@@ -14851,25 +14862,241 @@ fn board_pickers() {
 }
 
 /// GalleryPalette.png: the palette's Gallery on Placeables beside the
-/// area, Battlefield open (the board has a picture's hover card too).
-/// Today's picture cells (`widgets::picture_tile`), not Quiet Tiles; no
-/// Properties panel under the palette.
+/// area, in the board's 440 dock (its source's `.dock` width), three
+/// pictures a row: Battlefield's last row at the top (the Plague Victim
+/// Pyre's picture clicked: the Gallery with the keys), Building
+/// Adornments (129) closed and Containers & Switches (88) open under it,
+/// the pointer resting on the Barrel, its enlargement left of the dock.
+/// The board's Status Bar is the Gallery's with nothing held to place
+/// (Click Select, Drag Place) and the area's pyre selected (Turn): the
+/// palette given the keys by a heading (Building Adornments clicked twice)
+/// with no picture clicked (`board_gallery_palette`); and with the pyre's
+/// picture clicked, held to place (placing's hints, the review's ruling:
+/// `board_gallery_palette_held`).
 #[test]
 #[ignore]
 fn board_gallery_palette() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    palette_gallery(&mut h, &["Battlefield"]);
-    rest_pointer(&mut h);
-    pictures_shown(&mut h);
-    shoot(&mut h, &board_dir(), "board_gallery_palette");
+    for held in [false, true] {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.right_dock_width = Some(GALLERY_BOARD_DOCK + GALLERY_BOARD_BAR);
+        // (The board's palette section, 568 of the dock's height: its
+        // share, in thousandths of an equal one, of the two sections'.)
+        let layout = h.state_mut().settings.dock_layouts.entry("area".into()).or_default();
+        layout.shares = vec![1360, 640];
+        h.run_steps(5);
+        gallery_as_the_board(&mut h, Some("Barrel"), held);
+        let name = if held { "board_gallery_palette_held" } else { "board_gallery_palette" };
+        shoot(&mut h, &board_dir(), name);
+    }
 }
 
-/// GalleryTiles.png: the tiles palette's Gallery, Select Tiles on with one
-/// tile chosen, its Tile Properties (its variants) in the Right Dock's
-/// lower section. Its variants are drawn by `variant_picture`, not the
-/// shared cell (U25's).
+/// Where the widget named `name` is in the Right Dock, if it is there.
+fn in_right_dock(h: &Harness<'_, Moonglow>, name: &str) -> Option<egui::Rect> {
+    let dock = h.state().right_dock_rect()?;
+    let found = h.query_all_by_label(name).find(|n| dock.contains(n.rect().center()));
+    found.map(|n| n.rect())
+}
+
+/// The GalleryPalette and GalleryTiles boards' Right Dock width (their
+/// source's `.dock`).
+const GALLERY_BOARD_DOCK: u32 = 440;
+
+/// The points the palette's list takes beside its pictures over the
+/// board's: its Scroll Bar and the keys' frame (the board's grid stands
+/// 22 in from the dock's left and 14 from its right, ours 23 and 17), so
+/// that the board's three 128 cells a row fit as they do there.
+const GALLERY_BOARD_BAR: u32 = 4;
+
+/// The palette's Gallery set up as GalleryPalette.png has it (Battlefield
+/// and Containers & Switches open; the pyre's picture clicked, held to
+/// place, where `held`, else the keys given by a heading), the pointer
+/// resting on the picture named `hover` until its enlargement (its
+/// ResRef) is up, else off the window.
+fn gallery_as_the_board(h: &mut Harness<'_, Moonglow>, hover: Option<&str>, held: bool) {
+    palette_gallery(h, &["Battlefield"]);
+    let in_dock = |h: &Harness<'_, Moonglow>, name: &str| {
+        let dock = h.state().right_dock_rect().expect("the Right Dock");
+        let found = h.query_all_by_label(name).find(|n| dock.contains(n.rect().center()));
+        found.map(|n| n.rect())
+    };
+    // (Battlefield's last row at the list's top, as the board has it: the
+    // wheel turned over the palette until the pyre's picture is near the
+    // search field.)
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let search = (h.query_all_by_role(egui::accesskit::Role::TextInput))
+        .map(|n| n.rect())
+        .find(|r| dock.contains(r.center()))
+        .unwrap_or(dock.with_max_y(dock.top() + 110.0));
+    let over = egui::pos2(dock.center().x, (search.bottom() + dock.bottom()) / 2.0);
+    h.hover_at(over);
+    for _ in 0..300 {
+        let near =
+            in_dock(h, "Plague Victim Pyre").is_some_and(|r| r.top() < search.bottom() + 90.0);
+        if near {
+            break;
+        }
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -30.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    if let Some(pyre) = in_dock(h, "Plague Victim Pyre").filter(|_| held) {
+        h.hover_at(pyre.center());
+        h.run_steps(2);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: pyre.center(),
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+    }
+    if !held {
+        // (Nothing held, the keys the palette's: the heading under
+        // Battlefield clicked twice, closed again as the board has it, not
+        // the pyre's picture.)
+        for _ in 0..2 {
+            let dock = h.state().right_dock_rect().expect("the Right Dock");
+            let heading = (h.query_all_by_label_contains("Building Adornments"))
+                .map(|n| n.rect())
+                .find(|r| dock.contains(r.center()));
+            if let Some(heading) = heading {
+                h.hover_at(heading.center());
+                h.run_steps(2);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos: heading.center(),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(2);
+                }
+                // (The list laid out again under the pointer before the
+                // second click finds the heading.)
+                h.hover_at(egui::pos2(dock.center().x, dock.bottom() - 4.0));
+                h.run_steps(10);
+            }
+        }
+    }
+    // (A picture asked for out of sight, as the board's Barrel is under
+    // the corpus's longer Battlefield: the list turned on until Building
+    // Adornments stands where the board has it, 231 under the search.)
+    if hover.is_some_and(|name| in_dock(h, name).is_none()) {
+        h.hover_at(over);
+        for _ in 0..400 {
+            let heading = (h.query_all_by_label_contains("Building Adornments"))
+                .map(|n| n.rect())
+                .find(|r| dock.contains(r.center()));
+            if heading.is_some_and(|r| r.top() <= search.bottom() + 231.0) {
+                break;
+            }
+            // (Containers & Switches opened by its row, once in sight: out
+            // of sight under Battlefield, an AccessKit click opened nothing.)
+            let shut = (h.query_all_by_label_contains("Containers & Switches").map(|n| n.rect()))
+                .find(|r| dock.contains(r.center()) && r.bottom() < dock.top() + 540.0);
+            if let Some(row) = shut.filter(|_| in_dock(h, "Barrel").is_none()) {
+                h.hover_at(row.center());
+                h.run_steps(2);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos: row.center(),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(2);
+                }
+                h.hover_at(over);
+                h.run_steps(10);
+                continue;
+            }
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -10.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+    }
+    pictures_made(h);
+    match hover.and_then(|name| in_dock(h, name)) {
+        Some(at) => {
+            h.hover_at(at.center());
+            // (Past the rest the enlargement waits for, and its picture.)
+            for _ in 0..30 {
+                h.step();
+            }
+            pictures_shown(h);
+            pictures_shown(h);
+        }
+        None => {
+            rest_pointer(h);
+            pictures_shown(h);
+        }
+    }
+}
+
+/// The palette's Gallery (U25) as GalleryPalette.png has it, in other
+/// windows and sizes, into `screens/gallery/`: at 1600 by 900 with the
+/// pictures' slider at its least, its default and its greatest
+/// (`gallery_slider_64`, `_128`, `_220`); at 1280 by 800 (the narrow
+/// Right Dock, 280) and 1000 by 700 (the Left Dock folded), with the
+/// pointer resting on the Plague Victim Pyre's picture (the one clicked,
+/// in sight in every dock), its enlargement beside the dock
+/// (`gallery_1280`, `gallery_1000`), and at 1280 at rest
+/// (`gallery_1280_rest`); at 480 by 800, no room beside the dock
+/// (`gallery_no_room`).
+#[test]
+#[ignore]
+fn gallery_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("gallery");
+    std::fs::create_dir_all(&dir).unwrap();
+    for side in [64_u16, 128, 220] {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.gallery_tile = Some(side);
+        gallery_as_the_board(&mut h, None, true);
+        shoot(&mut h, &dir, &format!("gallery_slider_{side}"));
+    }
+    for (width, height) in [(1280.0, 800.0), (1000.0, 700.0)] {
+        let mut h = board_window(&root, egui::vec2(width, height));
+        gallery_as_the_board(&mut h, Some("Plague Victim Pyre"), true);
+        shoot(&mut h, &dir, &format!("gallery_{width}"));
+        if width == 1280.0 {
+            rest_pointer(&mut h);
+            pictures_shown(&mut h);
+            shoot(&mut h, &dir, "gallery_1280_rest");
+        }
+    }
+    // No room beside the dock (a 480 window, the dock at its least, 280,
+    // the area's view narrower than the enlargement): the enlargement
+    // above or below its cell, never over it.
+    let mut h = board_window(&root, egui::vec2(480.0, 800.0));
+    h.run_steps(5);
+    if h.state().right_dock_rect().is_none() {
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
+        h.run_steps(5);
+    }
+    gallery_as_the_board(&mut h, Some("Plague Victim Pyre"), true);
+    shoot(&mut h, &dir, "gallery_no_room");
+}
+
+/// GalleryTiles.png: the tiles palette's Gallery in the board's 440 dock,
+/// Select Tiles on with one tile chosen, its Tile Properties (its
+/// variants) in the Right Dock's lower section; Terrain open with Cobble
+/// and Dock open under it (their counts, their model-named cells), the
+/// list scrolled to Terrain's sub-headings. Its variants are the kit's
+/// small cells (M4's U25).
 #[test]
 #[ignore]
 fn board_gallery_tiles() {
@@ -14877,7 +15104,58 @@ fn board_gallery_tiles() {
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     h.state_mut().settings.palette_gallery = true;
+    h.state_mut().settings.right_dock_width = Some(GALLERY_BOARD_DOCK);
+    // (The board's palette section, two thirds of the dock's height.)
+    let layout = h.state_mut().settings.dock_layouts.entry("area".into()).or_default();
+    layout.shares = vec![1360, 640];
+    // (The board's pictures, four a row in the 440 dock: the slider near
+    // its least.)
+    h.state_mut().settings.gallery_tile = Some(88);
     tiles_selected(&mut h, &[(0, 0)]);
+    rest_pointer(&mut h);
+    // (The board's headings open, by their arrows left of their names:
+    // Terrain, then, Terrain's heading at the list's top as the board has
+    // it, Cobble. The board shows one row of Cobble's 359 tiles and Dock
+    // open under it; the list in full has Cobble's rows down past the dock's
+    // foot, so Dock is left shut.)
+    let open = |h: &mut Harness<'_, Moonglow>, heading: &str, inside: &str| {
+        if in_right_dock(h, inside).is_some() {
+            return;
+        }
+        let row = in_right_dock(h, heading).unwrap_or_else(|| panic!("no {heading}"));
+        let arrow = egui::pos2(row.left() - 10.0, row.center().y);
+        h.hover_at(arrow);
+        h.run_steps(2);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: arrow,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        }
+        frames_until(h, inside, |h| in_right_dock(h, inside).is_some());
+    };
+    open(&mut h, "Terrain", "Bridge");
+    let list = in_right_dock(&h, "Features").expect("Features");
+    let over = egui::pos2(list.center().x, list.bottom() + 40.0);
+    h.hover_at(over);
+    for _ in 0..200 {
+        let terrain = in_right_dock(&h, "Terrain").expect("Terrain");
+        if terrain.top() <= list.top() + 56.0 {
+            break;
+        }
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -20.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    open(&mut h, "Cobble", "tcn01_a01_01");
+    rest_pointer(&mut h);
     // (The panel scrolled to its variants, as the board shows them.)
     h.get_by_label_contains("fit here)").scroll_to_me();
     pictures_shown(&mut h);
@@ -14891,8 +15169,9 @@ fn board_gallery_tiles() {
     shoot(&mut h, &board_dir(), "board_gallery_tiles");
 }
 
-/// GalleryWide.png at 3440 by 1440: the palette's Gallery on Placeables
-/// (Battlefield open) and the Placeable Gallery opened for the area's
+/// GalleryWide.png at 3440 by 1440: the palette's Gallery on Creatures
+/// (Monsters, Animals, Canine, Undead and Wraith open, as the board has
+/// them), the log shown, and the Placeable Gallery opened for the area's
 /// selection (the pyre), moved to a second editor group beside the area
 /// (the board has the script there too). The wide layout's second column
 /// holds the Preview, not the Properties.
@@ -14902,7 +15181,9 @@ fn board_gallery_wide() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
-    palette_gallery(&mut h, &["Battlefield"]);
+    h.state_mut().settings.hide_log = false;
+    let open = ["Monsters", "Animals", "Canine", "Undead", "Wraith"];
+    palette_gallery_of(&mut h, mg_module::palette::BlueprintKind::Creature, &open);
     h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
     frames_until(&mut h, "the Placeable Gallery", |h| {
         h.state().active_editor() == Some(&mg_ui::Tab::PlaceableGallery)

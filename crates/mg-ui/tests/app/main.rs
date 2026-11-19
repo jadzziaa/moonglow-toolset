@@ -23,6 +23,8 @@ mod drawing;
 mod fields;
 mod form_columns;
 mod form_pages;
+mod galleries;
+mod gallery_keys;
 mod gpu_memory;
 mod hak_closing;
 mod hak_panels;

@@ -1673,26 +1673,17 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         count(&palette.branches, tools, &filter, gallery)
     };
     let mut fold = None;
+    // (In the Gallery, as the GalleryTiles board has it: the switch, Exact
+    // Tile and the size slider first, the slider taking the room left, and
+    // the fold arrows and the count at the row's end; in the List, as the
+    // AreaTiles board: those first.)
+    let said = format!("{tileset}/{}", app.palette.filter);
+    let found = !filter.is_empty();
     ui.horizontal_wrapped(|ui| {
-        fold = crate::palette_view::fold_icons(ui, "heading", &app.keymap);
-        let keys = crate::palette_view::Keys::Palette;
-        if fold.is_none()
-            && crate::palette_view::keys_are(ui.ctx(), keys)
-            && !ui.ctx().egui_wants_keyboard_input()
-        {
-            fold = crate::palette_view::fold_keys(ui, &app.keymap);
+        if !gallery {
+            fold = fold_and_count(ui, &app.keymap, shown, found, &said).0;
+            ui.separator();
         }
-        ui.weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
-            .on_hover_text(if filter.is_empty() { "In this tileset's palette" } else { "Found" });
-        // A search typed opens every heading with a match, as it is typed
-        // (as the blueprint palettes' categories): closed after, they stay
-        // closed. (So does another tileset shown with the search there.)
-        let said = format!("{tileset}/{}", app.palette.filter);
-        let typed = crate::widgets::text_changed(ui, egui::Id::new("tile-palette-filter"), &said);
-        if typed && !filter.is_empty() {
-            fold = fold.or(Some(true));
-        }
-        ui.separator();
         let list = mg_uikit::IconButton::new(crate::icons::LIST, "List").icon_only(true);
         if ui.add(list.selected(!gallery)).on_hover_text("Show the brushes by name").clicked() {
             app.settings.palette_gallery = false;
@@ -1721,12 +1712,31 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "{tip} (In the Gallery, or with a tile chosen from it)"
         ));
         if gallery {
-            // (A slider doesn't wrap of itself: on a row of its own where
-            // this one has no room for it.)
-            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
-                ui.end_row();
+            // (The fold arrows' and the count's width as drawn last time:
+            // the slider's room is what is left before them.)
+            let tail_id = egui::Id::new("tile-palette-toolbar-tail");
+            let tail = ui.data(|d| d.get_temp::<f32>(tail_id)).unwrap_or(150.0);
+            let room = ui.available_size_before_wrap().x - tail - ui.spacing().item_spacing.x;
+            let here = room >= crate::palette_view::SLIDER_LEAST;
+            if here {
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = room;
+                    crate::appearance_gallery::size_slider(app, ui);
+                });
             }
-            crate::appearance_gallery::size_slider(app, ui);
+            let (folded, drawn) = fold_and_count(ui, &app.keymap, shown, found, &said);
+            fold = folded;
+            if drawn.width() > 0.0 && (drawn.width() - tail).abs() > 0.5 {
+                ui.data_mut(|d| d.insert_temp(tail_id, drawn.width()));
+                ui.ctx().request_discard("the tiles palette's toolbar measured");
+            }
+            if !here {
+                ui.end_row();
+                ui.scope(|ui| {
+                    ui.spacing_mut().slider_width = ui.available_size_before_wrap().x.max(40.0);
+                    crate::appearance_gallery::size_slider(app, ui);
+                });
+            }
         }
     });
     ui.separator();
@@ -1876,6 +1886,44 @@ pub(crate) fn drop_tile(
 
 /// How many entries the palette shows under `filter`: brushes, or in the
 /// Gallery tiles.
+/// The tiles palette's fold arrows (and their keys, while the keys are the
+/// palette's) and its count of `shown` items (`found`: of a search): what
+/// they ask (every heading opened or closed), and where they were drawn
+/// (empty where they stand on two rows). A search typed (`said`, the
+/// tileset and the search) opens every heading with a match, as it is
+/// typed (as the blueprint palettes' categories): closed after, they stay
+/// closed. (So does another tileset shown with the search there.)
+fn fold_and_count(
+    ui: &mut egui::Ui,
+    keymap: &crate::keys::Keymap,
+    shown: usize,
+    found: bool,
+    said: &str,
+) -> (Option<bool>, egui::Rect) {
+    let start = ui.cursor().min;
+    let mut fold = crate::palette_view::fold_icons(ui, "heading", keymap);
+    let keys = crate::palette_view::Keys::Palette;
+    if fold.is_none()
+        && crate::palette_view::keys_are(ui.ctx(), keys)
+        && !ui.ctx().egui_wants_keyboard_input()
+    {
+        fold = crate::palette_view::fold_keys(ui, keymap);
+    }
+    let count = ui
+        .weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
+        .on_hover_text(if found { "Found" } else { "In this tileset's palette" });
+    let typed = crate::widgets::text_changed(ui, egui::Id::new("tile-palette-filter"), said);
+    if typed && found {
+        fold = fold.or(Some(true));
+    }
+    let one_row = count.rect.bottom() - start.y < 1.5 * ui.spacing().interact_size.y;
+    let drawn = match one_row {
+        true => egui::Rect::from_min_max(start, count.rect.max),
+        false => egui::Rect::NOTHING,
+    };
+    (fold, drawn)
+}
+
 fn count(items: &[PaletteItem], tools: &Tools, filter: &Needle, gallery: bool) -> usize {
     items
         .iter()
@@ -2223,124 +2271,155 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
 }
 
 /// Pictures of a tileset's groups (`(name, index)`), as many across as
-/// fit: a click chooses one (placed as a group is, a right click in the
-/// area turning it), and one dragged into the area is placed where it is
-/// dropped.
+/// fit, the kit's cells: a click chooses one (placed as a group is, a
+/// right click in the area turning it), and one dragged into the area is
+/// placed where it is dropped; the keys choose as they move.
 fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
     let Some(pictures) = &at.gallery else { return };
     if groups.is_empty() {
         return;
     }
-    let (asked, ready) = (pictures.side, pictures.ready);
-    crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
-        for &(label, g) in groups {
-            let brush = Brush::Group(g);
-            let pictured = crate::model_view::Pictured::Group(at.tileset, g as u32);
-            let made = ready.made(pictured);
-            let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
-            let (r, in_sight) = crate::widgets::picture_tile(ui, side, label, on, made);
-            if in_sight {
-                at.shown.push(pictured);
-            }
-            let choose = |at: &mut Place| {
-                *at.choice = None;
-                let label = label.to_string();
-                *at.chosen = Some(TileBrush {
-                    tileset: at.tileset,
-                    label,
-                    brush,
-                    target: None,
-                    exact: false,
-                });
-            };
-            if r.drag_started() {
-                choose(at);
-                let label = label.to_string();
-                r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
-            }
-            if r.clicked() {
-                if on {
-                    *at.chosen = None;
-                } else {
-                    choose(at);
-                }
-            }
-            let size = at.tools.set.groups.get(g).map(|g| (g.columns, g.rows));
-            r.on_hover_ui(|ui| {
-                ui.strong(label);
-                if let Some((columns, rows)) = size {
-                    ui.label(format!("A group of {columns} by {rows} tiles"));
-                }
-                if let Some(Some(id)) = made {
-                    ui.image(egui::load::SizedTexture::new(id, egui::vec2(180.0, 180.0)));
-                }
-                ui.weak("Click to place it, or drag it into the area. Right-click turns it.");
-            });
-        }
+    let (side, ready) = (pictures.side, pictures.ready);
+    let tileset = at.tileset;
+    let pictured = |g: usize| crate::model_view::Pictured::Group(tileset, g as u32);
+    let current = groups.iter().position(|&(label, g)| {
+        at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == Brush::Group(g))
     });
+    let choose = |at: &mut Place, label: &str, g: usize| {
+        *at.choice = None;
+        *at.chosen = Some(TileBrush {
+            tileset: at.tileset,
+            label: label.to_string(),
+            brush: Brush::Group(g),
+            target: None,
+            exact: false,
+        });
+    };
+    let keys = !crate::shell::keys_blocked(ui.ctx());
+    let grid =
+        mg_uikit::gallery::GalleryGrid::new(ui.id().with("group-pictures"), groups.len(), side)
+            .cursor(current)
+            .keys_allowed(keys)
+            .name("Groups");
+    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+        let (label, g) = groups[i];
+        let brush = Brush::Group(g);
+        let made = ready.made(pictured(g));
+        let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
+        mg_uikit::gallery::GalleryCell::new(label, crate::widgets::cell_picture(made))
+            .kind(mg_uikit::Icon::Tile)
+            .selected(on)
+            .paint(ui, rect, tile, cell, r);
+        if r.drag_started() {
+            choose(at, label, g);
+            let label = label.to_string();
+            r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
+        }
+        if r.clicked() {
+            if on {
+                *at.chosen = None;
+            } else {
+                choose(at, label, g);
+            }
+        }
+        let size = at.tools.set.groups.get(g).map(|g| (g.columns, g.rows));
+        r.clone().on_hover_ui(|ui| {
+            ui.strong(label);
+            if let Some((columns, rows)) = size {
+                ui.label(format!("A group of {columns} by {rows} tiles"));
+            }
+            if let Some(Some(id)) = made {
+                ui.image(egui::load::SizedTexture::new(id, egui::vec2(180.0, 180.0)));
+            }
+            ui.weak("Click to place it, or drag it into the area. Right-click turns it.");
+        });
+    });
+    if let Some(i) = out.moved.or(out.activated) {
+        let (label, g) = groups[i];
+        choose(at, label, g);
+    }
+    at.shown.extend(out.ahead.map(|i| pictured(groups[i].1)));
 }
 
-/// A terrain's or crosser's tiles as pictures over their models' names,
-/// as many across as fit, as the blueprint palettes' Gallery draws them:
+/// A terrain's or crosser's tiles as pictures over their models' names
+/// (in Hack, one line: Hack 11), as many across as fit, the kit's cells:
 /// a click chooses one (it is painted as it is, and Refine Tile chosen
 /// after it makes tiles that one), a double click opens its view, and one
-/// dragged into the area is placed where it is dropped.
+/// dragged into the area is placed where it is dropped; the keys choose
+/// as they move.
 fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
     let Some(pictures) = &at.gallery else { return };
-    let (asked, ready) = (pictures.side, pictures.ready);
-    crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
-        for &t in tiles {
-            let Some(tile) = at.tools.set.tiles.get(t as usize) else { continue };
-            let key = ResKey::parse(&tile.model.to_ascii_lowercase(), ResType::MDL);
-            let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, 0));
-            let made = pictured.and_then(|p| ready.made(p));
-            let current = *at.choice == Some(t);
-            let (r, in_sight) = crate::widgets::picture_tile(ui, side, &tile.model, current, made);
-            if in_sight {
-                at.shown.extend(pictured);
-            }
-            let choose = |at: &mut Place| {
-                *at.choice = Some(t);
-                let (brush, label) = (Brush::Tile(t), tile.model.clone());
-                *at.chosen = Some(TileBrush {
-                    tileset: at.tileset,
-                    label,
-                    brush,
-                    target: None,
-                    exact: false,
-                });
-            };
-            if r.drag_started() {
-                // (Chosen too: the area shows where it would go.)
-                choose(at);
-                let (brush, label) = (Brush::Tile(t), tile.model.clone());
-                r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
-            }
-            if r.double_clicked() {
-                at.open = Some(t);
-            } else if r.clicked() {
-                if current {
-                    *at.choice = None;
-                    *at.chosen = None;
-                } else {
-                    choose(at);
-                }
-            }
-            r.on_hover_ui(|ui| {
-                ui.strong(&tile.model);
-                ui.label(format!("Tile {t} of the tileset"));
-                if let Some(Some(id)) = made {
-                    let size = 180.0;
-                    ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
-                }
-                ui.weak(if at.exact {
-                    "Click to place it alone, double-click for its view, or drag it into the area"
-                } else {
-                    "Click to paint with it, double-click for its view, or drag it into the area"
-                });
-            });
+    let (side, ready) = (pictures.side, pictures.ready);
+    let set = &at.tools.set;
+    let pictured = |t: u32| {
+        let tile = set.tiles.get(t as usize)?;
+        let key = ResKey::parse(&tile.model.to_ascii_lowercase(), ResType::MDL)?;
+        Some(crate::model_view::Pictured::Tile(key, 0))
+    };
+    let current = tiles.iter().position(|t| *at.choice == Some(*t));
+    let choose = |at: &mut Place, t: u32| {
+        let Some(tile) = at.tools.set.tiles.get(t as usize) else { return };
+        *at.choice = Some(t);
+        *at.chosen = Some(TileBrush {
+            tileset: at.tileset,
+            label: tile.model.clone(),
+            brush: Brush::Tile(t),
+            target: None,
+            exact: false,
+        });
+    };
+    let keys = !crate::shell::keys_blocked(ui.ctx());
+    let label = mg_uikit::gallery::label_height(false, 1, false);
+    let grid =
+        mg_uikit::gallery::GalleryGrid::new(ui.id().with("tile-pictures"), tiles.len(), side)
+            .label(label)
+            .cursor(current)
+            .keys_allowed(keys)
+            .name("Tiles");
+    let out = grid.show(ui, |ui, i, rect, size, r, cell| {
+        let t = tiles[i];
+        let Some(tile) = at.tools.set.tiles.get(t as usize) else { return };
+        let made = pictured(t).and_then(|p| ready.made(p));
+        let current = *at.choice == Some(t);
+        mg_uikit::gallery::GalleryCell::new(&tile.model, crate::widgets::cell_picture(made))
+            .kind(mg_uikit::Icon::Tile)
+            .model(true)
+            .selected(current)
+            .paint(ui, rect, size, cell, r);
+        if r.drag_started() {
+            // (Chosen too: the area shows where it would go.)
+            choose(at, t);
+            let (brush, label) = (Brush::Tile(t), tile.model.clone());
+            r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
         }
+        if r.double_clicked() {
+            at.open = Some(t);
+        } else if r.clicked() {
+            if current {
+                *at.choice = None;
+                *at.chosen = None;
+            } else {
+                choose(at, t);
+            }
+        }
+        r.clone().on_hover_ui(|ui| {
+            ui.strong(&tile.model);
+            ui.label(format!("Tile {t} of the tileset"));
+            if let Some(Some(id)) = made {
+                let size = 180.0;
+                ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
+            }
+            ui.weak(if at.exact {
+                "Click to place it alone, double-click for its view, or drag it into the area"
+            } else {
+                "Click to paint with it, double-click for its view, or drag it into the area"
+            });
+        });
     });
+    if let Some(i) = out.moved.or(out.activated) {
+        choose(at, tiles[i]);
+    }
+    at.shown.extend(out.ahead.filter_map(|i| pictured(tiles[i])));
 }
 
 #[cfg(test)]

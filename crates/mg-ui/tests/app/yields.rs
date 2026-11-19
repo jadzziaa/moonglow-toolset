@@ -917,6 +917,51 @@ fn each_layout_keeps_its_own_right_dock_width() {
     assert!(near(s.right_dock_width_wide, wide), "3440's kept: {:?}", s.right_dock_width_wide);
 }
 
+/// The wide layout with the palettes' Gallery on (GalleryWide, M4's U25):
+/// the Right Dock 881 in two columns, its first (the palette's) 480, until
+/// either is dragged; Gallery off, the layout's 741 and 340 again, and
+/// switching it writes no width; a width dragged to wins over the
+/// Gallery's.
+#[test]
+fn the_wide_layout_gives_the_gallery_its_480_column() {
+    let Some((mut h, _)) = yielding("yields-gallery-wide", Mode::Tabs) else { return };
+    let width = |h: &Harness<'_, Moonglow>| h.state().right_dock_rect().unwrap().width();
+    // (Where the second column's Properties begin: the first column's
+    // width, the line and the panel's margin.)
+    let column = |h: &Harness<'_, Moonglow>| {
+        let dock = h.state().right_dock_rect().unwrap();
+        let props = h.get_by_label(mg_ui::properties_panel::NOTHING_SELECTED).rect();
+        props.left() - dock.left()
+    };
+    size(&mut h, 3440.0, 1440.0);
+    h.state_mut().settings.palette_gallery = false;
+    at_rest(&mut h);
+    assert_eq!(width(&h), kit::RIGHT_DOCK_WIDE);
+    let list = column(&h);
+    assert!((kit::RIGHT_COLUMN..kit::RIGHT_COLUMN + 40.0).contains(&list), "the List's: {list}");
+    h.state_mut().settings.palette_gallery = true;
+    at_rest(&mut h);
+    assert_eq!(width(&h), kit::RIGHT_DOCK_GALLERY, "the Gallery's dock");
+    let first = column(&h);
+    let gallery = kit::RIGHT_COLUMN_GALLERY;
+    assert!((first - list - (gallery - kit::RIGHT_COLUMN)).abs() < 1.0, "the Gallery's: {first}");
+    assert_eq!(right_as(&h), "columns");
+    // Off again: the layout's own; nothing written.
+    h.state_mut().settings.palette_gallery = false;
+    at_rest(&mut h);
+    assert_eq!(width(&h), kit::RIGHT_DOCK_WIDE);
+    let back = column(&h);
+    assert!((back - list).abs() < 1.0, "the 480 column given back: {back}, the List's {list}");
+    let s = &h.state().settings;
+    assert_eq!(s.right_dock_width_wide, None, "switching writes no width");
+    assert!(s.dock_layouts.values().all(|l| l.column.is_none()), "nor a column");
+    // A width dragged to wins over the Gallery's.
+    h.state_mut().settings.right_dock_width_wide = Some(800);
+    h.state_mut().settings.palette_gallery = true;
+    at_rest(&mut h);
+    assert!((width(&h) - 800.0).abs() < 1.0, "the width dragged to: {}", width(&h));
+}
+
 /// What asks for a dock's panel by name unfolds the dock it lives in,
 /// wherever the window's width folds it (M3 T14's review: Show in Module
 /// Tree left the dock folded at the default 1280): Tools › Resource

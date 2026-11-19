@@ -1220,21 +1220,12 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                     );
                     size_slider(app, ui, side);
                 });
-                // (A picture's column: its side, the grid's gap and the
-                // spacing after it.)
-                let stride = side + 6.0 + ui.spacing().item_spacing.x;
-                let across = ((ui.available_width() + 6.0) / stride).floor().max(1.0);
-                egui::Grid::new("tile-variants").spacing([6.0, 6.0]).show(ui, |ui| {
-                    for (i, (p, model)) in variants.into_iter().enumerate() {
-                        let current = props.variant == Some(p);
-                        if variant_picture(app, ui, p, &model, current, side) {
-                            picked = Some(p);
-                        }
-                        if i % across as usize == across as usize - 1 {
-                            ui.end_row();
-                        }
-                    }
-                });
+                // (The kit's small cells, as many across as the panel is
+                // wide, 6 apart.)
+                let id = egui::Id::new(("tile-variants", props.area));
+                if let Some(p) = variant_pictures(app, ui, id, &variants, props.variant, side) {
+                    picked = Some(p);
+                }
             }
         },
     );
@@ -1312,10 +1303,12 @@ fn label_cell(ui: &mut egui::Ui, words: &str, enabled: bool) {
 }
 
 /// A variant's picture's side, in points: the usual, and the slider's
-/// least and most (the most is the pictures' own size, in pixels).
-const VARIANT: f32 = 84.0;
-const VARIANT_MIN: f32 = 64.0;
-const VARIANT_MAX: f32 = crate::model_view::THUMBNAIL as f32;
+/// least and most (the most is the pictures' own size, in pixels): the
+/// kit's small variant's.
+const VARIANT: f32 = mg_uikit::gallery::SMALL_DEFAULT;
+const VARIANT_MIN: f32 = mg_uikit::gallery::SMALL_MIN;
+const VARIANT_MAX: f32 = mg_uikit::gallery::SMALL_MAX;
+const _: () = assert!(VARIANT_MAX == crate::model_view::THUMBNAIL as f32);
 
 /// The variants' pictures' side, as their slider was last left.
 pub(crate) fn variant_side(app: &Moonglow) -> f32 {
@@ -1489,18 +1482,12 @@ fn all_tiles_pictures(
     tiles: &[(u32, String)],
     side: f32,
 ) -> Option<mg_tiles::Placement> {
-    let stride = side + 6.0 + ui.spacing().item_spacing.x;
-    // (Of the window's visible width: a row wider than the window, the
-    // heading's, offers more room than it shows.)
-    let seen = ui.clip_rect().right() - ui.cursor().left();
-    let room = ui.available_width().min(seen);
-    let across = ((room - 16.0 + 6.0) / stride).floor().max(1.0) as usize;
-    let rows = tiles.len().div_ceil(across);
-    // (A picture's button, its padding, and its name under it.)
-    let pad = ui.spacing().button_padding.y * 2.0;
-    let name = ui.text_style_height(&egui::TextStyle::Small);
-    let row = side + pad + ui.spacing().item_spacing.y + name;
-    let mut picked = None;
+    let list: Vec<(mg_tiles::Placement, String)> = tiles
+        .iter()
+        .map(|(id, model)| {
+            (mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 }, model.clone())
+        })
+        .collect();
     // (A scroll of its own inside the panel's, as tall as the panel shows
     // under its top: only the rows in sight drawn, however many.)
     let shown = (ui.clip_rect().bottom() - ui.cursor().top()).max(240.0);
@@ -1508,27 +1495,11 @@ fn all_tiles_pictures(
         .id_salt("tile-all")
         .auto_shrink([false, false])
         .max_height(shown)
-        .show_rows(ui, row, rows, |ui, range| {
-            for r in range {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0 + ui.spacing().item_spacing.x;
-                    for (id, model) in tiles.iter().skip(r * across).take(across) {
-                        let p =
-                            mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 };
-                        let now = props
-                            .variant
-                            .is_some_and(|v| v.tile == *id && v.orientation == props.turn);
-                        ui.vertical(|ui| {
-                            ui.set_min_height(row);
-                            if variant_picture(app, ui, p, model, now, side) {
-                                picked = Some(p);
-                            }
-                        });
-                    }
-                });
-            }
-        });
-    picked
+        .show(ui, |ui| {
+            let id = egui::Id::new(("tile-all-pictures", props.area));
+            variant_pictures(app, ui, id, &list, props.variant, side)
+        })
+        .inner
 }
 
 /// The edits that set the tiles of `heights` (`Tile_List` index and
@@ -1659,53 +1630,80 @@ fn pick_command(
     Some((command, first))
 }
 
-/// One variant in Tile Properties: its model's picture, turned as the
-/// tile would lie (the quarter turns written under it too), framed if it
-/// is the one there now, `side` points across; under the pointer, at its
-/// largest. Whether it was clicked.
-fn variant_picture(
+/// Tile Properties' variants (or All tiles'): each its model's picture,
+/// turned as the tile would lie, in the kit's small cells `side` points
+/// across, 6 apart, as many across as there is room, only the rows in
+/// sight drawn; its model's name under it in Hack, the quarter turns
+/// under that where it is turned, the one there now selected; under the
+/// pointer, at its largest beside the panel. The one clicked (or taken by
+/// Enter), if one is.
+fn variant_pictures(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
-    p: mg_tiles::Placement,
-    model: &str,
-    current: bool,
+    id: egui::Id,
+    list: &[(mg_tiles::Placement, String)],
+    now: Option<mg_tiles::Placement>,
     side: f32,
-) -> bool {
-    let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL);
-    let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, p.orientation));
-    let made = pictured.and_then(|k| app.thumbnails.get(k)).flatten();
-    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
-    let name = format!("{model}{turn}");
-    let r = ui
-        .vertical(|ui| {
-            ui.set_width(side);
-            let size = egui::vec2(side, side);
-            let r = match made {
-                Some(id) => ui.add(
-                    egui::Button::image(egui::Image::new((id, size)))
-                        .selected(current)
-                        .frame(current),
-                ),
-                None => ui.add_sized(size, egui::Button::new("…").selected(current)),
-            };
-            if current {
-                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
-                ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Outside);
-            }
-            ui.add(egui::Label::new(egui::RichText::new(&name).small()).truncate());
-            r
-        })
-        .inner;
-    let title = format!("Tile {}: {name}", p.tile);
-    let r = match made {
-        // (Larger, where the picture is shown smaller than it was made.)
-        Some(id) if side < VARIANT_MAX => r.on_hover_ui(|ui| {
-            ui.label(&title);
-            ui.add(egui::Image::new((id, egui::vec2(VARIANT_MAX, VARIANT_MAX))));
-        }),
-        _ => r.on_hover_text(title),
+) -> Option<mg_tiles::Placement> {
+    use mg_uikit::gallery;
+    const TURNS: [&str; 4] = ["", "↺90°", "↺180°", "↺270°"];
+    let pictured = |p: mg_tiles::Placement, model: &str| {
+        let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL)?;
+        Some(crate::model_view::Pictured::Tile(key, p.orientation))
     };
-    r.clicked()
+    let turned = list.iter().any(|(p, _)| p.orientation % 4 != 0);
+    let current = list.iter().position(|(p, _)| Some(*p) == now);
+    let keys = !crate::shell::keys_blocked(ui.ctx());
+    let grid = gallery::GalleryGrid::new(id, list.len(), side)
+        .small()
+        .label(gallery::label_height(true, 1, turned))
+        .cursor(current)
+        .keys_allowed(keys)
+        .name("Variants");
+    let panel = ui.clip_rect();
+    let (mut picked, mut hovered) = (None, None);
+    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+        let (p, model) = &list[i];
+        let made = pictured(*p, model).and_then(|k| app.thumbnails.made(k));
+        let turn = TURNS[usize::from(p.orientation % 4)];
+        // (Said with its turn, "tcn01_a02_01 ↺90°", as before.)
+        let said = if turn.is_empty() { model.clone() } else { format!("{model} {turn}") };
+        gallery::GalleryCell::new(model, crate::widgets::cell_picture(made))
+            .said(&said)
+            .detail((!turn.is_empty()).then_some(turn))
+            .kind(mg_uikit::Icon::Tile)
+            .model(true)
+            .small(true)
+            .selected(Some(*p) == now)
+            .paint(ui, rect, tile, cell, r);
+        if r.clicked() {
+            picked = Some(*p);
+        }
+        if r.hovered() && !r.dragged() {
+            hovered = Some((rect, format!("Tile {}: {said}", p.tile), made.flatten()));
+        }
+    });
+    if let Some(i) = out.activated {
+        picked = Some(list[i].0);
+    }
+    // (Larger, beside the panel, where the picture is shown smaller than
+    // it was made: never over the cell it tells of.)
+    if let Some((cell, title, made)) = hovered {
+        // (Its picture's width and the frame's margins; its title alone, a
+        // tooltip's width.)
+        let width = if made.is_some() && side < VARIANT_MAX { VARIANT_MAX + 16.0 } else { 220.0 };
+        // (Measured anew for another tile, or its picture made.)
+        let what = (&title, made.is_some(), width as u32);
+        gallery::show_beside(ui.ctx(), id.with("enlarged"), cell, panel, width, what, |ui| {
+            ui.label(&title);
+            if let Some(id) = made.filter(|_| side < VARIANT_MAX) {
+                ui.add(egui::Image::new((id, egui::vec2(VARIANT_MAX, VARIANT_MAX))));
+            }
+        });
+    }
+    let ahead: Vec<_> = out.ahead.filter_map(|i| pictured(list[i].0, &list[i].1)).collect();
+    app.thumbnails.show(ahead);
+    picked
 }
 
 /// Defaults: the lighting scheme's first colours and every loop on (where

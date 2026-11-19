@@ -1895,9 +1895,13 @@ pub(crate) fn overlapping(h: &Harness<'_, Moonglow>) -> Vec<String> {
     fn names(n: AccessKitNode<'_>, out: &mut HashMap<u64, String>) {
         let role = n.role();
         let name = n.label().or_else(|| n.value()).unwrap_or_default();
+        // (A gallery's grid is a list of the cells drawn in it, which
+        // egui gives it not as children but beside it.)
         let part = matches!(
             role,
-            egui::accesskit::Role::Unknown | egui::accesskit::Role::GenericContainer
+            egui::accesskit::Role::Unknown
+                | egui::accesskit::Role::GenericContainer
+                | egui::accesskit::Role::List
         );
         // Widgets, not the windows and groups that hold them.
         let leaf = n.children().next().is_none();
