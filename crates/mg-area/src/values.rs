@@ -41,7 +41,7 @@ use std::num::NonZeroU8;
 use glam::Vec3;
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
-use mg_preview::Preview;
+use mg_preview::{DressedLook, Preview};
 use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_rules::grass::AreaGrass;
@@ -193,12 +193,17 @@ impl Look {
         }
     }
 
-    /// A creature as it looks unclothed ([`mg_preview::CreatureLook`]:
-    /// appearance, gender, phenotype, head, body, colors, wings and tail).
-    /// (Where a look with what it wears joins, as values: this is the one
-    /// place a creature's values become its models.)
-    pub fn creature(game: &GameData, look: &mg_preview::CreatureLook) -> Look {
-        Look::of(mg_preview::creature_look(game, look))
+    /// A creature as values: its body and what it wears and holds
+    /// ([`DressedLook`], or a bare body's [`mg_preview::CreatureLook`],
+    /// given or borrowed), drawn as [`mg_preview::dressed_look`] draws it:
+    /// everything given is worn. The game takes off a creature what it may
+    /// not wear as it loads it ([`mg_rules::GameData::wear_problem`]), so a
+    /// client gives what its server says the creature wears, and a reader
+    /// of files reads with [`Look::read`], which leaves those items out.
+    /// No texture or animation replacement and no shader parameters: those
+    /// are an object's fields, which [`Look::read`] reads.
+    pub fn creature(game: &GameData, look: impl Into<DressedLook>) -> Look {
+        Look::of(mg_preview::dressed_look(game, &look.into()))
     }
 
     /// A placeable of placeables.2da row `appearance` in animation state
