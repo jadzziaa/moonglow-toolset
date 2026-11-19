@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-13T22:37:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:48:05Z }
 ---
 
 # Options
@@ -333,8 +333,8 @@ window is one in As Tabs too, for a kind you moved to a window):
   on Linux, **Metal** on macOS (the only one there); only the
   platform's are offered. A backend chosen here is kept even where the
   check finds it drawing nothing: a notice under the Top Bar says so and
-  offers the other. (Not OpenGL: Moonglow's renderer draws
-  particles, the game's shaders and more wrong there.) It takes effect the next time
+  offers the other. (Not OpenGL, which Moonglow draws with only where
+  nothing else is there: with one sample a pixel, no anti-aliasing.) It takes effect the next time
   Moonglow starts, and the page says what this run draws with. A backend
   with no adapter on this machine falls back to Automatic, and the log
   says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,

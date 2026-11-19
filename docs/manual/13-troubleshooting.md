@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:48:05Z }
 ---
 
 # Troubleshooting
@@ -34,8 +34,9 @@ flatpak override --user --filesystem="/path/to/Neverwinter Nights:ro" io.github.
 
 The area viewer and model previews need a graphics card with Vulkan or
 Direct3D 12 (Windows), Vulkan (Linux) or Metal (macOS). Where only
-OpenGL is there, Moonglow draws with it, but its renderer is not made
-for it: particles, the game's shaders and more are drawn wrong; and
+OpenGL is there, Moonglow draws with it, with one sample a pixel (no
+anti-aliasing: wgpu's OpenGL backend can't read a multisampled picture
+back), tried on Mesa's drivers on Linux only; and
 where only a software adapter is there (llvmpipe, Microsoft's Basic
 Render Driver: a virtual machine, a remote desktop, Windows without the
 GPU maker's driver), the 3D views are drawn at a few frames a second.
