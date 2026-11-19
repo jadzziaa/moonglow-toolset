@@ -98,13 +98,12 @@ fn a_dressed_creature_from_values_is_the_creature_read_from_fields() {
         Look::creature(&game, bare.clone())
     );
 
-    // A bare body's look, borrowed or given (the call before DressedLook).
+    // A bare body's look, borrowed (the call before DressedLook, still made) or given.
     let body = CreatureLook::new(6);
-    assert_eq!(Look::creature(&game, &body), Look::creature(&game, body));
-    assert_eq!(
-        Look::creature(&game, &body),
-        Look::Model(mg_preview::creature_look(&game, &body).unwrap())
-    );
+    #[allow(clippy::needless_borrows_for_generic_args)] // (The borrowed call is the one held.)
+    let borrowed = Look::creature(&game, &body);
+    assert_eq!(borrowed, Look::creature(&game, body));
+    assert_eq!(borrowed, Look::Model(mg_preview::creature_look(&game, &body).unwrap()));
 
     // In an area: the creature placed from values is the GIT's.
     let mut placed = proficient.clone();
