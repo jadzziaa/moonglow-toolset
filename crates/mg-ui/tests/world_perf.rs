@@ -132,6 +132,16 @@ fn persistent_world_stays_within_budget() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     frames(&mut h, &mut b, "module open (Module Properties)", MS(500), MS(33), |_| {});
+    // (The Left Dock, folded at this width beside the Palette panel,
+    // unfolded by its chevron, as the app tests' `unfold_left_dock` does.)
+    if let Some(chevron) = h.query_by_label("Show the Left Dock") {
+        chevron.click();
+        let started = Instant::now();
+        while h.query_by_label("Fold the Left Dock").is_none() {
+            assert!(started.elapsed() < S(10), "never: the Left Dock unfolded");
+            h.step();
+        }
+    }
     // The tree with its items listed.
     h.get_by_label_contains("Items (").click();
     frames(&mut h, &mut b, "module tree with 8,000 items", MS(500), MS(33), |_| {});
