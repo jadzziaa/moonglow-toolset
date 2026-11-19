@@ -121,8 +121,11 @@ fn members_differ(
     path: &str,
 ) -> Option<String> {
     let mut end = 0u32;
-    for m in members {
-        let name = format!("{path}.{}", m.name.as_deref().unwrap_or("?"));
+    for (i, m) in members.iter().enumerate() {
+        let name = match &m.name {
+            Some(n) => format!("{path}.{n}"),
+            None => format!("{path}.{i}"),
+        };
         let Some((a, s)) = of(module, m.ty, rules) else {
             return Some(format!("{name}: a type no block holds"));
         };

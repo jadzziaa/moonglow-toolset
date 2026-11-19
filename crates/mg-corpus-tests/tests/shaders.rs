@@ -71,8 +71,12 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
                     FRAMEBUFFER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 // (And as the renderer splits it: the parts as OpenGL lays
-                // them out, which `split_uniforms` refuses otherwise.)
-                p.clone().split_uniforms(mg_render::uniform_part)?;
+                // them out, which `split_uniforms` refuses otherwise, and
+                // the program written in GLSL as wgpu's OpenGL back end has
+                // naga write it.)
+                let mut gl = p.clone();
+                gl.split_uniforms(mg_render::uniform_part)?;
+                glsl(&gl).map_err(|e| mg_shader::ShaderError::Naga(format!("GLSL: {e}")))?;
                 let split = p.split_uniforms(part)?;
                 if p.reflection.uniform(mg_shader::LIGHT_INDEX).is_some() {
                     INDEXED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -93,6 +97,33 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// `p` written in GLSL as wgpu's OpenGL back end has naga write it
+/// (GLSL 4.30, its flags, a binding for each resource).
+fn glsl(p: &mg_shader::Program) -> Result<String, naga::back::glsl::Error> {
+    use naga::back::glsl;
+    let mut binding_map = glsl::BindingMap::default();
+    for (k, b) in p.module.global_variables.iter().filter_map(|(_, g)| g.binding).enumerate() {
+        binding_map.insert(b, k as u8);
+    }
+    let options = glsl::Options {
+        version: glsl::Version::Desktop(430),
+        writer_flags: glsl::WriterFlags::ADJUST_COORDINATE_SPACE
+            | glsl::WriterFlags::FORCE_POINT_SIZE,
+        binding_map,
+        ..Default::default()
+    };
+    let ep = &p.module.entry_points[0];
+    let pipeline = glsl::PipelineOptions {
+        shader_stage: ep.stage,
+        entry_point: ep.name.clone(),
+        multiview: None,
+    };
+    let mut text = String::new();
+    glsl::Writer::new(&mut text, &p.module, &p.info, &options, &pipeline, Default::default())?
+        .write()?;
+    Ok(text)
 }
 
 /// The programs [`compile_all`] found reading the lights by index.

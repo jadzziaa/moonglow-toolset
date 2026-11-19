@@ -6712,6 +6712,69 @@ fn moonglow_s_own_shaders_are_written_in_hlsl_as_direct3d_12_writes_them() {
     assert!(failed.is_empty(), "FXC failed: {failed:#?}");
 }
 
+/// Moonglow's own shaders (each WGSL source the renderer makes, at one
+/// sample a pixel and four) written in GLSL as wgpu's OpenGL back end has
+/// naga write them (GLSL 4.30, its flags, a binding for each resource),
+/// every entry point: what naga can't write, OpenGL can't draw, and this
+/// shows without OpenGL. (A depth texture read with `textureLoad` was one:
+/// naga makes it a shadow sampler, which GLSL can't fetch a texel from;
+/// `framebuffer::DEPTH_READ`.) In `target/test-output/glsl/own/`.
+#[test]
+fn moonglow_s_own_shaders_are_written_in_glsl_as_opengl_writes_them() {
+    use naga::back::glsl;
+    let dir = mg_testkit::output_dir("glsl/own");
+    let (mut failures, mut written) = (Vec::new(), 0);
+    for (name, source) in mg_render::wgsl_sources() {
+        let module =
+            naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let mut binding_map = glsl::BindingMap::default();
+        for (k, b) in module.global_variables.iter().filter_map(|(_, g)| g.binding).enumerate() {
+            binding_map.insert(b, k as u8);
+        }
+        let options = glsl::Options {
+            version: glsl::Version::Desktop(430),
+            writer_flags: glsl::WriterFlags::ADJUST_COORDINATE_SPACE
+                | glsl::WriterFlags::FORCE_POINT_SIZE,
+            binding_map,
+            ..Default::default()
+        };
+        for ep in &module.entry_points {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: ep.stage,
+                entry_point: ep.name.clone(),
+                multiview: None,
+            };
+            let mut text = String::new();
+            let label = format!("{name}.{}", ep.name);
+            match glsl::Writer::new(
+                &mut text,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                Default::default(),
+            )
+            .and_then(|mut w| w.write())
+            {
+                Ok(_) => {
+                    std::fs::write(dir.join(format!("{label}.glsl")), text).unwrap();
+                    written += 1;
+                }
+                Err(e) => failures.push(format!("{label}: {e}")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "not written in GLSL: {failures:#?}");
+    assert!(written >= 20, "{written} written");
+    eprintln!("{written} stages written in GLSL, in {}", dir.display());
+}
+
 /// The lit check (a lit, textured quad as a tile is drawn, by Moonglow's
 /// own shader and by the game's `vslit`/`fslit`: here the ones this test
 /// writes): it passes; a game's program that draws nothing (black) fails
