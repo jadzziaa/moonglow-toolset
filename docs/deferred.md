@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T14:00:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1310,13 +1310,16 @@ contribution itself states as not done or not checked.
     to it: `pick_adapter` repeats wgpu 30's order of adapter kinds and
     the app checks the surface. A later wgpu that orders otherwise is
     not followed by itself: look at it at the next wgpu bump. (S)
-  - **OpenGL draws wrong.** Not offered in Options (the owner's
-    decision), but wgpu still falls back to it where neither Vulkan,
-    Direct3D 12 nor Metal draws, and `WGPU_BACKEND=gl` takes it:
-    `WGPU_BACKEND=gl cargo test -p mg-render --test render` fails 20
-    of its 44 tests on the development machine (no visible particles,
-    the game's programs, the framebuffer's copies, animations...): the
-    renderer was never made for wgpu's GL backend. (M)
+  - **OpenGL is not offered, and is tried on one machine.** The
+    renderer draws on wgpu's OpenGL back end (`WGPU_BACKEND=gl`): its
+    93 picture tests pass on Mesa radeonsi, and the three causes of the
+    failures are guarded without OpenGL. What stays open: NVIDIA and
+    Intel drivers, Windows and GLES are untried (waiting on machines to
+    try them on); whether Options offers OpenGL among the backends in
+    the adapter pick, and the wording of the fallback message where it
+    is taken (the owner's decision); and anti-aliasing on OpenGL, which
+    draws one sample a pixel until wgpu-hal makes multisampled textures
+    there (waiting on wgpu). (S each)
   - `mg` and the other headless renderers take Automatic (or
     `WGPU_BACKEND`), not the GUI's setting; Moonglow Viewer, which builds
     on mg-render, doesn't use `pick_adapter` yet. (S each)
