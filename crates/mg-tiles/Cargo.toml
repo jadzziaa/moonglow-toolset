@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 fastrand.workspace = true
+glam.workspace = true
 mg-set.workspace = true
 thiserror.workspace = true
 

@@ -12,10 +12,10 @@ fastrand.workspace = true
 glam.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
-mg-edit.workspace = true
+mg-edit = { workspace = true, optional = true }
 mg-gff.workspace = true
 mg-mdl.workspace = true
-mg-module.workspace = true
+mg-module = { workspace = true, optional = true }
 mg-preview = { workspace = true, features = ["render"] }
 mg-render.workspace = true
 mg-resman.workspace = true
@@ -24,7 +24,18 @@ mg-set.workspace = true
 mg-tiles.workspace = true
 thiserror.workspace = true
 
+# The editing half (undoable edits, painting, Resize, Change Tileset, the
+# tileset's palette, what an edit touched): with mg-edit and mg-module,
+# and the script compiler, archive readers and file watcher behind them.
+# The window and `mg` take it; a game client that draws areas (Moonglow
+# Client) sets `default-features = false` for the scene alone: the area
+# read or given as values, its models loaded and drawn.
+[features]
+default = ["edit"]
+edit = ["dep:mg-edit", "dep:mg-module"]
+
 [dev-dependencies]
+mg-testkit.workspace = true
 mg-tlk.workspace = true
 
 [lints]

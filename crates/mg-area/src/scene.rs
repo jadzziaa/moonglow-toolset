@@ -686,8 +686,24 @@ impl AreaScene {
         let flame = self.flame.iter().flatten().map(|l| &l.gpu);
         let emitting = self.objects.iter().flatten().filter(|s| s.composed.emits());
         let objects = emitting.flat_map(|s| s.composed.models());
+        let names = self.chunks_of(tiles.chain(flame).chain(objects));
+        self.load_chunk_models(gpu, models, names);
+    }
+
+    /// [`AreaScene::load_chunks`] of the objects at `at` alone (the tiles'
+    /// and the others' loaded already).
+    fn load_object_chunks(&mut self, gpu: &Gpu, models: &Models<'_>, at: &[usize]) {
+        let shown = at.iter().filter_map(|&i| self.objects.get(i)?.as_ref());
+        let emitting = shown.filter(|s| s.composed.emits());
+        let names = self.chunks_of(emitting.flat_map(|s| s.composed.models()));
+        self.load_chunk_models(gpu, models, names);
+    }
+
+    /// The models the chunk emitters of `of` throw that are not loaded yet,
+    /// each once, lower case.
+    fn chunks_of<'a>(&self, of: impl Iterator<Item = &'a Arc<GpuModel>>) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
-        for gm in tiles.chain(flame).chain(objects) {
+        for gm in of {
             for n in &gm.model.nodes {
                 if let mg_mdl::NodeKind::Emitter(e) = &n.kind
                     && let Some(c) = &e.chunk
@@ -699,6 +715,11 @@ impl AreaScene {
                 }
             }
         }
+        names
+    }
+
+    /// Loads the chunk models `names`.
+    fn load_chunk_models(&mut self, gpu: &Gpu, models: &Models<'_>, names: Vec<String>) {
         for name in names {
             let built = models
                 .load(&name)
@@ -708,25 +729,70 @@ impl AreaScene {
     }
 
     /// The objects at `at` (their places in `area.objects`) shown anew,
-    /// the rest as they were: after an edit of those alone
-    /// ([`crate::AreaModel::read_objects`]). [`AreaScene::update`] shows
-    /// every object anew (a thousand took most of a millisecond).
+    /// and those `area` has past the ones shown (put at the end of its
+    /// objects), the rest as they were: after an edit of those alone
+    /// ([`crate::AreaModel::read_objects`]), a look changed or objects
+    /// added. [`AreaScene::update`] shows every object and tile anew.
+    ///
+    /// For a game client, whose objects come, move, change and go every
+    /// frame (`crates/mg-area/examples/client_objects.rs` shows it):
+    ///
+    /// - **moved**: nothing to do here. The scene ([`AreaScene::scene`])
+    ///   draws each object where [`crate::AreaObject::model_transform`]
+    ///   puts it as it is made; [`crate::AreaObject::move_to`] moves one.
+    /// - **its look changed** (its `preview`): its place in `at`. A look
+    ///   seen before (by any object, or by this one within the last few
+    ///   updates) is shown again from what was loaded; a new one loads its
+    ///   models, each read once while anything shows it.
+    /// - **added**: pushed onto `area.objects` (with
+    ///   [`crate::AreaObject::from_values`]), then this, `at` empty or not.
+    /// - **taken out**: `area.objects.remove(i)`, then
+    ///   [`AreaScene::remove_object`]`(area, i)`. The scene pairs each
+    ///   object with what it shows by place: one taken out of `area` alone
+    ///   would have the objects after it drawn with their neighbors' looks
+    ///   until the next update of the objects, which, finding fewer
+    ///   objects than it shows, shows them all anew; and for good, were
+    ///   another pushed before it (as many objects again: nothing tells).
+    ///   So each one taken out is told here before any is added.
+    ///
+    /// Objects added are taken to be at the end: the area's model read
+    /// whole again (its objects in the GIT's order, by kind) is shown with
+    /// [`AreaScene::update`].
+    ///
+    /// None of these loads a model already loaded, or builds a tile again.
+    /// An object's `index` (its place among those of its kind) keys its
+    /// particles from one scene to the next: a client gives each object of
+    /// a kind its own, under 2^24.
     pub fn update_objects(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel, at: &[usize]) {
-        if self.objects.len() != area.objects.len()
-            || self.object_missing.len() != area.objects.len()
-        {
+        let had = self.objects.len();
+        if area.objects.len() < had || self.object_missing.len() != had {
             self.update(gpu, game, area);
             return;
         }
+        self.objects.resize(area.objects.len(), None);
+        self.object_missing.resize(area.objects.len(), None);
         let models = self.models(game);
         let load = |name: &str| models.load(name);
-        for &i in at {
-            let Some(o) = area.objects.get(i) else { continue };
+        let fresh: Vec<usize> =
+            (at.iter().copied()).filter(|&i| i < had).chain(had..area.objects.len()).collect();
+        for &i in &fresh {
             (self.objects[i], self.object_missing[i]) =
-                shown(gpu, &mut self.object_cache, o, &load);
+                shown(gpu, &mut self.object_cache, &area.objects[i], &load);
         }
-        self.load_chunks(gpu, &models);
+        self.load_object_chunks(gpu, &models, &fresh);
         self.keep(models);
+        self.settle(area);
+    }
+
+    /// Takes out what is shown of object `i`, after it was taken out of
+    /// `area` (`area.objects.remove(i)`): the objects after it keep what
+    /// they show, one place on, and the models no object shows any more
+    /// are let go after a few updates. Nothing is loaded or read.
+    pub fn remove_object(&mut self, area: &AreaModel, i: usize) {
+        if i < self.objects.len() && i < self.object_missing.len() {
+            self.objects.remove(i);
+            self.object_missing.remove(i);
+        }
         self.settle(area);
     }
 
@@ -943,7 +1009,7 @@ impl AreaScene {
     /// Whether object `i` is only a light: a placeable with a model too
     /// small to see whose appearance has a light (placeables.2da's
     /// `LightColor`), as the game's "Light, White" has, or whose model has
-    /// the light node of a light Moonglow made (`mg_module::lights`). Its
+    /// the light node of a light Moonglow made (`mg_rules::lights`). Its
     /// light, if so.
     pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<BareLight> {
         let shown = self.objects.get(i).and_then(Option::as_ref)?;
@@ -962,7 +1028,7 @@ impl AreaScene {
         }
         // (A builder's own small lamp model is drawn as it is: a light
         // Moonglow made is nothing else.)
-        if !mg_module::lights::is_generated(&o.preview.as_ref()?.base.model) {
+        if !mg_rules::lights::is_generated(&o.preview.as_ref()?.base.model) {
             return None;
         }
         let lamp = shown.composed.point_lights(glam::Mat4::IDENTITY).into_iter().next()?;
