@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T00:24:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T13:44:48Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -713,15 +713,26 @@ return `0xRRGGBB`. `Tile_SrcLight1/2` stores the
 
 ### Fog
 
-`fogEnd` = `FogClipDist`; `fogStart` = min(30 − `Sun/MoonFogAmount`,
-`fogEnd` − 1), in meters. Fog is always on, even at amount 0; amounts above
-30 start it behind the camera. A skybox changes neither value. The fog
-color is the stored color, in gamma space.
+`fogEnd` = `FogClipDist`; `fogStart` = min(30 − `Sun/MoonFogAmount` −
+(20 − the camera's distance), `fogEnd` − 1), in meters, where the
+camera's distance is how far the client's camera stands from the player
+(as `SetCameraFacing` gives it; 20 as a player enters, where the
+formula reads min(30 − amount, end − 1)). Zoomed in, the fog starts
+nearer: with an amount of 12 and the camera at 5.5 m it starts 3.5 m off,
+not 18. The pitch changes nothing, nor day or night (the moon's amount
+and color at night, the sun's by day). Fog is always on, even at amount
+0; amounts above 30 start it behind the camera. A skybox changes neither
+value. The fog color is the stored color, in gamma space.
 
 - **Checked:** game client, `client_render.rs` `fog_uniforms_match_the_client`
-  (the shader's uniforms read back by a debug copy of the game's own shader
-  include in a scratch `override`).
-- **Moonglow:** `crates/mg-area/src/scene.rs` (`fog`).
+  (the camera as a player enters) and `night_fog.rs`
+  `fog_start_follows_the_camera` (cameras from 5.5 to 25 m, the start moving
+  back past 20 m as before it, pitch 45 and
+  84, amounts 0 to 30, day and night), the shader's uniforms read back by
+  a debug copy of the game's own shader include in a scratch `override`;
+  `night_fog_matches_the_client` compares the pictures (The Domains of
+  Dread's Shard at night with a clip distance of 22, and a rural area).
+- **Moonglow:** `crates/mg-area/src/scene.rs` (`fog_from`, `View::camera`).
 - **Wiki:** no formula. "Area Lighting" and "Render Distance with Fog and
   Skyboxes" say a skybox extends the fog clip distance; the fog end stays
   at `FogClipDist` (the draw distance was not measured).
