@@ -7,6 +7,8 @@
 #[path = "../area_common/mod.rs"]
 mod area_common;
 
+#[path = "../area_values.rs"]
+mod area_values;
 #[path = "../areas.rs"]
 mod areas;
 #[path = "../hlsl.rs"]

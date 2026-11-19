@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 mg-resman.workspace = true
+mg-testkit-gpu.workspace = true
 mg-serve.workspace = true
 # (A key made by a test to sign a release: `signing`.)
 mg-update = { workspace = true, features = ["serve"] }

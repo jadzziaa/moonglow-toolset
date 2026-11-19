@@ -46,6 +46,7 @@ mg-shader = { path = "crates/mg-shader" }
 mg-set = { path = "crates/mg-set" }
 mg-ssf = { path = "crates/mg-ssf" }
 mg-testkit = { path = "crates/mg-testkit" }
+mg-testkit-gpu = { path = "crates/mg-testkit-gpu" }
 mg-tiles = { path = "crates/mg-tiles" }
 mg-tlk = { path = "crates/mg-tlk" }
 mg-ui = { path = "crates/mg-ui" }

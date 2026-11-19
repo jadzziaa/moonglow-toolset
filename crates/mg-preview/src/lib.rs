@@ -25,13 +25,15 @@ pub mod compose;
 mod creature;
 pub mod files;
 mod item;
+mod look;
 mod object;
 pub mod replaceable;
 #[cfg(feature = "usage")]
 pub mod usage;
 
-pub use creature::{CreatureLook, creature, creature_look};
+pub use creature::{CreatureLook, creature, creature_look, dressed_look};
 pub use item::{armor_part, ground_turn, item, item_on, item_placed};
+pub use look::{DressedLook, ITEM_SCOPES, ItemLook, VisualTransform, slot};
 pub use object::{PLACEABLE_DEFAULT_ENV_MAP, door, placeable, sound, store, waypoint};
 
 /// Why a preview could not be made.
@@ -146,17 +148,7 @@ pub fn visual_turn(rotate: [f32; 3]) -> Mat4 {
 /// object `object`, as a matrix ([`visual_matrix`], each axis's goal,
 /// `ValueTo`); `None` without one, or with one that changes nothing.
 pub fn scope_matrix(object: &Struct, scope: i64) -> Option<Mat4> {
-    let list = object.list("VisTransformList")?;
-    let entry = list.iter().find(|e| e.integer("Scope").unwrap_or(0) == scope)?;
-    let axis = |label: &str, rest: f32| {
-        entry.child(label).and_then(|a| a.float("ValueTo")).unwrap_or(rest)
-    };
-    let three =
-        |prefix: &str, rest: f32| ["X", "Y", "Z"].map(|a| axis(&format!("{prefix}{a}"), rest));
-    let (scale, rotate, translate) =
-        (axis("ScaleX", 1.0), three("Rotate", 0.0), three("Translate", 0.0));
-    let none = scale == 1.0 && rotate == [0.0; 3] && translate == [0.0; 3];
-    (!none).then(|| visual_matrix(scale, rotate, translate))
+    VisualTransform::of(object, scope)?.matrix()
 }
 
 /// A light a preview carries (a placeable's).
@@ -336,7 +328,7 @@ pub(crate) fn of_object_with(
 ) -> Option<Result<Preview, PreviewError>> {
     use mg_rules::ObjectKind as K;
     let preview = match kind {
-        K::Creature => creature::dressed(game, object, items, true, remembered),
+        K::Creature => creature::dressed(game, object, items, remembered),
         K::Door => door(game, object),
         K::Item => match shown {
             Shown::Alone { female } => item_on(game, object, female),

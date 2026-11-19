@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T13:46:26Z }
 ---
 
 # Areas
@@ -89,7 +89,8 @@ A palette's List and Gallery switches are icons as well.
   count tiles by and line areas up, and under raised ground it is drawn
   at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
-  farther off isn't lost in it.
+  farther off isn't lost in it; zoomed in nearer than 20 m, the fog
+  starts nearer, as the game's does for a camera zoomed in.
 - **Minimap**: the area's map in the view's top right corner, as the
   game's map draws it ([Minimaps](#minimaps)), with where the camera
   looks (a white dot, and a wedge the way it faces) and the selected

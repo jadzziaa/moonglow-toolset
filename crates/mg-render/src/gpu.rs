@@ -63,6 +63,25 @@ impl Gpu {
         Some(Gpu::new(device, queue))
     }
 
+    /// The samples a pixel a target asked for with `wanted` gets on this
+    /// device: `wanted`, but one on wgpu's OpenGL back end.
+    /// [`Renderer::new`](crate::Renderer::new), [`Targets::new`](crate::Targets::new)
+    /// and [`watch::Sampler::new`](crate::watch::Sampler::new) ask it, and
+    /// so must a caller's own pipeline that draws into the targets.
+    ///
+    /// Why: the renderer's multisampled targets are read as textures too
+    /// (the framebuffer's copies, the shadows' darkening, the shadow
+    /// volumes' depth copy, the watch), and wgpu-hal 30's OpenGL back end
+    /// never makes a `GL_TEXTURE_2D_MULTISAMPLE` texture: it gives such a
+    /// texture `glTexStorage2DMultisample` on `GL_TEXTURE_2D`, which the
+    /// driver refuses (`GL_INVALID_ENUM`, reported by nothing but
+    /// `MESA_DEBUG`), so nothing drawn into it arrives. A multisampled
+    /// attachment that is never read as a texture works there; anti-aliasing
+    /// on OpenGL is what is given up.
+    pub fn samples(&self, wanted: u32) -> u32 {
+        if self.device.adapter_info().backend == wgpu::Backend::Gl { 1 } else { wanted }
+    }
+
     /// Whether BC1–BC5 textures can be uploaded as they are.
     pub fn bc_textures(&self) -> bool {
         self.device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)

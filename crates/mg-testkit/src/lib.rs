@@ -8,12 +8,15 @@
 
 pub mod engine;
 pub mod erf;
-pub mod gpu;
 #[cfg(feature = "hlsl")]
 pub mod hlsl;
 pub mod joined;
-pub mod places;
 pub mod signing;
+
+/// The GPU hold and the places tests take turns at: their own crate,
+/// [`mg_testkit_gpu`], for a client that wants them without the rest of
+/// the test kit; one crate, so one set of places by either path.
+pub use mg_testkit_gpu::{gpu, places};
 
 use std::collections::BTreeMap;
 use std::env;

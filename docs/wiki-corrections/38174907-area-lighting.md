@@ -4,7 +4,7 @@ title: "Area Lighting: fixed main light radii, and a skybox does not change the 
 description: Ready-to-paste edit for the nwn.wiki Area Lighting page, saying the game draws tile main lights with fixed radii colored from lightcolor.2da, and that the fog is the same with or without a skybox.
 tags: [nwn-wiki, corrections]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-30T04:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T13:57:52Z }
 resource: https://nwn.wiki/spaces/NWN1/pages/38174907/Area+Lighting
 sources:
   - id: proposal
@@ -42,7 +42,7 @@ Main lights: radius fixed at 10/5 by the game, colour from lightcolor.2da; a sky
 ## Change 4
 **Find** (table row "Fog Clip Distance"): "but is extended by the Sky Box setting and fades into the bottom of the skybox in more wide open areas by another 90M on top of this setting."
 
-**Replace with:** "A Sky Box does not change the fog: with or without one, the fog ends at the Fog Clip Distance and starts at the lower of (30 - Fog Amount) and (Fog Clip Distance - 1) meters from the camera. Fog is on even at Fog Amount 0. See Render Distance with Fog and Skyboxes for how far geometry is drawn with a skybox."
+**Replace with:** "A Sky Box does not change the fog: with or without one, the fog ends at the Fog Clip Distance and starts at the lower of (30 - Fog Amount - (20 - the camera's distance from the player)) and (Fog Clip Distance - 1) meters from the camera (30 - Fog Amount with the camera 20 m off, as a player enters; zoomed in to 5.5 m with a Fog Amount of 12, 3.5 m). Fog is on even at Fog Amount 0. See Render Distance with Fog and Skyboxes for how far geometry is drawn with a skybox."
 
 ## Change 5
 **Find** (table row "Sky Box"): "If added this extends the fog clip distance (90M), and can change"
@@ -51,4 +51,4 @@ Main lights: radius fixed at 10/5 by the game, colour from lightcolor.2da; a sky
 
 ## How it was checked
 
-In Moonglow Toolset's `crates/mg-corpus-tests/tests/`, `client_render.rs` `light_uniforms_match_the_client` (seven cases) and `fog_uniforms_match_the_client`: the game client, run on an off-screen display with a scratch user directory, draws test areas with and without a skybox, and the light radii and colours and the shader's `fogStart`/`fogEnd` are read back through a debug copy of the game's own shader include placed in that directory's override. How far geometry is drawn with a skybox was not measured. The tests read the tester's own game install.
+In Moonglow Toolset's `crates/mg-corpus-tests/tests/`, `client_render.rs` `light_uniforms_match_the_client` (seven cases), `fog_uniforms_match_the_client` and `night_fog.rs` `fog_start_follows_the_camera`: the game client, run on an off-screen display with a scratch user directory, draws test areas with and without a skybox, and the light radii and colours and the shader's `fogStart`/`fogEnd` are read back through a debug copy of the game's own shader include placed in that directory's override. How far geometry is drawn with a skybox was not measured. The tests read the tester's own game install.

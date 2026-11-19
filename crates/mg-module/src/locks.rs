@@ -18,8 +18,10 @@ use mg_gff::{Gff, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 
-/// The field Moonglow marks a locked object with.
-pub const LOCKED: &str = "MG_Locked";
+/// The field Moonglow marks a locked object with (kept with the other
+/// fields of where an object stands, which the area's view reads without
+/// this crate).
+pub use mg_rules::placement::LOCKED;
 
 /// How near a position must be to be the same place: a project's JSON may
 /// keep fewer decimals than the area's floats (`truncateFloats`).

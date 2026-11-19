@@ -28,9 +28,9 @@ use mg_2da::TwoDa;
 use mg_core::{Codepage, ResRef, ResType};
 use mg_resman::{ResKey, ResMan, priority};
 
-/// The models' names begin so: `mgl_` and twelve hexadecimal digits of
-/// the settings.
-pub const MODEL_PREFIX: &str = "mgl_";
+/// (Kept in mg-rules, which the area's view tells them by without this
+/// crate.)
+pub use mg_rules::lights::{MODEL_PREFIX, is_generated};
 
 /// A light's settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -346,12 +346,6 @@ pub fn write(plan: &Plan, codepage: Codepage) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     crate::hak_edit::write_into(&plan.hak.path, resources).map(|_| ())
-}
-
-/// Whether `model` is a light Moonglow made ([`LightSpec::model_name`]).
-pub fn is_generated(model: &str) -> bool {
-    model.len() == MODEL_PREFIX.len() + 12
-        && model.get(..MODEL_PREFIX.len()).is_some_and(|p| p.eq_ignore_ascii_case(MODEL_PREFIX))
 }
 
 /// The hak called `name` where a module's new haks go: the user's `hak/`.
