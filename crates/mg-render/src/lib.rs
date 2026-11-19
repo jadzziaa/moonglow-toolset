@@ -15,6 +15,7 @@ pub mod guard;
 pub mod model;
 pub mod particles;
 mod pool;
+pub mod present;
 pub mod probe;
 mod reach;
 mod renderer;
