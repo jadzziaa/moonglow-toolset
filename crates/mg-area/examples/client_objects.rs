@@ -45,9 +45,10 @@ fn main() {
         ObjectKind::Creature,
         Vec3::new(5.0, 5.0, 0.0),
         90f32.to_radians(),
-        // (A creature's look as `mg_preview` assembles it: from a
-        // `CreatureLook` with `Look::creature`, or its fields with
-        // `Look::read`. Here, a model made below.)
+        // (A creature's look as `mg_preview` assembles it: from what the
+        // server says it is and wears, a `DressedLook`, with
+        // `Look::creature`, or its fields with `Look::read`. Here, a model
+        // made below.)
         Look::Model(Preview::model("ex_pole")),
     );
     let chest = Object::new(ObjectKind::Placeable, Vec3::new(14.0, 6.0, 0.0), 0.0, model("ex_box"));

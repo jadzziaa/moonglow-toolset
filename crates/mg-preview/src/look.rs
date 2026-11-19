@@ -432,6 +432,13 @@ impl From<crate::CreatureLook> for DressedLook {
     }
 }
 
+impl From<&crate::CreatureLook> for DressedLook {
+    /// The bare body [`crate::CreatureLook`] describes, wearing nothing.
+    fn from(look: &crate::CreatureLook) -> DressedLook {
+        DressedLook::from(*look)
+    }
+}
+
 /// The item in an equipment slot: a blueprint's `EquippedRes`, loaded with
 /// `item`, or the item struct itself (area instances and characters).
 fn equipped(utc: &Struct, slot: u32, item: &dyn Fn(ResRef) -> Option<Gff>) -> Option<Struct> {
