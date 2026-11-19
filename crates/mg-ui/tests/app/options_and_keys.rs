@@ -380,7 +380,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Manual).is_some());
     // The menu shows the new key.
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
     assert!(h.query_by_label_contains("Ctrl+M").is_some() || cfg!(target_os = "macos"));
     h.key_press(egui::Key::Escape);
@@ -626,9 +626,13 @@ fn menus_by_the_keyboard() {
 fn the_user_manual_opens_from_help_and_follows_its_links() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
-    h.get_by_label_contains("User Manual").click();
+    // (The menu's, which says its key: the Welcome page's User Manual has
+    // the same role and none.)
+    let page =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().label().as_deref() == Some("User Manual");
+    h.get_all_by_label_contains("User Manual").find(|n| !page(n)).unwrap().click();
     h.run();
     // The contents, with the chapters beside them.
     h.get_by_label("Moonglow Toolset: User Manual");
@@ -636,8 +640,12 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     let listed =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     assert!(h.get_all_by_label("Troubleshooting").any(|n| listed(&n)));
-    // A link in the text opens its chapter in place.
-    h.get_all_by_label("Getting started").find(|n| !listed(n)).unwrap().click();
+    // A link in the text opens its chapter in place. (The manual's, nearest
+    // its title: the Welcome page under it has a Getting started link too.)
+    let title = h.get_by_label("Moonglow Toolset: User Manual").rect().center();
+    let near = |n: &egui_kittest::Node<'_>| (n.rect().center() - title).length() as i32;
+    let link = h.get_all_by_label("Getting started").filter(|n| !listed(n)).min_by_key(near);
+    link.unwrap().click();
     h.run();
     h.get_by_label("What you need");
     // The chapter list picks another.
@@ -675,9 +683,12 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.get_all_by_label("The main window").find(|n| listed(n)).unwrap().click();
     h.run();
     follow(&mut h, "whose each area is", "Claimed areas");
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
-    h.get_by_label("About Moonglow Toolset").click();
+    // (The menu's: the Welcome page's is a link.)
+    let link = egui::accesskit::Role::Link;
+    let about = h.get_all_by_label("About Moonglow Toolset");
+    about.into_iter().find(|n| n.accesskit_node().role() != link).unwrap().click();
     h.run();
     h.get_by_label(&format!("Version {}", mg_core::release::version()));
 }
@@ -784,7 +795,9 @@ fn the_top_bar_draws_icons_with_tips_and_options_has_no_toolbar_buttons() {
     settle(&mut h);
     h.get_by_label("General").click();
     settle(&mut h);
-    h.get_by_label("Troubleshooting");
+    // (The section's, not the Welcome page's chapter link.)
+    let link = egui::accesskit::Role::Link;
+    assert!(h.get_all_by_label("Troubleshooting").any(|n| n.accesskit_node().role() != link));
     for gone in ["Toolbar buttons", "Editors' toolbar buttons", "Icons and text", "Icons only"] {
         assert!(h.query_by_label_contains(gone).is_none(), "{gone} is retired");
     }

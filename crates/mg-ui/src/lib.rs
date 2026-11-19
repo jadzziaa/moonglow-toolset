@@ -134,6 +134,7 @@ pub use search_results::SEARCH_HITS;
 pub use shell::{LEAST_WINDOW_SIZE, Panel, RIGHT_COLUMN_TWO, RIGHT_DOCK, RIGHT_DOCK_LEAST};
 pub use tree::TreeAt;
 pub mod var_sets;
+mod welcome;
 pub mod widgets;
 pub mod wizards;
 
@@ -1519,6 +1520,9 @@ pub struct Moonglow {
     pub about: bool,
     /// Help › Check for Updates… and the daily check (`updates`).
     pub updates: updates::Updates,
+    /// What the Welcome page and No area open keep between frames (the
+    /// update line's sight, whether the module has areas, a drag's paths).
+    welcome: welcome::Kept,
     /// The window's content area at the last frame (where new windows go).
     screen: Option<egui::Rect>,
     /// The widths of the Left Dock and of the editor area at the last
@@ -1874,6 +1878,7 @@ impl Moonglow {
             manual: Default::default(),
             about: false,
             updates: Default::default(),
+            welcome: Default::default(),
             screen: None,
             tree_width: None,
             dock_width: None,

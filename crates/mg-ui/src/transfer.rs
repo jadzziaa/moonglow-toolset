@@ -350,7 +350,7 @@ impl Moonglow {
             Dropped::Files => self.import_files(paths),
             Dropped::NoModule => self.log.warn(format!(
                 "Nothing imported from {}: dropped files are imported into the open module, and \
-                 none is open (a module's .mod dropped alone opens it)",
+                 none is open (a module's .mod or folder dropped alone opens it)",
                 named(&paths)
             )),
         }
@@ -1001,7 +1001,37 @@ pub(crate) fn dropped_to(paths: &[PathBuf], module_open: bool) -> Dropped {
             _ => {}
         }
     }
+    // (A module folder or a nasher project alone, with no module open:
+    // opened, as File › Open Folder… opens it, the Welcome page's note.
+    // With one open it is imported, as before.)
+    if let [one] = paths
+        && !module_open
+        && holds_module(one)
+    {
+        return Dropped::Module(one.clone());
+    }
     if module_open { Dropped::Files } else { Dropped::NoModule }
+}
+
+/// Whether `dir` is a module folder or a nasher project, as the module
+/// reader takes them (`Module::open`): a nasher project's `nasher.cfg` by
+/// that very name (`nasher::Package::is_package`), a folder's `module.ifo`
+/// by its resource, so in any case (`MODULE.IFO`, as a folder's files are
+/// read).
+fn holds_module(dir: &std::path::Path) -> bool {
+    crate::welcome::count(crate::welcome::Counted::FolderRead);
+    if !dir.is_dir() {
+        return false;
+    }
+    if mg_module::nasher::Package::is_package(dir) {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    let ifo = mg_module::Module::info_key();
+    entries.flatten().any(|e| {
+        e.file_type().is_ok_and(|t| t.is_file())
+            && ResKey::from_filename(&e.file_name().to_string_lossy()) == Some(ifo)
+    })
 }
 
 /// Files dragged over the window: what dropping them does, said over it;
@@ -1021,6 +1051,7 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     if hovered.is_empty() {
+        app.welcome.drag = None;
         return;
     }
     // (Where the system doesn't say which files they are yet: as files.)
@@ -1030,7 +1061,18 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         path.and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "the module".to_string())
     });
-    let said = match dropped_to(&paths, module.is_some()) {
+    // (What they become, found once for the drag, not each frame: a
+    // folder is read for a module.)
+    let open = module.is_some();
+    let to = match &app.welcome.drag {
+        Some((p, o, to)) if *p == paths && *o == open => to.clone(),
+        _ => {
+            let to = dropped_to(&paths, open);
+            app.welcome.drag = Some((paths.clone(), open, to.clone()));
+            to
+        }
+    };
+    let said = match to {
         Dropped::Module(p) => format!("Drop to open the module {}", named(&[p])),
         Dropped::Hak(p) => format!("Drop to open {} in the hak editor", named(&[p])),
         Dropped::Archive(p) => {

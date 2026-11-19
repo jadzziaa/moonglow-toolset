@@ -3804,6 +3804,14 @@ pub(crate) fn dialog_open(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| !d.open.is_empty())
 }
 
+/// Whether the window on `layer` is a dialog (one that Escape closes or a
+/// Cancel answers, shown last frame): what the Welcome page's update line
+/// may stand under without the strip telling it (About over the line
+/// moved the page).
+pub(crate) fn is_dialog(ctx: &egui::Context, layer: egui::LayerId) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.open.contains(&layer))
+}
+
 /// Whether this frame's Escape closes a popup or a kit popover that was
 /// open as the frame began (a menu, a combo box's list, a popover of the
 /// area's header), and so is nothing else's: what the area view holds

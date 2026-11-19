@@ -9,8 +9,8 @@ use mg_resman::ResKey;
 
 use crate::side_doc::SideDoc;
 use crate::{
-    Action, Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view,
-    model_view, module_props, script_view,
+    Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view, model_view,
+    module_props, script_view,
 };
 
 /// A tab in the central area.
@@ -644,8 +644,8 @@ impl Viewer<'_> {
             crate::side_doc::note_pointer(self.app, ui, tab);
         }
         match tab {
-            Tab::Welcome => welcome(self.app, ui),
-            Tab::NoArea => no_area(self.app, ui),
+            Tab::Welcome => crate::welcome::welcome(self.app, ui),
+            Tab::NoArea => crate::welcome::no_area(self.app, ui),
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
@@ -1604,128 +1604,6 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
         .map(|t| String::from_utf8_lossy(t).into_owned())
         .unwrap_or_default();
     format!("{tag} ({area})")
-}
-
-/// The middle of the window while no area is open: how to open one, and
-/// the module's areas to open with a click.
-fn no_area(app: &mut Moonglow, ui: &mut Ui) {
-    let areas = app.ws.as_ref().map(|ws| mg_module::areas::every(&ws.module)).unwrap_or_default();
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.heading("No area open");
-        ui.label("Double-click an area in the module tree to open it here.");
-        ui.add_space(12.0);
-        if ui.button("Area Wizard…").on_hover_text("Make a new area").clicked() {
-            app.actions.push(Action::AreaWizard);
-        }
-        // Those opened lately first (those still in the module), then
-        // the module's first.
-        let by_name = app.settings.area_names;
-        let recent: Vec<mg_core::ResRef> = (app.module_path())
-            .map(|m| app.settings.recent_areas(&m).to_vec())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|a| std::str::FromStr::from_str(a).ok())
-            .filter(|a| areas.contains(a))
-            .collect();
-        let link = |app: &mut Moonglow, ui: &mut Ui, area: mg_core::ResRef| {
-            let label = match &app.ws {
-                Some(ws) => app.area_names.label(ws, app.game.as_deref(), area, by_name),
-                None => area.to_string(),
-            };
-            if ui.link(label).clicked() {
-                app.actions.push(Action::OpenTab(Tab::Area(area)));
-            }
-        };
-        if !recent.is_empty() {
-            ui.add_space(16.0);
-            ui.strong("Opened lately");
-            for area in &recent {
-                link(app, ui, *area);
-            }
-        }
-        if !areas.is_empty() {
-            ui.add_space(16.0);
-            ui.strong("Areas");
-            for area in areas.iter().take(12) {
-                link(app, ui, *area);
-            }
-            if areas.len() > 12 {
-                ui.weak(format!("and {} more in the module tree", areas.len() - 12));
-            }
-        }
-    });
-}
-
-/// A recent module as the welcome page lists it: its name, a folder's
-/// (a module folder, a nasher project) with a `/` after it, and, grayed
-/// after it, the folder it is in. A module folder
-/// beside its `.mod` (GitHub issue 30) was `castle` beside `castle.mod`.
-fn recent_entry(ui: &Ui, path: &std::path::Path) -> egui::text::LayoutJob {
-    use egui::text::{LayoutJob, TextFormat};
-    let mut name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    // (Told by its name, not the disk: recent modules are `.mod` files,
-    // and folders.)
-    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) {
-        name.push('/');
-    }
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let mut job = LayoutJob::default();
-    let own = TextFormat {
-        font_id: font.clone(),
-        color: egui::Color32::PLACEHOLDER,
-        ..Default::default()
-    };
-    job.append(&name, 0.0, own);
-    // (The folder's name alone, `in modules`: the whole path is on hover.)
-    if let Some(place) = path.parent().and_then(|p| p.file_name()) {
-        let weak = TextFormat {
-            font_id: font,
-            color: ui.visuals().weak_text_color(),
-            ..Default::default()
-        };
-        job.append(&format!("  in {}", place.to_string_lossy()), 0.0, weak);
-    }
-    job
-}
-
-fn welcome(app: &mut Moonglow, ui: &mut Ui) {
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.heading("Moonglow Toolset");
-        ui.label("A module toolset for Neverwinter Nights: Enhanced Edition.");
-        ui.add_space(20.0);
-        if ui.button("New Module…").clicked() {
-            app.actions.push(Action::NewModuleDialog);
-        }
-        if ui.button("Open Module…").clicked() {
-            app.actions.push(Action::OpenModuleDialog);
-        }
-        let folder =
-            ui.button("Open Folder…").on_hover_text("A module folder, or a nasher project");
-        if folder.clicked() {
-            app.actions.push(Action::OpenFolderDialog);
-        }
-        if !app.settings.recent.is_empty() {
-            ui.add_space(20.0);
-            ui.strong("Recent modules");
-            for p in app.settings.recent.clone() {
-                if ui.link(recent_entry(ui, &p)).on_hover_text(p.display().to_string()).clicked() {
-                    app.actions.push(Action::OpenModule(p));
-                }
-            }
-        }
-        if app.game.is_none() {
-            ui.add_space(10.0);
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "No game data: choose your Neverwinter Nights installation in Tools > Options.",
-            );
-            if ui.button("Options…").clicked() {
-                app.actions.push(Action::OptionsDialog);
-            }
-        }
-    });
 }
 
 #[cfg(test)]

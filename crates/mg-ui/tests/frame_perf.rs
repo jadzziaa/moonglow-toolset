@@ -3420,3 +3420,43 @@ fn read_only_and_options() {
     }
     r.end();
 }
+
+/// M4's U24: the Welcome page with 200 recent modules (paths alone, made
+/// up and never read: none of them is there; a `.mod`, a `.nwm`, a module
+/// folder and a nasher project in turn), no module open. Prints how many
+/// of the 200 rows were laid out (AccessKit nodes whose names hold
+/// "Recent module ", the rows in sight alone where only they are drawn).
+/// `FRAME_VIEW=Welcome` picks it.
+#[test]
+#[ignore]
+fn welcome_page() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut r = Report::new();
+    println!("Welcome: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.recent = (0..200)
+        .map(|i| {
+            let place = format!("/srv/nwn/modules/set {i:03}");
+            std::path::PathBuf::from(match i % 4 {
+                0 => format!("{place}/Recent module {i}.mod"),
+                1 => format!("{place}/Recent module {i}.nwm"),
+                2 => format!("{place}/Recent module {i}"),
+                _ => format!("{place}/Recent module {i} project"),
+            })
+        })
+        .collect();
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let what = "Welcome, 200 recent modules, no module";
+    if r.only.as_ref().is_none_or(|o| what.contains(o.as_str())) {
+        let laid = h.query_all_by_label_contains("Recent module ").count();
+        assert!(laid > 0, "no recent rows: not the Welcome page");
+        println!("  ({laid} of the 200 recent rows laid out)");
+        view(&mut h, &mut r, what, Some(&Tab::Welcome));
+    }
+    r.end();
+}

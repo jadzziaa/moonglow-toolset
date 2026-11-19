@@ -53,6 +53,23 @@ pub(crate) fn title(text: &str) -> &str {
     body(text).lines().find_map(|l| l.strip_prefix("# ")).unwrap_or_default()
 }
 
+/// Opens the manual on chapter `chapter` (an index of [`CHAPTERS`]),
+/// whatever chapter it showed (the Welcome page's Learn links).
+pub(crate) fn open_chapter(app: &mut Moonglow, chapter: usize) {
+    app.manual.chapter = chapter.min(CHAPTERS.len() - 1);
+    app.manual.scroll_to = None;
+    app.actions.push(crate::Action::OpenTab(crate::Tab::Manual));
+}
+
+impl Moonglow {
+    /// The file of the chapter the manual shows (or shows when opened):
+    /// the tests' look at it.
+    #[doc(hidden)]
+    pub fn manual_chapter(&self) -> &'static str {
+        CHAPTERS[self.manual.chapter.min(CHAPTERS.len() - 1)].0
+    }
+}
+
 /// The pictures the chapters show, by the name they are given there, built
 /// in as the chapters are (the viewer has no loader for a file beside the
 /// chapter: a picture was a failed image).

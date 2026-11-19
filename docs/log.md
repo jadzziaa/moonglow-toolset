@@ -1,6 +1,16 @@
 # Update log
 
 ## 2026-11-19
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U24's review ([01](manual/01-getting-started.md), [02](manual/02-main-window.md)).
+  * **The Welcome page and the keys**: Tab and Shift+Tab reach every recent module and Learn link, those below the edge too, each scrolled into sight as it takes the keys; Enter or Space opens a recent module; nothing on the page acts by the keys while a menu or dialog has them.
+  * **The update told once**: a floating editor over the page's update line has the strip under the Top Bar tell it (a dialog over it moves nothing); Check for Updates… from the page no longer moves the page; the strip and the page read the notice the same way.
+  * **Less work each frame**: No area open, the chapter titles, whether a release installs and a folder dragged over the window are each worked out once, not every frame.
+  * **Recent modules**: a module listed twice has two rows, one with no folder is named without "in"; headings are headings to a screen reader.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U24, the Welcome page and the empty editor area**, as the Welcome board draws them ([01](manual/01-getting-started.md), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The Welcome page** in three columns (two or one where narrower, scrolling where short): the heading with the version; Recent Modules with the folder each is in as a weak line (a `/` after a folder, none after a `.mod` or `.nwm`), only the rows in sight drawn; Start with icons and keys; Without a module; Status with the game data and the update's line and buttons; Learn with the manual's chapters and Help.
+  * **The update** is told once: on the Welcome page its Status says it, and the line under the Top Bar where the page is scrolled past it or another tab is in front.
+  * **A module folder or nasher project dropped** on the window with no module open opens.
+  * **No area open**: a centered note with Area Wizard… and Go to Start.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U23's review ([02](manual/02-main-window.md), [10](manual/10-options.md)).
   * **The read-only tab**: a row's menu copies the value itself (Copy Value), a localized string's text or StrRef by name, all its languages, the meaning beside a number; Shift+F10 opens it from the keyboard and Ctrl+C copies a focused row's value. A value that means none has nothing beside it, as `mg gff --names`; a string of the module's talk table says it was not read, or shows its text. The Status Bar says a floating read-only tab's resource and size, and the lock's tip does where the header shows the lock alone. Copy to Module takes the copy shown (a hak's), and is off for a kind a module kept as files cannot hold.
   * **Options**: Enter while Keyboard waits for a key is that key, Escape gives up the waiting alone; Questions stand beside their dropdowns at the board's width, the minutes field without arrows; OK applies and writes once, Cancel, Escape and × set every page back.

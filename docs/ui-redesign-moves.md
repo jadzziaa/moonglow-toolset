@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:27:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:25:50Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -422,22 +422,22 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign |
 |---|---|
-| Heading "Moonglow Toolset" and its line | Page heading, with the version |
-| New Module…, Open Module…, Open Folder… | Start section, with icons and keys |
-| Recent modules | Recent Modules list, the full path as a weak second line |
-| "No game data…" warning, Options… | Status section |
-| Update bar: What's New…, Install Now, Later | Status section |
+| Heading "Moonglow Toolset" and its line | Page heading, with the version ✓ M4 U24 (`welcome::welcome`; the line goes under the name where the row has no room) |
+| New Module…, Open Module…, Open Folder… | Start section, with icons and keys ✓ M4 U24 (the keys as bound, told to a screen reader as the row's shortcut; each runs its command) |
+| Recent modules | Recent Modules list, the full path as a weak second line ✓ M4 U24 (the folder it is in, `~` for the home folder, cut with an ellipsis, the whole path in the tooltip; a `/` after a folder alone, finding 13.3; only the rows in sight laid out) |
+| "No game data…" warning, Options… | Status section ✓ M4 U24 |
+| Update bar: What's New…, Install Now, Later | Status section ✓ M4 U24 (`updates::line`: every state of the notice, and "Checking for updates…"; the strip is not drawn while the page's line is in sight (where the page scrolls it out of sight or a window stands over it, the strip tells it; both drawn from `updates::line`), and over any other tab keeps Don't Remind Me and its close; the Check for Updates window has Don't Remind Me too) |
 | Left Dock | Not drawn: today it shows only with a module open ✓ M3 T4 (with no module it holds no panel and is not drawn; Tools › Resource Browser shows it with the Resources panel alone) |
 | Build actions, Save, Undo, Redo | Drawn disabled ✓ M3 T2 (`the_top_bar_s_buttons_are_named_tipped_and_enabled_as_their_commands`) |
-| "No area open" page (today's no_area) | A centered empty state with Area Wizard… and Go to Start; recent areas go to Quick Open and the Module panel |
+| "No area open" page (today's no_area) | A centered empty state with Area Wizard… and Go to Start; recent areas go to Quick Open and the Module panel ✓ M4 U24 (the kit's `dialog::EmptyState`; Go to Start grayed in a module with no areas) |
 
 
 #### New
 
-- A "Without a module" group: Open Hak…, New Hak, Open Tileset…, New Tileset…, 2DA File…, Talk Table, Resource Browser, Appearance Gallery….
-- Links to the manual's chapters, and a Help group: Command Palette…, Check for Updates…, About.
-- A "Game data found" line.
-- A note about dropping a module on the window.
+- A "Without a module" group: Open Hak…, New Hak, Open Tileset…, New Tileset…, 2DA File…, Talk Table, Resource Browser, Appearance Gallery…. ✓ M4 U24 (two side by side where each fits its half of the column)
+- Links to the manual's chapters, and a Help group: Command Palette…, Check for Updates…, About. ✓ M4 U24 (the board's sixteen chapters in its order, each opening the manual on its own chapter)
+- A "Game data found" line. ✓ M4 U24
+- A note about dropping a module on the window. ✓ M4 U24 (made true: a module folder or nasher project dropped with no module open opens)
 - Status Bar hints for Ctrl+N, Ctrl+O and Ctrl+P. ✓ M3 T12 (as bound: a key changed shows changed, a command without one has no hint)
 
 #### Not Drawn

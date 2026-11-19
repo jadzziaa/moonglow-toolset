@@ -1115,7 +1115,7 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     app.load_plugins();
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
-    h.get_by_label("Plugins").click();
+    plugins_menu(&mut h);
     h.run();
     h.get_by_label("Install Plugin from File…").click();
     h.run();
@@ -1306,7 +1306,7 @@ fn started_without_plugins_none_is_loaded() {
     h.run();
     assert!(h.state().plugins.installed.is_empty());
     assert!(h.state().plugin_commands().is_empty());
-    h.get_by_label("Plugins").click();
+    plugins_menu(&mut h);
     h.run();
     assert!(h.query_by_label("Fix Creature Tags").is_none());
     h.get_by_label("Manage Plugins…").click();
@@ -2524,4 +2524,11 @@ fn save_anyway_on_a_save_as_does_not_answer_the_claims_for_the_next_save() {
     h.run_steps(3);
     h.get_by_label("Areas Not Yours");
     assert!(h.state().has_unsaved_work(), "held");
+}
+
+/// A click on the Top Bar's Plugins menu (the Welcome page, with no module
+/// open, has a Plugins chapter link too).
+fn plugins_menu(h: &mut egui_kittest::Harness<'_, mg_ui::Moonglow>) {
+    let link = egui::accesskit::Role::Link;
+    h.get_all_by_label("Plugins").find(|n| n.accesskit_node().role() != link).unwrap().click();
 }

@@ -356,9 +356,8 @@ fn recent_modules_reopen_from_the_welcome_page() {
     app.close();
     let mut h = window_harness(app);
     h.run();
-    // (Its name, and the folder it is in.)
-    let place = dir.file_name().unwrap().to_string_lossy().into_owned();
-    h.get_by_label(&format!("sample.mod  in {place}")).click();
+    // (Its name, and the folder it is in: M4's U24.)
+    h.get_by_label_contains("sample.mod in ").click();
     h.run();
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
 }
@@ -1214,9 +1213,12 @@ fn the_welcome_page_tells_a_folder_from_its_mod() {
     app.settings.module_folders = mg_ui::settings::ModuleFolders::Folder;
     let mut h = window_harness(app);
     h.run();
+    // (Named with the folder each is in: M4's U24.)
     let place = dir.file_name().unwrap().to_string_lossy().into_owned();
-    h.get_by_label(&format!("sample.mod  in {place}"));
-    h.get_by_label(&format!("sample/  in {place}")).click();
+    let mod_row =
+        h.get_by_label_contains("sample.mod in ").accesskit_node().label().unwrap_or_default();
+    assert!(mod_row.ends_with(&place), "{mod_row}");
+    h.get_by_label_contains("sample/ in ").click();
     h.run();
     let location = h.state().ws.as_ref().unwrap().module.location.clone();
     assert_eq!(location, Some(ModuleLocation::Folder(folder)));

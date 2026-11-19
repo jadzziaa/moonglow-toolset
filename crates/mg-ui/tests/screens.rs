@@ -1641,7 +1641,12 @@ fn options_pages_whole() {
         h.run();
         shoot(&mut h, &dir, name);
         for heading in later {
-            h.get_by_label(heading).scroll_to_me();
+            // (The page's heading, not the Welcome page's chapter link.)
+            let link = egui::accesskit::Role::Link;
+            h.get_all_by_label(heading)
+                .find(|n| n.accesskit_node().role() != link)
+                .unwrap()
+                .scroll_to_me();
             h.run();
             let file = format!("{name}-{}", heading.to_lowercase().replace(' ', "-"));
             shoot(&mut h, &dir, &file);
@@ -7117,7 +7122,9 @@ fn plugins_window() {
     shoot(&mut h, &dir, "plugins");
     h.state_mut().plugins.window = false;
     h.run();
-    h.get_by_label("Plugins").click();
+    // (The menu's, not the Welcome page's chapter link.)
+    let link = egui::accesskit::Role::Link;
+    h.get_all_by_label("Plugins").find(|n| n.accesskit_node().role() != link).unwrap().click();
     h.run();
     shoot(&mut h, &dir, "plugins-menu");
     h.key_press(egui::Key::Escape);
@@ -14390,17 +14397,28 @@ fn resource_pointer(h: &mut Harness<'_, Moonglow>) {
     h.run_steps(5);
 }
 
-/// Welcome.png: no module open, the install's modules in Recent Modules.
-/// Today's Welcome page; the board's recent row is rebuilt in U24 (no
-/// update notice here: the board shows one offered).
+/// Welcome.png: no module open, a module folder and the install's modules
+/// in Recent Modules (the board's: `~/Projects/tdod-module`, a path
+/// alone, never read), a newer release offered (the board's 4.1.0 against
+/// 4.0.0: here the next minor version against this one), the pointer over
+/// the first recent row.
 #[test]
 #[ignore]
 fn board_welcome() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let mut app =
-        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    app.settings.recent = [
+    let mut h = welcome_window(&root, egui::vec2(1600.0, 900.0), "available");
+    // (No log line, as the board's Status Bar.)
+    h.state_mut().log.clear();
+    welcome_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_welcome");
+}
+
+/// The board's recent modules: a module folder, then the install's
+/// modules (those it has).
+fn welcome_recent(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let modules = [
         "Chapter1",
         "Chapter2",
         "Prelude",
@@ -14413,16 +14431,259 @@ fn board_welcome() {
     ]
     .iter()
     .map(|m| root.join(format!("data/nwm/{m}.nwm")))
-    .filter(|p| p.exists())
-    .collect();
+    .filter(|p| p.exists());
+    std::iter::once(home.join("Projects/tdod-module")).chain(modules).collect()
+}
+
+/// A newer release than this copy: the next minor version.
+fn newer_release() -> mg_ui::updates::Release {
+    let now = mg_ui::updates::Version::current();
+    let version = mg_ui::updates::Version { minor: now.minor + 1, patch: 0, pre: None, ..now };
+    mg_ui::updates::Release {
+        tag: format!("v{version}"),
+        page: format!("https://example.invalid/releases/v{version}"),
+        version: version.clone(),
+        notes: String::new(),
+        // (This copy's package, so that Install Now and Later are offered:
+        // never fetched, nothing is clicked.)
+        assets: vec![mg_update::Asset {
+            name: format!("Moonglow-{}-{}.AppImage", version.file_part(), std::env::consts::ARCH),
+            url: "https://example.invalid/package".into(),
+            size: Some(61_200_000),
+        }],
+    }
+}
+
+/// The Welcome page with no module, `size`, in the state `case` names:
+/// `available` (the board's), `none` (no recent modules), `missing` (a
+/// recent path that is no longer there, and one of every kind: a `.mod`,
+/// a `.nwm`, a module folder, a nasher project, a long path), `no-game`
+/// (no installation found), and the update's states `checking`,
+/// `downloading`, `ready`, `failed` and `newest` (nothing to tell).
+fn welcome_window(
+    root: &std::path::Path,
+    size: egui::Vec2,
+    case: &str,
+) -> Harness<'static, Moonglow> {
+    use mg_ui::updates::{GetState, Getting};
+    let game = (case != "no-game").then(|| GameInstall::new(root, None, "en"));
+    let mut app = Moonglow::new(game, Box::new(NoDialogs::default()));
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    app.settings.recent = match case {
+        "none" => Vec::new(),
+        "missing" => vec![
+            home.join("Projects/gone/castle.mod"),
+            root.join("data/nwm/Chapter1.nwm"),
+            home.join("Projects/tdod-module"),
+            home.join("modules/castle"),
+            home.join("modules/castle.mod"),
+            home.join(
+                "Projects/a very long folder name for a module kept far down/and further \
+                 down still/with more folders under it/The Longest Module Name Of All.mod",
+            ),
+            std::path::PathBuf::from("/srv/nwn/modules/Server Module.MOD"),
+        ],
+        _ => welcome_recent(root),
+    };
     app.settings.hide_log = true;
+    // (A copy that installs its updates, as the board's: an AppImage in a
+    // scratch folder, a key, and a client that is never asked.)
+    let scratch = mg_testkit::scratch_dir("screens-welcome-update");
+    let image = scratch.join("Moonglow.AppImage");
+    app.updates.kind = mg_update::Kind::AppImage { image, arch: std::env::consts::ARCH.into() };
+    app.updates.key = Some(mg_testkit::signing::TestKey::new().public());
+    app.updates.http = Some(mg_update::http::from_fn(|_| Err("not asked".into())));
+    app.updates.cache = Some(scratch.join("cache"));
+    let release = newer_release();
+    match case {
+        "checking" => app.updates.check_never_answered(),
+        "available" | "missing" | "none" | "no-game" => app.updates.notice = Some(release),
+        "downloading" => {
+            app.updates.notice = Some(release.clone());
+            let got =
+                Getting::shown(release, true, GetState::Downloading, 18_400_000, Some(61_200_000));
+            app.updates.getting = Some(got);
+        }
+        "ready" => {
+            app.updates.notice = Some(release.clone());
+            let staged = mg_ui::updates::Staged {
+                version: release.version.clone(),
+                kind: mg_update::Kind::Other,
+                ready: mg_update::Ready::Installed,
+            };
+            let got = Getting::shown(release, true, GetState::Ready(staged), 0, None);
+            app.updates.getting = Some(got);
+        }
+        "failed" => {
+            app.updates.notice = Some(release.clone());
+            let why = GetState::Failed("the download stopped".into());
+            app.updates.getting = Some(Getting::shown(release, true, why, 0, None));
+        }
+        _ => {}
+    }
     let mut h = Harness::builder()
-        .with_size(egui::vec2(1600.0, 900.0))
+        .with_size(size)
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     themed(&mut h);
     h.run_steps(5);
-    shoot(&mut h, &board_dir(), "board_welcome");
+    h
+}
+
+/// The pointer over the first recent module's row, as the board has it.
+fn welcome_pointer(h: &mut Harness<'_, Moonglow>) {
+    let first = h.query_all_by_label_contains("tdod-module").next().map(|n| n.rect().center());
+    if let Some(at) = first {
+        h.hover_at(at);
+    }
+    // (The row's hover, without its tooltip over the next rows.)
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+    h.run_steps(2);
+}
+
+/// M4's U24 fix round: two hundred recent modules at 1280 by 700 with the
+/// keys on the fortieth row (past the fold, brought into sight), and the
+/// Manual floating over the page's update line at 1400 by 800 (the strip
+/// tells it), as `welcome-focus-past-fold` and `welcome-floating-strip`;
+/// Welcome split beside the Manual with a recent name holding a newline,
+/// as `welcome-split-newline`; and the strip in each of the notice's
+/// states, the Manual in front, as `strip-<case>`.
+#[test]
+#[ignore]
+fn u24_fix_welcome() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("u24-fix");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = welcome_window(&root, egui::vec2(1280.0, 700.0), "available");
+    h.state_mut().settings.recent = (0..200)
+        .map(|i| std::path::PathBuf::from(format!("/srv/nwn/modules/set {i:03}/Module {i:03}.mod")))
+        .collect();
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+    h.run_steps(3);
+    h.get_by_label("Module 000.mod in /srv/nwn/modules/set 000").focus();
+    h.run_steps(2);
+    for _ in 0..39 {
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+    }
+    h.run_steps(20);
+    shoot(&mut h, &dir, "welcome-focus-past-fold");
+    let mut h = welcome_window(&root, egui::vec2(1400.0, 800.0), "available");
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Manual));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "welcome-floating-strip");
+    // The review's probes: Welcome in a split pane beside the manual (the
+    // update told once, by the page), a recent module whose name has a
+    // newline (cut at it with an ellipsis, one row high).
+    let mut h = welcome_window(&root, egui::vec2(1600.0, 900.0), "available");
+    h.state_mut().settings.recent = vec![
+        std::path::PathBuf::from("/srv/nwn/modules/two\nlines.mod"),
+        std::path::PathBuf::from("/srv/nwn/modules/castle.mod"),
+    ];
+    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+    h.run_steps(3);
+    let path = h.state().dock.find_tab(&mg_ui::Tab::Welcome).expect("the Welcome tab");
+    h.state_mut().dock.main_surface_mut().split_right(path.node, 0.5, vec![mg_ui::Tab::Manual]);
+    h.run_steps(8);
+    shoot(&mut h, &dir, "welcome-split-newline");
+    // The strip in each of the notice's states, drawn from `updates::line`
+    // as the page's Status is: the Manual in front of Welcome.
+    for case in ["available", "checking", "downloading", "ready", "failed"] {
+        let mut h = welcome_window(&root, egui::vec2(1280.0, 800.0), case);
+        h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Manual));
+        h.run_steps(8);
+        shoot(&mut h, &dir, &format!("strip-{case}"));
+    }
+}
+
+/// M4's U24: the Welcome page in each of its states (`welcome_window`'s
+/// cases) at 1600 by 900, 1280 by 800 and the narrow layout (1000 by 900,
+/// and 760 by 700), and "No area open" in each of its cases (a module
+/// with no areas, one with areas and none open), as
+/// `welcome-<case>-<size>` and `no-area-<case>-<size>`.
+#[test]
+#[ignore]
+fn u24_welcome() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("u24");
+    std::fs::create_dir_all(&dir).unwrap();
+    let sizes = [
+        ("1600", egui::vec2(1600.0, 900.0)),
+        ("1280", egui::vec2(1280.0, 800.0)),
+        ("narrow", egui::vec2(1000.0, 900.0)),
+        ("narrow-760", egui::vec2(760.0, 700.0)),
+    ];
+    let cases = [
+        "available",
+        "none",
+        "missing",
+        "no-game",
+        "checking",
+        "downloading",
+        "ready",
+        "failed",
+        "newest",
+    ];
+    for (name, size) in sizes {
+        for case in cases {
+            let mut h = welcome_window(&root, size, case);
+            welcome_pointer(&mut h);
+            shoot(&mut h, &dir, &format!("welcome-{case}-{name}"));
+        }
+    }
+    // "No area open": a module with no areas, and one with areas none of
+    // which is open.
+    let scratch = mg_testkit::scratch_dir("screens-u24");
+    let bare = scratch.join("bare.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(bare.clone())).unwrap();
+    let with_areas = scratch.join("areas.mod");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    for area in ["harbor", "market", "temple"] {
+        use mg_schema::{StructExt as _, ifo};
+        let key = ResKey::parse(area, ResType::ARE).unwrap();
+        m.set(key, mg_gff::Gff::new(*b"ARE ").to_bytes().unwrap());
+        let mut a = ifo::MOD_AREA_LIST.new_item();
+        a.write(&ifo::mod_area_list::AREA_NAME, mg_core::ResRef::from_str(area).unwrap());
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(a);
+    }
+    m.set_info(&info).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(with_areas.clone())).unwrap();
+    for (case, path) in [("no-areas", bare), ("areas", with_areas)] {
+        for (name, size) in sizes {
+            let mut app = Moonglow::new(
+                Some(GameInstall::new(&root, None, "en")),
+                Box::new(NoDialogs::default()),
+            );
+            app.settings.no_last_area = true;
+            app.settings.no_reopen_tabs = true;
+            app.settings.hide_log = true;
+            app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+            // (One opened lately: today's page listed it.)
+            app.settings.recent_areas = vec![(path.clone(), vec!["market".into()])];
+            app.open_module(&path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .wgpu()
+                .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+            themed(&mut h);
+            settle(&mut h);
+            // (Module Properties opens with the module: closed, the middle
+            // is left with nothing open.)
+            h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+            settle(&mut h);
+            shoot(&mut h, &dir, &format!("no-area-{case}-{name}"));
+        }
+    }
 }
 
 /// The Dialogs sheet's windows, each over Chapter1 in a 1600 by 720

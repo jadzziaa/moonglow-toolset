@@ -39,10 +39,11 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     assert!((now - palette).abs() < 3.0, "the Right Dock: {palette} wide, then {now}");
     assert!(width(&h, &Tab::NoArea).unwrap() > 300.0);
 
-    // An area opened takes its place (the pane lists those opened lately
-    // and the module's, each a link, beside the module tree's row); the
-    // Right Dock stays.
-    assert_eq!(h.query_all_by_label("start").count(), 3);
+    // An area opened takes its place (the pane is the kit's empty state
+    // since M4's U24: the areas are the Module panel's rows and Quick
+    // Open's, `welcome::no_area_s_areas_are_in_the_module_panel_and_quick_open`);
+    // the Right Dock stays.
+    assert_eq!(h.query_all_by_label("start").count(), 1, "the Module panel's row alone");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
     h.run();
     h.run();
@@ -56,9 +57,7 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     assert!(has(&h, &Tab::NoArea));
     let now = dock(&h);
     assert!((now - palette).abs() < 3.0, "the Right Dock: {palette} wide, then {now}");
-    // The area just opened is offered first, among those opened lately.
-    h.get_by_label("Opened lately");
-    assert_eq!(h.query_all_by_label("start").count(), 3);
+    assert_eq!(h.query_all_by_label("start").count(), 1);
 }
 
 /// Without the palettes (no game), the middle is not left blank either.

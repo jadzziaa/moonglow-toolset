@@ -73,6 +73,7 @@ mod transition_triggers;
 mod tree;
 mod typed_text;
 mod updates;
+mod welcome;
 mod windows;
 mod yields;
 

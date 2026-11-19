@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T07:36:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:25:50Z }
 ---
 
 # The main window
@@ -202,7 +202,11 @@ updates** (Options › Updates › Install updates automatically: this
 release downloaded at once and installed as Moonglow closes, and later
 ones without the window); it opens once for each release while
 Moonglow runs, and once
-it is closed a line under the Top Bar says so, with **What's New…** (the
+it is closed a line under the Top Bar says so (on the Welcome page, its
+Status says so instead, without Don't Remind Me and the close button,
+where the Status is in sight; where the page is scrolled past it, or a
+floating editor stands over it, the line under the Top Bar tells it),
+with **What's New…** (the
 window again),
 **Install Now**, **Later**, **Don't Remind Me About This Version** (a
 later version is told again) and **Close Update Notice** (its close
@@ -975,9 +979,12 @@ window is open becomes a tab of that window, not one more window
 (**Options › Script Editor › Open scripts as tabs of one window**, on by
 default; off, each script has a window of its own).
 
-**With no area open**, the main pane says so and lists the areas opened
-lately in this module, then the module's areas, each to open with a
-click: the panes beside it keep their widths.
+**With no area open**, the main pane says so, with **Area Wizard…** and
+**Go to Start** (the area the module starts in, at the start location;
+grayed in a module with no areas): open an area from the Module panel's
+Areas (double-click), or with Quick Open (Ctrl+P), which lists this
+module's areas opened lately first with nothing typed. The panes beside
+it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each

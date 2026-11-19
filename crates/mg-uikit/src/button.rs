@@ -34,6 +34,9 @@ pub const ICON_CHEVRON_GAP: f32 = 2.0;
 /// The room between a button's words and its weak count (`.count-w`:
 /// the button's gap, `margin-left: -2px`).
 pub const COUNT_GAP: f32 = BUTTON_GAP - 2.0;
+/// The least room between a button's words and its keys at its right end
+/// (`.btn .k { margin-left: auto }`, after the button's gap).
+pub const KEYS_GAP: f32 = 2.0 * BUTTON_GAP;
 
 /// How a [`KitButton`] looks at rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,6 +90,15 @@ pub struct KitButton {
     count: Option<String>,
     /// Its words' size where not the body's ([`KitButton::text_size`]).
     size: Option<f32>,
+    /// The width it takes at least, its icon and words kept at its left
+    /// ([`KitButton::at_least`]).
+    least: Option<f32>,
+    /// Its command's keys at its right end ([`KitButton::keys`]).
+    keys: Option<String>,
+    /// Its icon in `text-2` ([`KitButton::quiet_icon`]).
+    quiet_icon: bool,
+    /// Its height where not a control's ([`KitButton::height`]).
+    high: Option<f32>,
 }
 
 impl KitButton {
@@ -107,7 +119,40 @@ impl KitButton {
             corners: None,
             count: None,
             size: None,
+            least: None,
+            keys: None,
+            quiet_icon: false,
+            high: None,
         }
+    }
+
+    /// `height` points high, not a control's 22 (`.welcome .acts .btn`:
+    /// 26), its icon and words in its middle.
+    pub fn height(mut self, height: f32) -> Self {
+        self.high = Some(height);
+        self
+    }
+
+    /// At least `width` wide, its icon and words at its left (`.acts
+    /// .btn`: a column's buttons stretched to the column, the Welcome
+    /// page's Start).
+    pub fn at_least(mut self, width: f32) -> Self {
+        self.least = Some(width);
+        self
+    }
+
+    /// With `keys` (its command's, as bound: `Ctrl+N`) at its right end,
+    /// in `text-3` at 11 points (`.btn .k`), not part of its name. None
+    /// where `keys` is empty.
+    pub fn keys(mut self, keys: impl Into<String>) -> Self {
+        self.keys = Some(keys.into()).filter(|k| !k.is_empty());
+        self
+    }
+
+    /// Its icon in `text-2` beside words in `text` (`.acts .btn .ic`).
+    pub fn quiet_icon(mut self) -> Self {
+        self.quiet_icon = true;
+        self
     }
 
     /// Its words at `size` points, not the body's, and its height grown
@@ -214,6 +259,12 @@ impl KitButton {
         self.icon_only
     }
 
+    /// Its keys laid out (`.btn .k`: 11 points).
+    fn keys_galley(ui: &Ui, keys: &str, color: Color32) -> std::sync::Arc<egui::Galley> {
+        let font = FontId::proportional(metrics::SMALL_SIZE);
+        ui.painter().layout_no_wrap(keys.to_string(), font, color)
+    }
+
     fn font(&self) -> FontId {
         FontId::proportional(metrics::BODY_SIZE * self.scale())
     }
@@ -251,7 +302,10 @@ impl KitButton {
         if self.chevron {
             width += BUTTON_GAP + metrics::ICON_SMALL - BUTTON_INSET;
         }
-        width.ceil()
+        if let Some(keys) = &self.keys {
+            width += KEYS_GAP + Self::keys_galley(ui, keys, Color32::WHITE).size().x;
+        }
+        width.ceil().max(self.least.unwrap_or(0.0))
     }
 
     /// The fill, the color of its icon and words, the color of its
@@ -310,7 +364,7 @@ impl KitButton {
 impl egui::Widget for KitButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let width = self.width(ui);
-        let height = metrics::CONTROL_HEIGHT * self.scale();
+        let height = self.high.unwrap_or(metrics::CONTROL_HEIGHT) * self.scale();
         let sense = if self.enabled { Sense::click() } else { Sense::hover() };
         let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
         let name = self.accessible_name().to_string();
@@ -322,6 +376,10 @@ impl egui::Widget for KitButton {
         });
         if let Some(open) = self.open {
             crate::icons::say_expanded(&response, open);
+        }
+        // (Its keys told to a screen reader too, as they are drawn.)
+        if let Some(keys) = &self.keys {
+            ui.ctx().accesskit_node_builder(response.id, |n| n.set_keyboard_shortcut(keys.clone()));
         }
         if ui.is_rect_visible(rect) {
             let t = ui.tokens();
@@ -356,7 +414,9 @@ impl egui::Widget for KitButton {
                         pos2(x, y - metrics::ICON / 2.0),
                         Vec2::splat(metrics::ICON),
                     );
-                    icon.paint(&painter, square, text);
+                    let t = ui.tokens();
+                    let quiet = self.quiet_icon && enabled && text == t.text;
+                    icon.paint(&painter, square, if quiet { t.text_2 } else { text });
                     x += metrics::ICON + BUTTON_GAP;
                 }
                 let galley = painter.layout_no_wrap(self.words.clone(), self.font(), text);
@@ -375,6 +435,14 @@ impl egui::Widget for KitButton {
                 if self.chevron {
                     let cx = x + BUTTON_GAP + metrics::ICON_SMALL / 2.0;
                     crate::controls::paint_chevron(&painter, pos2(cx, y), 1.0, chevron);
+                }
+                if let Some(keys) = &self.keys {
+                    let t = ui.tokens();
+                    let weak = if enabled { t.text_3 } else { t.text_off };
+                    let galley = Self::keys_galley(ui, keys, weak);
+                    let right = rect.right() - metrics::CONTROL_PADDING_X;
+                    let at = pos2(right - galley.size().x, y - galley.size().y / 2.0);
+                    painter.galley(at, galley, weak);
                 }
             }
         }

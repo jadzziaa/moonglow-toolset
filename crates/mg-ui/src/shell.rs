@@ -3221,6 +3221,9 @@ pub(crate) fn shown(
             }
             shown
         }
+        // (Not while a modal, a dialog or a menu takes the keys: M4's U24,
+        // the area's rule.)
+        Some(Tab::Welcome) if keys_blocked(ctx) => Shown::default(),
         Some(Tab::Welcome) => {
             let hints = [
                 k.hint(Cmd::NewModule, "New module"),
