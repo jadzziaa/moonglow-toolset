@@ -136,8 +136,9 @@ impl Fallback {
     /// (after "Moonglow draws through Vulkan on llvmpipe, ").
     pub fn said(self, platform: Platform) -> String {
         let what = match self {
+            // (As the manual says: one sample a pixel, `Gpu::samples`.)
             Fallback::Backend(b) => format!(
-                "and its renderer draws parts of the 3D views wrong through {}",
+                "without anti-aliasing ({} is tried on Mesa's drivers only)",
                 backend_name(b)
             ),
             Fallback::Software => {
@@ -147,11 +148,13 @@ impl Fallback {
         let wanted: Vec<&str> = platform.backends().iter().map(|b| backend_name(*b)).collect();
         let install = match platform {
             Platform::Windows => {
-                "Install the graphics driver of the GPU's maker (over a remote desktop or in a                  virtual machine there may be none)."
+                "Install the graphics driver of the GPU's maker (over a remote desktop or in a \
+                 virtual machine there may be none)."
             }
             Platform::MacOs => "This Mac's GPU has no Metal driver.",
             Platform::Linux | Platform::Other => {
-                "Install the GPU's Vulkan driver (the distribution's Mesa Vulkan drivers package,                  or the GPU maker's driver)."
+                "Install the GPU's Vulkan driver (the distribution's Mesa Vulkan drivers package, \
+                 or the GPU maker's driver)."
             }
         };
         format!("{what}: no GPU that draws through {} was found. {install}", wanted.join(" or "))
@@ -896,7 +899,12 @@ mod tests {
         assert_eq!((p.index, p.fallback), (3, Some(Fallback::Backend(Backend::Gl))));
         // What the builder is told names the backend to install.
         let said = Fallback::Backend(Backend::Gl).said(Platform::Linux);
-        assert!(said.contains("through OpenGL") && said.contains("Vulkan driver"), "{said}");
+        assert_eq!(
+            said,
+            "without anti-aliasing (OpenGL is tried on Mesa's drivers only): no GPU that \
+             draws through Vulkan was found. Install the GPU's Vulkan driver (the \
+             distribution's Mesa Vulkan drivers package, or the GPU maker's driver)."
+        );
         let said = Fallback::Software.said(Platform::Windows);
         assert!(said.contains("Vulkan or Direct3D 12"), "{said}");
     }

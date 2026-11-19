@@ -80,8 +80,11 @@ jobs:
         # would be unified and `edit` turned on again.
         shell: bash
         run: |
+          set -euo pipefail
           cargo clippy -p mg-area --no-default-features --all-targets -- -D warnings
-          ! cargo tree -p mg-area --no-default-features -e normal --prefix none | grep -E '^mg-(edit|module|script) '
+          # (The tree taken first: a `cargo tree` that fails fails the step.)
+          tree=$(cargo tree -p mg-area --no-default-features -e normal --prefix none)
+          ! grep -E '^mg-(edit|module|script) ' <<<"$tree"
 
   test:
     needs: tested
