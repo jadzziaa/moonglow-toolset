@@ -53,8 +53,8 @@ fn a_dressed_creature_from_values_is_the_creature_read_from_fields() {
         eprintln!("skipped: no game install");
         return;
     };
-    // A human in plate with a longsword and a large shield: each asks a
-    // proficiency feat.
+    // A human in armor past cloth with a longsword and a tower shield
+    // (base items 16, 1 and 57): each asks a proficiency feat.
     let (plate, sword, shield) =
         (needs_a_feat(&game, 16), needs_a_feat(&game, 1), needs_a_feat(&game, 57));
     let bare =
