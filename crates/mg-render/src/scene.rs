@@ -499,6 +499,10 @@ impl Camera {
 /// 5.25 m and 83 degrees about 1.5 m up (its `first-picture.md`). No rule
 /// is drawn from them here: a caller passes the distance and pitch it
 /// wants the picture taken from.
+///
+/// The fog does not follow this eye: `mg_area::View::camera` takes the
+/// script's distance (5.5 for the Shard, where the eye is fitted at 5.0
+/// or 5.25), as the client's fog was read back against it.
 impl Camera {
     /// The client's vertical field of view, degrees (fitted).
     pub const GAME_FOV: f32 = 48.0;

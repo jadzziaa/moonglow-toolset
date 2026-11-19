@@ -6319,6 +6319,13 @@ const GAME_CAMERA: f32 = mg_area::GAME_CAMERA;
 /// for its camera nearer the player, but no farther than [`GAME_CAMERA`]
 /// (from farther off, [`view_fog`] moves the fog back); the game's own
 /// as a player enters without a view yet.
+///
+/// `View::camera` wants the distance as the game keeps it (a script's
+/// `SetCameraFacing` distance); the orbit's is an eye's, which the game's
+/// fitted cameras put a little nearer (19 m for its 20, 11 for 12, 5.0
+/// for 5.5). With no rule between them the orbit's is taken as it is:
+/// the fog starts up to a metre nearer than the game's would for the
+/// camera that draws the same picture.
 fn fog_camera(distance: Option<f32>) -> f32 {
     distance.map_or(GAME_CAMERA, |d| d.min(GAME_CAMERA))
 }
