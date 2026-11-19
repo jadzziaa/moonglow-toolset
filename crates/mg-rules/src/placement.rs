@@ -10,7 +10,13 @@
 use std::f32::consts::FRAC_PI_2;
 
 use mg_gff::Struct;
-use mg_rules::ObjectKind;
+
+use crate::ObjectKind;
+
+/// The field Moonglow marks a locked object with (the area editor's
+/// Lock): a byte the game and Aurora don't read (Aurora drops it when it
+/// saves). A nasher project keeps it out of its files (`mg_module::locks`).
+pub const LOCKED: &str = "MG_Locked";
 
 /// Where an instance stands: a position in metres and its model's turn
 /// around Z in radians (its facing less 90°: 0 faces north, as Aurora

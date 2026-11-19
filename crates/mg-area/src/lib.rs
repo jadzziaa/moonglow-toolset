@@ -26,14 +26,18 @@ use mg_set::Tileset;
 
 pub mod arrange;
 pub mod border;
+#[cfg(feature = "edit")]
 pub mod edit;
 pub mod grass;
 mod grass_view;
 pub mod marker;
 pub mod pick;
+#[cfg(feature = "edit")]
 pub mod reshape;
+#[cfg(feature = "edit")]
 pub mod retile;
 mod scene;
+#[cfg(feature = "edit")]
 pub mod terrain;
 pub mod walk;
 
@@ -200,9 +204,9 @@ impl Default for VisualTransform {
 
 impl VisualTransform {
     /// A placed object's, as its model is drawn with it (`None` without
-    /// one): [`mg_module::placement::visual_transform`].
+    /// one): [`mg_rules::placement::visual_transform`].
     pub fn read(s: &Struct) -> Option<VisualTransform> {
-        let t = mg_module::placement::visual_transform(s)?;
+        let t = mg_rules::placement::visual_transform(s)?;
         Some(VisualTransform {
             scale: Vec3::from(t.scale),
             rotate: Vec3::from(t.rotate),
@@ -256,7 +260,7 @@ pub struct AreaObject {
     /// with its animation speed and lerps in progress, and a creature's
     /// head, tail, wings and cloak (drawn on those parts:
     /// `mg_preview::scope_matrix`). What Adjust Location shows of them.
-    pub scopes: Vec<mg_module::placement::Scoped>,
+    pub scopes: Vec<mg_rules::placement::Scoped>,
     /// A placeable's `Static`: part of the scenery. The game gives a
     /// static placeable no visual transform (Aurora resets it).
     pub is_static: bool,
@@ -281,8 +285,8 @@ pub struct AreaObject {
 
 /// The field Moonglow marks a locked object with: a byte the game and
 /// Aurora don't read (Aurora drops it when it saves). A nasher project
-/// keeps it out of its files ([`mg_module::locks`]).
-pub use mg_module::locks::LOCKED;
+/// keeps it out of its files (`mg_module::locks`).
+pub use mg_rules::placement::LOCKED;
 
 impl AreaObject {
     /// Reads the object `index` of the GIT list of `kind`.
@@ -314,9 +318,9 @@ impl AreaObject {
     /// it stands, how it turns, its outline and fields), without the game:
     /// no preview, and an item not turned as it lies.
     pub fn placed(kind: ObjectKind, index: usize, s: &Struct) -> AreaObject {
-        let at = mg_module::placement::Placement::read(kind, s);
+        let at = mg_rules::placement::Placement::read(kind, s);
         let (position, rotation) = (Vec3::from(at.position), at.rotation);
-        let points = mg_module::placement::outline(kind, s);
+        let points = mg_rules::placement::outline(kind, s);
         let outline = points.into_iter().map(|p| position + Vec3::from(p)).collect();
         let template_field = kind.resref_field();
         AreaObject {
@@ -334,7 +338,7 @@ impl AreaObject {
             problem: None,
             outline,
             visual: VisualTransform::read(s),
-            scopes: mg_module::placement::visual_scopes(s),
+            scopes: mg_rules::placement::visual_scopes(s),
             is_static: kind == ObjectKind::Placeable && s.integer("Static").unwrap_or(0) != 0,
             trigger_type: if kind == ObjectKind::Trigger {
                 s.integer("Type").unwrap_or(0)
@@ -445,7 +449,7 @@ fn named_node(model: &mg_mdl::Model, resref: &str, suffix: &str, light: bool) ->
 }
 
 /// The door hooks of `tiles` (with the tileset they are from), each
-/// where `mg_edit::terrain::hooks` puts it.
+/// where [`mg_tiles::door_hooks`] puts it.
 fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
     let Some(set) = tileset else { return Vec::new() };
     let mut out = Vec::new();
@@ -453,7 +457,7 @@ fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
         let Some(tile) = usize::try_from(t.id).ok().and_then(|i| set.tiles.get(i)) else {
             continue;
         };
-        let hooks = mg_edit::terrain::hooks(tile, t.position, t.orientation);
+        let hooks = mg_tiles::door_hooks(tile, t.position, t.orientation);
         out.extend(hooks.map(|(door_type, position, bearing)| DoorHook {
             tile: t.index,
             door_type,
@@ -798,7 +802,7 @@ impl AreaModel {
     /// The objects of the area whose GIT is `git` that the edits
     /// `touched` changed (a field of one, at any depth: an item of its
     /// inventory, a variable, where it stands), as
-    /// [`mg_edit::Workspace::touched_since`] tells them; none for edits
+    /// `mg_edit::Workspace::touched_since` tells them; none for edits
     /// of other resources. `None` where anything else of the area was
     /// touched (its ARE `are`, an object put in or taken out, the GIT's
     /// own fields, the GIT set whole): the area is to be read whole.
@@ -807,6 +811,7 @@ impl AreaModel {
     /// lock changed ([`PLACED_ONLY`]): what [`AreaModel::place_objects`]
     /// reads again, its look kept (a creature's took up to 2 ms to put
     /// together again).
+    #[cfg(feature = "edit")]
     pub fn touched_objects(
         touched: &[mg_edit::Touched],
         are: &ResKey,

@@ -2956,6 +2956,7 @@ dependencies = [
  "mg-mdl",
  "mg-resman",
  "mg-schema",
+ "mg-set",
  "mg-tlk",
  "thiserror 2.0.21",
 ]
@@ -3029,6 +3030,7 @@ name = "mg-tiles"
 version = "0.0.0"
 dependencies = [
  "fastrand",
+ "glam",
  "mg-core",
  "mg-set",
  "thiserror 2.0.21",

@@ -317,6 +317,8 @@ mod tests {
     /// position and Bearing), is where the original's faces are when they
     /// are drawn with the model ([`AreaObject::model_transform`]): it
     /// blocks as the model is drawn, tilted, turned, scaled and moved.
+    /// (The bake is the module workspace's: with the feature `edit`.)
+    #[cfg(feature = "edit")]
     #[test]
     fn a_baked_walkmesh_lies_where_the_model_is_drawn() {
         let pwk = "node trimesh box_wg\n  parent box_pwk\n  position 0.5 1 0\n  verts 3\n    \

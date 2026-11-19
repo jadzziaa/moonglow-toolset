@@ -19,6 +19,26 @@ mod seams;
 
 pub use seams::{Disagreement, Seam, seams};
 
+/// The door hooks of a tileset's tile `tile` lying with its middle at
+/// `centre`, turned `orientation` quarters: each hook's doortypes.2da row
+/// (0: one that brings no door), where a door on it stands and its
+/// `Bearing`. The one place a tile's hooks are put into an area: the
+/// area's view, painting, Resize and Change Tileset read them here
+/// (`mg_edit::terrain::hooks`).
+pub fn door_hooks(
+    tile: &mg_set::Tile,
+    centre: glam::Vec3,
+    orientation: u8,
+) -> impl Iterator<Item = (i32, glam::Vec3, f32)> + '_ {
+    let turn = f32::from(orientation) * 90.0;
+    let rotation = glam::Quat::from_rotation_z(turn.to_radians());
+    tile.doors.iter().map(move |d| {
+        let degrees = (d.orientation + turn).rem_euclid(360.0);
+        let degrees = if degrees > 180.0 { degrees - 360.0 } else { degrees };
+        (d.door_type, centre + rotation * glam::Vec3::from_array(d.position), degrees.to_radians())
+    })
+}
+
 /// A terrain of a tileset (see [`TileIndex::terrain`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Terrain(pub u16);

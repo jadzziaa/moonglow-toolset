@@ -943,7 +943,7 @@ impl AreaScene {
     /// Whether object `i` is only a light: a placeable with a model too
     /// small to see whose appearance has a light (placeables.2da's
     /// `LightColor`), as the game's "Light, White" has, or whose model has
-    /// the light node of a light Moonglow made (`mg_module::lights`). Its
+    /// the light node of a light Moonglow made (`mg_rules::lights`). Its
     /// light, if so.
     pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<BareLight> {
         let shown = self.objects.get(i).and_then(Option::as_ref)?;
@@ -962,7 +962,7 @@ impl AreaScene {
         }
         // (A builder's own small lamp model is drawn as it is: a light
         // Moonglow made is nothing else.)
-        if !mg_module::lights::is_generated(&o.preview.as_ref()?.base.model) {
+        if !mg_rules::lights::is_generated(&o.preview.as_ref()?.base.model) {
             return None;
         }
         let lamp = shown.composed.point_lights(glam::Mat4::IDENTITY).into_iter().next()?;

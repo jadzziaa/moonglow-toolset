@@ -74,6 +74,14 @@ jobs:
       - name: Clippy (mg and mg-preview without the GPU)
         # Their default features are on in everything above.
         run: cargo clippy -p mg -p mg-preview --no-default-features --all-targets -- -D warnings
+      - name: Clippy (mg-area's scene without the editor)
+        # A game client's build (Moonglow Client): no mg-edit, mg-module or
+        # mg-script. A run of its own: with `mg` beside it, the features
+        # would be unified and `edit` turned on again.
+        shell: bash
+        run: |
+          cargo clippy -p mg-area --no-default-features --all-targets -- -D warnings
+          ! cargo tree -p mg-area --no-default-features -e normal --prefix none | grep -E '^mg-(edit|module|script) '
 
   test:
     needs: tested
