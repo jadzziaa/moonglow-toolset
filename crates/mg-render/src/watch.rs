@@ -416,8 +416,10 @@ pub struct Sampler {
 }
 
 impl Sampler {
-    /// For targets of `samples` samples a pixel.
+    /// For targets of `samples` samples a pixel, as the device gives
+    /// them ([`Gpu::samples`]: one on OpenGL).
     pub fn new(gpu: &Gpu, samples: u32) -> Sampler {
+        let samples = gpu.samples(samples);
         let device = &gpu.device;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("watch"),

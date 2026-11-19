@@ -1247,7 +1247,9 @@ fn a_solid_draw_leaves_the_picture_s_alpha() {
 fn depth_is_kept_for_drawing_after_the_scene() {
     let Some(gpu) = gpu() else { return };
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let (size, samples) = (64, 4);
+    // (The caller's own pipeline below draws into the targets with the
+    // samples the device gives them: one on OpenGL, `Gpu::samples`.)
+    let (size, samples) = (64, gpu.samples(4));
     let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
     let scene =
         Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], ..Default::default() };
@@ -6351,7 +6353,10 @@ fn high_shadows_darken_exactly_the_volume_s_footprint() {
     };
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
     let dir = mg_testkit::output_dir("render");
-    for samples in [1, 4] {
+    // (Four where the device gives them: one on OpenGL, `Gpu::samples`.)
+    let mut counts = vec![1, gpu.samples(4)];
+    counts.dedup();
+    for samples in counts {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         let bare = r.render_image(&gpu, &NoAssets, &scene(None), &camera, w, h);
         r.shadow_volumes = true;
