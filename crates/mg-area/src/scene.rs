@@ -105,8 +105,17 @@ pub struct View {
     /// is, as in Aurora.
     pub border: bool,
     /// How far the game's camera stands from the player it looks at,
-    /// metres: the fog starts as much nearer than at the game's own
-    /// [`GAME_CAMERA`] ([`fog_from`]). [`View::of`] gives that.
+    /// metres, as the client keeps it: the distance a script's
+    /// `SetCameraFacing(direction, distance, pitch)` gives (or the
+    /// player's zoom sets), not the eye a picture is drawn from. The fog
+    /// starts as much nearer than at the game's own [`GAME_CAMERA`]
+    /// ([`fog_from`]). [`View::of`] gives that.
+    ///
+    /// A client passes its camera's distance as it has it (the Shard's
+    /// `SetCameraFacing(90, 5.5, 84)`: 5.5), whatever eye it fits for
+    /// `mg_render::Camera::game` (5.0 m for that one in
+    /// `night_fog.rs`, 11 m for 12 in `armourer.rs`): the client's fog
+    /// was read back against the script's distance.
     pub camera: f32,
 }
 
@@ -1855,8 +1864,10 @@ fn sun_direction() -> Vec3 {
 }
 
 /// How far the game's camera stands from the player as a player enters
-/// an area (its distance as the client keeps it, metres): the camera the
-/// fog's start is given for by [`fog`].
+/// an area (its distance as the client keeps it, metres, in the terms of
+/// `SetCameraFacing`'s distance; the eye Moonglow draws that camera from
+/// is `mg_render::Camera::GAME_ENTRY`'s 19 m): the camera the fog's start
+/// is given for by [`fog`].
 pub const GAME_CAMERA: f32 = 20.0;
 
 /// The area's fog as the client sets it for its camera at [`GAME_CAMERA`]
@@ -1873,6 +1884,12 @@ pub fn fog(l: &Lighting, night: bool) -> Fog {
 /// of 20 m (so a camera zoomed in to 5.5 m with an amount of 12 has it
 /// start 3.5 m off, and past 30 it starts behind the camera), at most
 /// 1 m before its end; its colour as stored (gamma space).
+///
+/// `camera` is the distance as the client keeps it: a script's
+/// `SetCameraFacing` distance (what the readings were taken against), not
+/// the eye distance fitted to draw that camera with
+/// `mg_render::Camera::game` (5.0 m for the script's 5.5, 11 for 12, 19
+/// for the entry camera's 20: no rule turns one into the other yet).
 pub fn fog_from(l: &Lighting, night: bool, camera: f32) -> Fog {
     let sky = l.sky(night);
     let end = l.fog_clip;
