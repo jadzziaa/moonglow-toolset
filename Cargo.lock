@@ -2931,6 +2931,7 @@ dependencies = [
  "png",
  "pollster 0.4.0",
  "wgpu",
+ "winit",
 ]
 
 [[package]]

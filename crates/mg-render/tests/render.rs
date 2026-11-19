@@ -5139,6 +5139,21 @@ void main ()
             };
             let wrong = pool.iter().filter(far).count();
             assert!(wrong <= 4, "{name}, {samples}x: {wrong} of {} water pixels", pool.len());
+            // The same into BGRA targets (a window's,
+            // `present::targets_format`), their copies BGRA too.
+            let bgra = wgpu::TextureFormat::Bgra8Unorm;
+            let mut r = Renderer::new(&gpu, bgra, samples);
+            r.game_shaders = true;
+            r.game_water = true;
+            let targets = Targets::new(&gpu, bgra, samples, 64, 64);
+            r.render_targets(&gpu, &assets, &scene(true), &camera, &targets);
+            assert_eq!(r.drawn.game, 3, "{name}, BGRA: {:?}", r.drawn);
+            let mut data = gpu.read_rgba(&targets.color).data;
+            data.as_chunks_mut::<4>().0.iter_mut().for_each(|t| t.swap(0, 2));
+            let apart = (data.as_chunks::<4>().0.iter().zip(img.data.as_chunks::<4>().0))
+                .filter(|(a, b)| (0..4).any(|i| a[i].abs_diff(b[i]) > 1))
+                .count();
+            assert_eq!(apart, 0, "{name}, {samples}x: BGRA's pixels apart from RGBA's");
         }
         // Without the targets' copies: Moonglow's own water.
         let targets =

@@ -52,9 +52,12 @@ impl Platform {
     }
 
     /// The backends that can be chosen here, in wgpu's order. (Not
-    /// OpenGL: Moonglow's renderer draws particles, the game's shaders and
-    /// more wrong on wgpu's GL backend. wgpu still falls back to it where
-    /// nothing else draws, as it did before the choice.)
+    /// OpenGL: the renderer draws through wgpu's GL backend as through the
+    /// others, but with one sample a pixel (no anti-aliasing,
+    /// [`Gpu::samples`](crate::Gpu::samples)), and that is tried on Mesa's
+    /// radeonsi only; other vendors' drivers, Windows and GLES are untried.
+    /// wgpu still falls back to it where nothing else draws, as it did
+    /// before the choice.)
     pub fn backends(self) -> &'static [Backend] {
         match self {
             Platform::Windows => &[Backend::Vulkan, Backend::Dx12],
@@ -108,9 +111,8 @@ pub struct Pick {
 /// drawn wrong or slowly with it, and the builder is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fallback {
-    /// A backend the platform's choices leave out (OpenGL: Moonglow's
-    /// renderer draws particles, the game's shaders and more wrong on
-    /// wgpu's).
+    /// A backend the platform's choices leave out (OpenGL: drawn with one
+    /// sample a pixel, and tried on Mesa's radeonsi only).
     Backend(Backend),
     /// A software adapter (llvmpipe, Microsoft's Basic Render Driver): a
     /// few frames a second.
