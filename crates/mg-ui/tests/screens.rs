@@ -1673,7 +1673,7 @@ fn options_window() {
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
     // (Below the Editors section: brought into sight, its list below it.)
-    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.get_by_label_contains("Takes effect the next time Moonglow starts.").scroll_to_me();
     h.run();
     h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
     shoot(&mut h, &dir, "options-general-graphics-backend");

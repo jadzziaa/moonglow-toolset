@@ -805,7 +805,8 @@ impl Watching {
         if busy || self.last.is_some_and(|t| now - t < watch::EVERY) {
             return;
         }
-        let samples = crate::model_view::SAMPLES;
+        // (The samples the targets were made with: one on OpenGL.)
+        let samples = targets.samples;
         let sampler = self.sampler.get_or_insert_with(|| watch::Sampler::new(&vp.gpu, samples));
         let mut tiles: Vec<glam::Vec3> = frame
             .instances
