@@ -60,7 +60,7 @@ const DRAW_FS: &str = "
 
 /// The draw's fragment program for a texture of `format`: an sRGB one has
 /// the values decoded (the exact inverse of the sRGB curve).
-fn draw_source(format: wgpu::TextureFormat) -> String {
+pub(crate) fn draw_source(format: wgpu::TextureFormat) -> String {
     let decode = if format.is_srgb() {
         "select(pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c / 12.92, \
          c <= vec3<f32>(0.04045))"
@@ -80,7 +80,10 @@ fn draw_source(format: wgpu::TextureFormat) -> String {
 /// [`Targets::resolve_view`], or [`Targets::render_view`] with one
 /// sample): the targets keep their picture, so the view's watch
 /// ([`crate::watch`]) and the framebuffer's copies read them as ever.
-/// Either way costs one pass over the window ([`Way`]).
+/// Either way costs one pass over the window ([`Way`]). Alpha: the draw
+/// writes 1, a resolve keeps what the renderer left (below 1 where
+/// something see-through was drawn over the background); [`Screen`] takes
+/// an opaque surface where the surface offers one, which ignores it.
 #[derive(Debug)]
 pub struct Presenter {
     layout: wgpu::BindGroupLayout,
@@ -726,7 +729,9 @@ mod tests {
                     want.as_chunks().0.iter().collect();
                 assert!(colors.len() > 3, "a picture: {} colours", colors.len());
                 let mut presenter = Presenter::new(&gpu);
-                for format in [F::Bgra8Unorm, F::Rgba8Unorm, F::Bgra8UnormSrgb] {
+                // (Each twice: the targets keep their picture, the
+                // multisampled one too.)
+                for format in [F::Bgra8Unorm, F::Rgba8Unorm, F::Bgra8UnormSrgb].repeat(2) {
                     let surface = stand_in(&gpu, format, size);
                     let view = surface.create_view(&Default::default());
                     let way = presenter.present(&gpu, &targets, &view, format);
@@ -742,7 +747,18 @@ mod tests {
                         let near = (0..3).all(|c| g[c].abs_diff(w[c]) <= allowed);
                         assert!(near && g[3] == 255, "{what}: pixel {i}: {g:?}, read back {w:?}");
                     }
+                    assert!(read(&gpu, &targets.color) == want, "{what}: the targets kept");
                 }
+                // The view's watch reads them as ever after a present.
+                let mut sampler = crate::watch::Sampler::new(&gpu, samples);
+                let points = (crate::watch::COLUMNS * crate::watch::ROWS) as usize;
+                let expected = crate::watch::Expected(vec![true; points]);
+                sampler.look(&gpu, &targets, expected, 0.0);
+                let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+                let look = sampler.take(&gpu).expect("the look, once the GPU is done");
+                let (_, drawn) = look.counted();
+                assert!(drawn > 50 && drawn < points, "the square seen: {drawn} of {points}");
+                assert!(look.colored(scene.background) >= drawn / 2, "in colour");
                 renderer.let_go_of(&targets);
             }
         }
