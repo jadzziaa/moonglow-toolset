@@ -12,6 +12,7 @@ use naga::{
     Statement, Type, TypeInner,
 };
 
+use crate::layout::{self, Rules};
 use crate::reflect::{Part, Scalar, UniformBlock, ValueType, Varying};
 use crate::{Program, ShaderError};
 
@@ -384,9 +385,13 @@ impl Program {
     /// never reads left out (glslang keeps every one declared), so a draw's
     /// block is as small as its own members make it (`vslit`'s whole block is 8.7
     /// KB, 4 KB of it `m_bones`). A part with no members holds one unused
-    /// `vec4`. The draw's block keeps the block's binding; the frame's and
-    /// the bones' take the two that were kept for them (bound after the
-    /// rest).
+    /// `vec4`. The draw's and the lights' parts, elements of storage
+    /// arrays, are laid out by OpenGL's std430 and filled to their 16-byte
+    /// span; the frame's and the bones' by std140 (`crate::layout`: naga's
+    /// GLSL keeps no offsets). A program whose parts OpenGL would lay out
+    /// otherwise all the same is an error. The draw's block keeps the
+    /// block's binding; the frame's and the bones' take the two that were
+    /// kept for them (bound after the rest).
     ///
     /// `false`, the program unchanged, where it has no one block to split
     /// (no loose uniforms) or uses it otherwise than member by member.
@@ -403,6 +408,13 @@ impl Program {
         .validate(&module)
         .map_err(|e| naga_err(crate::chain(e.as_inner())))?;
         let group = self.reflection.group;
+        // (A layout OpenGL would read otherwise is refused on every back
+        // end, as a program that doesn't compile is: a renderer draws it
+        // with its own shader. `split_module` lays the parts out as OpenGL
+        // does, so this is a guard.)
+        if let Some(why) = layout::module_differs(&module) {
+            return Err(naga_err(format!("laid out otherwise than OpenGL lays it out: {why}")));
+        }
         let name = self.reflection.uniforms.first().map(|b| b.name.clone()).unwrap_or_default();
         self.reflection.uniforms = blocks
             .into_iter()
@@ -782,18 +794,28 @@ fn split_module(
             p => p,
         };
         let k = order.iter().position(|p| *p == part).unwrap_or(0);
-        let inner = &module.types[m.ty].inner;
-        // (std140's: a vec2 by 8, a vec3, vec4, matrix or array by 16.)
-        let own = match inner {
-            TypeInner::Scalar(_) => 4,
-            TypeInner::Vector { size: naga::VectorSize::Bi, .. } => 8,
-            _ => 16,
+        let (ty, align, size) = if matches!(order[k], Part::Draw | Part::Lights) {
+            // (An element of a storage array: by std430, as OpenGL lays it
+            // out, an array's stride and a nested struct's too. See
+            // `crate::layout`.)
+            let ty = layout::relayout(module, m.ty, Rules::Std430);
+            let (align, size) = layout::of(module, ty, Rules::Std430)
+                .ok_or_else(|| naga_err("a uniform of a type no block holds"))?;
+            (ty, align, size)
+        } else {
+            let inner = &module.types[m.ty].inner;
+            // (std140's: a vec2 by 8, a vec3, vec4, matrix or array by 16.)
+            let own = match inner {
+                TypeInner::Scalar(_) => 4,
+                TypeInner::Vector { size: naga::VectorSize::Bi, .. } => 8,
+                _ => 16,
+            };
+            (m.ty, own.max(layouter[m.ty].alignment * 1), inner.size(module.to_ctx()))
         };
-        let align = own.max(layouter[m.ty].alignment * 1);
         let offset = ends[k].div_ceil(align) * align;
-        ends[k] = offset + inner.size(module.to_ctx());
+        ends[k] = offset + size;
         moved.push(Some((k, parts[k].len() as u32)));
-        parts[k].push(StructMember { offset, ..m.clone() });
+        parts[k].push(StructMember { offset, ty, ..m.clone() });
     }
     let vec4 = module.types.insert(
         naga::Type {
@@ -814,6 +836,25 @@ fn split_module(
             ends[k] = 16;
         }
         let span = ends[k].max(16).div_ceil(16) * 16;
+        if matches!(order[k], Part::Draw | Part::Lights) {
+            // Unused words fill an element to its span, so that OpenGL's
+            // std430, which rounds a struct up to its widest member's
+            // alignment alone (one `int`: 4 bytes), makes it as wide.
+            let word = module.types.insert(
+                naga::Type { name: None, inner: TypeInner::Scalar(naga::Scalar::U32) },
+                Span::UNDEFINED,
+            );
+            let mut at = ends[k].div_ceil(4) * 4;
+            while at < span {
+                list.push(StructMember {
+                    name: Some(PAD.into()),
+                    ty: word,
+                    binding: None,
+                    offset: at,
+                });
+                at += 4;
+            }
+        }
         let t = module.types.insert(
             naga::Type {
                 name: Some(format!("{block_name}_{:?}", order[k]).to_ascii_lowercase()),
@@ -1427,6 +1468,94 @@ void main ()
         assert_eq!((loose.offset, glow.offset), (0, 0));
         naga::back::wgsl::write_string(&p.module, &p.info, naga::back::wgsl::WriterFlags::empty())
             .unwrap();
+    }
+
+    /// The program's GLSL, as wgpu's OpenGL back end has naga write it.
+    fn glsl(p: &Program) -> String {
+        use naga::back::glsl;
+        let ep = &p.module.entry_points[0];
+        let mut out = String::new();
+        let options = glsl::Options {
+            version: glsl::Version::Desktop(430),
+            writer_flags: glsl::WriterFlags::empty(),
+            ..Default::default()
+        };
+        let pipeline = glsl::PipelineOptions {
+            shader_stage: ep.stage,
+            entry_point: ep.name.clone(),
+            multiview: None,
+        };
+        glsl::Writer::new(&mut out, &p.module, &p.info, &options, &pipeline, Default::default())
+            .and_then(|mut w| w.write())
+            .unwrap_or_else(|e| panic!("{}: {e}", p.name));
+        out
+    }
+
+    /// A draw's values in a storage array's element are laid out as
+    /// OpenGL's std430 lays them out, since naga's GLSL keeps no offsets
+    /// or strides: an element of one `int` filled to its 16 bytes; arrays
+    /// of scalars and of `vec2`s by their own strides; a nested struct by
+    /// its members; and a whole array of them passed to a function.
+    #[test]
+    fn a_draw_s_values_are_laid_out_as_opengl_s_std430_lays_them_out() {
+        let src: BTreeMap<String, String> = [
+            (
+                "fs_int".to_string(),
+                "#define SHADER_TYPE 2\nuniform int texture0Bound;\n\
+                 void main () { gl_FragColor = vec4(float(texture0Bound)); }\n"
+                    .to_string(),
+            ),
+            (
+                "fs_arrays".to_string(),
+                r#"
+#define SHADER_TYPE 2
+struct Wave { float height; vec2 dir; };
+uniform int count;
+uniform float weights[3];
+uniform vec2 offsets[2];
+uniform Wave wave;
+uniform vec3 tint;
+float sum(float w[3]) { return w[0] + w[1] + w[2]; }
+void main ()
+{
+    gl_FragColor = vec4(tint * sum(weights) * wave.height, float(count))
+        + vec4(offsets[1], wave.dir);
+}
+"#
+                .to_string(),
+            ),
+        ]
+        .into();
+        let draw = |_: &crate::Member| Part::Draw;
+        let mut p = compile("fs_int", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.split_uniforms(draw).unwrap());
+        assert_eq!(p.opengl_layout_differs(), None);
+        let block = &p.reflection.uniforms[0];
+        assert_eq!((block.part, block.size), (Part::Draw, 16));
+        assert_eq!(block.members.len(), 1, "the words that fill it are no uniforms");
+        glsl(&p);
+
+        let mut p = compile("fs_arrays", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.split_uniforms(draw).unwrap());
+        assert_eq!(p.opengl_layout_differs(), None);
+        let block = &p.reflection.uniforms[0];
+        let at = |name: &str| {
+            let m = block.member(name).unwrap();
+            (m.offset, m.stride)
+        };
+        // (std430: the floats 4 apart from byte 4, the pairs 8 apart from
+        // 16, the struct aligned as its `vec2` at 32, the `vec3` at 48.)
+        assert_eq!(at("count"), (0, 4));
+        assert_eq!(at("weights"), (4, 4));
+        assert_eq!(at("offsets"), (16, 8));
+        assert_eq!(at("wave").0, 32);
+        let wave = block.member("wave").unwrap();
+        let inner: Vec<u32> = wave.members.iter().map(|m| m.offset).collect();
+        assert_eq!((inner, wave.size), (vec![0, 8], 16));
+        assert_eq!(at("tint").0, 48);
+        assert_eq!(block.size, 64);
+        let text = glsl(&p);
+        assert!(text.contains("std430"), "{text}");
     }
 
     #[test]

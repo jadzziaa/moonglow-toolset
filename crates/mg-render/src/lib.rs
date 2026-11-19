@@ -27,6 +27,10 @@ pub mod watch;
 
 pub use assets::{Assets, LoadedTexture, NoAssets, Palettes, colored_name, split_colors};
 pub use game::ShaderStats;
+/// (For the corpus tests: the game's programs split as the renderer
+/// splits them.)
+#[doc(hidden)]
+pub use game::part as uniform_part;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};
 pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};

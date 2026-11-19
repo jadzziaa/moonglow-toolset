@@ -29,6 +29,7 @@ pub mod assemble;
 mod cache;
 mod defaults;
 mod glsl;
+mod layout;
 mod link;
 mod reflect;
 mod spirv;

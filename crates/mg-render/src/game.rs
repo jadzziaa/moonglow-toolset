@@ -867,7 +867,7 @@ pub(crate) fn unit(name: &str) -> Unit {
 /// written once a frame for every draw of the program (the
 /// projection, the fog, the clock, the camera, the area; and what the
 /// contract leaves zero, the wind sources' arrays among them).
-pub(crate) fn part(m: &Member) -> Part {
+pub fn part(m: &Member) -> Part {
     use Key::*;
     match key(&m.name) {
         Mv | Mvp | M | Normal | TextureMatrix | Skinmesh | BboxMin | BboxMax | MaterialAmbient

@@ -40,8 +40,8 @@ fn programs(rm: &ResMan, keys: impl IntoIterator<Item = ResKey>) -> Vec<(String,
 
 /// Compiles each program and splits its uniforms as a renderer does (M3:
 /// the draw's, the frame's, the bones'; here by a rough rule of names, as
-/// what is split is the program, not the rule); the failures, one line
-/// each. (And how many read the engine's lights by their places in the
+/// what is split is the program, not the rule, and by mg-render's own);
+/// the failures, one line each. (And how many read the engine's lights by their places in the
 /// frame's, `mg_shader::LIGHT_INDEX`, in `INDEXED`; how many read the
 /// lights' arrays as they are, in `UNINDEXED`.)
 fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
@@ -70,6 +70,9 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
                 if fb && *stage == Stage::Fragment {
                     FRAMEBUFFER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
+                // (And as the renderer splits it: the parts as OpenGL lays
+                // them out, which `split_uniforms` refuses otherwise.)
+                p.clone().split_uniforms(mg_render::uniform_part)?;
                 let split = p.split_uniforms(part)?;
                 if p.reflection.uniform(mg_shader::LIGHT_INDEX).is_some() {
                     INDEXED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
