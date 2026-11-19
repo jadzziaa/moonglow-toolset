@@ -8,7 +8,10 @@ use mg_core::{ResRef, ResType};
 use mg_gff::Gff;
 use mg_mdl::Model;
 use mg_preview::compose::Composed;
-use mg_preview::{CreatureLook, Preview, creature, creature_look, door, item, placeable};
+use mg_preview::{
+    CreatureLook, DressedLook, ItemLook, Preview, VisualTransform, creature, creature_look, door,
+    dressed_look, item, placeable, slot,
+};
 use mg_render::{AreaLight, Camera, Gpu, Renderer, Scene};
 use mg_resman::GameInstall;
 use mg_rules::GameData;
@@ -1839,4 +1842,166 @@ fn models_with_a_plt_of_their_own_name() {
     for line in &otherwise {
         println!("  {line}");
     }
+}
+
+/// A creature's looks given as values (`DressedLook`, a game client's,
+/// told them by the server) and the same looks as a creature's fields,
+/// written by hand each, make the same preview: an armored human woman
+/// with a helmet, a cloak, a sword with its visual transform and a shield,
+/// her head turned, a part of her armor in a color of its own, a part
+/// number past 255 in its EE twin.
+#[test]
+fn a_look_given_as_values_is_the_look_read_from_its_fields() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    use mg_gff::{Struct, Value};
+    use mg_rules::items::set_armor_part_color;
+    let axis = |v: f32| {
+        let mut a = Struct::new(0);
+        a.set("ValueTo", Value::Float(v));
+        Value::Struct(a)
+    };
+    let scoped = |scope: i32, label: &str, v: f32| {
+        let mut e = Struct::new(6);
+        e.set("Scope", Value::Int(scope));
+        e.set(label, axis(v));
+        Value::List(vec![e])
+    };
+    // The fields.
+    let mut utc = CreatureLook { gender: 1, head: 3, ..CreatureLook::new(6) }.to_utc();
+    utc.set("Color_Skin", Value::Byte(5));
+    utc.set("Color_Hair", Value::Byte(6));
+    utc.set("VisTransformList", scoped(254, "RotateX", 20.0));
+    let mut armor = Struct::new(slot::CHEST);
+    armor.set("BaseItem", Value::Int(16));
+    for (field, _) in mg_rules::items::ARMOR_PARTS {
+        armor.set(field, Value::Byte(1));
+    }
+    armor.set("ArmorPart_Torso", Value::Byte(12));
+    armor.set("ArmorPart_Robe", Value::Byte(0));
+    armor.set("ArmorPart_LBicep", Value::Byte(255));
+    armor.set("xArmorPart_LBice", Value::Word(1));
+    armor.set("Cloth1Color", Value::Byte(20));
+    armor.set("Metal1Color", Value::Byte(30));
+    set_armor_part_color(&mut armor, 7, ArmorChannel::Cloth1, Some(33));
+    let mut helmet = Struct::new(slot::HEAD);
+    helmet.set("BaseItem", Value::Int(17));
+    helmet.set("ModelPart1", Value::Byte(1));
+    helmet.set("Metal2Color", Value::Byte(44));
+    let mut cloak = Struct::new(slot::CLOAK);
+    cloak.set("BaseItem", Value::Int(80));
+    cloak.set("ModelPart1", Value::Byte(1));
+    let mut sword = Struct::new(slot::RIGHT_HAND);
+    sword.set("BaseItem", Value::Int(1));
+    for (field, n) in [("ModelPart1", 61), ("ModelPart2", 11), ("ModelPart3", 11)] {
+        sword.set(field, Value::Byte(n));
+    }
+    sword.set("VisTransformList", scoped(255, "TranslateZ", 0.25));
+    let mut shield = Struct::new(slot::LEFT_HAND);
+    shield.set("BaseItem", Value::Int(14));
+    shield.set("ModelPart1", Value::Byte(11));
+    let worn = vec![armor, helmet, cloak, sword, shield];
+    // (The feats the items need, or the game takes them off her.)
+    let mut feats = Vec::new();
+    for it in &worn {
+        if let Some(mg_rules::items::WearProblem::Feats(f)) = game.wear_problem(&utc, it) {
+            feats.extend(f);
+        }
+    }
+    let feat_list = feats
+        .into_iter()
+        .map(|f| {
+            let mut s = Struct::new(1);
+            s.set("Feat", Value::Word(f));
+            s
+        })
+        .collect();
+    utc.set("FeatList", Value::List(feat_list));
+    utc.set("Equip_ItemList", Value::List(worn));
+
+    // The values.
+    let mut armor = ItemLook { base_item: 16, armor_parts: [1; 19], ..ItemLook::default() };
+    armor.armor_parts[7] = 12;
+    armor.armor_parts[18] = 0;
+    armor.colors[ArmorChannel::Cloth1 as usize] = Some(20);
+    armor.colors[ArmorChannel::Metal1 as usize] = Some(30);
+    armor.part_colors[7][ArmorChannel::Cloth1 as usize] = Some(33);
+    let mut helmet = ItemLook { base_item: 17, model_parts: [1, 0, 0], ..ItemLook::default() };
+    helmet.colors[ArmorChannel::Metal2 as usize] = Some(44);
+    let up = VisualTransform { translate: [0.0, 0.0, 0.25], ..VisualTransform::default() };
+    let look = DressedLook {
+        colors: [5, 6, 0, 0],
+        head_transform: Some(VisualTransform {
+            rotate: [20.0, 0.0, 0.0],
+            ..VisualTransform::default()
+        }),
+        armor: Some(armor),
+        helmet: Some(helmet),
+        cloak: Some(ItemLook { base_item: 80, model_parts: [1, 0, 0], ..ItemLook::default() }),
+        right_hand: Some(ItemLook {
+            base_item: 1,
+            model_parts: [61, 11, 11],
+            scopes: [Some(up), None, None],
+            ..ItemLook::default()
+        }),
+        left_hand: Some(ItemLook { base_item: 14, model_parts: [11, 0, 0], ..ItemLook::default() }),
+        ..DressedLook::from(CreatureLook { gender: 1, head: 3, ..CreatureLook::new(6) })
+    };
+
+    assert_eq!(DressedLook::from_utc_as_the_game(&game, &utc, &|_| None), look);
+    let from_fields = creature(&game, &utc, &|_| None).unwrap();
+    let from_values = dressed_look(&game, &look).unwrap();
+    assert_eq!(from_fields, from_values);
+    // She is dressed as written: the sword in her right hand, moved up,
+    // the shield on her left forearm, the helmet in her head's place,
+    // turned as it is, the cloak, the torso in its own cloth.
+    let p = &from_values;
+    let at = |node: &str| p.parts.iter().find(|x| x.attach.as_deref() == Some(node));
+    assert!(at("rhand").and_then(|x| x.local).is_some(), "{:?}", models(p));
+    assert!(at("lforearm").is_some(), "{:?}", models(p));
+    let helm = p.parts.iter().find(|x| x.model == "helm_001").expect("the helmet");
+    assert!(helm.local.is_some() && helm.colors.unwrap()[3] == 44);
+    assert!(p.parts.iter().any(|x| x.model.starts_with("pfh0_cloak_")), "{:?}", models(p));
+    let torso = p.parts.iter().find(|x| x.model == "pfh0_chest012").expect("the torso");
+    assert_eq!(torso.colors.unwrap()[4], 33);
+    let pelvis = p.parts.iter().find(|x| x.model.starts_with("pfh0_pelvis")).unwrap();
+    assert_eq!(pelvis.colors.unwrap()[4], 20);
+    // Given as values, what she wears is drawn whatever her feats: the
+    // values are what is shown.
+    utc.remove("FeatList");
+    assert_ne!(DressedLook::from_utc_as_the_game(&game, &utc, &|_| None), look);
+    assert_eq!(DressedLook::from_utc(&utc, &|_| None), look);
+}
+
+/// Every creature of the game read into values (`DressedLook`) is drawn as
+/// its blueprint is, and its values written as fields read back as
+/// themselves: nothing a preview reads is lost between the two.
+#[test]
+fn the_game_s_creatures_as_values() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut names = game.resman.list(ResType::UTC);
+    names.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+    let one_in = 4;
+    let names = mg_testkit::sweep(names, one_in);
+    let (mut drawn, mut dressed) = (0, 0);
+    for name in &names {
+        let Some(n) = name.as_str() else { continue };
+        let Ok(data) = game.resman.get_named(n, ResType::UTC) else { continue };
+        let Ok(gff) = Gff::read(&data) else { continue };
+        let look = DressedLook::from_utc_as_the_game(&game, &gff.root, &items(&game));
+        assert_eq!(DressedLook::from_utc(&look.to_utc(), &|_| None), look, "{n}");
+        let blueprint = creature(&game, &gff.root, &items(&game));
+        let values = dressed_look(&game, &look);
+        assert_eq!(blueprint.as_ref().ok(), values.as_ref().ok(), "{n}");
+        drawn += usize::from(values.is_ok());
+        dressed += usize::from(look.armor.is_some() || look.right_hand.is_some());
+    }
+    eprintln!("{drawn} of {} creatures drawn, {dressed} dressed", names.len());
+    assert!(drawn >= mg_testkit::at_least(1500, one_in), "{drawn}");
+    assert!(dressed >= mg_testkit::at_least(300, one_in), "{dressed}");
 }
