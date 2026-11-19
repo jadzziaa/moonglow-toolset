@@ -584,6 +584,20 @@ impl Viewer<'_> {
         if *tab == Tab::Options && ui.rect_contains_pointer(ui.max_rect()) {
             self.app.options_hovered_next = true;
         }
+        // (A floating window's tab, for the Status Bar: each the pointer is
+        // over, the top one taken once all are drawn; else the one the last
+        // press was in. Its rect, not `layer_id_at`, which reads the last
+        // frame's layers: a dialog closed this frame was still there.)
+        if floating {
+            // (Its rect as clipped to the window: a tab's body may reach
+            // past the window's frame.)
+            let rect = ui.max_rect().intersect(ui.clip_rect());
+            let over = ui.ctx().pointer_hover_pos().is_some_and(|p| rect.contains(p));
+            let pressed = self.app.last_press.is_some_and(|(_, l)| l == Some(layer));
+            if over || pressed {
+                self.app.window_tabs_next.push((tab.clone(), layer, over));
+            }
+        }
         if escape && !floating && !recording && !tool && tab.escape_cancels() {
             let pointer = ui.rect_contains_pointer(ui.max_rect());
             let at = self.app.keyboard_at;
@@ -734,7 +748,9 @@ impl TabViewer for Viewer<'_> {
         let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
         // (A form window's header and page list stand flush with its
         // pane's edges, as the Creature board draws them: M4's U9; its
-        // foot keeps the room the rest have over the Status Bar.)
+        // foot keeps the room the rest have over the Status Bar. Options
+        // too, its header and page list flush as the Options board's: M4's
+        // U23 fix, the board's room for Questions beside their dropdowns.)
         let flush = egui::Margin { bottom: margin.bottom, ..egui::Margin::ZERO };
         let margin = if form_window(tab) { flush } else { margin };
         // In a window of its own, a drag on what isn't a control is the
@@ -1538,6 +1554,7 @@ fn form_window(tab: &Tab) -> bool {
             | Tab::Blueprints(_)
             | Tab::Instance { .. }
             | Tab::Instances { .. }
+            | Tab::Options
     )
 }
 

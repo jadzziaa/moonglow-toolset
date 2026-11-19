@@ -19,8 +19,9 @@
 //! has always kept; Select Tiles and Paint are the shelf's, Reorient
 //! Camera and Go to Start Location the compass's).
 //!
-//! The header reads none of Options' "Editors' toolbar buttons": it
-//! yields by the editor's width instead (`mg_uikit::shell::Yields`).
+//! It yields by the editor's width (`mg_uikit::shell::Yields`), as every
+//! editor's header does (Options' old "Editors' toolbar buttons" is
+//! retired: M4's U23).
 
 use std::cell::Cell;
 

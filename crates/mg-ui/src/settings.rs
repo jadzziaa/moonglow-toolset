@@ -899,11 +899,6 @@ pub struct Settings {
     /// changes ([`crate::renderer_check::lit_found`]). Options › General
     /// shows it again.
     pub graphics_notices_hidden: Vec<GraphicsFailure>,
-    /// Options > General: Editors' toolbar buttons, Icons only: the area
-    /// view's and the editors' toolbar buttons show their glyphs alone,
-    /// their names in their tips (the default: Icons and text). The Top
-    /// Bar is icons either way.
-    pub toolbar_icons_only: bool,
     /// Options › Area › Toolbar: the area view's toolbar's buttons left
     /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as
     /// "Show Creatures"). A builder's ask: a toolbar of what is used.
@@ -2467,5 +2462,57 @@ mod tests {
         assert!(s.recent_areas(Path::new("c.mod")).is_empty());
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    /// A settings file from before M4's U23, as the tip wrote it (its
+    /// `saved_text`, with "Toolbar buttons" `toolbar_icons_only` true and
+    /// false, Part 2's decision 6): it reads without an error, nothing
+    /// unread or kept aside, by itself and from eframe's file; written
+    /// back the field is gone, and every other field is as it was written.
+    /// Another window's file from before, merged over, is the same; so is
+    /// the JSON a plugin is shown.
+    #[test]
+    fn an_old_file_with_toolbar_buttons_reads_and_is_written_without_it() {
+        let files = [
+            (true, include_str!("../tests/fixtures/settings-tip-icons-only-true.ron")),
+            (false, include_str!("../tests/fixtures/settings-tip-icons-only-false.ron")),
+        ];
+        let dir = mg_testkit::scratch_dir("settings-old-toolbar-buttons");
+        let key = "moonglow-settings";
+        for (on, text) in files {
+            let text = text.trim_end();
+            assert!(text.contains(&format!("toolbar_icons_only:{on},")), "the tip's file");
+            let (read, unread) = Settings::read_fields(text).expect("it reads");
+            assert!(unread.is_empty(), "{unread:?}");
+            let back = read.saved_text();
+            assert!(!back.contains("toolbar_icons_only"), "written without it");
+            let old = fields_of(text).expect("fields");
+            let kept: Vec<_> = old.into_iter().filter(|(n, _)| n != "toolbar_icons_only").collect();
+            assert_eq!(fields_of(&back).expect("fields"), kept, "nothing else changed");
+            // (Its settings as written: a few not their defaults.)
+            assert!(read.light_theme && read.ui_scale == Some(125), "{back}");
+            assert_eq!(read.recent, [PathBuf::from("/modules/Chapter1.mod")]);
+            // From eframe's file, as the desktop app reads it.
+            let path = dir.join(format!("app-{on}.ron"));
+            let kv = std::collections::HashMap::from([(key.to_string(), text.to_string())]);
+            std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+            let r = Settings::read_eframe(&path, key);
+            assert!(r.unread.is_empty() && r.unreadable.is_none(), "{:?}", r.problem());
+            assert_eq!(r.kept, None, "nothing kept aside");
+            assert_eq!(r.settings.saved_text(), back);
+            // Another window's file from before, saved over: theirs read,
+            // the field gone.
+            let merged = Settings::default().saved_over(&Settings::default(), text);
+            assert_eq!(merged, back, "another window's old file, merged");
+            let json = serde_json::to_string(&read).unwrap();
+            assert!(!json.contains("toolbar_icons_only"), "{json}");
+            let from_json: Settings = serde_json::from_str(&json.replacen(
+                '{',
+                &format!("{{\"toolbar_icons_only\":{on},"),
+                1,
+            ))
+            .unwrap();
+            assert_eq!(from_json, read, "JSON with the field reads as without it");
+        }
     }
 }

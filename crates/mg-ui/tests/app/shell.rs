@@ -885,7 +885,11 @@ fn settings_from_before_open_with_the_tree_shown_and_the_log_open() {
     assert_eq!(open(json(r#"{"hide_tree":true}"#)), (false, true), "the Left Dock folded");
     assert_eq!(open(json(r#"{"hide_log":true}"#)), (true, false), "the Bottom Dock closed");
     let s: mg_ui::Settings = serde_json::from_str("{}").unwrap();
-    assert!(!s.hide_tree && !s.hide_log && !s.toolbar_icons_only);
+    assert!(!s.hide_tree && !s.hide_log);
+    // (An old file's Toolbar buttons, retired in M4's U23: read, nothing
+    // else changed.)
+    let old: mg_ui::Settings = serde_json::from_str(r#"{"toolbar_icons_only":true}"#).unwrap();
+    assert_eq!(old, s);
 }
 
 /// The Status Bar names the module (its file's name), says "(modified)"

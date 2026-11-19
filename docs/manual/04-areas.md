@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T08:11:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:26:26Z }
 ---
 
 # Areas
@@ -50,9 +50,8 @@ control stays on the row, as an icon (its name in its tip) or in More:
 A popover opens under its button and stays open while you tick its rows;
 a click outside it, its button again or **Escape** closes it (that
 Escape does nothing else: what you hold in the view stays in hand, a
-window's Cancel isn't pressed). The header doesn't follow **Tools ›
-Options › General › Editors' toolbar buttons** (that is the other
-editors' toolbars'): it yields to its width instead.
+window's Cancel isn't pressed). The header yields to its width: it gives its words up first, then
+its controls, into its More.
 
 **Right-click** the header, anywhere on it (but on the wide row's
 **Shadows** and **Walkmesh**, which open their own), for the list of its controls

@@ -693,11 +693,14 @@ pub(crate) fn header_holds_nth<S>(h: &mut Harness<'_, S>, group: &str, nth: usiz
         records.into_iter().nth(nth).unwrap_or_else(|| panic!("{count} headers named {group}"))
     };
     let rec = record(h);
+    // (AccessKit's boxes are in pixels, the header's record in points: at a
+    // larger text the one is compared with the other in points.)
+    let ppp = h.ctx.pixels_per_point();
     let rect_of = |n: &egui_kittest::Node<'_>| -> egui::Rect {
         let b = n.accesskit_node().bounding_box().expect("drawn");
         egui::Rect::from_min_max(
-            egui::pos2(b.x0 as f32, b.y0 as f32),
-            egui::pos2(b.x1 as f32, b.y1 as f32),
+            egui::pos2(b.x0 as f32 / ppp, b.y0 as f32 / ppp),
+            egui::pos2(b.x1 as f32 / ppp, b.y1 as f32 / ppp),
         )
     };
     let mut in_more = Vec::new();
@@ -1411,18 +1414,6 @@ pub(crate) fn script_click(h: &mut Harness<'_, Moonglow>, name: &str) {
 pub(crate) fn palette_more<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
     let mut found = h.query_all_by_label("More").filter(|n| !in_group(n, AREA_HEADER));
     found.next().expect("the palette's More")
-}
-
-/// Each control drawn on the area header's row, by its role and name,
-/// with where it is: what a test compares the row by.
-pub(crate) fn area_header_row(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
-    let group = h.get_by_label(AREA_HEADER);
-    let all = group.query_all_by(|n| n.bounding_box().is_some());
-    let named = |n: &egui_kittest::Node<'_>| {
-        let a = n.accesskit_node();
-        format!("{:?} {}", a.role(), a.label().or(a.value()).unwrap_or_default())
-    };
-    all.map(|n| (named(&n), n.rect())).collect()
 }
 
 /// Clicks the area header's control `name` ([`area_tool`]), runs the

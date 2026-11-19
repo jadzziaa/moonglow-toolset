@@ -1,8 +1,7 @@
 //! The drawn icons (`mg_uikit::Icon`) that label the object types (in the
-//! palette and the area view's toolbar), the area view's toggles and the
-//! toolbars' buttons, and [`Tools`], which labels a toolbar's buttons as
-//! Options › General › Editors' toolbar buttons says (the Top Bar's, icons
-//! alone, whatever it says).
+//! palette and the area view's header), the area view's toggles and the
+//! editors' header buttons, and [`Tools`], which labels the Top Bar's quick
+//! actions (icons alone, or icons and words as its width lets them be).
 
 use mg_area::ObjectKind;
 pub(crate) use mg_uikit::Icon;
@@ -61,7 +60,8 @@ icons! {
     SHOW_NONE = EyeOff;
     /// Together (turning several as one), To Scratch, Onto Objects (what is
     /// placed goes onto the placeable or door under the pointer), and the
-    /// dropdowns' icons with Icons only (Fade Geometry, Snap, Turn).
+    /// dropdowns' icons where the header shows them alone (Fade Geometry,
+    /// Snap, Turn).
     TOGETHER = Together;
     TO_SCRATCH = ToScratch;
     ONTO_OBJECTS = OntoObjects;
@@ -112,10 +112,10 @@ pub(crate) fn object(kind: ObjectKind) -> Icon {
     }
 }
 
-/// The editors' toolbars' icons, with Icons only (beside the others,
-/// their words alone): the script editor's, the conversation editor's
-/// and the NUI Creator's; and the model view's header row's (M4's U11:
-/// it yields by its width, whatever the setting).
+/// The editors' header buttons' icons, shown where a header yields to
+/// icons alone by its width (M4's U23 retired the setting that chose
+/// it): the script editor's, the conversation editor's and the NUI
+/// Creator's, and the model view's header row's (M4's U11).
 pub(crate) mod editor {
     use super::Icon;
     icons! {
@@ -157,13 +157,12 @@ pub(crate) mod editor {
     }
 }
 
-/// How a toolbar's buttons are labelled (Options › General › Editors'
-/// toolbar buttons): a glyph and its name, or, with Icons only, the glyph
-/// alone and its name in its tip (and as its name for a screen reader),
-/// as Aurora's toolbars had them. No editor's toolbar reads it any more
-/// (the hak editor's was the last, M4's U21: each has the kit's header);
-/// the Top Bar's quick actions are icons alone ([`Tools::icons_alone`]). The area's header reads none of it (M4's
-/// U3): it yields by the editor's width (`area_view::header`).
+/// How the Top Bar's quick actions are labelled: a glyph and its name, or
+/// the glyph alone and its name in its tip (and as its name for a screen
+/// reader) ([`Tools::icons_alone`]). The setting that once chose it for
+/// the editors' toolbars too (Options › General › Toolbar buttons) is
+/// retired (M4's U23, ruling R4): each editor has the kit's header, which
+/// yields by its width.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
     pub(crate) icons_only: bool,
@@ -212,9 +211,8 @@ pub(crate) fn area_tool_kind(label: &str) -> String {
 }
 
 impl Tools {
-    /// Icons alone, whatever the settings say (the Top Bar's quick
-    /// actions: Options › General › Editors' toolbar buttons is the
-    /// editors' toolbars' alone), or icons and words.
+    /// Icons alone (`only`), or icons and words: the Top Bar's quick
+    /// actions as its width lets them be.
     pub(crate) fn icons_alone(only: bool) -> Tools {
         Tools { icons_only: only }
     }
@@ -235,7 +233,7 @@ impl Tools {
     }
 
     /// A button's tip from `tip` (with its key, where it has one; empty:
-    /// none): as it is beside the name; with Icons only, the name first
+    /// none): as it is beside the name; with icons alone, the name first
     /// (unless the tip begins with it), or the name alone.
     pub(crate) fn tip(self, name: &str, tip: &str) -> Option<String> {
         let begins = tip.get(..name.len()).is_some_and(|t| t.eq_ignore_ascii_case(name));
@@ -288,7 +286,7 @@ pub(crate) fn toggled(mut r: egui::Response, on: &mut bool) -> egui::Response {
 mod tests {
     use super::*;
 
-    /// With Icons only, the icon alone and the name in the tip: first,
+    /// With icons alone, the name is in the tip: first,
     /// unless the tip begins with it, or alone; beside the name, the tip
     /// as it was.
     #[test]

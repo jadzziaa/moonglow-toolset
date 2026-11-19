@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T21:20:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:27:30Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -179,22 +179,22 @@ Every control of the screens mocked in the second round and its home in the mock
 
 | Today | In the redesign | Done |
 |---|---|---|
-| Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons |
-| OK, Cancel | Editor header, right end ✓ M4 U18 |
+| Ten pages: Folders, Area, General, Script Editor, Conversation Editor, Sounds, Verify, Language, Keyboard, Updates | Page list at the left, styled like Creature's, with icons | ✓ M4 U23 (each page's icon in its row and in the page's bar) |
+| OK, Cancel | Editor header, right end | ✓ M4 U23 (OK before Cancel at the header's right end, docked and floating) |
 | Enter for OK, Esc for Cancel | Status Bar hints: Enter OK, Tab Next field, Shift+Tab Previous field; Esc cancels Options docked too (ruling R1), so the hints show Esc | Esc: ✓ M3 T10; the hints ✓ M3 T12 (with Esc Cancel where an Escape would cancel it; Enter OK while the pointer is over it and nothing has the keys) |
-| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10 (the columns are M4's) |
-| Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 |
-| Questions, Warnings, Troubleshooting | Column 3 |
-| Toolbar buttons | Retired: the Top Bar's buttons are icons with tooltips |
+| Editors, Saving and Exporting, Opening Modules, Testing | Column 1, in the code's order | Editors first: ✓ M3 T10; the column ✓ M4 U23 (a label column beside the controls; three columns where the page is wide, two, then one where narrower, nothing cut) |
+| Windows and Tabs, Module Tree and Palettes, Appearance | Column 2 | ✓ M4 U23 (Appearance moved after Module Tree and Palettes, as the board) |
+| Questions, Warnings, Troubleshooting | Column 3 | ✓ M4 U23 (a question's label over its dropdown where the column is narrower than the board's) |
+| Toolbar buttons | Retired: the Top Bar's buttons are icons with tooltips | ✓ M4 U23 (the field, its draft and its control gone; an old file's setting read and written back without it) |
 | Open Properties as tabs of one window, Closing a window cancels its changes, Move windows by dragging anywhere | Editors section, under the switch | ✓ M3 T10 (under "Floating windows", as the Options board) |
-| Right Dock | None on this screen |
+| Right Dock | None on this screen | ✓ M4 U23 (none beside Options, docked or floating) |
 
 
 #### New
 
 - Open editors: As Tabs | As Floating Windows, with a note that areas always open as tabs and moved kinds open where you last put one, until View › Reset Layout. ✓ M3 T10
-- The page icons in the page list.
-- The General page bar, as on Creature.
+- The page icons in the page list. ✓ M4 U23
+- The General page bar, as on Creature. ✓ M4 U23 (each page's bar, its icon and name)
 
 #### Findings for the Design Notes
 
@@ -482,15 +482,15 @@ Every control of the screens mocked in the second round and its home in the mock
 | Export N as Files… | Icon in the panel header | ✓ M3 T4 |
 | List rows: name, layer, indented overridden copies | Same rows with a kind icon | ✓ M3 T4 (cut with an ellipsis at the dock's width, whole in the row's tip) |
 | Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | ✓ M3 T12 (Up or Down Move in the list and Enter Open while its list has the keys, Double Click Open, Right Click More, Find's key with the pointer over it: the Resources board's) |
-| Read-only tab: Copy to Module, Save As… | Editor header, with a note | M4 |
+| Read-only tab: Copy to Module, Save As… | Editor header, with a note | ✓ M4 U23 (the lock and where it is from, its kind, Copy to Module and Save As… at the right end; Edit… for a 2DA) |
 | Tab title "name (read-only)" | Kept as the document tab's name | ✓ (as it was) |
-| Read-only GFF tree | The GFF view's three columns, read-only |
+| Read-only GFF tree | The GFF view's three columns, read-only | ✓ M4 U23 (name, type, value; the rows in sight alone drawn; folds kept while the tab lives) |
 
 
 #### New
 
-- Names beside numbers in the GFF view, as mg gff --names gives them.
-- Both tabs open in the same shell as Main.
+- Names beside numbers in the GFF view, as mg gff --names gives them. ✓ M4 U23 (mg_rules::rows, the same code)
+- Both tabs open in the same shell as Main. ✓ M4 U23 (the Resources board's counts at the Status Bar's right too)
 
 #### Not Drawn
 

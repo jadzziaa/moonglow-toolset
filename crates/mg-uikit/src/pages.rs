@@ -239,13 +239,20 @@ pub struct PageList {
     name: String,
     pages: Vec<(Icon, String)>,
     in_view: Vec<usize>,
+    width: f32,
 }
 
 impl PageList {
     /// A list named "Pages", its scroll kept by `id_salt`.
     pub fn new(id_salt: impl egui::AsId) -> Self {
         let id = egui::Id::new(id_salt);
-        PageList { id, name: PAGES.to_string(), pages: Vec::new(), in_view: Vec::new() }
+        PageList {
+            id,
+            name: PAGES.to_string(),
+            pages: Vec::new(),
+            in_view: Vec::new(),
+            width: PAGE_LIST,
+        }
     }
 
     /// Named `name` for a screen reader (and tests) in place of "Pages".
@@ -257,6 +264,13 @@ impl PageList {
     /// A page, after those given: its icon and its name.
     pub fn page(mut self, icon: Icon, name: impl Into<String>) -> Self {
         self.pages.push((icon, name.into()));
+        self
+    }
+
+    /// [`PAGE_LIST`]'s width replaced by `width`, its line included (the
+    /// Options board's list is 160 wide, for "Conversation Editor").
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
         self
     }
 
@@ -283,7 +297,7 @@ impl PageList {
         let top = ui.max_rect().top();
         let left = ui.cursor().min.x;
         let rect =
-            Rect::from_min_max(pos2(left, top), pos2(left + PAGE_LIST, ui.max_rect().bottom()));
+            Rect::from_min_max(pos2(left, top), pos2(left + self.width, ui.max_rect().bottom()));
         let response = ui.interact(rect, self.id.with("mg-uikit-list"), Sense::hover());
         ui.painter().rect_filled(rect, 0.0, t.panel);
         ui.painter().vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, t.line));

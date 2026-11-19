@@ -389,23 +389,13 @@ fn an_area_s_lighting_is_copied_and_kept_for_another() {
     assert_eq!(saved.unwrap().get(row, "LABEL"), Some("Evening"));
 }
 
-/// Options › General › Editors' toolbar buttons, Icons only, is the
-/// editors' toolbars' alone (M4's U3): the area's header keeps its row as
-/// it was, at a width where it is whole (its words and its value text) and
-/// at one where it is compact, and its toggles toggle as before.
+/// The area's header's toggles toggle and its Area Properties opens the
+/// area's properties. (It read Options' "Toolbar buttons" no more since
+/// M4's U3, which U23 retired: its row yields by its width alone,
+/// `area_view` and the header tests.)
 #[test]
-fn the_area_header_ignores_the_toolbar_buttons_setting() {
+fn the_area_header_s_toggles_toggle() {
     let Some((mut h, area)) = area_harness("area-icons-only") else { return };
-    for width in [1600.0, 1160.0] {
-        h.set_size(egui::vec2(width, 800.0));
-        settle(&mut h);
-        h.state_mut().settings.toolbar_icons_only = false;
-        settle(&mut h);
-        let row = area_header_row(&h);
-        h.state_mut().settings.toolbar_icons_only = true;
-        settle(&mut h);
-        assert_eq!(area_header_row(&h), row, "the header as it was at {width}");
-    }
     let shown = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].grid;
     let before = shown(&h);
     area_click(&mut h, "Grid");

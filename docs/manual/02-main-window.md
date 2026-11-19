@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T18:28:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T07:36:53Z }
 ---
 
 # The main window
@@ -1194,6 +1194,51 @@ out as the text they compile from. Where the folder has some of the
 files already, it asks first (**Replace** them, **Skip Those**, or
 **Cancel**), and the files are written while a window shows how far it
 is, with **Cancel**.
+
+The read-only tab's header says where the resource is from (a lock and
+"Read-only: from the game's data", "from low.hak", "from the override
+folder", "from the module"; only the lock where the tab is narrow, the
+words in its tip) and its kind ("UTC file"), and at its right end
+**Copy to Module** (one Undo step on the module; off, its tip saying
+why, where no module is open or the module has its own) and **Save
+As…**; a 2DA adds **Edit…** (or **Edit in name.hak**). A module kept as
+files (a folder or a nasher project) cannot hold a resource whose kind
+has no file extension: Copy to Module is off on one there, its tip
+saying so. Nothing in the tab can be changed. A GFF file shows its
+fields in three columns, name, type and value, with a number's meaning
+beside it as `mg gff --names` gives it: a 2DA row's label
+(Appearance_Type 31 Chicken, a feat's name), a StrRef's text, "(no row
+65000 in appearance.2da)" or "(no string 16000000)" where the row or
+the string is missing. A value that means none (no StrRef, a Race of
+255, a row whose label is blank) has nothing beside it, as `mg gff
+--names` prints nothing; a string of the module's talk table shows its
+text where the module names one Moonglow has read, else "(string 5 of
+the module's talk table, not read here)". Lists and structs fold (a
+click on the row), their counts quieter than the values; the folds are
+kept while the tab is open, and only the rows in sight are drawn, so a
+GFF of fifty thousand fields scrolls as one of fifty.
+
+Right-click a row (or, with the row holding the keyboard, press
+Shift+F10) for its menu: **Copy Value** copies the value itself, not as
+the column shows it (a string without its quotes and with its line
+breaks, a resource name, a number, a void's bytes as hexadecimal); a
+localized string's item says what it copies (**Copy English Text**, or
+**Copy StrRef** where it has no text of its own) and, where it has more
+than one language, **Copy All Languages** copies each on a line of its
+own ("English: Hen"); **Copy Meaning** copies what is beside the
+number, where it has a meaning; **Copy Name** the field's name. Opened
+from the keyboard, the menu's first item has it: Tab moves on, Enter
+copies, Escape closes the menu and gives the keyboard back to the row.
+**Ctrl+C** on a row holding the keyboard copies its value, as Copy
+Value.
+
+The Status Bar's right end says the resource, its layer and its size
+("nw_chicken.utc from key:nwn_base, 3078 bytes"), for the read-only tab
+in front, or for one floating in a window of its own when the pointer
+is over that window or it was clicked last; where the tab is narrow and
+its header shows the lock alone, the lock's tip says the same. While
+the Resources panel is in use, the panel's count comes first ("633 of
+119065 resources, 8 overridden copies").
 
 A resource that several layers have (a portraits.2da in two haks, a
 texture in a hak and in the game's files) is listed once for the copy

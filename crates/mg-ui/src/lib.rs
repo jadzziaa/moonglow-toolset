@@ -95,6 +95,7 @@ pub mod quick_open;
 pub mod recovery;
 pub mod references;
 pub mod renderer_check;
+mod ro_gff;
 pub mod saved;
 mod script_layout;
 pub mod script_nav;
@@ -124,6 +125,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
+pub use browser::RESOURCE_HEADER;
 pub use outliner::OUTLINER;
 pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES};
 pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
@@ -1235,6 +1237,11 @@ pub struct Moonglow {
     pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
     /// Resources open in read-only viewers, parsed once.
     pub(crate) viewed: HashMap<(ResKey, Option<String>), std::sync::Arc<browser::Viewed>>,
+    /// How many times Options' changes were set in the settings (M4's
+    /// U23; counted where they are set since its fix, `apply_options` or
+    /// the OK of looks alone): once an OK, never while it is open, never
+    /// at Cancel, Escape or its ×. For the tests.
+    pub(crate) options_applied: usize,
     /// The pass in which an area view last had something in hand (a
     /// brush, a paste, a drag, a terrain tool): Escape is its then.
     pub(crate) area_tool_at: u64,
@@ -1275,6 +1282,14 @@ pub struct Moonglow {
     /// Enter is OK then, with nothing typed in): the Status Bar's Enter
     /// hint.
     pub(crate) options_hovered_next: bool,
+    /// The tabs in front of floating windows as the editor area was drawn
+    /// (cleared as each frame begins), each with its window's layer and
+    /// whether the pointer is over it, where it is or the last press was
+    /// in it: the Status Bar's editor in place of the docked one
+    /// ([`Moonglow::active_editor`], `shell::update_shown`). M4's U23
+    /// fix: a floating read-only tab's counts, a floating Faction Editor's
+    /// hints.
+    pub(crate) window_tabs_next: Vec<(Tab, egui::LayerId, bool)>,
     /// What the Status Bar shows ([`shell::shown`]), made once a frame
     /// after the editor area is drawn and shown by the next frame's bar
     /// (drawn before the editor area, whose state it reads); a frame is
@@ -1766,6 +1781,7 @@ impl Moonglow {
             picker: None,
             picked: HashMap::new(),
             viewed: HashMap::new(),
+            options_applied: 0,
             area_tool_at: 0,
             load_order: 0,
             escape_cancel: None,
@@ -1776,6 +1792,7 @@ impl Moonglow {
             escape_hint_next: None,
             model_under_pointer_next: false,
             options_hovered_next: false,
+            window_tabs_next: Vec::new(),
             bar_shown: shell::Shown::default(),
             resources_here: None,
             status_for_tests: None,
@@ -1995,6 +2012,7 @@ impl Moonglow {
         self.escape_hint_next = None;
         self.model_under_pointer_next = false;
         self.options_hovered_next = false;
+        self.window_tabs_next.clear();
         let pressed = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.interact_pos()));
         if let Some(at) = pressed.flatten() {
             self.last_press = Some((at, ui.ctx().layer_id_at(at)));
@@ -3125,6 +3143,23 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn nui_choose_bind(&mut self, key: &ResKey, name: &str) {
         nui_view::choose_bind(self.nui_views.entry(*key).or_default(), name);
+    }
+
+    /// How many times Options' changes have been set in the settings
+    /// (M4's U23): once for each OK. For the tests.
+    #[doc(hidden)]
+    pub fn options_applied(&self) -> usize {
+        self.options_applied
+    }
+
+    /// The read-only GFF views' counts (M4's U23), wherever they are drawn
+    /// (the tab, the hak editor's Preview): how many times their
+    /// shown rows were listed, all told (once for each fold or unfold:
+    /// none in a frame that changes nothing), and the most rows one drew
+    /// in its last frame (those in sight alone). For the tests.
+    #[doc(hidden)]
+    pub fn read_only_counts(&self) -> (usize, usize) {
+        browser::read_only_counts()
     }
 
     /// How many times NUI window `key`'s Bindings table walked the window
@@ -7128,6 +7163,7 @@ impl Moonglow {
     /// folder has the game's data read again, and then the module is opened
     /// again from its file (the caller has asked about unsaved work).
     fn apply_options(&mut self, draft: OptionsDraft) {
+        self.options_applied += 1;
         let reload = self.options_reload(&draft);
         let settings = draft.apply(&self.settings);
         let language = settings.edit_language != self.settings.edit_language;

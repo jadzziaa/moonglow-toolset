@@ -1437,8 +1437,11 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     let areas = std::mem::take(&mut app.area_hovered)
         && app.menu_open.is_none()
         && ctx.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles));
-    let toggle =
-        alt_released || (!areas && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10)));
+    // (F10 alone: egui's NONE matches Shift too, and Shift+F10 opens a
+    // focused row's menu, M4's U23 fix.)
+    let f10 =
+        |i: &mut egui::InputState| !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::F10);
+    let toggle = alt_released || (!areas && ctx.input_mut(f10));
 
     let mut tops: Vec<(egui::Id, egui::Response)> = Vec::new();
     let mut keys = std::mem::take(&mut app.menu_keys);

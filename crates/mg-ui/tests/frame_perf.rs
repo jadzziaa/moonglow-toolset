@@ -3346,3 +3346,77 @@ fn tdod_area(
     );
     Some((path, user, area, i64::from(side) * i64::from(side)))
 }
+
+/// M4's U23: the read-only tab of an authored GFF of 2,100 fields (30
+/// structs of 70, each unfolded: clicked from the last up, the rows
+/// above staying where they were), from a scratch user folder's
+/// `override`, docked As Tabs; then Options on its General page, docked.
+/// Prints how many of the GFF's field rows were laid out (AccessKit nodes
+/// named, or plain labels valued, `f..`: the rows in sight alone where
+/// only they are drawn).
+/// `FRAME_VIEW` picks one ("read-only GFF", "Options General").
+#[test]
+#[ignore]
+fn read_only_and_options() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let user = mg_testkit::scratch_dir("frame-perf-u23").join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mut gff = mg_gff::Gff::new(*b"UTC ");
+    for s in 0..30u32 {
+        let mut child = mg_gff::Struct { id: s, ..Default::default() };
+        for f in 0..70 {
+            child.set(&format!("f{s:02}_{f:02}"), mg_gff::Value::Int(f));
+        }
+        gff.root.set(&format!("S{s:02}"), mg_gff::Value::Struct(child));
+    }
+    std::fs::write(user.join("override/mg_perf_big.utc"), gff.to_bytes().unwrap()).unwrap();
+    let mut r = Report::new();
+    println!("read-only GFF and Options: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.set_render_state(rs.clone());
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let wanted = |r: &Report, what: &str| r.only.as_ref().is_none_or(|o| what.contains(o.as_str()));
+    let what = "read-only GFF, 2,100 fields unfolded, docked";
+    if wanted(&r, what) {
+        let key = ResKey::parse("mg_perf_big", ResType::UTC).unwrap();
+        let t = Tab::Resource(key);
+        open(&mut h, t.clone());
+        h.run_steps(5);
+        for s in (0..30).rev() {
+            let name = format!("S{s:02}");
+            let found = h.query_all_by_label_contains(&name).next().map(|n| n.click()).is_some();
+            assert!(found, "no {name} row");
+            h.run_steps(2);
+        }
+        let fields = |h: &App<'_>| {
+            h.query_all(egui_kittest::kittest::by().predicate(|n| {
+                // (A row's name: its label, or a plain label's value.)
+                let name = n.label().or_else(|| n.value());
+                name.is_some_and(|l| l.starts_with('f') && l.as_bytes().get(3) == Some(&b'_'))
+            }))
+            .count()
+        };
+        let laid = fields(&h);
+        assert!(laid > 0, "no field rows: not unfolded");
+        println!("  ({laid} of the 2,100 field rows laid out)");
+        view(&mut h, &mut r, what, Some(&t));
+        close(&mut h, &t);
+    }
+    let what = "Options General, docked";
+    if wanted(&r, what) {
+        h.state_mut().actions.push(Action::OptionsDialog);
+        h.run_steps(5);
+        click(&mut h, "General");
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("Create backups of modules").is_some(), "not General");
+        view(&mut h, &mut r, what, Some(&Tab::Options));
+    }
+    r.end();
+}

@@ -324,7 +324,10 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     h.run();
     assert_eq!(h.query_all_by_label_contains(", overridden by ").count(), 0);
     h.get_by_label("hak:mg_top");
-    h.get_by_label_contains("1 of ");
+    // (The panel's count, and the Status Bar's while the panel is in use.)
+    assert_eq!(h.query_all_by_label_contains("1 of ").count(), 2);
+    let said = h.state().status_said().to_vec();
+    assert!(said.iter().any(|c| c.starts_with("1 of ")), "{said:?}");
 }
 
 /// The resource browser's Preview shows an overridden copy as its layer
@@ -1198,7 +1201,7 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     let app = Moonglow::new(None, Box::new(dialogs));
     let mut h = harness(app, 1100.0, 760.0);
     mg_ui::hak_view::new_hak(h.state_mut());
-    h.run();
+    settle(&mut h);
     let sizes = |h: &Harness<'_, Moonglow>| -> Vec<(String, u64)> {
         let mut items: Vec<(String, u64)> =
             h.state().haks[0].hak.items().iter().map(|i| (i.key.to_string(), i.size)).collect();
@@ -1208,32 +1211,34 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     let (was, now) = (table("old").len() as u64, table("new one").len() as u64);
     // Nothing of the name there yet: added without a word.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
     assert!(h.query_by_label("Files Already in the Hak").is_none());
     // One of the two chosen is there: asked. Cancel adds nothing.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Files Already in the Hak");
     assert!(h.query_by_label_contains("already has 1 of the 2 files").is_some());
     assert_eq!(sizes(&h).len(), 1, "nothing added before the answer");
     // (The question's, not the hak editor's own.)
     h.get_all_by_label("Cancel").last().unwrap().click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
     // Skip Those: the other is added, the hak's own stays.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Skip Those").click();
-    h.run();
+    // (Settled: the floating hak editor's hints come back with the
+    // pointer over it the frame after the question closes, M4's U23 fix.)
+    settle(&mut h);
     let two = table("two").len() as u64;
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was), ("mg_two.2da".to_string(), two)]);
     // Replace: the chosen files take their place.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     assert!(h.query_by_label_contains("already has 2 of the 2 files").is_some());
     h.get_by_label("Replace 2").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
 }
 

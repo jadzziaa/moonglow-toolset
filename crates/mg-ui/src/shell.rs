@@ -3125,7 +3125,23 @@ pub(crate) fn update_shown(app: &mut Moonglow, ctx: &egui::Context) {
     let escape = app.escape_hint_next.clone().filter(|_| !app.model_under_pointer_next);
     let named = escape.as_ref().map(|t| (t.clone(), crate::tabs::name(app, t)));
     let hovered = app.options_hovered_next;
-    let next = shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered);
+    // (A floating window's editor in place of the docked one: under the
+    // pointer, or with the last press while the pointer is over no docked
+    // editor.)
+    let over_docked = |p: egui::Pos2| {
+        app.editor_area_rect().is_some_and(|r| r.contains(p))
+            && ctx.layer_id_at(p).is_none_or(|l| l.order != egui::Order::Middle)
+    };
+    let pointer = ctx.pointer_hover_pos();
+    // (The top window under the pointer, by egui's order of the layers.)
+    let order = |l: &egui::LayerId| ctx.memory(|m| m.layer_ids().position(|x| x == *l));
+    let under =
+        (app.window_tabs_next.iter()).filter(|(_, _, over)| *over).max_by_key(|(_, l, _)| order(l));
+    let pressed = (app.window_tabs_next.iter())
+        .find(|(_, l, _)| app.last_press.is_some_and(|(_, p)| p == Some(*l)))
+        .filter(|_| pointer.is_none_or(|p| !over_docked(p)));
+    let window = under.or(pressed).map(|(tab, _, _)| tab);
+    let next = shown(app, ctx, named.as_ref().map(|(t, n)| (t, n.as_str())), hovered, window);
     if next.said() != app.bar_shown.said() {
         ctx.request_repaint();
     }
@@ -3159,8 +3175,10 @@ pub(crate) fn keys_blocked(ctx: &egui::Context) -> bool {
         || egui::Popup::is_any_open(ctx)
 }
 
-/// What the Status Bar shows for the active docked editor
-/// ([`Moonglow::active_editor`], as the Right Dock follows it), or for the
+/// What the Status Bar shows for the editor in use: `window`, the tab in
+/// front of a floating window the pointer is over or that had the last
+/// press (`update_shown` chooses it, M4's U23 fix), else the active docked
+/// editor ([`Moonglow::active_editor`], as the Right Dock follows it); or for the
 /// Resources panel while it is in use (the pointer over it, or its list
 /// with the keys: Up and Down and Enter where the list has them, Double
 /// Click, Right Click, Find's key with the pointer over it; the editor's
@@ -3179,6 +3197,7 @@ pub(crate) fn shown(
     ctx: &egui::Context,
     escape: Option<(&crate::Tab, &str)>,
     options_hovered: bool,
+    window: Option<&crate::Tab>,
 ) -> Shown {
     use crate::Tab;
     if let Some(shown) = &app.status_for_tests {
@@ -3186,7 +3205,7 @@ pub(crate) fn shown(
     }
     use crate::keys::Cmd;
     let k = HintKeys::new(&app.keymap, ctx);
-    let active = app.active_editor();
+    let active = window.or(app.active_editor());
     let esc_mine = escape.is_some_and(|(t, _)| Some(t) == active);
     let mut shown = match active {
         Some(Tab::Area(area)) => {
@@ -3258,6 +3277,23 @@ pub(crate) fn shown(
         Some(Tab::ResourceCopy { key, layer }) if key.restype == mg_core::ResType::TWODA => {
             crate::browser::table_shown(app, &k, ctx, *key, Some(layer)).unwrap_or_default()
         }
+        // (Any other resource only looked at, M4's U23: which it is, where
+        // it is read from and its size, the Resources board's; no keys, as
+        // nothing in it changes.)
+        Some(Tab::Resource(key)) => Shown {
+            counts: crate::browser::resource_count(app, *key, None)
+                .map(Count::new)
+                .into_iter()
+                .collect(),
+            ..Shown::default()
+        },
+        Some(Tab::ResourceCopy { key, layer }) => Shown {
+            counts: crate::browser::resource_count(app, *key, Some(layer))
+                .map(Count::new)
+                .into_iter()
+                .collect(),
+            ..Shown::default()
+        },
         // (A blueprint's or a placed object's form with its own Preview
         // shown, M4's U11: the 3D view's ways, the Creature board's, after
         // Esc where an Escape would be its own; not Tab's, which the board
@@ -3276,15 +3312,7 @@ pub(crate) fn shown(
         }
         Some(tab) if tab.escape_cancels() => {
             let mut hints = Vec::new();
-            let typing = ctx.memory(|m| m.focused().is_some());
-            // (Not while Options › Keyboard waits for a key: it takes the
-            // keys itself.)
-            let recording = app.options.as_ref().is_some_and(|o| o.recording.is_some());
-            // (Nor while a list drawn before the editor area has the keys:
-            // the module tree takes Enter first. A dropdown open has the
-            // keyboard: `typing`.)
-            let list = crate::palette_view::a_list_has_the_keys(ctx);
-            if *tab == Tab::Options && options_hovered && !typing && !recording && !list {
+            if *tab == Tab::Options && options_hovered && enter_is_options_ok(app, ctx) {
                 hints.push(Hint::keys(["Enter"], "OK"));
             }
             if esc_mine {
@@ -3298,6 +3326,11 @@ pub(crate) fn shown(
     };
     if let Some((_, name)) = escape.filter(|_| !esc_mine) {
         shown.hints.insert(0, Hint::keys(["Esc"], format!("Cancel {name}")));
+    }
+    // Options in a window of its own over another editor (M4's U23): its
+    // Enter OK first where the pointer is over it, as docked.
+    if active != Some(&Tab::Options) && options_hovered && enter_is_options_ok(app, ctx) {
+        shown.hints.insert(0, Hint::keys(["Enter"], "OK"));
     }
     // The Resources panel in use: its hints (the Resources board's), the
     // editor's counts kept.
@@ -3314,8 +3347,26 @@ pub(crate) fn shown(
             hints.extend(k.hint(Cmd::Find, "Find"));
         }
         shown.hints = hints;
+        // (Its count first, the editor's after it: the board's.)
+        shown.counts.insert(0, Count::new(app.browser.count_text()));
     }
     shown
+}
+
+/// Whether an Enter would be Options' OK (with the pointer over it): not
+/// while a field is typed in or a dropdown is open (they have the
+/// keyboard), Options › Keyboard waits for a key (it takes the keys
+/// itself), or a list drawn before the editor area has the keys (the
+/// module tree takes Enter first). The one rule for the hint and for OK
+/// itself (`options::ui`, M4's U23 fix): `recording`, Options › Keyboard
+/// waits for a key.
+pub(crate) fn enter_is_ok(recording: bool, ctx: &egui::Context) -> bool {
+    let typing = ctx.memory(|m| m.focused().is_some());
+    !typing && !recording && !crate::palette_view::a_list_has_the_keys(ctx)
+}
+
+fn enter_is_options_ok(app: &Moonglow, ctx: &egui::Context) -> bool {
+    enter_is_ok(app.options.as_ref().is_some_and(|o| o.recording.is_some()), ctx)
 }
 
 /// What the Status Bar shows beside a conversation (M4's U15, the

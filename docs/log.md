@@ -1,6 +1,17 @@
 # Update log
 
+## 2026-11-19
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U23's review ([02](manual/02-main-window.md), [10](manual/10-options.md)).
+  * **The read-only tab**: a row's menu copies the value itself (Copy Value), a localized string's text or StrRef by name, all its languages, the meaning beside a number; Shift+F10 opens it from the keyboard and Ctrl+C copies a focused row's value. A value that means none has nothing beside it, as `mg gff --names`; a string of the module's talk table says it was not read, or shows its text. The Status Bar says a floating read-only tab's resource and size, and the lock's tip does where the header shows the lock alone. Copy to Module takes the copy shown (a hak's), and is off for a kind a module kept as files cannot hold.
+  * **Options**: Enter while Keyboard waits for a key is that key, Escape gives up the waiting alone; Questions stand beside their dropdowns at the board's width, the minutes field without arrows; OK applies and writes once, Cancel, Escape and × set every page back.
+
 ## 2026-11-18
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U23, the read-only resource, Options, and "Toolbar buttons" retired**, as the Resources and Options boards draw them ([02](manual/02-main-window.md), [10](manual/10-options.md), [04](manual/04-areas.md); [moves](ui-redesign-moves.md); [parity](parity/checklists.md)).
+  * **The read-only tab's header**: a lock and where the resource is from, its kind, Edit… for a 2DA, Copy to Module (one Undo step) and Save As…; nothing in the tab can be changed.
+  * **The GFF view** in three columns, name, type and value, with a number's meaning beside it as `mg gff --names` gives it (a missing row or string said); only the rows in sight drawn, the folds kept while the tab is open; Copy Value and Copy Name on a row's menu. The hak editor's Preview shows a GFF the same way.
+  * **The Status Bar** says the resource, its layer and size, and the Resources panel's count while the panel is in use.
+  * **Options**: the page list with icons, OK and Cancel at the header's right end, General in three columns with a label column (two or one where narrower, nothing cut), its controls named for a screen reader; Enter OK also where Options floats over another editor.
+  * **Toolbar buttons retired**: a settings file that names it reads as before and is written back without it.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U22's review ([08](manual/08-journal-and-factions.md); [moves](ui-redesign-moves.md)).
   * **The matrix**: Tab while typing in a cell sets the value and keeps the keys (it gave the focus to the tab's Close); a value typed in a cell scrolled out of sight is set; PC can be chosen from the Outliner in Advanced and is kept through a switch of mode; Remove Faction chooses the faction that takes the removed one's number; the cells answer a screen reader's set, increase and decrease, and the chosen one is said selected; Faction's Name and Parent and Reaction's value are named.
   * **The journal**: no Redo is offered while a field's text waits to be set; typed text is never set on another entry or category when the journal is written whole by a plugin, a module-wide Find and Replace or a rename (found again by its tag and ID, else dropped); Entry's Text fills its panel with its StrRef in its heading, Category's Name shows the whole name, ID and XP show their numbers at the right, as the board.

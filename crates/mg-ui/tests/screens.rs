@@ -1766,7 +1766,9 @@ fn project_commands_and_team_prefix() {
     h.key_press(egui::Key::Escape);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-    h.run();
+    // (Settled: Options' Enter OK comes the frame after the window is
+    // under the pointer, M4's U23.)
+    settle(&mut h);
     h.get_by_label("Keyboard").click();
     h.run();
     h.get_by_label("Update").scroll_to_me();
@@ -5569,76 +5571,6 @@ fn view_menu() {
     h.get_by_label("View").click();
     h.run_steps(3);
     shoot(&mut h, &dir, "view-menu");
-}
-
-#[test]
-#[ignore]
-fn toolbar_icons_only() {
-    // Options › General › Editors' toolbar buttons: an area's header with
-    // icons and text, then icons only (the same: the header follows its
-    // width alone, M4's U3; in the same tab, and in a narrow one), and a
-    // popover's button's tip; the Top Bar, icons either way, and one of
-    // its tips.
-    mg_testkit::gpu::hold();
-    let root = mg_testkit::corpus!();
-    let dir = mg_testkit::output_dir("screens");
-    let rs = egui_kittest::wgpu::create_render_state(
-        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let mut app =
-        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    app.set_render_state(rs.clone());
-    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-    h.run_steps(15);
-    shoot(&mut h, &dir, "toolbar-icons-and-text");
-    h.state_mut().settings.toolbar_icons_only = true;
-    h.run_steps(5);
-    shoot(&mut h, &dir, "toolbar-icons-only");
-    // A tip: the icon's name, then what it does.
-    let center = |h: &Harness<'_, Moonglow>, label: &str| {
-        let low = |n: &egui_kittest::Node<'_>| n.rect().top();
-        h.get_all_by_label(label).max_by(|a, b| low(a).total_cmp(&low(b))).unwrap().rect().center()
-    };
-    // (The area's header is as it was: it follows no setting, M4's U3.)
-    h.hover_at(center(&h, "Lighting"));
-    h.run_steps(60);
-    shoot(&mut h, &dir, "toolbar-icons-only-tip");
-    let save = h.get_by_label("Top Bar").get_by_label("Save").rect().center();
-    h.hover_at(save);
-    h.run_steps(60);
-    shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
-    h.set_size(egui::vec2(1000.0, 700.0));
-    h.hover_at(egui::pos2(500.0, 500.0));
-    h.run_steps(10);
-    shoot(&mut h, &dir, "toolbar-icons-only-narrow");
-    // The editors' toolbars: a script's, a conversation's, a model's.
-    h.set_size(egui::vec2(1400.0, 700.0));
-    let ws = h.state().ws.as_ref().unwrap();
-    let script = *ws.module.keys_of(ResType::NSS).next().expect("a script");
-    let talk = *ws.module.keys_of(ResType::DLG).next().expect("a conversation");
-    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
-    for (tab, name) in [
-        (mg_ui::Tab::Script(script), "script"),
-        (mg_ui::Tab::Dialog(talk), "conversation"),
-        (mg_ui::Tab::Model(model), "model"),
-    ] {
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
-        h.run_steps(10);
-        for icons in [false, true] {
-            h.state_mut().settings.toolbar_icons_only = icons;
-            h.run_steps(5);
-            let how = if icons { "icons-only" } else { "icons-and-text" };
-            shoot(&mut h, &dir, &format!("toolbar-{name}-{how}"));
-        }
-    }
 }
 
 #[test]
@@ -14036,7 +13968,14 @@ fn board_resource() {
     let size = egui::vec2(1600.0, 900.0);
     let mut h = board_window(&root, size);
     resources_chicken(&mut h, size, None);
-    rest_pointer(&mut h);
+    // (Scrolled to SkillList and its FeatList and ClassList open, as the
+    // board's: M4's U23.)
+    gff_scrolled_to(&mut h, "SkillList");
+    chicken_lists_opened(&mut h);
+    // (No log line, as the board's Status Bar: its hints whole, Ctrl + F
+    // Find last.)
+    h.state_mut().log.clear();
+    resource_pointer(&mut h);
     shoot(&mut h, &board_dir(), "board_resource");
 }
 
@@ -14254,15 +14193,18 @@ fn faction_editor_review_fixes() {
     shoot(&mut h, &dir, "fix-basic-name-hint");
 }
 
-/// Options.png: Tools › Options As Tabs, on General. Today one column of
-/// a General page with Toolbar buttons among it and OK and Cancel at the
-/// foot, not the board's three columns and OK and Cancel in the header.
+/// Options.png: Tools › Options As Tabs, on General: the page list with
+/// icons, the General page in three columns, OK and Cancel at the
+/// header's right end (M4's U23; before it one column with Toolbar
+/// buttons among it and OK and Cancel at the foot).
 #[test]
 #[ignore]
 fn board_options() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    // (The board's tabs: the area, a script and Options, no creature.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![board_utc_tab()]));
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     frames_until(&mut h, "Options in front", |h| {
         h.state().active_editor() == Some(&mg_ui::Tab::Options)
@@ -14270,8 +14212,182 @@ fn board_options() {
     h.run_steps(3);
     apart(&h, "General").click();
     h.run_steps(5);
-    rest_pointer(&mut h);
+    // (The module tree from its top, as the board's; no log line. Scripts
+    // stays open: the tree shows the script's tab, as Options › General
+    // has it, which the board's leaves folded.)
+    h.event(egui::Event::PointerMoved(egui::pos2(130.0, 300.0)));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Page,
+        delta: egui::vec2(0.0, 20.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(10);
+    h.state_mut().log.clear();
+    options_pointer(&mut h);
     shoot(&mut h, &board_dir(), "board_options");
+}
+
+/// The pointer over Options, where nothing shows under it (the board's
+/// hints need it there: Enter OK): in the page list's room under its rows.
+fn options_pointer(h: &mut Harness<'_, Moonglow>) {
+    // (Under the page list's last row, in the list's empty room.)
+    let rows = h.query_all_by_label("Updates").map(|n| n.rect());
+    let list = rows.max_by(|a, b| a.left().total_cmp(&b.left())).expect("the page list");
+    h.hover_at(egui::pos2(list.center().x, list.bottom() + 120.0));
+    h.run_steps(5);
+}
+
+/// Options' ten pages, each as it opens beside the boards' tabs As Tabs
+/// (`options-<page>`), then General at 1280 and in the narrow layout
+/// (1000), and floating at 1600 by 900 and 1280 by 720 (M4's U23).
+#[test]
+#[ignore]
+fn options_pages() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("u23");
+    std::fs::create_dir_all(&dir).unwrap();
+    let open = |h: &mut Harness<'static, Moonglow>, page: &str| {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        frames_until(h, "Options drawn", |h| h.state().tab_rect(&mg_ui::Tab::Options).is_some());
+        h.run_steps(3);
+        apart(h, page).click();
+        h.run_steps(5);
+        options_pointer(h);
+    };
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    for page in [
+        "Folders",
+        "Area",
+        "General",
+        "Script Editor",
+        "Conversation Editor",
+        "Sounds",
+        "Verify",
+        "Language",
+        "Keyboard",
+        "Updates",
+    ] {
+        open(&mut h, page);
+        shoot(&mut h, &dir, &format!("options-{}", page.to_lowercase().replace(' ', "-")));
+    }
+    for (shot, size, floating) in [
+        ("options-1280", egui::vec2(1280.0, 900.0), false),
+        ("options-narrow", egui::vec2(1000.0, 900.0), false),
+        ("options-floating", egui::vec2(1600.0, 900.0), true),
+        ("options-floating-720", egui::vec2(1280.0, 720.0), true),
+    ] {
+        let mut h = board_window(&root, size);
+        if floating {
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        }
+        open(&mut h, "General");
+        shoot(&mut h, &dir, shot);
+    }
+}
+
+/// The read-only tab beside the Resources panel (M4's U23): the chicken's
+/// GFF with FeatList and ClassList opened (`resource-gff`), a 2DA, a
+/// script, a text and a picture of the game's; then the chicken at 1280,
+/// in the narrow layout (1000, and 760 by 700), and floating at 1600 by 900 and 1280 by
+/// 720. The pointer over the panel's count, as the board's hints need.
+#[test]
+#[ignore]
+fn resource_kinds() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("u23");
+    std::fs::create_dir_all(&dir).unwrap();
+    let size = egui::vec2(1600.0, 900.0);
+    let mut h = board_window(&root, size);
+    resources_chicken(&mut h, size, None);
+    chicken_lists_opened(&mut h);
+    resource_pointer(&mut h);
+    shoot(&mut h, &dir, "resource-gff");
+    for (shot, name, t) in [
+        ("resource-2da", "classes", ResType::TWODA),
+        ("resource-script", "nw_c2_default1", ResType::NSS),
+        ("resource-text", "tcn01", ResType::SET),
+        ("resource-picture", "po_chicken_l", ResType::TGA),
+    ] {
+        let tab = mg_ui::Tab::Resource(ResKey::parse(name, t).unwrap());
+        board_front(&mut h, &tab);
+        resource_pointer(&mut h);
+        shoot(&mut h, &dir, shot);
+    }
+    for (shot, size, floating) in [
+        ("resource-1280", egui::vec2(1280.0, 900.0), false),
+        ("resource-narrow", egui::vec2(1000.0, 900.0), false),
+        ("resource-narrow-760", egui::vec2(760.0, 700.0), false),
+        ("resource-floating", egui::vec2(1600.0, 900.0), true),
+        ("resource-floating-720", egui::vec2(1280.0, 720.0), true),
+    ] {
+        let mut h = board_window(&root, size);
+        if floating {
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        }
+        resources_chicken(&mut h, size, None);
+        chicken_lists_opened(&mut h);
+        resource_pointer(&mut h);
+        shoot(&mut h, &dir, shot);
+    }
+}
+
+/// The read-only GFF view scrolled by the wheel until its row `name` is
+/// its top row.
+fn gff_scrolled_to(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let view = h.state().editor_area_rect().expect("the editor area");
+    let row = |h: &Harness<'_, Moonglow>, n: &str| {
+        h.query_all_by_label(n).find(|r| view.contains(r.rect().center())).map(|r| r.rect())
+    };
+    let top = row(h, "Deity").expect("the chicken's first row").top();
+    let to = row(h, name).expect("the row in sight").top();
+    h.event(egui::Event::PointerMoved(view.center()));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, top - to),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(10);
+    let now = row(h, name).expect("still in sight").top();
+    assert!((now - top).abs() < 1.0, "{name} at the top: {now} for {top}");
+}
+
+/// The chicken's FeatList and ClassList opened, and each one's first
+/// item, as the Resources board has them.
+fn chicken_lists_opened(h: &mut Harness<'_, Moonglow>) {
+    // (Those in sight: a floating window's list may end above ClassList.)
+    for list in ["FeatList", "ClassList"] {
+        let found = h.query_all_by_label(list).find(|n| n.rect().left() > 265.0);
+        if let Some(row) = found {
+            row.click();
+            h.run_steps(3);
+        }
+    }
+    assert!(h.query_all_by_label("[0]").count() > 0, "a list opened");
+    // (Each list's first item opened too.)
+    for _ in 0..2 {
+        let item = (h.query_all_by_label("[0]"))
+            .find(|n| n.accesskit_node().data().is_expanded() == Some(false));
+        if let Some(item) = item {
+            item.click();
+            h.run_steps(3);
+        }
+    }
+}
+
+/// The pointer over the Resources panel just under its count, where
+/// nothing shows under it (no tip, no row lit): the panel in use, its
+/// hints the Status Bar's.
+fn resource_pointer(h: &mut Harness<'_, Moonglow>) {
+    let count = h.query_all_by_label_contains(" resources").find(|n| n.rect().left() < 300.0);
+    let at = count.map_or(egui::pos2(60.0, 180.0), |n| {
+        egui::pos2(n.rect().center().x, n.rect().bottom() + 4.0)
+    });
+    h.hover_at(at);
+    h.run_steps(5);
 }
 
 /// Welcome.png: no module open, the install's modules in Recent Modules.

@@ -1916,6 +1916,13 @@ fn side_editors_and_tools_open_again_with_the_module() {
     assert!(app.dock.find_tab(&Tab::PlaceableGallery).is_some());
     assert!(app.dock.find_tab(&Tab::Options).is_some());
     assert_eq!(app.options.as_ref().unwrap().page, mg_ui::OptionsPage::General);
+    // (And General drawn, not only chosen: its Questions in sight. M4's
+    // U23 fix.)
+    let mut h = h;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Options));
+    h.run_steps(3);
+    assert!(h.query_by_label("Questions").is_some(), "Options drawn on General");
+    let app = h.state();
     let after = shown(app);
     assert_eq!(after.iter().filter(|k| *k == "Tileset").count(), 0);
     assert_eq!(after.len(), before.len() - 1, "{before:?} {after:?}");
@@ -3005,8 +3012,13 @@ fn a_properties_window_s_buttons_stay_put() {
             table,
             tileset,
             Tab::Script(script),
+            // (Options' OK and Cancel at its header's end since M4's U23.)
+            Tab::Options,
         ] {
-            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            h.state_mut().actions.push(match tab {
+                Tab::Options => mg_ui::Action::OptionsDialog,
+                _ => mg_ui::Action::OpenTab(tab.clone()),
+            });
             h.run_steps(8);
             // (A window of its own, as a builder has it.)
             let path = h.state().dock.find_tab(&tab).unwrap();

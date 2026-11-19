@@ -356,6 +356,56 @@ fn a_frame_that_changes_nothing_walks_no_hak() {
     assert_eq!(doc(&h, id).walks(), walks + 2, "made again once: its rows and its facts");
 }
 
+/// A GFF of the hak in the Preview (the read-only view's rows, `ro_gff`):
+/// its shown rows listed once when it is first drawn and once for each
+/// fold or unfold, none in frames that change nothing, counted with the
+/// read-only tab's by the one counter (M4's U23 fix).
+#[test]
+fn the_preview_s_gff_lists_its_rows_once_a_fold() {
+    use mg_gff::{Field, Label, Struct, Value};
+    use mg_module::hak_edit::{Hak, Source};
+    let mut gff = mg_gff::Gff::new(*b"UTC ");
+    let item = |i: i32| Struct {
+        fields: vec![Field { label: Label::new("Feat").unwrap(), value: Value::Int(i) }],
+        ..Default::default()
+    };
+    let list = Value::List((0..3).map(item).collect());
+    gff.root.fields.push(Field { label: Label::new("FeatList").unwrap(), value: list });
+    let path = mg_testkit::scratch_dir("ui-u23-hak-gff").join("zz_gff.hak");
+    let mut hak = Hak::new();
+    let bytes = gff.to_bytes().unwrap();
+    hak.add_sources(vec![(key("zz_hen.utc"), Source::Bytes(bytes.into()))]).unwrap();
+    hak.save(Some(&path)).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings = Mode::Tabs.settings();
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let id = hv::open_at(h.state_mut(), &path).expect("opened");
+    settle(&mut h);
+    let (before, _) = h.state().read_only_counts();
+    doc_mut(&mut h, id).choose(key("zz_hen.utc"));
+    settle(&mut h);
+    let dock = right_dock_rect(&h);
+    let list = (h.get_all_by_label("FeatList").map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .expect("the GFF's rows in the Preview");
+    let (shown, drawn) = h.state().read_only_counts();
+    assert_eq!(shown, before + 1, "listed once as it is shown");
+    assert!(drawn >= 1, "its rows drawn");
+    for n in 0..10 {
+        h.hover_at(egui::pos2(300.0 + n as f32 * 30.0, 300.0));
+        h.run_steps(1);
+    }
+    assert_eq!(h.state().read_only_counts().0, shown, "frames listed nothing");
+    click_pos(&h, list.center());
+    settle(&mut h);
+    let unfolded = h.state().read_only_counts().0;
+    assert_eq!(unfolded, shown + 1, "listed once for the unfold");
+    assert!(h.query_by_label("[2]").is_some(), "its items shown");
+    h.run_steps(10);
+    assert_eq!(h.state().read_only_counts().0, unfolded, "and not again");
+}
+
 /// The table's keys are the active editor's (two haks in two groups): a
 /// click gives one's table the keys, Down and End choose in it; with the
 /// other active, Down does nothing to the first; with a popover open,

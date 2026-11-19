@@ -2673,7 +2673,9 @@ fn a_project_s_command_is_in_the_palette_and_takes_keys() {
     h.run();
     // Options › Keyboard lists them, and another key chosen there runs it.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-    h.run();
+    // (Settled: Options' Enter OK comes the frame after the window is
+    // under the pointer.)
+    settle(&mut h);
     h.get_by_label("Keyboard").click();
     h.run();
     type_into_hint(&mut h, "Find a command", "project");

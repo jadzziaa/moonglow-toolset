@@ -184,7 +184,8 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         Viewing::Model { read, facts } => model(app, ui, at, key, *read, facts),
         Viewing::Plain(plain) => {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(room.shrink(6.0)));
-            crate::browser::plain_ui(&mut child, key, plain);
+            let names = crate::ro_gff::Names { game: app.game.as_deref(), factions: &[] };
+            crate::browser::plain_ui(&mut child, key, plain, names);
         }
     }
     if let Some(d) = app.haks.get_mut(at)

@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T18:28:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:26:55Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -81,6 +81,8 @@ unless their file (under `crates/`) follows the name.
 |---|---|---|
 | Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
 | Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, Area, General, Script Editor, Conversation Editor, Sounds, Language, Keyboard | ✅ (no Spell Checking: see below) |
+| OK, Cancel at the dialog's foot; the page tree at its left | the page list at the left, each page with its icon; OK and Cancel at the right end of the header (Enter and Escape as they do); Cancel and Escape set back every page's changes, OK writes the settings once (M4's U23) | ✅ [options_lists_its_pages_with_icons_and_ok_and_cancel_end_its_header], [options_ok_sets_the_settings_once_and_cancel_and_esc_set_every_page_back] |
+| General as one column of checkboxes | General in three columns where wide (two or one where narrower, nothing cut), each label in a column beside its control (M4's U23) | ✅ [the_general_page_folds_its_columns_never_cut_never_taller_where_wider] |
 | General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
 | General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
 | General: welcome dialog at startup; color depth and character set warnings | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings | — |
@@ -391,7 +393,7 @@ Wizard.
 | Edit › Module Properties | Edit › Module Properties (and Module Properties on the Module panel's tab bar) | ✅ |
 | Edit › Area Properties (the area's Edit too) | the area view's toolbar and the module tree's context menu | ✅ |
 | View › Selection Mode › Select Terrain, Select Objects | the area view's Select Tiles (F10, Aurora's Select Terrain's key) | ✅ |
-| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) and the area view's toolbar, always shown; Options › General › Editors' toolbar buttons: Icons only (the area view's and the editors' toolbars) | — |
+| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) and the area view's toolbar, always shown; the editors' one-row headers, their icon buttons named in their tips and for a screen reader (Options' Toolbar buttons, Icons only, retired in M4's U23: an old settings file's setting is read and dropped) | — |
 | View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Left Dock, Right Dock (each ticked while shown), Hide All Panels, Reset Layout; the module tree is the Left Dock's Module panel (its tab bar: Module Properties, New Area, Expand All, Collapse All), beside its Resources panel, the Outliner under them while an area is in front (its placed objects by kind, a seam between), and View › Left Dock (Ctrl+Alt+1) folds the dock on either; the palettes are the Right Dock's Palette panel, which View › Right Dock (Ctrl+Alt+2) folds, with the Preview panel on the tab beside theirs (Tools › Preview); the log is the Bottom Dock's Log panel (Copy Log, Save Log, Clear Log on its tab bar), opened and closed by the Log switch in the Status Bar, which shows the log's last line while it is closed (pressed, it opens the log); a new installation starts with it closed; in a narrow window the side docks fold by themselves (the Left Dock under 1500 points, the Right Dock under 796, 280 wide under 1400) without changing what View says you chose, and come back by hand there; in a window 2560 or wider the Left Dock is 320 and the Right Dock 741 in two columns (Palette, Preview) where not chosen (M3 T14) | ✅ improvement [what_the_shell_shows_at_each_width] [a_window_narrowed_and_widened_writes_nothing_and_gives_all_back] |
 | View › Interface Panels › Toolbar, Visual Camera Controls | none: the camera's keys and the mouse (the manual's chapter 4) | — |
 | View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
