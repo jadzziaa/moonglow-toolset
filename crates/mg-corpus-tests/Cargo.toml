@@ -83,7 +83,7 @@ mg-set.workspace = true
 mg-shader.workspace = true
 mg-ssf.workspace = true
 mg-testkit = { workspace = true, features = ["hlsl"] }
-naga.workspace = true
+naga = { workspace = true, features = ["glsl-out"] }
 mg-tiles.workspace = true
 mg-tlk.workspace = true
 png.workspace = true

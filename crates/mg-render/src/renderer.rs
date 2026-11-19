@@ -1012,8 +1012,10 @@ fn blended_by(alpha: f32, opacity: f32, blending: Blending) -> bool {
 
 impl Renderer {
     /// A renderer drawing into `color_format` targets with `sample_count`
-    /// samples (1 = no MSAA).
+    /// samples (1 = no MSAA), as the device gives them ([`Gpu::samples`]:
+    /// one on OpenGL).
     pub fn new(gpu: &Gpu, color_format: wgpu::TextureFormat, sample_count: u32) -> Renderer {
+        let sample_count = gpu.samples(sample_count);
         let device = &gpu.device;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("lit"),
@@ -3969,10 +3971,14 @@ pub struct Targets {
     pub msaa_view: Option<wgpu::TextureView>,
     pub depth: wgpu::TextureView,
     pub size: (u32, u32),
+    /// The samples a pixel they were made with ([`Gpu::samples`]).
+    pub samples: u32,
     pub copies: crate::framebuffer::Copies,
 }
 
 impl Targets {
+    /// Targets of `width` by `height` pixels with `samples` samples a
+    /// pixel, as the device gives them ([`Gpu::samples`]: one on OpenGL).
     pub fn new(
         gpu: &Gpu,
         format: wgpu::TextureFormat,
@@ -3980,6 +3986,7 @@ impl Targets {
         width: u32,
         height: u32,
     ) -> Targets {
+        let samples = gpu.samples(samples);
         let (width, height) = (width.max(1), height.max(1));
         let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
         let make = |label, format, samples, usage| {
@@ -4010,7 +4017,7 @@ impl Targets {
         let depth = make("depth", DEPTH_FORMAT, samples, read).create_view(&Default::default());
         let color_view = color.create_view(&Default::default());
         let copies = crate::framebuffer::Copies::new(&gpu.device, format, (width, height));
-        Targets { color, color_view, msaa_view, depth, size: (width, height), copies }
+        Targets { color, color_view, msaa_view, depth, size: (width, height), samples, copies }
     }
 
     /// Where to draw: the multisampled view, else the colour view.
