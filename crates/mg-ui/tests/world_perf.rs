@@ -132,8 +132,9 @@ fn persistent_world_stays_within_budget() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     frames(&mut h, &mut b, "module open (Module Properties)", MS(500), MS(33), |_| {});
-    // (The Left Dock, folded at this width beside the Palette panel,
-    // unfolded by its chevron, as the app tests' `unfold_left_dock` does.)
+    // (The Left Dock, found folded to its strip here once the module is
+    // open, unfolded by its chevron, as the app tests' `unfold_left_dock`
+    // does.)
     if let Some(chevron) = h.query_by_label("Show the Left Dock") {
         chevron.click();
         let started = Instant::now();
