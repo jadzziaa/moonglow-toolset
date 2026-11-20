@@ -929,12 +929,14 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
     use mg_module::attach::There;
     let Some(mut draft) = app.attach.take() else { return };
     let mut done = None;
-    crate::widgets::modal(ctx, "Add Haks and Talk Table").show(ctx, |ui| {
+    let footed = crate::widgets::modal(ctx, "Add Haks and Talk Table").show_foot(ctx, |ui| {
         ui.label("Haks go at the top of the module's list, highest priority first:");
         let n = draft.placements.len();
         let mut swap = None;
         for (i, p) in draft.placements.iter().enumerate() {
-            ui.horizontal(|ui| {
+            // (Wrapped where the window is narrow: its Move Down ran past
+            // the least window's edge.)
+            ui.horizontal_wrapped(|ui| {
                 ui.monospace(if p.is_tlk {
                     format!("{}.tlk", p.name)
                 } else {
@@ -981,15 +983,15 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
         if draft.placements.iter().any(|p| p.there == There::Different) {
             ui.check_box(&mut draft.replace, "Replace the files of the same names that are there");
         }
-        ui.horizontal(|ui| {
-            if ui.button("OK").clicked() {
-                done = Some(true);
-            }
-            if crate::widgets::cancel(ui) {
-                done = Some(false);
-            }
-        });
+        ((), crate::widgets::Foot::new().main("OK", true).cancel())
     });
+    if let Some(f) = footed {
+        if f.pressed.main() {
+            done = Some(true);
+        } else if f.pressed.cancelled() {
+            done = Some(false);
+        }
+    }
     match done {
         None => app.attach = Some(draft),
         Some(false) => {}

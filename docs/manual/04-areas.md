@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 ---
 
 # Areas
@@ -727,13 +727,18 @@ Aurora):
   creatures, doors, items and placeables that aren't Static. The area
   view shows what you change as you change it, before anything is set:
   the objects (or the start location) move, turn and take their new
-  shape. **OK** sets what you changed and closes the window, **Apply**
-  sets it and keeps the window open; each is one step to undo. Cancel,
+  shape. The fields are in a grid of four columns (X, Y; Z, Bearing (°)),
+  and the visual transform has its own under **Visual Transforms**:
+  Scale, Animation speed; X rotation, X translation; Y rotation, Y
+  translation; Z rotation, Z translation. The footer has **OK** (the main
+  button, which Enter presses), which sets what you changed and closes
+  the window, **Apply**, which sets it and keeps the window open (each is
+  one step to undo), and **Cancel**. Cancel,
   or closing the window, puts them back as they were. The rotations are
   named as Aurora names them and the game reads them, which is not by
-  the axis each turns about: **X Rotation** turns the model about its
-  upright axis (as Bearing does), **Y Rotation** tips it forward or
-  back about its own X axis (east at Bearing 0), and **Z Rotation**
+  the axis each turns about: **X rotation** turns the model about its
+  upright axis (as Bearing does), **Y rotation** tips it forward or
+  back about its own X axis (east at Bearing 0), and **Z rotation**
   leans it to one side about its own Y axis; the game makes them in
   that order, X outermost. **Scale** scales the model every way alike
   (the game reads one number, `ScaleX`, and Moonglow writes the three
@@ -757,7 +762,7 @@ Aurora):
   does, so a static placeable with one in its file was made elsewhere:
   the window says so, and Verify warns of it (`static-transform`), with
   a **Take the transform off** button (since Moonglow 2.13.0).
-  **Animation Speed**, beside Scale, is how fast the model's
+  **Animation speed**, beside Scale, is how fast the model's
   animations play (1 as made, 2 twice as fast: the script's
   `OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED`). What a script can give an
   object besides, the window shows under the fields and keeps as it is:
@@ -933,7 +938,9 @@ Aurora):
 
 **Setup Store…** asks what Aurora's Store Setup Wizard asks: the
 shopkeeper's lines, the store blueprint, and a friendlier faction for a
-hostile shopkeeper. **Finish** makes, as one step to undo, the
+hostile shopkeeper, on three steps (Conversation, Choose Store, Finish) listed at the
+window's left, with a page bar over each page and the footer's **< Back**, **Next >**,
+**Finish** and **Cancel**; the window is resizable. **Finish** makes, as one step to undo, the
 conversation (`store001`), the script that opens the store
 (`openstore001`, which calls the game's `OpenStore`, or
 `gplotAppraiseOpenStore` with appraise checks), the store placed where
@@ -1012,7 +1019,8 @@ Verify, which says which ones are left at another level, where the
 game may hide them.
 
 **Edit › Find Instance…** lists the placed objects across the module by
-kind, area, blueprint and tag; double-click one to go to it. Where
+kind, area, blueprint and tag; double-click one to go to it. The footer says how many were found, and has
+**Search** (the main button), **Clear** and **Close**. Where
 objects were added to or removed from its area since the search, the
 double click searches again instead (the log says so): the list is then
 of the area as it is.
@@ -1092,7 +1100,7 @@ doesn't set `paste_warning`, the option on warns as above, and off warns
 only of the tags the project wants unique (`unique`, `unique_in_area`),
 the team's own rule; without those, nothing.
 
-- **Retag** gives each new object with such a tag one of its own, the
+- **Retag**, the main button (Enter presses it), gives each new object with such a tag one of its own, the
   tag with a number that no object has (`LAMP_2`; `STORE_7` becomes
   `STORE_8`; `Patrol_01` becomes `Patrol_02`, its number as wide as it
   was), as one step to undo. A door or trigger made with them whose
@@ -1102,7 +1110,8 @@ the team's own rule; without those, nothing.
   the original (where only one object made in that area had the tag).
 - **Retag All**, for an area copied where the project warns of any tag
   (below), retags the tags only counted too.
-- **Keep Tags** leaves them (objects that no script looks up).
+- **Keep Tags** leaves them (objects that no script looks up). It is the
+  window's last button and leaves it, as there is no Cancel.
 
 The window doesn't stop the editor. Where the module was changed behind
 it (another object deleted, an Undo), Retag retags nothing and the log

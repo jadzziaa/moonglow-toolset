@@ -2514,10 +2514,10 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.script_tools.open_script.take() else { return };
     let mut open = true;
     let mut chosen: Vec<(ResKey, ScriptFrom)> = Vec::new();
-    crate::widgets::dialog(ctx, "Open Script", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Open Script", &mut open)
         .default_size([420.0, 440.0])
         .collapsible(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             // Down and Up (Page Down and Up) move the selection among the
             // scripts listed, while the name is typed too; with Shift,
             // they widen it. Home and End too, and Ctrl+A selects all,
@@ -2554,17 +2554,17 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 .show(ui)
                 .response;
             crate::widgets::autofocus(ui, &field);
-            // (A name typed starts over: Enter opens the first it lists.)
+            // (Enter with nothing selected, where Open is off: it opens
+            // the first listed. With scripts selected it is Open's, the
+            // footer's.)
+            let entered = (field.lost_focus() || !field.has_focus())
+                && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            // (A name typed starts over.)
             if field.changed() {
                 w.cursor = 0;
                 w.selected.clear();
                 w.anchor = None;
             }
-            // (Enter opens wherever the keys are in the window: after a
-            // click on a script or on what to show they are not the
-            // name's.)
-            let entered = (field.lost_focus() || !field.has_focus())
-                && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal_wrapped(|ui| {
                 for (shown, label) in [
                     (ScriptsShown::All, "All Resources"),
@@ -2620,29 +2620,18 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     widen,
                 );
             }
-            // What Enter and Open open: those selected (all of them are
-            // listed: a narrower name took the others out), in the list's
-            // order; gathered when they are opened, counted until then.
-            let picked = |selected: &std::collections::BTreeSet<ResKey>| {
-                let of = listed.iter().filter(|(k, _)| selected.contains(k));
-                of.copied().collect::<Vec<(ResKey, ScriptFrom)>>()
-            };
+            // (What Open opens, those selected, is gathered when they are
+            // opened, counted until then.)
             let picked_count = w.selected.len();
-            ui.weak(match picked_count {
+            if entered && picked_count == 0 {
+                chosen = listed.get(cursor).copied().into_iter().collect();
+            }
+            let note = match picked_count {
                 0 => format!("{} scripts", listed.len()),
                 n => format!("{} scripts, {n} selected", listed.len()),
-            });
-            if entered {
-                chosen = if picked_count == 0 {
-                    listed.get(cursor).copied().into_iter().collect()
-                } else {
-                    picked(&w.selected)
-                };
-            }
+            };
             let (row, pitch) = mg_uikit::row_metrics(ui);
-            // (Room kept under the list for its button.)
-            let footer = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y + 6.0;
-            let height = (ui.available_height() - footer).max(3.0 * row);
+            let height = ui.available_height().max(3.0 * row);
             let mut list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             if moved != 0 {
                 let above = (height / 2.0 - pitch).max(0.0);
@@ -2719,23 +2708,28 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 w.selected = names.iter().copied().collect();
                 w.anchor = names.first().copied();
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                let button = egui::Button::new(match picked_count {
-                    n if n > 1 => format!("Open {n}"),
-                    _ => "Open".to_string(),
-                });
-                if ui
-                    .add_enabled(picked_count > 0, button)
-                    .on_hover_text("Open the scripts selected, each in its tab (Enter)")
-                    .on_disabled_hover_text("Select a script (Ctrl+click or Shift+click: several)")
-                    .clicked()
-                {
-                    chosen = picked(&w.selected);
-                }
-            });
             (w.listed, w.names) = (listed, names);
+            let words = match picked_count {
+                n if n > 1 => format!("Open {n}"),
+                _ => "Open".to_string(),
+            };
+            (
+                (),
+                crate::widgets::Foot::new()
+                    .note(note)
+                    .main(words, picked_count > 0)
+                    .tip("Open the scripts selected, each in its tab (Enter)")
+                    .cancel(),
+            )
         });
+    if let Some(footed) = &footed {
+        if footed.pressed.main() {
+            chosen = (w.listed.iter()).filter(|(k, _)| w.selected.contains(k)).copied().collect();
+        }
+        if footed.pressed.cancelled() {
+            open = false;
+        }
+    }
     for (key, from) in &chosen {
         app.actions.push(match from {
             // (As from the module tree: in the external editor too, where
@@ -2774,10 +2768,11 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let keys = &app.keymap;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
         let mut layer = None;
+        let mut find_field = None;
         let shown = crate::widgets::dialog(&ctx, title, &mut s.open)
             .collapsible(false)
             .resizable(false)
-            .show(&ctx, |ui| {
+            .show_foot(&ctx, |ui| {
                 layer = Some(ui.layer_id());
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
@@ -2790,12 +2785,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     {
                         f3 = true;
                     }
-                    // Enter finds (the next, or all), and the field keeps
-                    // the keys for the next Enter.
-                    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        entered = true;
-                        field.request_focus();
-                    }
+                    find_field = Some(field.id);
                     ui.end_row();
                     if s.replace_mode {
                         ui.label("Replace With");
@@ -2824,18 +2814,32 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
                 let all = (s.in_files || s.in_open) && !s.replace_mode;
-                ui.horizontal(|ui| {
-                    if all {
-                        find_all = ui.button("Find All").clicked() || entered;
-                    } else {
-                        find_next = ui.button("Find Next").clicked() || entered || f3;
-                    }
-                    if s.replace_mode {
-                        replace = ui.button("Replace").clicked();
-                        replace_all = ui.button("Replace All").clicked();
-                    }
-                });
+                // (Enter finds the next, or all.)
+                let mut foot = crate::widgets::Foot::new()
+                    .main(if all { "Find All" } else { "Find Next" }, true);
+                if s.replace_mode {
+                    foot = foot.button("Replace", true).button("Replace All", true);
+                }
+                ((), foot)
             });
+        if let Some(shown) = &shown {
+            let pressed = &shown.pressed;
+            if pressed.main() {
+                // (The field keeps the keys for the next Enter.)
+                entered = true;
+                if let Some(id) = find_field {
+                    ctx.memory_mut(|m| m.request_focus(id));
+                }
+            }
+            let all = (s.in_files || s.in_open) && !s.replace_mode;
+            find_all = all && entered;
+            find_next = (!all && entered) || f3;
+            replace = pressed.clicked("Replace");
+            replace_all = pressed.clicked("Replace All");
+            if pressed.cancelled() {
+                s.open = false;
+            }
+        }
         app.script_tools.search = s.clone();
         let target = s.script.filter(|k| app.scripts.contains_key(k));
         // Whether the window is where the user is at work: the keys in
@@ -2848,7 +2852,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 
         let focused = ctx.memory(|m| m.focused()).and_then(|id| ctx.read_response(id));
         let keys_in = focused.as_ref().map(|r| r.layer_id) == layer && layer.is_some();
-        let rect = shown.map(|r| r.response.rect);
+        let rect = shown.as_ref().map(|r| r.response.rect);
         let clicked = ctx.input(|i| i.pointer.any_click().then(|| i.pointer.interact_pos()));
         let click_in = clicked.flatten().zip(rect).map(|(at, rect)| rect.contains(at));
         if !s.open {

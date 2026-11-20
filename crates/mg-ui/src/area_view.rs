@@ -8114,23 +8114,19 @@ fn set_edits(
 fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let Some(mut name) = view.set_name.take() else { return };
     let mut open = true;
-    let mut done = false;
-    let mut cancel = false;
-    crate::widgets::dialog(ui.ctx(), "Create Set", &mut open)
+    let footed = crate::widgets::dialog(ui.ctx(), "Create Set", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ui.ctx(), |ui| {
+        .show_foot(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
                 let field = ui.add(mg_uikit::text_field(&mut name).hint_text("set name"));
                 crate::widgets::autofocus(ui, &field);
             });
-            ui.horizontal(|ui| {
-                done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
-                    || (!name.trim().is_empty() && crate::widgets::enter(ui));
-                cancel = crate::widgets::cancel(ui);
-            });
+            ((), crate::widgets::Foot::new().main("OK", !name.trim().is_empty()).cancel())
         });
+    let done = footed.as_ref().is_some_and(|f| f.pressed.main());
+    let cancel = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
     if done {
         create_set(app, view, name.trim());
     } else if open && !cancel {
@@ -8241,11 +8237,10 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     };
     let mut open = true;
-    let mut done = false;
-    crate::widgets::dialog(ctx, "Resources Used", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Resources Used", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.strong(area.to_string());
             egui::Grid::new("usage").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 if let Some(m) = &view.model {
@@ -8271,8 +8266,9 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 }
             });
-            done = ui.button("Done").clicked();
+            ((), crate::widgets::Foot::new().leave("Done"))
         });
+    let done = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
     if !open || done {
         app.area_stats = None;
     }

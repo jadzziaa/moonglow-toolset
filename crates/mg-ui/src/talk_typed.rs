@@ -590,15 +590,20 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     show_when_free(app);
     let Some(ask) = app.typed.ask.clone() else { return };
     let mut answer = None;
-    let mut always = false;
     let title = "Text in the Talk Table";
+    let always_id = egui::Id::new("talk-typed-always");
+    let (on, tip) = crate::widgets::always_now(
+        ctx,
+        always_id,
+        "Tools › Options › Language › When the talk table has the text",
+    );
     // (Escape is this question's, as a dialog's is: the Properties window
     // under it doesn't take it for its Cancel.)
     let escape = crate::widgets::escape_closes(ctx, title);
     let modal =
         crate::widgets::modal_window(ctx, egui::Id::new("talk-typed-ask")).show(ctx, |ui| {
-            crate::widgets::modal_titled(ui, title, |ui| {
-                ui.set_max_width(420.0);
+            crate::widgets::modal_titled_foot(ui, title, |ui| {
+                ui.set_max_width(ui.available_width().min(420.0));
                 ui.label(format!(
                     "The talk table has this text already, at line {} (StrRef {}):",
                     ask.row,
@@ -610,39 +615,27 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             "The field can name that line, or have a line of its own: a line named by several \
              fields changes for each of them when it is changed in the talk table editor.",
         );
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(format!("Use Line {}", ask.row))
-                        .on_hover_text("The field names the line the table has")
-                        .clicked()
-                        || crate::widgets::enter(ui)
-                    {
-                        answer = Some(Answer::Use(ask.row));
-                    }
-                    if ui
-                        .button("Add a Line")
-                        .on_hover_text("A new line with the same text")
-                        .clicked()
-                    {
-                        answer = Some(Answer::Add);
-                    }
-                    if ui
-                        .button("Keep in the File")
-                        .on_hover_text("The text is the field's own, as Aurora writes it")
-                        .clicked()
-                    {
-                        answer = Some(Answer::File);
-                    }
-                });
-                always = crate::widgets::always_box(
-                    ui,
-                    egui::Id::new("talk-typed-always"),
-                    "Always do this",
-                    "Tools › Options › Language › When the talk table has the text",
-                );
-            });
+                let foot = crate::widgets::Foot::new()
+                    .check("Always do this", on, Some(tip))
+                    .main(format!("Use Line {}", ask.row), true)
+                    .tip("The field names the line the table has")
+                    .button("Add a Line", true)
+                    .tip("A new line with the same text")
+                    .leave("Keep in the File")
+                    .tip("The text is the field's own, as Aurora writes it");
+                ((), foot)
+            })
+            .1
         });
+    let (stop, pressed) = (modal.should_close(), modal.inner);
+    let always = crate::widgets::always_kept(ctx, always_id, pressed.checked);
+    if pressed.main() {
+        answer = Some(Answer::Use(ask.row));
+    } else if pressed.clicked("Add a Line") {
+        answer = Some(Answer::Add);
+    } else if pressed.cancelled() {
+        answer = Some(Answer::File);
+    }
     // (Always so: Options › Language's choice, from now on.)
     if always && let Some(a) = answer {
         app.settings.talk_reuse = match a {
@@ -651,7 +644,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             Answer::File => TalkReuse::File,
         };
     }
-    if escape || modal.should_close() {
+    if escape || stop {
         answer = answer.or(Some(Answer::File));
     }
     if let Some(answer) = answer {

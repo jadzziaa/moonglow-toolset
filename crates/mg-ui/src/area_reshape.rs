@@ -53,10 +53,10 @@ pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
 fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut d) = app.resize_area.take() else { return };
     let mut open = true;
-    let (mut ok, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, "Resize Area", &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    let footed = crate::widgets::dialog(ctx, "Resize Area", &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
             ui.horizontal(|ui| {
                 egui::Grid::new("resize").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Rows");
@@ -91,13 +91,11 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
                          others.",
                     );
             });
-            ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
-                    || crate::widgets::enter(ui);
-                cancel = crate::widgets::cancel_discard(ui);
-            });
-        },
-    );
+            let foot =
+                crate::widgets::Foot::new().main("OK", true).tip("Accept changes").cancel_discard();
+            ((), foot)
+        });
+    let (ok, cancel) = footed.map_or((false, false), |f| (f.pressed.main(), f.pressed.cancelled()));
     if ok {
         resize(app, &d);
     } else if open && !cancel {
@@ -108,10 +106,10 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
 fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut d) = app.rotate_area.take() else { return };
     let mut open = true;
-    let (mut ok, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, "Rotate Area", &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    let footed = crate::widgets::dialog(ctx, "Rotate Area", &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
             egui::Grid::new("rotations").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
                 // Counter-clockwise 90, 180, 270 and clockwise 90, 180, 270:
                 // as quarter turns counter-clockwise.
@@ -122,13 +120,11 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.end_row();
                 }
             });
-            ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
-                    || crate::widgets::enter(ui);
-                cancel = crate::widgets::cancel_discard(ui);
-            });
-        },
-    );
+            let foot =
+                crate::widgets::Foot::new().main("OK", true).tip("Accept changes").cancel_discard();
+            ((), foot)
+        });
+    let (ok, cancel) = footed.map_or((false, false), |f| (f.pressed.main(), f.pressed.cancelled()));
     if ok {
         rotate(app, &d);
     } else if open && !cancel {
@@ -273,77 +269,78 @@ fn tileset_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut d) = app.change_tileset.take() else { return };
     map_for(app, &mut d);
     let mut open = true;
-    let (mut ok, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, "Change Tileset", &mut open).collapsible(false).show(ctx, |ui| {
-        let name = |r: ResRef| {
-            (d.choices.iter().find(|c| c.resref == r))
-                .map_or_else(|| r.to_string(), |c| format!("{} ({r})", c.name))
-        };
-        ui.horizontal(|ui| {
-            crate::widgets::field_label(ui, "Tileset");
-            // (The project's hidden ones left out, but for the area's own
-            // and the one chosen.)
-            let all: Vec<ResRef> = (d.choices.iter())
-                .map(|c| c.resref)
-                .filter(|r| d.show_hidden || !d.hidden.contains(r) || *r == d.from || *r == d.to)
-                .collect();
-            crate::widgets::dropdown("change-tileset").selected_text(name(d.to)).show(
-                ui,
-                &mut d.to,
-                &all,
-                |r| name(*r),
-            );
-        });
-        if !d.hidden.is_empty() {
-            let label = format!("Show hidden tilesets ({})", d.hidden.len());
-            ui.check_box(&mut d.show_hidden, label).on_hover_text(
+    let footed = crate::widgets::dialog(ctx, "Change Tileset", &mut open)
+        .collapsible(false)
+        .show_foot(ctx, |ui| {
+            let name = |r: ResRef| {
+                (d.choices.iter().find(|c| c.resref == r))
+                    .map_or_else(|| r.to_string(), |c| format!("{} ({r})", c.name))
+            };
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Tileset");
+                // (The project's hidden ones left out, but for the area's own
+                // and the one chosen.)
+                let all: Vec<ResRef> = (d.choices.iter())
+                    .map(|c| c.resref)
+                    .filter(|r| {
+                        d.show_hidden || !d.hidden.contains(r) || *r == d.from || *r == d.to
+                    })
+                    .collect();
+                crate::widgets::dropdown("change-tileset").selected_text(name(d.to)).show(
+                    ui,
+                    &mut d.to,
+                    &all,
+                    |r| name(*r),
+                );
+            });
+            if !d.hidden.is_empty() {
+                let label = format!("Show hidden tilesets ({})", d.hidden.len());
+                ui.check_box(&mut d.show_hidden, label).on_hover_text(
                 "Tilesets the project's moonglow.toml hides. Areas on them still open as usual.",
             );
-        }
-        ui.weak(
-            "The area's tiles are laid anew in this tileset, its layout kept where the tileset \
+            }
+            ui.weak(
+                "The area's tiles are laid anew in this tileset, its layout kept where the tileset \
              has the terrain: each terrain and crosser becomes the one below, the tileset's \
              placement rules fitting the tiles around, and heights where it has them. What \
              stands in the area (objects, sounds), its lighting, variables and scripts stay; \
              doors on the old tiles' hooks go, and the new tiles bring their own. One step to \
              undo. To try a tileset and keep this area, copy it first (the module tree's \
              Copy…).",
-        );
-        let Some(mapping) = d.mapping.as_mut() else {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "The area's tiles aren't its tileset's, or a tileset isn't found.",
             );
-            return;
-        };
-        egui::Grid::new("tileset-mapping").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-            for (i, (from, to)) in mapping.terrains.iter_mut().enumerate() {
-                crate::widgets::field_label(ui, from.as_str());
-                crate::widgets::dropdown(("tileset-terrain", i)).selected_text(to.as_str()).show(
-                    ui,
-                    to,
-                    &d.terrains,
-                    |t| t.clone(),
+            let Some(mapping) = d.mapping.as_mut() else {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "The area's tiles aren't its tileset's, or a tileset isn't found.",
                 );
-                ui.end_row();
-            }
-            let crossers: Vec<Option<String>> =
-                std::iter::once(None).chain(d.crossers.iter().cloned().map(Some)).collect();
-            let shown = |c: &Option<String>| c.clone().unwrap_or_else(|| "(none)".into());
-            for (i, (from, to)) in mapping.crossers.iter_mut().enumerate() {
-                crate::widgets::field_label(ui, format!("{from} (crosser)"));
-                crate::widgets::dropdown(("tileset-crosser", i))
-                    .selected_text(shown(to))
-                    .show(ui, to, &crossers, shown);
-                ui.end_row();
-            }
+                return ((), crate::widgets::Foot::new().main("OK", false).cancel_discard());
+            };
+            egui::Grid::new("tileset-mapping").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                for (i, (from, to)) in mapping.terrains.iter_mut().enumerate() {
+                    crate::widgets::field_label(ui, from.as_str());
+                    crate::widgets::dropdown(("tileset-terrain", i))
+                        .selected_text(to.as_str())
+                        .show(ui, to, &d.terrains, |t| t.clone());
+                    ui.end_row();
+                }
+                let crossers: Vec<Option<String>> =
+                    std::iter::once(None).chain(d.crossers.iter().cloned().map(Some)).collect();
+                let shown = |c: &Option<String>| c.clone().unwrap_or_else(|| "(none)".into());
+                for (i, (from, to)) in mapping.crossers.iter_mut().enumerate() {
+                    crate::widgets::field_label(ui, format!("{from} (crosser)"));
+                    crate::widgets::dropdown(("tileset-crosser", i))
+                        .selected_text(shown(to))
+                        .show(ui, to, &crossers, shown);
+                    ui.end_row();
+                }
+            });
+            let foot = crate::widgets::Foot::new()
+                .main("OK", true)
+                .tip("Lay the area in the tileset")
+                .cancel_discard();
+            ((), foot)
         });
-        ui.horizontal(|ui| {
-            ok = ui.button("OK").on_hover_text("Lay the area in the tileset").clicked()
-                || crate::widgets::enter(ui);
-            cancel = crate::widgets::cancel_discard(ui);
-        });
-    });
+    let (ok, cancel) = footed.map_or((false, false), |f| (f.pressed.main(), f.pressed.cancelled()));
     if ok && d.mapping.is_some() {
         change_tileset(app, &d);
     } else if open && !cancel {

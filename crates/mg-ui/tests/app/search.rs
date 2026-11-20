@@ -326,7 +326,7 @@ fn find_and_replace_text_across_the_module() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 string(s), 2 time(s)");
+    h.get_by_label("2 strings, 2 times");
     // The second unticked: one replaced.
     h.state_mut().text_replace.as_mut().unwrap().hits[1].1 = false;
     h.run();
@@ -341,7 +341,7 @@ fn find_and_replace_text_across_the_module() {
     assert_eq!(name(&mut h, &keys[0]), "Goblin camp");
     assert_eq!(name(&mut h, &keys[1]), "Orc camp");
     // Found again: what's left.
-    h.get_by_label("1 string(s), 1 time(s)");
+    h.get_by_label("1 string, 1 time");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(name(&mut h, &keys[0]), "Orc camp");
@@ -388,7 +388,7 @@ fn find_and_replace_in_tags_by_a_regular_expression() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 string(s), 2 time(s)");
+    h.get_by_label("2 strings, 2 times");
     h.get_by_label("Replace in 2").click();
     h.run();
     let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {

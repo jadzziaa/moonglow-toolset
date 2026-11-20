@@ -339,23 +339,23 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((decl, mut name)) = app.script_nav.rename.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, &format!("Rename {}", decl.name), &mut open)
+    let footed = crate::widgets::dialog(ctx, &format!("Rename {}", decl.name), &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.label(format!("{} — every use in the module's scripts", decl.signature));
             ui.horizontal(|ui| {
                 ui.label("New name");
                 let r = ui.add(mg_uikit::text_field(&mut name).desired_width(220.0));
                 crate::widgets::autofocus(ui, &r);
             });
-            ui.horizontal(|ui| {
-                let can = !name.trim().is_empty() && name.trim() != decl.name;
-                ok = ui.add_enabled(can, egui::Button::new("Rename")).clicked()
-                    || (can && crate::widgets::enter(ui));
-                cancel = crate::widgets::cancel(ui);
-            });
+            let can = !name.trim().is_empty() && name.trim() != decl.name;
+            ((), crate::widgets::Foot::new().main("Rename", can).cancel())
         });
+    if let Some(footed) = footed {
+        ok = footed.pressed.main();
+        cancel = footed.pressed.cancelled();
+    }
     if ok {
         let new = name.trim().to_string();
         app.rename_symbol(&decl, &new);

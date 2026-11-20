@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T23:26:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -65,7 +65,8 @@ unless their file (under `crates/`) follows the name.
 |---|---|---|
 | Module name, then areas, then finish | New Module (name), then the Area Wizard | ✅ [new_module_and_area_through_the_wizards] |
 | Area name, tileset list sorted by name, size presets Tiny/Small/Medium/Large and 2–32 per side | same | ✅ |
-| Launch Area Properties Dialog / Open Area in the Area Viewer (on by default) | the same | ✅ [new_module_and_area_through_the_wizards] |
+| Launch Area Properties Dialog / Open Area in the Area Viewer (on by default) | the same, worded "Launch Area Properties dialog" and "Open area in the Area Viewer" (the style guide's sentence case for check boxes) | ✅ [new_module_and_area_through_the_wizards, the_core_dialogs_hold_the_pattern] |
+| Buttons Create and Cancel; the Enter key and Escape | a footer row at the dialog's foot, under a rule: **Create** in the accent fill (the main action) and **Cancel** at the right; Enter presses Create whenever it is enabled (a name and a tileset given; also from a text field), Escape is Cancel; the body has 12 points of padding; one page, no step list | ✅ [the_core_dialogs_hold_the_pattern] |
 | Files written (module.ifo, repute.fac, palettes, ARE/GIT/GIC) | identical apart from Aurora's random choices | ✅ (`mg-corpus-tests/tests/aurora_new.rs`, engine: `engine_new_module.rs`) |
 
 ## Import / Export (`TdlgImportExport`)
@@ -301,6 +302,7 @@ row by `mg-edit/src/transition.rs`'s tests; the window's tests are in
 
 | Aurora | Moonglow | |
 |---|---|---|
+| Page order and buttons: a heading over each page, < Back, Next >, Finish and Cancel under it | a step list at the left ("Step N of M": a check on the steps done, the current one highlighted, those to come dimmer; a kind's pages are fixed, so none is off) and a page bar (an icon and the page's title) over each page in place of the heading; the footer row is **< Back**, **Next >** (the main action), **Finish**, **Cancel**, **Finish** the main action and **Next >** off on the last page; Enter presses the main action while it is enabled, Escape is Cancel; resizable (first 640 by 460); the Launch Properties Dialog check box is at the footer's left on the last page | ✅ [the_wizard_dialogs_hold_the_pattern, the_creature_wizard_s_step_list_follows_its_steps] |
 | Door, Encounter, Item, Merchant, Placeable, Sound, Trigger and Waypoint Wizards (Wizards menu, palette New) | the same steps: the palette category (sorted by name, leaves only), the type's pages (waypoint tag and appearance; sound timing, positioning and waves; encounter creatures; item base type), the name ("<category> 001" by default), Launch Properties (on after the Sound Wizard only, as in Aurora) | ✅ [store_wizard_makes_aurora_s_store, sound_wizard_steps_through_timing_positioning_and_waves, item_wizard_makes_a_weapon_with_its_cost] |
 | What they make: every field, its type, order and value; the resref (letters and digits, a trailing number kept within 16 characters, `blueprint` and a number for names with other characters) and the tag | `mg_module::blueprints` | ✅ (`aurora_blueprints.rs`: 15 blueprints made by Aurora's wizards, identical) |
 | Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |

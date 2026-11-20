@@ -258,16 +258,15 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
         d.planned_at = now;
     }
     let mut open = true;
-    let mut done = None;
     // (Beside the view, not over the objects whose walkmeshes it shows.)
     let corner = ui.ctx().content_rect().right_top() + egui::vec2(-24.0, 96.0);
-    crate::widgets::dialog(ui.ctx(), "Bake Walkmesh to Transform", &mut open)
+    let footed = crate::widgets::dialog(ui.ctx(), "Bake Walkmesh to Transform", &mut open)
         .pivot(egui::Align2::RIGHT_TOP)
         .default_pos(corner)
         .resizable(false)
         .collapsible(false)
-        .show(ui.ctx(), |ui| {
-            ui.set_max_width(460.0);
+        .show_foot(ui.ctx(), |ui| {
+            crate::widgets::fit_width(ui, 460.0);
             match &d.plan {
                 Ok(plan) => {
                     for line in plan.describe().lines() {
@@ -295,17 +294,14 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                     ui.colored_label(ui.visuals().warn_fg_color, e);
                 }
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                let ok = d.plan.as_ref().is_ok_and(|p| p.bakes().next().is_some());
-                if ui.add_enabled(ok, egui::Button::new("Bake")).clicked() {
-                    done = Some(true);
-                }
-                if crate::widgets::cancel(ui) {
-                    done = Some(false);
-                }
-            });
+            let ok = d.plan.as_ref().is_ok_and(|p| p.bakes().next().is_some());
+            ((), crate::widgets::Foot::new().main("Bake", ok).cancel())
         });
+    let done = match &footed {
+        Some(f) if f.pressed.main() => Some(true),
+        Some(f) if f.pressed.cancelled() => Some(false),
+        _ => None,
+    };
     match done {
         Some(true) => {
             if let Ok(plan) = &d.plan {
@@ -540,13 +536,12 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
 pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = app.bake.ask.clone() else { return };
     let mut open = true;
-    let (mut tidy, mut keep, mut cancel) = (false, false, false);
     let hak = rules(app).map(|(r, _)| r.hak).unwrap_or_default();
-    crate::widgets::dialog(ctx, "Baked Models No Longer Used", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Baked Models No Longer Used", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(460.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 460.0);
             ui.label("No placeable of this module uses these any longer:");
             ui.add_space(4.0);
             for r in &ask.unused.rows {
@@ -562,13 +557,17 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
                  still use one. Tidy Up takes them out of the rows file and the hak (kept \
                  beside itself as .bak); Keep Them leaves them.",
             );
-            ui.separator();
-            ui.horizontal(|ui| {
-                tidy = ui.button("Tidy Up").clicked();
-                keep = ui.button("Keep Them").clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            (
+                (),
+                crate::widgets::Foot::new()
+                    .main("Tidy Up", true)
+                    .button("Keep Them", true)
+                    .cancel(),
+            )
         });
+    let tidy = footed.as_ref().is_some_and(|f| f.pressed.main());
+    let keep = footed.as_ref().is_some_and(|f| f.pressed.clicked("Keep Them"));
+    let cancel = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
     if tidy || keep {
         app.bake.ask = None;
         if tidy {

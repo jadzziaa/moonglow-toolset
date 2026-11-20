@@ -2423,18 +2423,9 @@ impl Moonglow {
         let (busy, mut usage) = (self.busy(), false);
         if let Some(report) = &self.hak_report {
             let mut open = true;
-            crate::widgets::dialog(ui.ctx(), "Hak Pak Conflict Analysis", &mut open)
+            let footed = crate::widgets::dialog(ui.ctx(), "Hak Pak Conflict Analysis", &mut open)
                 .default_size([600.0, 400.0])
-                .show(ui.ctx(), |ui| {
-                    let tip =
-                        "Which haks' resources the module uses, hak by hak, to trim a release";
-                    let asked = ui
-                        .add_enabled(!busy, egui::Button::new("What the Module Uses"))
-                        .on_hover_text(tip)
-                        .clicked();
-                    if asked {
-                        usage = true;
-                    }
+                .show_foot(ui.ctx(), |ui| {
                     // (A line as long as it is, scrolled to sideways.)
                     let text = |ui: &mut egui::Ui, t: &str| {
                         ui.add(egui::Label::new(egui::RichText::new(t).monospace()).extend())
@@ -2446,7 +2437,16 @@ impl Moonglow {
                         }
                         text(ui, report)
                     });
+                    let tip =
+                        "Which haks' resources the module uses, hak by hak, to trim a release";
+                    let foot =
+                        crate::widgets::Foot::new().main("What the Module Uses", !busy).tip(tip);
+                    ((), foot)
                 });
+            if let Some(f) = footed {
+                usage = f.pressed.main();
+                open &= !f.pressed.cancelled();
+            }
             if !open {
                 self.hak_report = None;
                 self.hak_usage = None;

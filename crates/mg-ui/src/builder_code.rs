@@ -89,11 +89,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     };
     let mut open = true;
     let (mut ok, mut clear, mut cancel) = (false, false, false);
-    crate::widgets::dialog(ctx, "Builder Code", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Builder Code", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(420.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 420.0);
             ui.label(
                 "Your own code: the ResRefs Moonglow proposes for new areas, blueprints, copies \
                  and scripts begin with it, so that two builders' new resources never share a \
@@ -139,15 +139,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 "Kept in this project's .moonglow/user.toml, which version control leaves out. \
                  The team's moonglow.toml says where it goes ([resrefs] pattern: {pattern})."
             ));
-            ui.separator();
-            ui.horizontal(|ui| {
-                let can = problem.is_none();
-                ok = ui.add_enabled(can, egui::Button::new("OK")).clicked()
-                    || (can && crate::widgets::enter(ui));
-                clear = ui.button("No Code").on_hover_text("Take your code out").clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            let foot = crate::widgets::Foot::new()
+                .main("OK", problem.is_none())
+                .button("No Code", true)
+                .tip("Take your code out")
+                .cancel();
+            ((), foot)
         });
+    if let Some(f) = footed {
+        ok = f.pressed.main();
+        clear = f.pressed.clicked("No Code");
+        cancel = f.pressed.cancelled();
+    }
     if ok {
         let code = draft.code.trim().to_ascii_lowercase();
         if let Some(taken) = taken(&rules, &code) {

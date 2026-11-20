@@ -541,6 +541,30 @@ impl Ask {
     }
 }
 
+/// What a plugin's question was answered with, once it was (`None` inside:
+/// closed, or called off): [`Moonglow::ask_for_tests`].
+#[doc(hidden)]
+pub type Answered = Arc<Mutex<Option<Option<Answer>>>>;
+
+impl Moonglow {
+    /// A plugin's question asked in the job's window, as a running
+    /// plugin's thread asks it, by a job of its own: for the tests of the
+    /// dialog pattern (M4's U27), which hold each kind of question to it.
+    #[doc(hidden)]
+    pub fn ask_for_tests(&mut self, question: Question) -> Answered {
+        let ask = Arc::new(Ask::default());
+        self.plugins.ask = Some(ask.clone());
+        self.plugins.form = None;
+        let answered = Answered::default();
+        let out = answered.clone();
+        self.start_job_for_tests("Plugin Question", move |progress| {
+            let answer = ask.ask(question, progress);
+            *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
+        });
+        answered
+    }
+}
+
 /// What a plugin logged, to put into the window's log when its job ends.
 type Logged = Arc<Mutex<Vec<(mg_plugin::Level, String)>>>;
 
@@ -1937,33 +1961,30 @@ pub(crate) fn register_keys(keymap: &mut crate::keys::Keymap, commands: &[Plugin
 }
 
 /// A running plugin's question, in the job's window: something to read, a
-/// yes or no, or a form. `false` when it asks nothing now.
-pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
-    let Some(ask) = app.plugins.ask.clone() else { return false };
+/// yes or no, or a form. Its body is drawn in `ui`; what it gives back is
+/// its footer ([`crate::widgets::Foot`]) and the question, which
+/// [`question_answer`] answers once the footer has been drawn. `None` when
+/// it asks nothing now.
+pub(crate) fn question_ui(
+    app: &mut Moonglow,
+    ui: &mut egui::Ui,
+) -> Option<(crate::widgets::Foot, Question)> {
+    use crate::widgets::Foot;
+    let ask = app.plugins.ask.clone()?;
     let Some(question) = ask.pending() else {
         app.plugins.form = None;
-        return false;
+        return None;
     };
     let mut picked = None;
-    match &question {
+    let foot = match &question {
         Question::Message(text) => {
             ui.label(text);
-            ui.add_space(6.0);
-            if ui.button("OK").clicked() {
-                ask.answer(Some(Answer::Yes));
-            }
+            // (No leave button: Escape is its OK, as Enter is.)
+            Foot::new().main("OK", true).main_on_escape()
         }
         Question::Confirm(text) => {
             ui.label(text);
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui.button("Yes").clicked() {
-                    ask.answer(Some(Answer::Yes));
-                }
-                if ui.button("No").clicked() {
-                    ask.answer(Some(Answer::No));
-                }
-            });
+            Foot::new().main("Yes", true).no_enter().leave("No")
         }
         Question::Form { title, fields } => {
             // (Its title is the window's heading already, the command's.)
@@ -1973,28 +1994,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 crate::widgets::section_heading(ui, title);
             }
             picked = form_grid(ui, fields, values);
-            ui.add_space(6.0);
-            let mut done = None;
-            ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
-                    done = Some(true);
-                }
-                if crate::widgets::cancel(ui) {
-                    done = Some(false);
-                }
-            });
-            match done {
-                Some(true) => {
-                    let values = fields
-                        .iter()
-                        .zip(values.iter())
-                        .map(|(f, v)| (f.id.clone(), v.clone()))
-                        .collect();
-                    ask.answer(Some(Answer::Values(values)));
-                }
-                Some(false) => ask.answer(None),
-                None => {}
-            }
+            Foot::new().main("OK", true).cancel()
         }
         Question::File { title, extensions } => {
             let what = if title.is_empty() { "The plugin asks for a file." } else { title };
@@ -2003,17 +2003,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 let kinds: Vec<String> = extensions.iter().map(|e| format!(".{e}")).collect();
                 ui.weak(format!("It reads {}.", kinds.join(", ")));
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui.button("Choose File…").clicked()
-                    && let Some(path) = app.dialogs.open_file_of(title, extensions)
-                {
-                    ask.answer(Some(Answer::Path(path)));
-                }
-                if crate::widgets::cancel(ui) {
-                    ask.answer(None);
-                }
-            });
+            Foot::new().main("Choose File…", true).cancel()
         }
         Question::Page(page) => {
             // (Not again under the window's heading, the wizard's title.)
@@ -2034,51 +2024,81 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 ui.add_space(4.0);
                 ui.colored_label(ui.visuals().error_fg_color, error);
             }
-            ui.add_space(6.0);
-            let mut go = None;
-            ui.horizontal(|ui| {
-                if ui.add_enabled(page.back, egui::Button::new("< Back")).clicked() {
-                    go = Some(Some(true));
-                }
-                let next = if page.last { "Finish" } else { "Next >" };
-                if ui.button(next).clicked() {
-                    go = Some(Some(false));
-                }
-                if crate::widgets::cancel(ui) {
-                    go = Some(None);
-                }
-            });
-            match go {
-                Some(Some(back)) => {
-                    let values = (page.fields.iter())
-                        .zip(values.iter())
-                        .map(|(f, v)| (f.id.clone(), v.clone()))
-                        .collect();
-                    ask.answer(Some(Answer::Page { values, back }));
-                }
-                Some(None) => ask.answer(None),
-                None => {}
-            }
+            let next = if page.last { "Finish" } else { "Next >" };
+            Foot::new().button("< Back", page.back).main(next, true).cancel()
         }
         Question::Folder { title } => {
             let what = if title.is_empty() { "The plugin asks for a folder." } else { title };
             ui.label(what);
             ui.weak("It can read the files in the folder you choose, and nothing outside it.");
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui.button("Choose Folder…").clicked()
-                    && let Some(path) = app.dialogs.pick_folder(what, None)
-                {
-                    ask.answer(Some(Answer::Path(path)));
-                }
-                if crate::widgets::cancel(ui) {
-                    ask.answer(None);
-                }
-            });
+            Foot::new().main("Choose Folder…", true).cancel()
+        }
+    };
+    preview_picked(app, picked);
+    Some((foot, question))
+}
+
+/// What the footer drawn after [`question_ui`] answered: the question's
+/// buttons, Enter and Escape.
+pub(crate) fn question_answer(
+    app: &mut Moonglow,
+    question: &Question,
+    pressed: &crate::widgets::Pressed,
+) {
+    let Some(ask) = app.plugins.ask.clone() else { return };
+    let (main, cancelled) = (pressed.main(), pressed.cancelled());
+    let named = |fields: &[mg_plugin::FormField], values: &[serde_json::Value]| {
+        fields.iter().zip(values.iter()).map(|(f, v)| (f.id.clone(), v.clone())).collect()
+    };
+    match question {
+        Question::Message(_) => {
+            if main {
+                ask.answer(Some(Answer::Yes));
+            }
+        }
+        Question::Confirm(_) => {
+            if main {
+                ask.answer(Some(Answer::Yes));
+            }
+            if cancelled {
+                ask.answer(Some(Answer::No));
+            }
+        }
+        Question::Form { fields, .. } => {
+            if main {
+                let values = form_values(app, question, fields).clone();
+                ask.answer(Some(Answer::Values(named(fields, &values))));
+            } else if cancelled {
+                ask.answer(None);
+            }
+        }
+        Question::File { title, extensions } => {
+            if main && let Some(path) = app.dialogs.open_file_of(title, extensions) {
+                ask.answer(Some(Answer::Path(path)));
+            }
+            if cancelled {
+                ask.answer(None);
+            }
+        }
+        Question::Page(page) => {
+            let back = pressed.clicked("< Back");
+            if main || back {
+                let values = form_values(app, question, &page.fields).clone();
+                ask.answer(Some(Answer::Page { values: named(&page.fields, &values), back }));
+            } else if cancelled {
+                ask.answer(None);
+            }
+        }
+        Question::Folder { title } => {
+            let what = if title.is_empty() { "The plugin asks for a folder." } else { title };
+            if main && let Some(path) = app.dialogs.pick_folder(what, None) {
+                ask.answer(Some(Answer::Path(path)));
+            }
+            if cancelled {
+                ask.answer(None);
+            }
         }
     }
-    preview_picked(app, picked);
-    true
 }
 
 /// The values of a form (or a wizard's page) being filled: from its
@@ -2326,7 +2346,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             .collect();
     let shadowed: Vec<String> =
         (trusts.iter()).filter(|(_, t)| t.runs()).map(|(id, _)| id.clone()).collect();
-    crate::widgets::dialog(ctx, "Plugins", &mut open).default_size([560.0, 480.0]).show(
+    crate::widgets::dialog(ctx, "Plugins", &mut open).default_size([560.0, 480.0]).show_bare(
         ctx,
         |ui| {
             ui.label(
@@ -2700,11 +2720,11 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
         f.strip_prefix(&r).map(|p| p.display().to_string()).unwrap_or_default()
     });
     let mut answers: Vec<(String, bool)> = Vec::new();
-    let mut later = false;
     let modal =
         crate::widgets::modal_window(ctx, egui::Id::new("plugin-project")).show(ctx, |ui| {
-            crate::widgets::modal_titled(ui, "This Project Comes with Plugins", |ui| {
-                ui.set_width(520.0);
+            crate::widgets::modal_titled_foot(ui, "This Project Comes with Plugins", |ui| {
+                // (Never past the application's window: the modal holds it.)
+                ui.set_width(ui.available_width().min(520.0));
                 ui.label(format!(
             "Its folder {}/ holds plugins the team shares. None of their code runs until you \
              allow it, and what you allow is each plugin as it is now: if it changes (a pull \
@@ -2761,29 +2781,35 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
              data and hands back changes that Undo takes back, and it reads or writes a file of \
              yours only when you choose it or allow it.",
         );
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if asked.len() > 1
-                        && ui
-                            .button("Allow All")
-                            .on_hover_text("Each one's code runs: as it is now")
-                            .clicked()
-                    {
-                        answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
-                    }
-                    later = ui
-                        .button("Decide Later")
-                        .on_hover_text(
-                            "They stay off now, and you are asked when the project is next opened",
-                        )
-                        .clicked();
-                });
-            });
+                let several = asked.len() > 1;
+                let foot = crate::widgets::Foot::new();
+                let foot = match several {
+                    true => foot
+                        .main("Allow All", true)
+                        .no_enter()
+                        .tip("Each one's code runs: as it is now")
+                        .leave("Decide Later"),
+                    false => foot.leave("Decide Later"),
+                };
+                (
+                    (),
+                    foot.tip(
+                        "They stay off now, and you are asked when the project is next opened",
+                    ),
+                )
+            })
+            .1
         });
+    let close = modal.should_close();
+    let pressed = modal.inner;
+    if pressed.main() {
+        answers.extend(asked.iter().map(|p| (p.manifest.id.clone(), true)));
+    }
+    let later = pressed.cancelled();
     for (id, allow) in answers {
         app.allow_project_plugin(&id, allow);
     }
-    if later || modal.should_close() {
+    if later || close {
         app.put_off_project_plugins();
     }
 }
@@ -2806,18 +2832,23 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut save, mut cancel, mut defaults, mut tidy) = (false, false, false, false);
     let mut open = true;
     let title = format!("Settings: {}", p.manifest.name);
-    crate::widgets::dialog(ctx, &title, &mut open)
+    let footed = crate::widgets::dialog(ctx, &title, &mut open)
         .id(egui::Id::new("plugin-settings"))
         .default_width(460.0)
         .collapsible(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.weak(
                 "Each is kept where it says: yours (Moonglow's settings, for every module), the \
                  team's (the project's moonglow.toml, shared with the checkout), or yours for \
                  this project (its .moonglow/user.toml, never shared).",
             );
             ui.add_space(6.0);
-            egui::Grid::new("plugin-settings-grid").num_columns(3).spacing([12.0, 6.0]).show(
+            // (Where each is kept, a column of its own; under its field
+            // where the window is narrow, the least window's: beside, the
+            // window ran past the application's edges.)
+            let narrow = ui.available_width() < 480.0;
+            let columns = if narrow { 2 } else { 3 };
+            egui::Grid::new("plugin-settings-grid").num_columns(columns).spacing([12.0, 6.0]).show(
                 ui,
                 |ui| {
                     for d in &p.manifest.settings {
@@ -2829,12 +2860,26 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                         let value = form.values.entry(d.id.clone()).or_insert(d.default.clone());
                         // (Each setting's widgets under its own id: a click
                         // reaches its button whatever the rows above do.)
-                        ui.push_id(&d.id, |ui| {
-                            ui.add_enabled_ui(usable, |ui| {
-                                setting_field(app, ui, d, value, &project)
-                            })
-                        });
-                        let note = ui.weak(scope_short(d.scope));
+                        let mut field = |ui: &mut egui::Ui| {
+                            ui.push_id(&d.id, |ui| {
+                                ui.add_enabled_ui(usable, |ui| {
+                                    setting_field(app, ui, d, value, &project)
+                                })
+                            });
+                        };
+                        let note = match narrow {
+                            true => {
+                                ui.vertical(|ui| {
+                                    field(ui);
+                                    ui.weak(scope_short(d.scope))
+                                })
+                                .inner
+                            }
+                            false => {
+                                field(ui);
+                                ui.weak(scope_short(d.scope))
+                            }
+                        };
                         if usable {
                             note.on_hover_text(mg_plugin::settings::scope_words(d.scope));
                         } else {
@@ -2872,16 +2917,18 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                         .clicked();
                 });
             }
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                save = ui.button("Save").on_hover_text("Keep these values").clicked();
-                cancel = crate::widgets::cancel(ui);
-                defaults = ui
-                    .button("Defaults")
-                    .on_hover_text("Put each back to the plugin's own value (Save keeps it)")
-                    .clicked();
-            });
+            let foot = crate::widgets::Foot::new()
+                .main("Save", true)
+                .tip("Keep these values")
+                .button("Defaults", true)
+                .tip("Put each back to the plugin's own value (Save keeps it)")
+                .cancel();
+            ((), foot)
         });
+    if let Some(f) = footed {
+        (save, cancel, defaults) =
+            (f.pressed.main(), f.pressed.cancelled(), f.pressed.clicked("Defaults"));
+    }
     if defaults {
         for d in &p.manifest.settings {
             if !d.scope.in_project() || project.is_some() {
@@ -3032,11 +3079,11 @@ fn setting_field(
 pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(r) = &app.plugins.replace else { return };
     let m = &r.package.manifest;
-    let (mut yes, mut no) = (false, false);
     let modal =
         crate::widgets::modal_window(ctx, egui::Id::new("plugin-replace")).show(ctx, |ui| {
-            crate::widgets::modal_titled(ui, &format!("Replace {}?", m.name), |ui| {
-                ui.set_width(400.0);
+            crate::widgets::modal_titled_foot(ui, &format!("Replace {}?", m.name), |ui| {
+                // (Never past the application's window: the modal holds it.)
+                ui.set_width(ui.available_width().min(400.0));
                 let installed = match r.installed.as_str() {
                     "" => format!("{} is installed.", m.name),
                     version => format!("{} {version} is installed.", m.name),
@@ -3047,18 +3094,17 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
                 } else {
                     "Its folder is replaced whole. It stays off until you enable it."
                 });
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    yes = ui.button("Replace").clicked();
-                    no = crate::widgets::cancel(ui);
-                });
-            });
+                ((), crate::widgets::Foot::new().main("Replace", true).no_enter().cancel())
+            })
+            .1
         });
+    let (close, pressed) = (modal.should_close(), modal.inner);
+    let (yes, no) = (pressed.main(), pressed.cancelled());
     if yes {
         if let Some(r) = app.plugins.replace.take() {
             app.install_package(&r.package, &r.file, true);
         }
-    } else if no || modal.should_close() {
+    } else if no || close {
         app.plugins.replace = None;
     }
     // (Of an archive of several, the next one installed already.)
@@ -3070,26 +3116,25 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
 /// The question before an installed plugin's folder is deleted.
 pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(r) = &app.plugins.remove else { return };
-    let (mut yes, mut no) = (false, false);
     let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-remove")).show(ctx, |ui| {
-        crate::widgets::modal_titled(ui, &format!("Remove {}?", r.name), |ui| {
-            ui.set_width(400.0);
+        crate::widgets::modal_titled_foot(ui, &format!("Remove {}?", r.name), |ui| {
+            // (Never past the application's window: the modal holds it.)
+            ui.set_width(ui.available_width().min(400.0));
             ui.label(
                 "Its folder is deleted from the plugins folder. Your modules are not touched: what \
              its commands changed in them stays.",
             );
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                yes = ui.button("Remove").clicked();
-                no = crate::widgets::cancel(ui);
-            });
-        });
+            ((), crate::widgets::Foot::new().main("Remove", true).no_enter().cancel())
+        })
+        .1
     });
+    let (close, pressed) = (modal.should_close(), modal.inner);
+    let (yes, no) = (pressed.main(), pressed.cancelled());
     if yes {
         if let Some(r) = app.plugins.remove.take() {
             app.remove_plugin(&r);
         }
-    } else if no || modal.should_close() {
+    } else if no || close {
         app.plugins.remove = None;
     }
 }

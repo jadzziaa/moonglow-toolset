@@ -449,6 +449,63 @@ fn opening_select_texture() {
     println!("the click's frame, opened again (the list kept): {:?}", t.elapsed());
 }
 
+/// The Creature Wizard (M4's U27: its step list and page bar) over the
+/// boards' module at the development machine's screen, on each of its
+/// nine steps with what the step before asks for chosen: plain egui
+/// frames, idle and with the pointer moving over it, each step's medians
+/// printed and held to the 144 fps budget. Laid out alike in the tree
+/// before U27 (it sets the wizard's state, it clicks nothing by name).
+#[test]
+#[ignore]
+fn the_creature_wizard_at_each_step() {
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let dir = mg_testkit::scratch_dir("creature-wizard-perf");
+    let path = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    app.open_module(&path);
+    let count: usize =
+        std::env::var("EDITOR_FRAMES").ok().and_then(|n| n.parse().ok()).unwrap_or(200);
+    let mut w = Window { app, ctx: egui::Context::default(), clock: 0.0 };
+    w.frame(Vec::new());
+    let mut medians = Vec::new();
+    for page in 0..9 {
+        w.app.creature_wizard = Some(mg_ui::creature_wizard::CreatureWizard {
+            page,
+            race: Some(6),
+            classes: vec![(4, 4)],
+            chosen_class: Some(4),
+            portrait: Some(1),
+            first_name: "Perf".into(),
+            category: Some(0),
+            ..Default::default()
+        });
+        // (Its pictures read, its lists measured: a few seconds' frames.)
+        for _ in 0..300 {
+            w.frame(Vec::new());
+        }
+        let what = format!("the Creature Wizard, step {} of 9", page + 1);
+        let idle = w.frames(&format!("{what}, idle"), count, |_| Vec::new());
+        let hover = w.frames(&format!("{what}, the pointer moving"), count, |n| {
+            let x = 1100.0 + (n as f32 * 13.0) % 1200.0;
+            let y = 300.0 + (n as f32 * 7.0) % 800.0;
+            vec![Event::PointerMoved(egui::pos2(x, y))]
+        });
+        medians.push((what, idle, hover));
+    }
+    w.app.creature_wizard = None;
+    for (what, idle, hover) in medians {
+        for (how, median) in [("idle", idle), ("the pointer moving", hover)] {
+            assert!(
+                median.as_secs_f64() <= BUDGET.as_secs_f64() * MARGIN,
+                "{what}, {how}: median {:.2} ms past the budget",
+                ms(median)
+            );
+        }
+    }
+}
+
 /// The boards' creature's Properties docked across the development
 /// machine's screen (3440×1400, As Tabs): its fourteen pages side by side
 /// in columns, every one drawn each frame (M4's U10, the WideCreature

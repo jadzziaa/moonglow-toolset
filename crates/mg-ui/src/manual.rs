@@ -651,7 +651,7 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
     crate::widgets::dialog(ctx, "About Moonglow Toolset", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_bare(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.heading("Moonglow Toolset");
                 ui.label(format!("Version {}", mg_core::release::version()));

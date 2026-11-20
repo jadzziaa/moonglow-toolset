@@ -399,6 +399,50 @@ fn magic_ui(ui: &mut Ui, w: &mut BlueprintWizard, game: &GameData) {
     });
 }
 
+/// A wizard's footer where Finish needs `ok` (the last page's choices
+/// made): [`crate::creature_wizard::wizard_foot`] with Finish held off
+/// until then.
+pub(crate) fn finish_foot(back: bool, next: bool, last: bool, ok: bool) -> crate::widgets::Foot {
+    let foot = crate::widgets::Foot::new().button("< Back", back);
+    let foot = match last {
+        false => foot.main("Next >", next).button("Finish", false),
+        true => foot.button("Next >", false).main("Finish", ok),
+    };
+    foot.cancel()
+}
+
+/// The page's icon and its title (the step list's and the page bar's).
+fn page_bar_of(step: Step) -> (mg_uikit::Icon, &'static str) {
+    use mg_uikit::Icon;
+    match step {
+        Step::ItemType => (Icon::Item, "Item Type"),
+        Step::WaypointTag => (Icon::Waypoint, "Waypoint"),
+        Step::Timing => (Icon::Timeline, "Timing"),
+        Step::Positioning => (Icon::Compass, "Positioning"),
+        Step::Waves => (Icon::Sound, "Wave List"),
+        Step::Creatures => (Icon::Creature, "Creature List"),
+        Step::Category => (Icon::Palette, "Assign Palette Category"),
+        Step::Name => (Icon::Tag, "Name"),
+    }
+}
+
+/// The wizard's step list: the pages before the one shown done, it
+/// current, those after to come.
+fn step_list(ui: &mut Ui, w: &BlueprintWizard) {
+    use mg_uikit::dialog::{StepList, StepState};
+    let pages = steps(w.kind);
+    let mut list = StepList::new(format!("Step {} of {}", w.step + 1, pages.len()));
+    for (i, step) in pages.iter().enumerate() {
+        let state = match i.cmp(&w.step) {
+            std::cmp::Ordering::Less => StepState::Done,
+            std::cmp::Ordering::Equal => StepState::Current,
+            std::cmp::Ordering::Greater => StepState::ToCome,
+        };
+        list = list.step(page_bar_of(*step).1, state);
+    }
+    let _ = list.show(ui);
+}
+
 /// The open blueprint wizard.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let Some(mut w) = app.blueprint_wizard.take() else { return };
@@ -409,15 +453,33 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let mut close = false;
     let mut finish = false;
     let title = format!("{} Wizard", w.kind.label().trim_end_matches('s'));
-    crate::widgets::modal(&ctx, &title).show(&ctx, |ui| {
-        ui.set_min_width(420.0);
+    let footed = crate::widgets::modal(&ctx, &title)
+        .resizable(true)
+        .default_size([640.0, 460.0])
+        .min_size([520.0, 380.0])
+        .flush()
+        .show_foot(&ctx, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if crate::widgets::step_list_fits(ui) {
+                    step_list(ui, &w);
+                }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let (icon, name) = page_bar_of(w.page());
+                    mg_uikit::dialog::page_bar(ui, Some(icon), name);
+                    let pad = mg_uikit::dialog::PAGE_PADDING;
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(pad.x as i8, pad.y as i8))
+                        .show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         let key_taken = |app: &Moonglow, r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
         let naming = naming(app, w.kind.restype());
         match w.page() {
             Step::ItemType => {
-                ui.heading("Item Type");
                 ui.label("Please choose the type of item you wish to create");
                 let types = item_types(app.game.as_deref().expect("checked"));
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
@@ -430,7 +492,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 });
             }
             Step::WaypointTag => {
-                ui.heading("Waypoint Wizard");
                 egui::Grid::new("wizard-waypoint").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Tag");
                     ui.add(mg_uikit::text_field(&mut w.name));
@@ -451,7 +512,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 });
             }
             Step::Timing => {
-                ui.heading("Timing");
                 ui.label("Choose how you want the Sound Object to play.");
                 if ui.radio_button(w.looping == Some(true), "Seamlessly looping").clicked() {
                     w.looping = Some(true);
@@ -467,7 +527,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 );
             }
             Step::Positioning => {
-                ui.heading("Positioning");
                 ui.label("Choose where you would like this Sound Object to play from.");
                 let single = w.looping == Some(false);
                 if w.positioning == Some(Positioning::Random) && !single {
@@ -490,7 +549,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
             Step::Waves => {
-                ui.heading("Wave List");
                 ui.label("Select the Wave files that this Sound Object will play");
                 let pick_id = egui::Id::new("wizard-waves");
                 if let Some(r) = app.take_pick(pick_id).filter(|r| !r.is_empty()) {
@@ -521,7 +579,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
             Step::Creatures => {
-                ui.heading("Creature List");
                 ui.label("Select the creatures that this Encounter can spawn.");
                 let add = crate::blueprint::picker::palette_picker(
                     app,
@@ -549,7 +606,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
             Step::Category => {
-                ui.heading("Assign Palette Category");
                 ui.label("Choose the palette category that this new blueprint should appear under");
                 let game_arc = app.game.clone().expect("checked");
                 let game = &*game_arc;
@@ -578,7 +634,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
             Step::Name => {
-                ui.heading("Name");
                 ui.label("Please enter a name for the new blueprint");
                 let edit = mg_uikit::text_field(&mut w.name).hint_text("Name");
                 let field = ui.add(edit);
@@ -631,30 +686,30 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             }
         }
-        if w.last() {
-            ui.check_box(&mut w.launch, "Launch Properties Dialog");
-        }
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.add_enabled(w.step > 0, egui::Button::new("< Back")).clicked() {
-                w.step -= 1;
-            }
+        crate::widgets::focus_in_sight(ui);
+});
+                        });
+                });
+            });
             let ok = w.complete();
-            if ui.add_enabled(ok && !w.last(), egui::Button::new("Next >")).clicked()
-                || (ok && !w.last() && crate::widgets::enter(ui))
-            {
-                w.step += 1;
-            }
-            if ui.add_enabled(ok && w.last(), egui::Button::new("Finish")).clicked()
-                || (ok && w.last() && crate::widgets::enter(ui))
-            {
-                finish = true;
-            }
-            if crate::widgets::cancel(ui) {
-                close = true;
-            }
+            let foot = finish_foot(w.step > 0, ok && !w.last(), w.last(), ok);
+            let launch = w.launch;
+            ((), if w.last() { foot.check("Launch Properties Dialog", launch, None) } else { foot })
         });
-    });
+    if let Some(f) = footed {
+        if let Some(on) = f.pressed.checked {
+            w.launch = on;
+        }
+        // (Finish is the last page's main action as it was drawn: Next on
+        // the page before it is not.)
+        finish = w.last() && f.pressed.main();
+        if f.pressed.clicked("< Back") {
+            w.step -= 1;
+        } else if f.pressed.main() && !w.last() {
+            w.step += 1;
+        }
+        close = f.pressed.cancelled();
+    }
     if finish {
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))

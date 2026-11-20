@@ -1373,11 +1373,11 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
             format!("{name} ({t})")
         }
     };
-    let (mut open, mut edit, mut cancel) = (true, false, false);
-    crate::widgets::dialog(ctx, "Edit Areas Together", &mut open)
+    let mut open = true;
+    let footed = crate::widgets::dialog(ctx, "Edit Areas Together", &mut open)
         .default_size([460.0, 520.0])
         .collapsible(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.label(
                 "Tick the areas to edit; their Area Properties open as one, and what you \
                  change there (lighting, fog, weather, music, scripts, variables…) is set on \
@@ -1561,17 +1561,15 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 }
             });
-            ui.separator();
-            ui.horizontal(|ui| {
-                let n = c.chosen.len();
-                let button = egui::Button::new(format!("Edit {n} Together"));
-                edit = ui
-                    .add_enabled(n >= 2, button)
-                    .on_disabled_hover_text("Tick two areas or more")
-                    .clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            let n = c.chosen.len();
+            let mut foot = crate::widgets::Foot::new().main(format!("Edit {n} Together"), n >= 2);
+            if n < 2 {
+                foot = foot.tip("Tick two areas or more");
+            }
+            ((), foot.cancel())
         });
+    let edit = footed.as_ref().is_some_and(|f| f.pressed.main());
+    let cancel = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
     if edit {
         let areas = c.chosen.iter().copied().collect();
         app.actions.push(Action::OpenTab(crate::Tab::AreasProperties(areas)));

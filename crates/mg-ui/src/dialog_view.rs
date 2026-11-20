@@ -1761,7 +1761,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
         let (mut ok, mut cancel) = (false, false);
         let window =
             crate::widgets::modal(ui.ctx(), "Input Text").id(egui::Id::new(("dlg-input", key)));
-        window.show(ui.ctx(), |ui| {
+        let footed = window.show_foot(ui.ctx(), |ui| {
             ui.set_width(340.0);
             ui.label(prompt.as_str());
             let id = egui::Id::new(("dlg-input-text", key));
@@ -1779,12 +1779,15 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
                 out.response.request_focus();
                 input.shown = true;
             }
-            ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
-                    || crate::widgets::enter(ui);
-                cancel = crate::widgets::cancel_discard(ui);
-            });
+            (
+                (),
+                crate::widgets::Foot::new().main("OK", true).tip("Accept changes").cancel_discard(),
+            )
         });
+        if let Some(footed) = &footed {
+            ok = footed.pressed.main();
+            cancel = footed.pressed.cancelled();
+        }
         if ok {
             let mut ng = Gff::clone(&g);
             let kind = input.parent.child_kind();
@@ -2960,10 +2963,8 @@ fn text_panel(
         let window = crate::widgets::modal(&ctx, "Select Token");
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(260.0, 340.0))
             .min_size([180.0, 160.0]);
-        window.show(&ctx, |ui| {
-            // The list takes the room above Cancel.
-            let cancel = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
-            let height = (ui.available_height() - cancel).max(60.0);
+        let footed = window.show_foot(&ctx, |ui| {
+            let height = ui.available_height().max(60.0);
             let list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             list.show(ui, |ui| {
                 mg_uikit::list_rows(ui);
@@ -2974,10 +2975,11 @@ fn text_panel(
                     }
                 }
             });
-            if crate::widgets::cancel(ui) {
-                close = true;
-            }
+            ((), crate::widgets::Foot::new().cancel())
         });
+        if footed.is_some_and(|f| f.pressed.cancelled()) {
+            close = true;
+        }
         if let Some(v) = with_token {
             let now = with_edited_text(ls.clone(), &v);
             let words = words_edit(app, key, &ls, &now);
@@ -3788,12 +3790,12 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
         let mut path = view.test.clone().unwrap_or_default();
         let mut assume = view.assume.clone();
         let title = format!("Conversation Test: {key}");
-        let mut close = crate::widgets::escape_closes(ui.ctx(), &title);
+        let mut close = false;
         let ctx = ui.ctx().clone();
         let window = crate::widgets::modal(&ctx, title);
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(480.0, 420.0))
             .min_size([300.0, 200.0]);
-        window.show(&ctx, |ui| {
+        let footed = window.show_foot(&ctx, |ui| {
             // What was said so far, taking the room the window has over the
             // turn under it (that turn's height the frame before).
             let under_id = ui.id().with("test-under-history");
@@ -3812,28 +3814,38 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                 });
-            let from = ui.min_rect().bottom();
-            ui.scope(|ui| turn(ui, &g, game, &mut path, &mut assume, &mut close));
-            let under = ui.min_rect().bottom() - from + ui.spacing().item_spacing.y;
+            // (The cursor, not the ui's rectangle: the body is as tall as
+            // the room the footer leaves.)
+            let from = ui.cursor().top();
+            ui.scope(|ui| turn(ui, &g, game, &mut path, &mut assume));
+            let under = ui.cursor().top() - from;
             if under_was.is_none_or(|was| (was - under).abs() > 0.5) {
                 ui.data_mut(|d| d.insert_temp(under_id, under));
                 ui.ctx().request_repaint();
             }
+            // (Back: a turn, the reply and the NPC line before it.)
+            ((), crate::widgets::Foot::new().button("<-- Back", !path.is_empty()).leave("Done"))
         });
+        if let Some(footed) = &footed {
+            if footed.pressed.clicked("<-- Back") {
+                path.pop();
+                path.pop();
+            }
+            close = footed.pressed.cancelled();
+        }
         view.test = if close { None } else { Some(path) };
         view.assume = assume;
     }
 }
 
 /// Conversation Test's turn: the NPC's line (those passed over shown), the
-/// player's replies to it, and Back and Done.
+/// player's replies to it (Back and Done are the footer's).
 fn turn(
     ui: &mut Ui,
     g: &Gff,
     game: Option<&mg_rules::GameData>,
     path: &mut Vec<(Kind, u32)>,
     assume: &mut std::collections::BTreeMap<String, bool>,
-    close: &mut bool,
 ) {
     ui.separator();
     // The NPC's turn: from the root, or after the last reply.
@@ -3871,7 +3883,6 @@ fn turn(
         } else {
             "[END DIALOGUE: no NPC line's condition passes]"
         });
-        footer(ui, path, close);
         return;
     };
     ui.separator();
@@ -3908,21 +3919,6 @@ fn turn(
             }
         });
     }
-    footer(ui, path, close);
-}
-
-/// Back (a turn: the reply and the NPC line before it) and Done.
-fn footer(ui: &mut Ui, path: &mut Vec<(Kind, u32)>, close: &mut bool) {
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.add_enabled(!path.is_empty(), egui::Button::new("<-- Back")).clicked() {
-            path.pop();
-            path.pop();
-        }
-        if ui.button("Done").clicked() {
-            *close = true;
-        }
-    });
 }
 
 #[cfg(test)]

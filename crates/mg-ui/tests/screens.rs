@@ -14718,6 +14718,28 @@ fn board_dialogs() {
     let dir = board_dir();
     let size = egui::vec2(1600.0, 720.0);
     let dlg = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    // (The dialog `title` made `by` taller by its bottom edge, as the
+    // board's: it keeps the height it opened with, before its results.)
+    fn taller(h: &mut Harness<'_, Moonglow>, title: &str, by: f32) {
+        let window = h.get_by_label(title).rect();
+        let from = egui::pos2(window.center().x, window.bottom() - 1.0);
+        let to = from + egui::vec2(0.0, by);
+        let press = |h: &mut Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool| {
+            let button = egui::PointerButton::Primary;
+            let modifiers = egui::Modifiers::NONE;
+            h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+            h.run_steps(1);
+        };
+        h.hover_at(from);
+        h.run_steps(1);
+        press(h, from, true);
+        for k in 1..=6 {
+            h.hover_at(from + (to - from) * (k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        press(h, to, false);
+        settle(h);
+    }
     let opened = |what: &str, open: &dyn Fn(&mut Harness<'_, Moonglow>), name: &str| {
         let mut h = shell_window(&root, size);
         h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
@@ -14727,7 +14749,9 @@ fn board_dialogs() {
         h.run_steps(5);
         settle(&mut h);
         assert!(h.query_by_label(what).is_some(), "{what} open");
-        rest_pointer(&mut h);
+        // (The pointer gone from the window: it hovers nothing.)
+        h.event(egui::Event::PointerGone);
+        settle(&mut h);
         shoot(&mut h, &dir, name);
     };
     opened(
@@ -14749,23 +14773,58 @@ fn board_dialogs() {
         &|h: &mut Harness<'_, Moonglow>| {
             h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
             h.run_steps(2);
+            use mg_module::text::TextKind;
             let d = h.state_mut().text_replace.as_mut().unwrap();
             d.find = "M1Q1FAribeth".into();
             d.with = "M1Q1FAribeth2".into();
-            h.run_steps(2);
-            // (Tags ticked, as on the sheet.)
-            if let Some(tags) = h.query_by_label("Tags") {
-                tags.click_accesskit();
+            // (Tags and ResRefs ticked, as on the board.)
+            for k in [TextKind::Tag, TextKind::ResRef] {
+                if !d.kinds.contains(&k) {
+                    d.kinds.push(k);
+                }
             }
-            h.run_steps(2);
+            settle(h);
             h.get_by_label("Find").click_accesskit();
+            settle(h);
+            // (The board's six, the waypoint's tag unticked: "6 strings, 5
+            // times".)
+            let d = h.state_mut().text_replace.as_mut().unwrap();
+            assert_eq!(
+                d.hits.len(),
+                6,
+                "the board's six: {:?}",
+                d.hits.iter().map(|h| &h.0.place).collect::<Vec<_>>()
+            );
+            if let Some(hit) = d.hits.iter_mut().find(|h| h.0.place.contains("waypoint")) {
+                hit.1 = false;
+            }
+            taller(h, "Find and Replace Text", 130.0);
         },
         "board_dialogs_find_replace",
     );
     opened(
         "Build Module",
         &|h: &mut Harness<'_, Moonglow>| {
-            h.state_mut().build = Some(mg_ui::build_view::BuildWindow::default());
+            // (Unused, Missing Resources, Compile and Advanced Controls
+            // ticked, built (in the module's copy in memory: nothing is
+            // saved), a result chosen, as on the board.)
+            let mut w = mg_ui::build_view::BuildWindow::default();
+            (w.unused, w.missing, w.compile, w.advanced) = (true, true, true, true);
+            h.state_mut().build = Some(w);
+            settle(h);
+            h.get_all_by_label("Build").last().unwrap().click_accesskit();
+            settle(h);
+            let w = h.state_mut().build.as_mut().unwrap();
+            assert!(!w.results.is_empty(), "built");
+            // (A row of one line among the first in sight, an Unused one
+            // where there is one.)
+            let short =
+                |f: &mg_ui::build_view::Finding| !f.text.contains('\n') && f.text.len() < 70;
+            let first = w.results.iter().take(8);
+            let at = (first.clone().position(|f| short(f) && f.text.starts_with("Unused:")))
+                .or_else(|| first.clone().position(short));
+            w.selected = Some(at.unwrap_or(0));
+            taller(h, "Build Module", 140.0);
         },
         "board_dialogs_build",
     );
@@ -14774,7 +14833,18 @@ fn board_dialogs() {
         &|h: &mut Harness<'_, Moonglow>| h.state_mut().actions.push(mg_ui::Action::AreaWizard),
         "board_dialogs_area_wizard",
     );
-    let wizard = |h: &mut Harness<'_, Moonglow>| creature_wizard_at(h, 2);
+    let wizard = |h: &mut Harness<'_, Moonglow>| {
+        creature_wizard_at(h, 2);
+        // (Cleric 2 and Fighter 4 added, Rogue chosen in the list: the
+        // board's.)
+        let w = h.state_mut().creature_wizard.as_mut().unwrap();
+        (w.classes, w.chosen_class) = (vec![(2, 2), (4, 4)], Some(8));
+        settle(h);
+        assert!(
+            h.query_by_label("Remove Cleric").is_some()
+                && h.query_by_label("Remove Fighter").is_some()
+        );
+    };
     opened("Creature Wizard", &wizard, "board_dialogs_creature_wizard");
 }
 

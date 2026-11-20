@@ -1244,7 +1244,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
         crate::widgets::dialog(ctx, "Select a Color", &mut keep)
             .collapsible(false)
             .resizable(false)
-            .show(ctx, |ui| {
+            .show_bare(ctx, |ui| {
                 egui::Grid::new("light_colors").spacing([4.0, 4.0]).show(ui, |ui| {
                     for row in 0..colors.len().min(32) {
                         if source && row % 2 == 1 {

@@ -78,7 +78,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         crate::widgets::table_choices(app.game.as_deref(), "classes", Some("Name"), Some("Label"));
     let name = |class: u32| mg_rules::choice_text(&names, i64::from(class));
     let (mut ok, mut cancel) = (false, false);
-    crate::widgets::modal(ctx, "Creature Levelup Wizard").show(ctx, |ui| {
+    let footed = crate::widgets::modal(ctx, "Creature Levelup Wizard").show_foot(ctx, |ui| {
         ui.heading("Add Classes and Levels");
         ui.label(
             "Please choose 1 to 8 classes for this creature and select the level for each class.",
@@ -166,13 +166,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
         });
-        ui.separator();
-        ui.horizontal(|ui| {
-            ok = ui.button("OK").on_hover_text("Accept changes").clicked()
-                || crate::widgets::enter(ui);
-            cancel = crate::widgets::cancel_discard(ui);
-        });
+        ((), crate::widgets::Foot::new().main("OK", true).tip("Accept changes").cancel_discard())
     });
+    if let Some(f) = footed {
+        ok = f.pressed.main();
+        cancel = f.pressed.cancelled();
+    }
     if ok {
         level_up(app, &w);
     } else if !cancel {

@@ -551,10 +551,10 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut chosen = None;
     let mut browse = false;
-    crate::widgets::dialog(ctx, "Open 2DA", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Open 2DA", &mut open)
         .default_size([460.0, 440.0])
         .collapsible(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             let field =
                 crate::widgets::SearchField::new(egui::Id::new("open-2da-find"), &mut w.filter)
                     .hint("Find by name")
@@ -562,19 +562,10 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     .show(ui)
                     .response;
             crate::widgets::autofocus(ui, &field);
-            let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
             let needle = mg_core::text::Needle::new(&w.filter);
             let listed: Vec<&Listed> =
                 w.tables.iter().filter(|t| needle.finds(&t.name())).collect();
-            ui.horizontal(|ui| {
-                ui.weak(format!("{} tables", listed.len()));
-                if ui.button("Browse…").on_hover_text("A .2da file anywhere else").clicked() {
-                    browse = true;
-                }
-            });
-            if entered && let Some(first) = listed.first() {
-                chosen = Some((*first).clone());
-            }
+            let (count, first) = (listed.len(), listed.first().map(|t| (*t).clone()));
             let root = w.root.as_deref();
             mg_uikit::show_rows(
                 egui::ScrollArea::vertical().auto_shrink(false),
@@ -605,7 +596,24 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 },
             );
+            let foot = crate::widgets::Foot::new()
+                .note(format!("{count} tables"))
+                .main("Open", first.is_some())
+                .tip("Open the first table listed (Enter)")
+                .button("Browse…", true)
+                .tip("A .2da file anywhere else")
+                .cancel();
+            (first, foot)
         });
+    if let Some(footed) = &footed {
+        if footed.pressed.main() {
+            chosen = footed.inner.clone().flatten();
+        }
+        browse = footed.pressed.clicked("Browse…");
+        if footed.pressed.cancelled() {
+            open = false;
+        }
+    }
     match chosen {
         Some(Listed::Module(key, _)) => _ = open_in_module(app, key),
         Some(Listed::File(path)) => _ = open_path(app, &path),
@@ -3650,9 +3658,10 @@ fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     let mut add = false;
     let renaming = doc.renaming.filter(|c| *c < doc.edit.table().columns().len());
     let title = if renaming.is_some() { "Rename Column" } else { "Add Column" };
-    crate::widgets::dialog(ctx, title, &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    let footed = crate::widgets::dialog(ctx, title, &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
             ui.label("The column's name (no spaces)");
             let field = ui.add(mg_uikit::text_field(&mut name).desired_width(220.0));
             crate::widgets::autofocus(ui, &field);
@@ -3665,20 +3674,13 @@ fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
                     "The table has a column of this name.",
                 );
             }
-            ui.horizontal(|ui| {
-                let may = fits && !taken;
-                let go = if renaming.is_some() { "Rename" } else { "Add" };
-                if ui.add_enabled(may, egui::Button::new(go)).clicked()
-                    || (may && crate::widgets::enter(ui))
-                {
-                    add = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    cancelled = true;
-                }
-            });
-        },
-    );
+            let go = if renaming.is_some() { "Rename" } else { "Add" };
+            ((), crate::widgets::Foot::new().main(go, fits && !taken).cancel())
+        });
+    if let Some(footed) = &footed {
+        add = footed.pressed.main();
+        cancelled = footed.pressed.cancelled();
+    }
     if add {
         let done = match renaming {
             Some(column) => {
@@ -3737,21 +3739,22 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
         }
         (None, None) => (Arc::default(), false),
     };
-    crate::widgets::dialog(ctx, "Take Rows from Another Copy", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Take Rows from Another Copy", &mut open)
         .default_size([760.0, 520.0])
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             if others.is_empty() {
                 ui.label("No other copy of this table is in the load order.");
-                return;
+                return ((), crate::widgets::Foot::new().main("Take Rows", false).cancel());
             }
             ui.horizontal(|ui| {
                 ui.label("From");
                 let labels: Vec<Option<String>> =
                     others.iter().map(|(label, _)| Some(label.clone())).collect();
                 let mut pick = from.clone();
+                let width = 260.0_f32.min(ui.available_width());
                 crate::widgets::dropdown(("take-from", doc.id))
                     .selected_text(from.clone().unwrap_or_default())
-                    .width(260.0)
+                    .width(width)
                     .show(ui, &mut pick, &labels, |l| {
                         let rows = others.iter().find(|(o, _)| Some(o) == l.as_ref());
                         format!(
@@ -3766,23 +3769,25 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     taking.cells.clear();
                     taking.open_row = None;
                 }
-                let count = |o: Offered| found.iter().filter(|c| c.offered == o).count();
-                ui.weak(match told {
-                    true => format!(
-                        "{} new, {} changed there, {} changed in both",
-                        count(Offered::New),
-                        count(Offered::Changed),
-                        count(Offered::Conflict)
-                    ),
-                    false => format!(
-                        "{} new, {} that differ (the lowest copy: nothing to tell by whose \
-                         change it is)",
-                        count(Offered::New),
-                        count(Offered::Changed)
-                    ),
-                });
             });
-            ui.horizontal(|ui| {
+            // (Under the copy chosen, wrapped: beside it, it ran past a
+            // narrow window's edge.)
+            let count = |o: Offered| found.iter().filter(|c| c.offered == o).count();
+            ui.weak(match told {
+                true => format!(
+                    "{} new, {} changed there, {} changed in both",
+                    count(Offered::New),
+                    count(Offered::Changed),
+                    count(Offered::Conflict)
+                ),
+                false => format!(
+                    "{} new, {} that differ (the lowest copy: nothing to tell by whose \
+                         change it is)",
+                    count(Offered::New),
+                    count(Offered::Changed)
+                ),
+            });
+            ui.horizontal_wrapped(|ui| {
                 // A box is ticked while every row of its kind is.
                 let kinds = [
                     (Offered::New, "New", "The rows this table lacks"),
@@ -3818,9 +3823,8 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
             if found.is_empty() {
                 ui.weak("This table has every row of that copy as it has them.");
             }
-            // (Room under the list for the buttons, and for a row's cells
-            // being chosen.)
-            let under = if taking.open_row.is_some() { 150.0 } else { 40.0 };
+            // (Room under the list for a row's cells being chosen.)
+            let under = if taking.open_row.is_some() { 110.0 } else { 0.0 };
             let room = (ui.available_height() - under).max(120.0);
             // (Rows of a check box and words, 22 apart: they were given the
             // text's height and a margin, and their check boxes were taller.)
@@ -3934,29 +3938,23 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
                     });
                 });
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                let n = taking.chosen.len();
-                let m = taking.cells.iter().filter(|(r, _)| !taking.chosen.contains(r)).count();
-                let label = match (n, m) {
-                    (n, 0) => format!("Take {n} Rows"),
-                    (0, m) => format!("Take {m} Cells"),
-                    (n, m) => format!("Take {n} Rows and {m} Cells"),
-                };
-                if ui
-                    .add_enabled(n + m > 0, egui::Button::new(label))
-                    .on_hover_text(
-                        "Take each row ticked whole, and each cell chosen alone. One step to undo.",
-                    )
-                    .clicked()
-                {
-                    take = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    cancelled = true;
-                }
-            });
+            let n = taking.chosen.len();
+            let m = taking.cells.iter().filter(|(r, _)| !taking.chosen.contains(r)).count();
+            let label = match (n, m) {
+                (n, 0) => format!("Take {n} Rows"),
+                (0, m) => format!("Take {m} Cells"),
+                (n, m) => format!("Take {n} Rows and {m} Cells"),
+            };
+            let foot = crate::widgets::Foot::new()
+                .main(label, n + m > 0)
+                .tip("Take each row ticked whole, and each cell chosen alone. One step to undo.")
+                .cancel();
+            ((), foot)
         });
+    if let Some(footed) = &footed {
+        take = footed.pressed.main();
+        cancelled = footed.pressed.cancelled();
+    }
     if take && let Some((_, t)) = other {
         let rows: Vec<usize> = taking.chosen.iter().copied().collect();
         let cells: Vec<(usize, usize)> = taking.cells.iter().copied().collect();

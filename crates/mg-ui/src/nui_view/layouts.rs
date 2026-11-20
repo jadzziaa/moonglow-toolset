@@ -279,7 +279,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
         let mut open = true;
         let window =
             widgets::dialog(ui.ctx(), "New Variant", &mut open).collapsible(false).resizable(false);
-        window.show(ui.ctx(), |ui| {
+        let footed = window.show_foot(ui.ctx(), |ui| {
             let name = widgets::field_label(ui, "Variant name");
             let field = ui.add(mg_uikit::text_field(&mut draft.name)).labelled_by(name.id);
             widgets::autofocus(ui, &field);
@@ -296,19 +296,19 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
             if !valid {
                 ui.weak("The variant needs a name no other variant has.");
             }
-            ui.horizontal(|ui| {
-                if ui.add_enabled(valid, egui::Button::new("Create")).clicked()
-                    || (valid && widgets::enter(ui))
-                {
-                    s.variants.insert(name.into(), draft.root.clone());
-                    result = Some(name.to_owned());
-                    finish = true;
-                }
-                if widgets::cancel(ui) {
-                    finish = true;
-                }
-            });
+            ((), widgets::Foot::new().main("Create", valid).cancel())
         });
+        if let Some(footed) = footed {
+            let name = draft.name.trim();
+            if footed.pressed.main() {
+                s.variants.insert(name.into(), draft.root.clone());
+                result = Some(name.to_owned());
+                finish = true;
+            }
+            if footed.pressed.cancelled() {
+                finish = true;
+            }
+        }
         finish |= !open;
     }
     ui.ctx().data_mut(|d| {

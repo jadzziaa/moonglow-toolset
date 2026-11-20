@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T20:19:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T08:30:21Z }
 ---
 
 # The main window
@@ -885,6 +885,35 @@ to its row, **Expand** shows it again as it was. A job's window (a
 running command's progress, a plugin's question) has the same row, with
 no Close: its Cancel answers it.
 
+**Every dialog has a footer** at its foot, under a rule: at its left a
+note, a count or one setting's check box (Delete from Module's **Don't
+ask when nothing else names them**, Open Directory as a Module's **Always
+do this**, Close Moonglow?'s **Don't ask again**), at its right its
+buttons. The main action comes first, in the accent fill (a wizard's **<
+Back** before it), then the other actions, then **Cancel**, or what
+leaves without acting (**Done**, **Later**, **Close**) last. A dialog
+that Escape closes by its title row's Close (Find Instance, Find Text,
+Hak Pak Conflict Analysis, Publish to NWSync) has no Close in its footer
+too. **Enter** presses the main action whenever it is enabled, also with a
+one-line text field holding the keys, and not while it is disabled;
+**Escape** is Cancel, or closes the dialog (a plugin's message, whose
+only button is OK, closes by either). **Enter is not taken** by a main
+action that grants trust, overrides a protection, overwrites or quits:
+Close Moonglow? (**Close Moonglow**), Protected Area (**Change It
+Anyway**), Areas Not Yours and Before Saving (**Save Anyway**), Files
+Already in the Hak (**Replace N**), This Project Comes with Plugins
+(**Allow All**), a plugin's Remove and Replace, Run a Project Command?
+(**Allow and Run**), a plugin's question asking yes or no (**Yes**) and
+Changed Outside Moonglow (**Keep Moonglow's**). Click it, or reach it
+with Tab and press Enter or Space. **The keys go to the window in
+front**: with a long work's window or a plugin's question over a
+dialog, Enter and Escape are that window's, and a picker opened from a
+dialog takes them before the dialog under it. In a dialog whose body
+scrolls (a short window), Tab brings the control it moves to into sight.
+The body has 12 points of padding. Only the long work's window, a
+plugin's question, the talk-table question and Before Saving dim what is
+behind them.
+
 **Escape** closes the window in front: a dialog (as its Cancel or close
 button does; a picker opened from a Properties window closes alone, and
 the window stays), then a window with **OK** and **Cancel** (a
@@ -994,7 +1023,8 @@ encounter's), and a size dragged at its edge or corner is kept so.
 A window has a border, rounded corners and a shadow under it, and a
 **bar** across its top: the **Collapse** arrow at its left (folds the
 window to its bar; **Expand**, the same arrow, opens it again), its
-tabs, and at its right **Maximize** and **Close Window**, which closes
+tabs, and at its right **Maximize** and **Close Window** (Tab reaches
+them left to right: the arrow, the tabs, then Close Window), which closes
 the window and its tabs as closing each tab would (what asks before it
 closes asks, and **Closing a window cancels its changes** in Options ›
 General decides whether its changes are kept). A window split in panes

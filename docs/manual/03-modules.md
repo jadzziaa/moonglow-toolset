@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T11:46:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 ---
 
 # Modules
@@ -216,7 +216,11 @@ door's Linked To, a key's tag, comments).
   is changed with the window open, the list is of the module as it was:
   **Find** again before replacing.
 - **Replace** changes the ticked strings as one step that **Undo** takes
-  back, then lists what's left.
+  back, then lists what's left. The footer says how many there are as
+  "N strings, M times" ("1 string, 1 time"), while the list is current,
+  and has **Find** (the main button) and **Replace in N**, N the ticked
+  hits (off at 0). It has no Cancel: its title row's **Close** and
+  Escape close it.
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
@@ -435,8 +439,8 @@ unpacking or packing between the toolset and git.
   written again meanwhile is read again then.
 - **Where you have unsaved changes to a file that also changed
   elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
-  window asks: **Keep Moonglow's** (the next Save writes yours over the
-  file), **Take the Files'** (yours are lost) or **Later**. A field you
+  window asks: **Keep Moonglow's** (the main button; the next Save writes yours over the
+  file), **Take the Files'** (yours are lost) or **Later**, which leaves it for now. A field you
   are typing in when the files come in sets what you typed first, so
   that it is one of your changes, kept and asked about.
 - **Changes made elsewhere are never overwritten unasked.** Until you
@@ -1327,7 +1331,8 @@ ResRef loses both for everyone who has been there. An area the claims
 table says is merged, or one `[claims] protected` names, is protected:
 before its Tag changes (Area Properties, or any other window), before it
 is renamed (**Rename…**) or deleted, Moonglow asks (**Protected Area**),
-and offers **Make a Copy Instead…**: a copy under a new ResRef and Tag is
+and offers, after the action's own button (**Change It Anyway**…, first,
+the main one), **Make a Copy Instead…** and **Cancel**: a copy under a new ResRef and Tag is
 a new area, and loses nothing. **Change It Anyway** (or Rename, or
 Delete) goes ahead, for that one change: **Rename It Anyway** opens the
 Rename window, and closed without renaming, the area's next rename or
@@ -1594,8 +1599,8 @@ the same way.
 module reaches and which nothing does: for cutting a release (or a
 player's download) to what is used. In the window, **Check for
 Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
-Conflict Analysis, and its **What the Module Uses** says the same above
-the conflicts (worked out as a job, on the module as it is, unsaved
+Conflict Analysis, and its **What the Module Uses** (the main button, in
+the footer beside **Close**) says the same above the conflicts (worked out as a job, on the module as it is, unsaved
 changes too). A line a hak, and one for them all:
 
 ```
@@ -2630,7 +2635,10 @@ plugin reads a description with `mg.twoda.describe`
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
 size (2 to 32 tiles each way). It opens with the first tileset chosen
-(Aurora chooses none). Its ResRef is made from the name, after [your
+(Aurora chooses none). It is one page: its check boxes read **Launch Area
+Properties dialog** and **Open area in the Area Viewer**, and its footer
+has **Create** (the main button, which Enter presses once a name and a
+tileset are given) and **Cancel**. Its ResRef is made from the name, after [your
 builder code](#your-builder-code) where you have one (the wizard then
 shows it). **Edit › Resize Area…** and **Rotate Area…**
 change the area shown last, as in Aurora. See [Areas](04-areas.md).

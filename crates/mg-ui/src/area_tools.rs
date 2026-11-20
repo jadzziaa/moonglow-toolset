@@ -153,35 +153,43 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     let Some(mut a) = app.adjust.take() else { return };
     let mut open = true;
-    let mut cancel = false;
-    let mut done = None;
-    crate::widgets::dialog(ui.ctx(), "Adjust Location", &mut open)
+    let footed = crate::widgets::dialog(ui.ctx(), "Adjust Location", &mut open)
         .resizable(false)
         .collapsible(false)
-        .show(ui.ctx(), |ui| {
+        .show_foot(ui.ctx(), |ui| {
             if a.objects.len() > 1 {
                 ui.weak(format!("{} objects: what you change is set on each", a.objects.len()));
             }
             if a.start {
                 ui.weak("The module's start location");
             }
-            egui::Grid::new("adjust").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                for (i, label) in ["X", "Y", "Z"].into_iter().enumerate() {
-                    crate::widgets::field_label(ui, label);
-                    // (A step of an arrow: a tenth of a meter.)
-                    let r = crate::widgets::spin_draft(ui, &mut a.position[i], FAR, 0.1, |d| {
-                        d.speed(0.05).max_decimals(3)
-                    });
-                    a.changed[i] |= r.changed();
+            egui::Grid::new("adjust").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+                // (Two fields to a row: X and Y, then Z and the bearing.)
+                for row in [[0, 1], [2, 3]] {
+                    for i in row {
+                        if i < 3 {
+                            crate::widgets::field_label(ui, ["X", "Y", "Z"][i]);
+                            // (A step of an arrow: a tenth of a meter.)
+                            let r =
+                                crate::widgets::spin_draft(ui, &mut a.position[i], FAR, 0.1, |d| {
+                                    d.speed(0.05).max_decimals(3)
+                                });
+                            a.changed[i] |= r.changed();
+                        } else {
+                            crate::widgets::field_label(ui, "Bearing (°)")
+                                .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
+                            let r = crate::widgets::spin_draft(
+                                ui,
+                                &mut a.bearing,
+                                0.0..=360.0,
+                                1.0,
+                                |d| d.speed(1.0).max_decimals(2),
+                            );
+                            a.changed[3] |= r.changed();
+                        }
+                    }
                     ui.end_row();
                 }
-                crate::widgets::field_label(ui, "Bearing (°)")
-                    .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
-                let r = crate::widgets::spin_draft(ui, &mut a.bearing, 0.0..=360.0, 1.0, |d| {
-                    d.speed(1.0).max_decimals(2)
-                });
-                a.changed[3] |= r.changed();
-                ui.end_row();
             });
             if a.shaped {
                 ui.add_space(crate::widgets::SECTION_GAP);
@@ -201,7 +209,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         // (Written alike from now on.)
                         a.uneven = 0;
                     }
-                    crate::widgets::field_label(ui, "Animation Speed").on_hover_text(
+                    crate::widgets::field_label(ui, "Animation speed").on_hover_text(
                         "How fast the model's animations play: 1 as made, 2 twice as fast",
                     );
                     let r = crate::widgets::spin_draft(ui, &mut a.speed, 0.0..=100.0, 0.1, |d| {
@@ -219,14 +227,14 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                          (north at Bearing 0)",
                     ];
                     for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        crate::widgets::field_label(ui, format!("{axis} Rotation"))
+                        crate::widgets::field_label(ui, format!("{axis} rotation"))
                             .on_hover_text(turns[i]);
                         let turn = &mut a.visual.rotate[i];
                         let r = crate::widgets::spin_draft(ui, turn, FAR, 1.0, |d| {
                             d.speed(1.0).max_decimals(1)
                         });
                         a.visual_changed |= r.changed();
-                        crate::widgets::field_label(ui, format!("{axis} Translation"));
+                        crate::widgets::field_label(ui, format!("{axis} translation"));
                         let to = &mut a.visual.translate[i];
                         let r = crate::widgets::spin_draft(ui, to, FAR, 0.1, |d| {
                             d.speed(0.01).max_decimals(2)
@@ -239,7 +247,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
             if a.shaped && !a.kept.is_empty() {
                 ui.add_space(crate::widgets::SECTION_GAP);
                 ui.scope(|ui| {
-                    ui.set_max_width(340.0);
+                    crate::widgets::fit_width(ui, 340.0);
                     if a.objects.len() > 1 {
                         ui.weak("The first of them:");
                     }
@@ -253,7 +261,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 // (About as wide as the fields above: the window sizes
                 // itself to what it holds.)
                 ui.scope(|ui| {
-                    ui.set_max_width(340.0);
+                    crate::widgets::fit_width(ui, 340.0);
                     ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
                 });
             }
@@ -261,18 +269,15 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add_space(crate::widgets::SECTION_GAP);
                 ui.colored_label(ui.visuals().warn_fg_color, note);
             }
-            ui.horizontal(|ui| {
-                if ui.button("OK").clicked() || crate::widgets::enter(ui) {
-                    done = Some(true);
-                }
-                if ui.button("Apply").clicked() {
-                    done = Some(false);
-                }
-                if crate::widgets::cancel(ui) {
-                    cancel = true;
-                }
-            });
+            let foot = crate::widgets::Foot::new().main("OK", true).button("Apply", true).cancel();
+            ((), foot)
         });
+    let (cancel, done) = match &footed {
+        Some(f) if f.pressed.main() => (false, Some(true)),
+        Some(f) if f.pressed.clicked("Apply") => (false, Some(false)),
+        Some(f) => (f.pressed.cancelled(), None),
+        None => (false, None),
+    };
     if cancel {
         return;
     }
@@ -675,10 +680,9 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         let (app, labels) = &mut *naming.borrow_mut();
         labels.entry(*a).or_insert_with(|| crate::tabs::area_label(app, *a)).clone()
     };
-    let mut searching = false;
-    crate::widgets::dialog(ui.ctx(), "Find Instance", &mut open).default_width(460.0).show(
-        ui.ctx(),
-        |ui| {
+    let footed = crate::widgets::dialog(ui.ctx(), "Find Instance", &mut open)
+        .default_width(460.0)
+        .show_foot(ui.ctx(), |ui| {
             ui.horizontal_wrapped(|ui| {
                 crate::widgets::field_label(ui, "Search For");
                 for kind in ObjectKind::ALL {
@@ -706,14 +710,6 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add(mg_uikit::text_field(&mut f.tag).hint_text("tag"));
                 ui.end_row();
             });
-            ui.horizontal(|ui| {
-                searching = ui.button("Search").clicked();
-                if ui.button("Clear").clicked() {
-                    f = FindInstance::default();
-                }
-            });
-            ui.separator();
-            ui.weak(format!("{} found; double click one to go to it", f.results.len()));
             // (The rows in sight alone are laid out, in columns of set
             // widths, a long name cut: with nothing typed every placed
             // object of the module is found, tens of thousands.)
@@ -758,8 +754,13 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 }
             });
-        },
-    );
+            let note = format!("{} found; double click one to go to it", f.results.len());
+            ((), crate::widgets::Foot::new().note(note).main("Search", true).button("Clear", true))
+        });
+    let searching = footed.as_ref().is_some_and(|x| x.pressed.main());
+    if footed.as_ref().is_some_and(|x| x.pressed.clicked("Clear")) {
+        f = FindInstance::default();
+    }
     if searching {
         f.find(app);
     }

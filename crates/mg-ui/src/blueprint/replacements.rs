@@ -566,7 +566,7 @@ fn open_gallery(f: &mut Form<'_>, ui: &Ui, entry: Option<usize>, old: String, cu
 /// chosen larger; OK gives (the model's texture, the one picked).
 fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResRef)> {
     let id = f.id("texture-gallery");
-    let state: TexturePick = ui.data(|d| d.get_temp(id))?;
+    let mut state: TexturePick = ui.data(|d| d.get_temp(id))?;
     let needle = mg_core::text::Needle::new(&state.filter);
     let textures = state.textures.clone();
     // (The places of those shown, found once for the list, what is typed
@@ -580,164 +580,157 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let name_at = |i: u32| &textures.names[i as usize];
     registered(ui, id);
     let (mut wanted, mut in_sight) = (Vec::new(), Vec::new());
-    let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 960.0);
+    // (No wider than the body's room: at the least window it ran past both
+    // its edges.)
+    let wide = (ui.ctx().content_rect().width() * 0.8)
+        .clamp(480.0, 960.0)
+        .min(crate::widgets::body_room_width(ui.ctx()));
     let tall = (ui.ctx().content_rect().height() * 0.6).clamp(300.0, 700.0);
     let side = crate::appearance_gallery::tile_side(f.app);
     let old = state.old.to_ascii_lowercase();
     let window =
         crate::widgets::modal(ui.ctx(), "Select Texture").id(id.with("modal")).close_as_cancel();
-    // (The picker's state, OK and Cancel: the body's and the footer's.)
-    let mut answer = (state, false, false);
-    window.show_footed(
-        ui.ctx(),
-        &mut answer,
-        |ui, (state, ok, _)| {
-            ui.set_width(wide);
-            ui.label(format!("To draw {} with", state.old));
-            // (Wrapped in the dialog's one width: a row of its own widened
-            // the dialog at its least size past the well and the preview.)
-            ui.horizontal_wrapped(|ui| {
-                let field = id.with("filter");
-                crate::widgets::SearchField::new(field, &mut state.filter)
-                    .hint("Find")
-                    .width(180.0)
-                    .find_over()
-                    .show(ui);
-                crate::appearance_gallery::size_slider(f.app, ui);
-                let all = textures.count(state.interface);
-                ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
-                    "The game's, the haks' and the module's DDS and TGA textures, not PLTs",
-                );
-                let interface = ui.check_box(&mut state.interface, "Interface textures too");
-                if interface
-                    .on_hover_text(
-                        "Also list icons, portraits, load screens and other interface pictures",
-                    )
-                    .changed()
-                {
-                    state.placed = false;
-                    ui.ctx().request_repaint();
-                }
-            });
-            let preview = 200.0;
-            // (The well takes the dialog's width beside the preview: what
-            // the dialog is, not what it was asked to be.)
-            let room = (ui.available_width() - preview - 16.0).max(120.0);
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                {
-                    // (Where the one chosen is among those shown, found once for
-                    // them and it: 60,000 names were walked every frame.)
-                    // (With none chosen, the texture replaced: the grid opens
-                    // at it, ringed.)
-                    let at_id = id.with("at");
-                    let at_name = state.chosen.clone().unwrap_or_else(|| old.clone());
-                    let current = super::kept_for(ui.ctx(), at_id, &shown, &at_name, || {
-                        shown.iter().position(|&i| *name_at(i) == at_name)
-                    });
-                    // (Not while a menu or popup is open over it: the dialog is
-                    // itself what has the keys, so not `keys_blocked`.)
-                    let keys = !egui::Popup::is_any_open(ui.ctx());
-                    let grid =
-                        mg_uikit::gallery::GalleryGrid::new(id.with("pictures"), shown.len(), side)
-                            // (One line of name, cut: rows the board's 10
-                            // by 14 apart, not a second line's room more.)
-                            .label(mg_uikit::gallery::label_height(false, 1, false))
-                            .cursor(current)
-                            .keys_allowed(keys)
-                            .name("Textures");
-                    let pad = egui::Margin { left: 10, right: 10, top: 8, bottom: 8 };
-                    let well = id.with("grid");
-                    let size = egui::vec2(room, tall);
-                    let shown_area = crate::widgets::picture_well(ui, well, size, pad, |ui| {
-                        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
-                            let name = name_at(shown[i]);
-                            let made = picture_made(f, name);
-                            let chosen = *name == at_name;
-                            // (Names only, in the monospace of names: the
-                            // board's shared cell.)
-                            mg_uikit::gallery::GalleryCell::new(
-                                name,
-                                crate::widgets::cell_picture(made),
-                            )
-                            .model(true)
-                            .kind(mg_uikit::Icon::Texture)
-                            .selected(chosen)
-                            .paint(ui, rect, tile, cell, r);
-                            if r.clicked() {
-                                state.chosen = Some(name.clone());
-                            }
-                            if r.double_clicked() {
-                                state.chosen = Some(name.clone());
-                                *ok = true;
-                            }
-                        });
-                        // (The keys choose as they move: a picker's; Enter on the
-                        // grid is OK.)
-                        if let Some(i) = out.moved.or(out.activated) {
-                            state.chosen = Some(name_at(shown[i]).clone());
+    // (OK as the grid gives it: a double click, Enter on a picture.)
+    let mut ok_flag = false;
+    let footed = window.show_foot(ui.ctx(), |ui| {
+        let ok = &mut ok_flag;
+        ui.set_width(wide);
+        ui.label(format!("To draw {} with", state.old));
+        // (Wrapped in the dialog's one width: a row of its own widened
+        // the dialog at its least size past the well and the preview.)
+        ui.horizontal_wrapped(|ui| {
+            let field = id.with("filter");
+            crate::widgets::SearchField::new(field, &mut state.filter)
+                .hint("Find")
+                .width(180.0)
+                .find_over()
+                .show(ui);
+            crate::appearance_gallery::size_slider(f.app, ui);
+            let all = textures.count(state.interface);
+            ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
+                "The game's, the haks' and the module's DDS and TGA textures, not PLTs",
+            );
+            let interface = ui.check_box(&mut state.interface, "Interface textures too");
+            if interface
+                .on_hover_text(
+                    "Also list icons, portraits, load screens and other interface pictures",
+                )
+                .changed()
+            {
+                state.placed = false;
+                ui.ctx().request_repaint();
+            }
+        });
+        let preview = 200.0;
+        // (The well takes the dialog's width beside the preview: what
+        // the dialog is, not what it was asked to be.)
+        let room = (ui.available_width() - preview - 16.0).max(120.0);
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 16.0;
+            {
+                // (Where the one chosen is among those shown, found once for
+                // them and it: 60,000 names were walked every frame.)
+                // (With none chosen, the texture replaced: the grid opens
+                // at it, ringed.)
+                let at_id = id.with("at");
+                let at_name = state.chosen.clone().unwrap_or_else(|| old.clone());
+                let current = super::kept_for(ui.ctx(), at_id, &shown, &at_name, || {
+                    shown.iter().position(|&i| *name_at(i) == at_name)
+                });
+                // (Not while a menu or popup is open over it: the dialog is
+                // itself what has the keys, so not `keys_blocked`.)
+                let keys = !egui::Popup::is_any_open(ui.ctx());
+                let grid =
+                    mg_uikit::gallery::GalleryGrid::new(id.with("pictures"), shown.len(), side)
+                        // (One line of name, cut: rows the board's 10
+                        // by 14 apart, not a second line's room more.)
+                        .label(mg_uikit::gallery::label_height(false, 1, false))
+                        .cursor(current)
+                        .keys_allowed(keys)
+                        .name("Textures");
+                let pad = egui::Margin { left: 10, right: 10, top: 8, bottom: 8 };
+                let well = id.with("grid");
+                let size = egui::vec2(room, tall);
+                let shown_area = crate::widgets::picture_well(ui, well, size, pad, |ui| {
+                    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                        let name = name_at(shown[i]);
+                        let made = picture_made(f, name);
+                        let chosen = *name == at_name;
+                        // (Names only, in the monospace of names: the
+                        // board's shared cell.)
+                        mg_uikit::gallery::GalleryCell::new(
+                            name,
+                            crate::widgets::cell_picture(made),
+                        )
+                        .model(true)
+                        .kind(mg_uikit::Icon::Texture)
+                        .selected(chosen)
+                        .paint(ui, rect, tile, cell, r);
+                        if r.clicked() {
+                            state.chosen = Some(name.clone());
                         }
-                        if out.activated.is_some() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        {
+                        if r.double_clicked() {
+                            state.chosen = Some(name.clone());
                             *ok = true;
                         }
-                        // (Those in sight and a row ahead: made, a few a frame.)
-                        for i in out.ahead.clone() {
-                            let name = name_at(shown[i]);
-                            in_sight.push(thumb_key(name, GALLERY_THUMB));
-                            if picture_made(f, name).is_none() {
-                                wanted.push(name.clone());
-                            }
-                        }
-                        out
                     });
-                    // (Opened at the one chosen, once, where the grid put it.)
-                    if !state.placed {
-                        state.placed = match current {
-                            Some(at) => crate::widgets::open_gallery_at(
-                                ui.ctx(),
-                                &shown_area,
-                                &shown_area.inner,
-                                at,
-                            ),
-                            None => true,
-                        };
+                    // (The keys choose as they move: a picker's; Enter on the
+                    // grid is OK.)
+                    if let Some(i) = out.moved.or(out.activated) {
+                        state.chosen = Some(name_at(shown[i]).clone());
                     }
-                }
-                ui.vertical(|ui| {
-                    ui.set_width(preview);
-                    // (The one chosen, else the texture it replaces, with
-                    // its name.)
-                    let shown =
-                        state.chosen.clone().or_else(|| (!old.is_empty()).then(|| old.clone()));
-                    if let Some(c) = shown {
-                        let key = thumb_key(&c, PREVIEW_THUMB);
-                        if !state.made.contains(&key) {
-                            state.made.push(key);
-                        }
-                        let picture = f
-                            .app
-                            .loader()
-                            .and_then(|mut l| l.thumbnail(ui.ctx(), &c, PREVIEW_THUMB));
-                        if let Some(p) = picture {
-                            let size = egui::vec2(preview, preview);
-                            ui.add(
-                                egui::Image::new(&p.texture).fit_to_exact_size(size).alt_text(&c),
-                            );
-                        }
-                        ui.label(&c);
+                    if out.activated.is_some() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        *ok = true;
                     }
+                    // (Those in sight and a row ahead: made, a few a frame.)
+                    for i in out.ahead.clone() {
+                        let name = name_at(shown[i]);
+                        in_sight.push(thumb_key(name, GALLERY_THUMB));
+                        if picture_made(f, name).is_none() {
+                            wanted.push(name.clone());
+                        }
+                    }
+                    out
                 });
+                // (Opened at the one chosen, once, where the grid put it.)
+                if !state.placed {
+                    state.placed = match current {
+                        Some(at) => crate::widgets::open_gallery_at(
+                            ui.ctx(),
+                            &shown_area,
+                            &shown_area.inner,
+                            at,
+                        ),
+                        None => true,
+                    };
+                }
+            }
+            ui.vertical(|ui| {
+                ui.set_width(preview);
+                // (The one chosen, else the texture it replaces, with
+                // its name.)
+                let shown = state.chosen.clone().or_else(|| (!old.is_empty()).then(|| old.clone()));
+                if let Some(c) = shown {
+                    let key = thumb_key(&c, PREVIEW_THUMB);
+                    if !state.made.contains(&key) {
+                        state.made.push(key);
+                    }
+                    let picture =
+                        f.app.loader().and_then(|mut l| l.thumbnail(ui.ctx(), &c, PREVIEW_THUMB));
+                    if let Some(p) = picture {
+                        let size = egui::vec2(preview, preview);
+                        ui.add(egui::Image::new(&p.texture).fit_to_exact_size(size).alt_text(&c));
+                    }
+                    ui.label(&c);
+                }
             });
-        },
-        |ui, (state, ok, cancel)| {
-            let any = state.chosen.is_some();
-            let (o, c) = crate::widgets::picker_footer(ui, None, any);
-            *ok |= o || (any && crate::widgets::enter(ui));
-            *cancel = c;
-        },
-    );
-    let (mut state, ok, cancel) = answer;
+        });
+        let any = state.chosen.is_some();
+        ((), crate::widgets::picker_footer(None, any))
+    });
+    let pressed = footed.map(|f| f.pressed).unwrap_or_default();
+    let ok = ok_flag || pressed.main();
+    let cancel = pressed.cancelled();
     // The pictures in sight not made yet: as many as a few milliseconds
     // make, the rest in the frames after.
     let started = Instant::now();

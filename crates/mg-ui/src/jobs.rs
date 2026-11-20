@@ -402,29 +402,38 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         modal = modal.backdrop_color(egui::Color32::TRANSPARENT);
     }
     let heading = plugin.as_ref().map_or(title.as_str(), |(heading, _)| heading.as_str());
-    modal.show(ctx, |ui| {
-        let (_, named) = crate::widgets::modal_titled(ui, heading, |ui| {
+    let shown = modal.show(ctx, |ui| {
+        let (asked, pressed, named) = crate::widgets::modal_titled_foot(ui, heading, |ui| {
             job_body(app, ui, &progress, started, command)
         });
         if let Some((_, name)) = &plugin {
             named.on_hover_text(format!("From the plugin {name}"));
         }
+        (asked, pressed)
     });
+    let (asked, pressed) = shown.inner;
+    match asked {
+        Some(question) => crate::plugins::question_answer(app, &question, &pressed),
+        // (Cancel, or Escape: the job is asked to stop, and comes to an end.)
+        None if pressed.cancelled() => progress.cancel.store(true, Ordering::Relaxed),
+        None => {}
+    }
 }
 
 /// The job window's body under its title row: a plugin's question, a
-/// project command's output, the progress and Cancel.
+/// project command's output, the progress; its footer (the question's
+/// buttons, or Cancel) and the question it shows, if one.
 fn job_body(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
     progress: &std::sync::Arc<Progress>,
     started: std::time::Instant,
     command: bool,
-) {
-    ui.set_width(if command { 640.0 } else { 320.0 });
+) -> (Option<mg_plugin::Question>, crate::widgets::Foot) {
+    ui.set_width(ui.available_width().min(if command { 640.0 } else { 320.0 }));
     // A plugin waiting on the user shows its question here.
-    if crate::plugins::question_ui(app, ui) {
-        return;
+    if let Some((foot, question)) = crate::plugins::question_ui(app, ui) {
+        return (Some(question), foot);
     }
     // A project's command, its output as it comes (and its input).
     if command {
@@ -433,9 +442,12 @@ fn job_body(
     let (done, total) =
         (progress.done.load(Ordering::Relaxed), progress.total.load(Ordering::Relaxed));
     if total > 0 {
-        let bar =
-            egui::ProgressBar::new(done as f32 / total as f32).text(format!("{done} of {total}"));
-        ui.add(bar);
+        // The bar, and its words ("40 of 312") under it in the body's text
+        // (M4's U27): egui draws a bar's own words in the selection's
+        // light text over both its fill and its track, which in the light
+        // theme left them half unreadable over the light track.
+        ui.add(egui::ProgressBar::new(done as f32 / total as f32));
+        ui.label(progress_words(done, total));
     } else {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -446,12 +458,15 @@ fn job_body(
     if !note.is_empty() {
         ui.label(note);
     }
-    ui.add_space(6.0);
     if progress.cancelled() {
         ui.weak("Canceling…");
-    } else if ui.button("Cancel").clicked() {
-        progress.cancel.store(true, Ordering::Relaxed);
     }
+    (None, crate::widgets::Foot::new().cancel())
+}
+
+/// A job's progress in words, under its bar.
+fn progress_words(done: usize, total: usize) -> String {
+    format!("{done} of {total}")
 }
 
 #[cfg(test)]

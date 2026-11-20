@@ -1,6 +1,19 @@
 # Update log
 
+## 2026-11-20
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U27's review ([02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The keys go to the window in front**: with the long work's window or a plugin's question over a dialog, Enter and Escape are that window's alone; a picker opened from a dialog takes them before the dialog under it.
+  * **Enter is not taken** by a main action that grants trust, overrides a protection, overwrites or quits (Close Moonglow, Change It Anyway, Save Anyway, Replace, Allow All, Remove, Allow and Run, a plugin's Yes, Keep Moonglow's): click it, or press Enter on it with the keys there. A plugin's message closes by Escape as by Enter.
+  * **Dialogs fit**: Recover Unsaved Work is 548 wide with its times in a column, Update Instances and Change Tileset end under what they hold; at the least window every dialog's controls stay inside it (Take Rows, Setup Area Transition, the Claims Table, Publish to NWSync, the Script Wizard's Skill Check page and others laid out to the room), and Tab brings the control it reaches into sight where a dialog's body scrolls.
+  * **The footer's Close** is gone from Find Instance, Find Text, Hak Pak Conflict Analysis and Publish to NWSync (the title row's Close and Escape close them). The Creature Wizard's Class and Level page, the Area Wizard's Size and Find and Replace Text are built as the Dialogs board draws them.
+
 ## 2026-11-19
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U27, the dialog pattern everywhere**, as the Dialogs and Wizards boards draw it ([09](manual/09-build-and-test.md), [06](manual/06-conversations.md), [02](manual/02-main-window.md), [03](manual/03-modules.md), [04](manual/04-areas.md), [05](manual/05-blueprints.md); [parity](parity/checklists.md), [moves](ui-redesign-moves.md)).
+  * **Every dialog ends in the footer** (82 of them): a note, a count or one setting at its left, the main action first in the accent fill, then the others, then Cancel (or Done, Later, Close) last; Enter presses the main action while it is enabled, Escape is Cancel or Close; the body has 12 points of padding; no dialog is larger than the window nor its footer cut, down to the least window.
+  * **The wizards**: a step list at the left (a check on the steps done) and a page bar over each page in the Creature Wizard's nine steps, the Script, Store and blueprint wizards.
+  * **Wording and layout**: "6 strings, 5 times"; Animation speed, X rotation; Adjust Location's fields in four columns and Build Module's missing resources in two; Find and Replace Text's Replace in N and Delete from Module's Don't ask in their footers.
+  * **The long work's window** says how far it is under its bar, readable in Light; only it, a plugin's question, the talk-table question and Before Saving dim what is behind them, as before.
+  * **A floating window's bar** is reached by Tab left to right (the collapse arrow, the tabs, Close Window): a small change to the vendored egui_dock (`vendor/egui_dock/MOONGLOW.md`).
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U26's review ([05](manual/05-blueprints.md)).
   * **The armor part gallery** is two whole rows high at any width, from its own layout, its scroll bar there only where the part has more than two rows (it came and went each frame at some widths), and it opens at the armor's own part again when the page's width changes its columns.
   * **The Appearance Gallery** takes the keys as its tab comes to the front, never from Find, another tab or a floating window; an arrow key moves the Preview and the Appearance panel; the panel's rows are 28 apart; the Status Bar's count is the header's words; a placeable's right click says Right Click Menu; the hint strip's words are cut where the tab is narrow.

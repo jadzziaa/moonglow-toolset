@@ -107,10 +107,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .and_then(|ws| ws.module.location.as_ref())
         .and_then(mg_module::project_file::ProjectFile::place_to_write);
     let used = app.ws.as_ref().map(|ws| ws.module.project_file.used.clone()).unwrap_or_default();
-    crate::widgets::dialog(ctx, "Build Module", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Build Module", &mut open)
         .collapsible(false)
         .default_width(560.0)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             // The four checks, always; Advanced Controls shows what each
             // covers.
             ui.horizontal(|ui| {
@@ -139,9 +139,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.missing, |ui| {
                             crate::widgets::field_label(ui, "Missing Resources");
-                            for (c, on) in &mut w.missing_of {
-                                ui.check_box(on, format!("{c:?}"));
-                            }
+                            // (Two columns: eleven kinds in one would make
+                            // the dialog taller than its other columns.)
+                            let half = w.missing_of.len().div_ceil(2);
+                            ui.horizontal_top(|ui| {
+                                let mut kinds = w.missing_of.iter_mut().enumerate();
+                                for column in 0..2 {
+                                    ui.vertical(|ui| {
+                                        for (i, (c, on)) in kinds.by_ref() {
+                                            ui.check_box(on, format!("{c:?}"));
+                                            if column == 0 && i + 1 == half {
+                                                break;
+                                            }
+                                        }
+                                    });
+                                }
+                            });
                         });
                     });
                     ui.add_space(16.0);
@@ -196,25 +209,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 },
             );
             let chosen = w.selected.and_then(|i| w.results.get(i)).and_then(|f| f.unused);
-            ui.horizontal(|ui| {
-                build = ui.button("Build").clicked();
-                let can = chosen.is_some() && place.is_some();
-                let r = ui.add_enabled(can, egui::Button::new("Mark as Used"));
-                let r = if place.is_none() {
-                    r.on_disabled_hover_text(NO_PLACE)
-                } else {
-                    r.on_disabled_hover_text("Choose an Unused result first")
-                };
-                if r.on_hover_text(MARK_HOVER).clicked()
-                    && let Some(u) = chosen
-                    && let Some(kind) = UsedRules::key_for(u.key.restype)
-                {
-                    mark = Some((kind, u.key.resref.to_string(), true));
-                }
-                export =
-                    ui.add_enabled(!w.results.is_empty(), egui::Button::new("Export…")).clicked();
-                done = ui.button("Done").clicked();
-            });
             if w.unused {
                 egui::CollapsingHeader::new("Counted as Used")
                     .icon(mg_uikit::collapsing_icon)
@@ -225,7 +219,33 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         }
                     });
             }
+            let can = chosen.is_some() && place.is_some();
+            let mark_tip = if place.is_none() {
+                NO_PLACE
+            } else if chosen.is_none() {
+                "Choose an Unused result first"
+            } else {
+                MARK_HOVER
+            };
+            let foot = crate::widgets::Foot::new()
+                .main("Build", true)
+                .button("Mark as Used", can)
+                .tip(mark_tip)
+                .button("Export…", !w.results.is_empty())
+                .leave("Done");
+            (chosen, foot)
         });
+    if let Some(f) = footed {
+        build = f.pressed.main();
+        done = f.pressed.cancelled();
+        export = f.pressed.clicked("Export…");
+        if f.pressed.clicked("Mark as Used")
+            && let Some(u) = f.inner.flatten()
+            && let Some(kind) = UsedRules::key_for(u.key.restype)
+        {
+            mark = Some((kind, u.key.resref.to_string(), true));
+        }
+    }
     if let Some((kind, pattern, add)) = mark
         && set_used(app, kind, &pattern, add)
     {

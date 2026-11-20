@@ -12,7 +12,6 @@ use mg_module::var_desc::{
 };
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
-use mg_uikit::Controls as _;
 
 use crate::text::{decode, encode, to_editor, with_line_ends, with_loc_line_ends};
 use crate::{Action, FileKind, Moonglow};
@@ -1024,7 +1023,7 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
     let mut close = false;
     let window = dialog(ctx, kind.title, &mut open).collapsible(false).resizable(false);
     // (As wide as a long folder's path needs, no wider: the path is cut.)
-    window.max_width(460.0).show(ctx, |ui| {
+    let footed = window.max_width(460.0).show_foot(ctx, |ui| {
         ui.horizontal(|ui| {
             field_label(ui, "Folder");
             let path = dir.display().to_string();
@@ -1141,9 +1140,11 @@ pub(crate) fn sets_window<T: Clone + Send + Sync + 'static>(
                 }
             });
         });
-        ui.separator();
-        close = ui.button("Close").clicked();
+        ((), Foot::new().leave("Close"))
     });
+    if let Some(f) = footed {
+        close = f.pressed.cancelled();
+    }
     if !open || close {
         *sets = None;
     }
@@ -1175,7 +1176,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let tlk = tlk_text(app, &edit.strref);
         let movable = crate::talk_view::can_add(app);
-        modal(&ctx, format!("String Edit: {}", edit.title)).show(&ctx, |ui| {
+        let footed = modal(&ctx, format!("String Edit: {}", edit.title)).show_foot(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("String Ref");
                 ui.add(
@@ -1302,48 +1303,50 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let problem = edit.problem().unwrap_or_else(|| "It cannot be saved.".into());
                 ui.colored_label(ui.visuals().error_fg_color, problem);
             }
-            ui.horizontal(|ui| {
-                if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked()
-                    || (value.is_some() && crate::widgets::enter(ui))
-                {
-                    // The text moved to the talk table is added now, where
-                    // the string still names its line. (Not added: the
-                    // window stays, with why in the log.)
-                    let mut value = value;
-                    let moved = edit.moved.take().filter(|(at, _)| at == edit.strref.trim());
-                    let added = moved.map(|(at, line)| {
-                        let added = crate::talk_view::add_line(app, &line);
-                        match &added {
-                            Ok(strref) => {
-                                edit.strref = strref.0.to_string();
-                                value = edit.value();
-                                app.log.info(format!(
-                                    "Added talk-table line {}; it's saved with the module",
-                                    strref.0
-                                ));
-                            }
-                            Err(e) => {
-                                app.log.error(format!("Move to Talk Table: {e}"));
-                                edit.moved = Some((at, line));
-                            }
+            let foot = Foot::new().main("OK", value.is_some()).cancel();
+            (value, foot)
+        });
+        if let Some(f) = footed {
+            if f.pressed.main()
+                && let Some(value) = f.inner.flatten()
+            {
+                // The text moved to the talk table is added now, where
+                // the string still names its line. (Not added: the
+                // window stays, with why in the log.)
+                let mut value = Some(value);
+                let moved = edit.moved.take().filter(|(at, _)| at == edit.strref.trim());
+                let added = moved.map(|(at, line)| {
+                    let added = crate::talk_view::add_line(app, &line);
+                    match &added {
+                        Ok(strref) => {
+                            edit.strref = strref.0.to_string();
+                            value = edit.value();
+                            app.log.info(format!(
+                                "Added talk-table line {}; it's saved with the module",
+                                strref.0
+                            ));
                         }
-                        added.is_ok()
-                    });
-                    if added != Some(false) {
-                        if let Some(v) = value.filter(|v| *v != edit.original) {
-                            app.actions.push(
-                                edit.target
-                                    .command(&format!("Edit {}", edit.title), Value::LocString(v)),
-                            );
+                        Err(e) => {
+                            app.log.error(format!("Move to Talk Table: {e}"));
+                            edit.moved = Some((at, line));
                         }
-                        close = true;
                     }
-                }
-                if cancel(ui) {
+                    added.is_ok()
+                });
+                if added != Some(false) {
+                    if let Some(v) = value.filter(|v| *v != edit.original) {
+                        app.actions.push(
+                            edit.target
+                                .command(&format!("Edit {}", edit.title), Value::LocString(v)),
+                        );
+                    }
                     close = true;
                 }
-            });
-        });
+            }
+            if f.pressed.cancelled() {
+                close = true;
+            }
+        }
         app.loc_edit = if close { None } else { Some(edit) };
     }
 
@@ -1360,14 +1363,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         // A window to size as the list needs: its edges are dragged, and the
         // name and value fields take the width there is.
         let room = ctx.content_rect();
-        modal(&ctx, "Variables")
+        let footed = modal(&ctx, "Variables")
             .resizable(true)
             .default_size([
                 (room.width() * 0.5).clamp(620.0, 900.0),
                 (room.height() * 0.5).max(320.0),
             ])
             .min_size([520.0, 220.0])
-            .show(&ctx, |ui| {
+            .show_foot(&ctx, |ui| {
                 ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
                 let problem = var_body(app, ui, &mut edit, &mut help, (described, false));
                 // (A color being picked: the area views draw it, as the
@@ -1377,23 +1380,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     let each = edit.each_merged(app);
                     app.var_preview_next.extend(each);
                 }
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
-                        || (problem.is_none() && crate::widgets::enter(ui))
-                    {
-                        let action = if edit.target.also.is_empty() {
-                            edit.target.command("Edit variables", Value::List(edit.list()))
-                        } else {
-                            edit.merged(app)
-                        };
-                        app.actions.push(action);
-                        close = true;
-                    }
-                    if cancel(ui) {
-                        close = true;
-                    }
-                });
+                let foot = Foot::new().main("OK", problem.is_none()).cancel();
+                ((), foot)
             });
+        if let Some(f) = footed {
+            if f.pressed.main() {
+                let action = if edit.target.also.is_empty() {
+                    edit.target.command("Edit variables", Value::List(edit.list()))
+                } else {
+                    edit.merged(app)
+                };
+                app.actions.push(action);
+                close = true;
+            }
+            if f.pressed.cancelled() {
+                close = true;
+            }
+        }
         let dir = app.var_set_dir.clone();
         sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
         edit.described = Some(help);
@@ -1402,7 +1405,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(mut p) = app.picker.take() {
         let mut close = false;
-        modal(&ctx, &p.title).show(&ctx, |ui| {
+        let footed = modal(&ctx, &p.title).show_foot(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
                 let field = SearchField::new(
@@ -1431,16 +1434,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             });
-            ui.horizontal(|ui| {
-                if ui.button("None").on_hover_text("Clear the field").clicked() {
-                    app.picked.insert(p.id, ResRef::EMPTY);
-                    close = true;
-                }
-                if cancel(ui) {
-                    close = true;
-                }
-            });
+            ((), Foot::new().button("None", true).tip("Clear the field").cancel())
         });
+        if let Some(f) = footed {
+            if f.pressed.clicked("None") {
+                app.picked.insert(p.id, ResRef::EMPTY);
+                close = true;
+            }
+            if f.pressed.cancelled() {
+                close = true;
+            }
+        }
         app.picker = if close { None } else { Some(p) };
     }
 }
@@ -1735,8 +1739,10 @@ fn var_body(
     });
     let mut add_file = false;
     let mut save_file = false;
-    // (Wrapping where the page is narrow: the Properties panel's.)
-    let buttons = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| match fit {
+    // (Wrapping where the page is narrow: the Properties panel's, or the
+    // window at the least window's size.)
+    let narrow = fit || ui.available_width() < 520.0;
+    let buttons = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| match narrow {
         true => ui.horizontal_wrapped(|ui| add(ui)),
         false => ui.horizontal(|ui| add(ui)),
     };
@@ -3098,15 +3104,39 @@ fn escape_on(ctx: &egui::Context, layer: egui::LayerId) -> bool {
             d.seen.push(layer);
         }
         d.escape && !d.clears_search && d.open.last() == Some(&layer)
-    })
+    }) && !modal_over(ctx, layer)
 }
 
-/// Escape for the window `ui` is in, when it is one of its own (not a
-/// docked tab) and the dialog opened last: as a Cancel button reads it,
-/// for a window that asks before it closes.
-pub(crate) fn escape_here(ui: &Ui) -> bool {
-    let layer = ui.layer_id();
-    layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer)
+/// A scrolled dialog body or page (`ui`, its content) brought to the control that
+/// has just taken the focus (Tab, Shift+Tab), where the body's view cuts
+/// it: egui's Tab moves the focus but leaves the view where it was, and at
+/// the least window a body's lower controls were focused out of sight
+/// (U27's review). Only as the focus moves, so a builder's own scrolling
+/// stays.
+pub(crate) fn focus_in_sight(ui: &Ui) {
+    // (Not in a frame with a press or a click: egui's `read_response`
+    // gives up the focus of a widget a press landed outside, and it took
+    // the keys from the field a click on its Hide box had given them back
+    // to, a project command's input. The focus Tab moves comes with no
+    // press.)
+    let pressed =
+        ui.input(|i| i.pointer.any_pressed() || i.pointer.any_click() || i.pointer.any_released());
+    if pressed {
+        return;
+    }
+    let Some(id) = ui.ctx().memory(|m| m.focused()) else { return };
+    let Some(r) = ui.ctx().read_response(id) else { return };
+    let mine = r.layer_id == ui.layer_id() && ui.min_rect().contains_rect(r.rect);
+    if mine && r.gained_focus() && !ui.clip_rect().contains_rect(r.rect) {
+        ui.scroll_to_rect(r.rect, None);
+    }
+}
+
+/// Whether an `egui::Modal` other than the one on `layer` is up (a job's
+/// window, a plugin's question): a window under it takes neither Escape nor
+/// Enter. One key, one window, the topmost.
+fn modal_over(ctx: &egui::Context, layer: egui::LayerId) -> bool {
+    ctx.memory(|m| m.top_modal_layer()).is_some_and(|top| top != layer)
 }
 
 /// Escape closes the window titled `title` (as its close button does):
@@ -3340,7 +3370,7 @@ impl NameWindow<'_> {
         name: &mut String,
     ) -> Named {
         let mut out = Named::Open;
-        modal(ctx, self.title).show(ctx, |ui| {
+        let footed = modal(ctx, self.title).show_foot(ctx, |ui| {
             ui.label(self.label);
             let field = ui.add(resref_edit(&mut ResRefText(name)));
             // (Where the name goes: after `ab_`, before a code that goes after
@@ -3368,18 +3398,18 @@ impl NameWindow<'_> {
                 ui.colored_label(color, self.taken);
             }
             let may = key.is_some() && (self.replaces || !exists);
-            ui.horizontal(|ui| {
-                if (ui.add_enabled(may, egui::Button::new(self.button)).clicked()
-                    || (may && enter(ui)))
-                    && let Some(k) = key
-                {
-                    out = Named::Chosen(k);
-                }
-                if cancel(ui) {
-                    out = Named::Cancelled;
-                }
-            });
+            (key, Foot::new().main(self.button, may).cancel())
         });
+        if let Some(f) = footed {
+            if f.pressed.main()
+                && let Some(Some(k)) = f.inner
+            {
+                out = Named::Chosen(k);
+            }
+            if f.pressed.cancelled() {
+                out = Named::Cancelled;
+            }
+        }
         out
     }
 }
@@ -3411,6 +3441,8 @@ fn centered<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> Dial
         resizes: true,
         close_cancels: false,
         folds: true,
+        flush: false,
+        sized: false,
     }
 }
 
@@ -3437,6 +3469,12 @@ pub(crate) struct Dialog<'a> {
     /// Whether it folds to its title row by the arrow at the row's left
     /// (egui's windows fold unless told not to: [`modal`] says so).
     folds: bool,
+    /// Its body laid out to the window's edges ([`Dialog::flush`]).
+    flush: bool,
+    /// Given a size to open at ([`Dialog::default_size`]): its footer
+    /// stands at the window's foot. One not given a size fits its content
+    /// (its footer under the body), resized by its edges or not.
+    sized: bool,
 }
 
 /// The least width of a dialog's body inside its margin: egui's first
@@ -3444,8 +3482,36 @@ pub(crate) struct Dialog<'a> {
 /// had at least while egui drew its title bar.
 const DIALOG_LEAST_BODY: f32 = 320.0;
 
+/// A dialog's body at most `width` wide, and narrower where its room is
+/// (the least window): its words wrapped to what it has, never cut by the
+/// window's edge (M4's U27 review).
+pub(crate) fn fit_width(ui: &mut Ui, width: f32) {
+    // (By the application's window, not the room the body has now: a
+    // dialog that grows to its body had the width it opened at.)
+    ui.set_max_width(width.min(body_room_width(ui.ctx())));
+}
+
+/// The widest a dialog's body can be: the application's window less the
+/// dialog's margin and edges, and the room of a scroll bar beside it (a
+/// body that must scroll at the least window, 386 points there).
+pub(crate) fn body_room_width(ctx: &egui::Context) -> f32 {
+    let style = ctx.global_style();
+    let edges = 2.0 * style.visuals.window_stroke.width;
+    let bar = style.spacing.scroll.allocated_width();
+    ctx.content_rect().width() - 2.0 * mg_uikit::dialog::BODY_PADDING - edges - bar
+}
+
+/// A dialog's body at least `width` wide, where it has that room.
+pub(crate) fn fit_min_width(ui: &mut Ui, width: f32) {
+    ui.set_min_width(width.min(body_room_width(ui.ctx())));
+}
+
 /// The tip of a dialog's Close.
 pub(crate) const DIALOG_CLOSE_TIP: &str = "Close the dialog (Esc)";
+
+/// What [`Dialog::show_parts`] gives back from its window: the body's
+/// value and, where it has a footer, what was pressed.
+type Parts<R> = (R, Option<Pressed>);
 
 impl<'a> Dialog<'a> {
     /// A Close in its title row that answers it as its Cancel button does
@@ -3479,6 +3545,7 @@ impl<'a> Dialog<'a> {
 
     pub(crate) fn default_size(mut self, size: impl Into<egui::Vec2>) -> Self {
         self.window = self.window.default_size(size);
+        self.sized = true;
         self
     }
 
@@ -3518,49 +3585,66 @@ impl<'a> Dialog<'a> {
         self
     }
 
-    /// Shows it, the title row first and `add_contents` under it with
-    /// the window's margin: as `egui::Window::show` (nothing where it is
-    /// closed; no body, `None` within, where it is folded to its row).
-    /// Never taller or wider than the application's window: a body that
-    /// would make it so (as it was last frame) scrolls in the room there
-    /// is, so its title row and every button stay in reach.
-    pub(crate) fn show<R>(
+    /// The body laid out to the window's edges, with no margin of its own
+    /// (a wizard's step list and page, which keep their own room).
+    pub(crate) fn flush(mut self) -> Self {
+        self.flush = true;
+        self
+    }
+
+    /// Shows it with no footer, the title row first and `add_contents`
+    /// under it with the body's room (12 points, the Dialogs board's): a
+    /// dialog with no buttons of its own (About, a report whose title
+    /// row's Close and Escape close it). As `egui::Window::show` (nothing
+    /// where it is closed; no body, `None` within, where it is folded to
+    /// its row). Never taller or wider than the application's window: a
+    /// body that would make it so (as it was last frame) scrolls in the
+    /// room there is, so its title row and every button stay in reach.
+    pub(crate) fn show_bare<R>(
         self,
         ctx: &egui::Context,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> Option<egui::InnerResponse<Option<R>>> {
-        let none: Option<fn(&mut Ui, &mut ())> = None;
-        self.show_parts(ctx, &mut (), |ui, _| add_contents(ui), none)
+        let shown = self.show_parts(ctx, false, |ui| (add_contents(ui), None))?;
+        Some(egui::InnerResponse { inner: shown.inner.map(|(r, _)| r), response: shown.response })
     }
 
-    /// [`Dialog::show`] with a footer under the body (the dialog pattern's,
-    /// `mg_uikit::dialog::Footer`, M4's U26): `footer` lays it out across
-    /// the dialog's whole width, outside the body's margin and its scroll,
-    /// its rule from edge to edge; the body scrolls in the room the footer
-    /// leaves. `state` is the body's and the footer's both (the body's
-    /// choice, what the footer's OK reads).
-    pub(crate) fn show_footed<S, R>(
+    /// [`Dialog::show_bare`] with the dialog pattern's footer (M4's U27):
+    /// `add_contents` lays out the body and ends by saying its footer
+    /// ([`Foot`]), which is laid out under it across the dialog's whole
+    /// width, outside the body's room and its scroll, the rule from edge
+    /// to edge, never cut (the dialog is at least as wide as its buttons
+    /// need); the body scrolls in the room the footer leaves. What the
+    /// buttons, Enter and Escape did is in the [`Footed`] given back, for
+    /// the caller to act on once the window is drawn.
+    pub(crate) fn show_foot<R>(
         self,
         ctx: &egui::Context,
-        state: &mut S,
-        add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
-        footer: impl FnOnce(&mut Ui, &mut S),
-    ) -> Option<egui::InnerResponse<Option<R>>> {
-        self.show_parts(ctx, state, add_contents, Some(footer))
+        add_contents: impl FnOnce(&mut Ui) -> (R, Foot),
+    ) -> Option<Footed<R>> {
+        let shown = self.show_parts(ctx, true, |ui| {
+            let (r, foot) = add_contents(ui);
+            (r, Some(foot))
+        })?;
+        let (inner, pressed) = match shown.inner {
+            Some((r, pressed)) => (Some(r), pressed.unwrap_or_default()),
+            None => (None, Pressed::default()),
+        };
+        Some(Footed { inner, pressed, response: shown.response })
     }
 
-    fn show_parts<S, R, F: FnOnce(&mut Ui, &mut S)>(
+    fn show_parts<R>(
         self,
         ctx: &egui::Context,
-        state: &mut S,
-        add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
-        footer: Option<F>,
-    ) -> Option<egui::InnerResponse<Option<R>>> {
-        let Dialog { mut window, title, id, open, resizes, close_cancels, folds } = self;
+        footed: bool,
+        add_contents: impl FnOnce(&mut Ui) -> (R, Option<Foot>),
+    ) -> Option<egui::InnerResponse<Option<Parts<R>>>> {
+        let Dialog { mut window, title, id, open, resizes, close_cancels, folds, flush, sized } =
+            self;
         // (A footer's height and the spacing above it, which its place
         // under the body takes.)
         let style = ctx.global_style();
-        let footer_high = match footer.is_some() {
+        let footer_high = match footed {
             true => mg_uikit::dialog::FOOTER_HEIGHT + style.spacing.item_spacing.y,
             false => 0.0,
         };
@@ -3572,7 +3656,10 @@ impl<'a> Dialog<'a> {
         // takes is caught, not the window's.)
         let body_id = id.with("mg-dialog-body");
         let body: Option<egui::Rect> = ctx.data(|d| d.get_temp(body_id));
-        let margin = style.spacing.window_margin;
+        let margin = match flush {
+            true => egui::Margin::ZERO,
+            false => egui::Margin::same(mg_uikit::dialog::BODY_PADDING as i8),
+        };
         let frame = egui::Frame::window(&style).inner_margin(0);
         // The room for its body: the application's window, less its title
         // row, margin and frame. What the body took last frame says
@@ -3625,33 +3712,61 @@ impl<'a> Dialog<'a> {
                 },
                 margin,
                 grows: !resizes,
+                fills: resizes && sized,
             };
-            let body = |ui: &mut Ui, state: &mut S| {
-                Some(match scroll {
-                    Some(both) => {
-                        let out = egui::ScrollArea::new(both)
-                            .id_salt(natural_id)
-                            .max_width(room.x)
-                            .max_height(room.y)
-                            .show(ui, |ui| add_contents(ui, state));
-                        (out.inner, Some(out.content_size))
-                    }
-                    None => (add_contents(ui, state), None),
-                })
+            let body = |ui: &mut Ui| match scroll {
+                // (Its words wrapped to the room, `fit_width`: what scrolls
+                // sideways is cut, which the tests of the dialog pattern
+                // hold against, M4's U27 review.)
+                Some(both) => {
+                    let out = egui::ScrollArea::new(both)
+                        .id_salt(natural_id)
+                        .max_width(room.x)
+                        .max_height(room.y)
+                        .show(ui, |ui| {
+                            let out = add_contents(ui);
+                            focus_in_sight(ui);
+                            out
+                        });
+                    let (inner, foot) = out.inner;
+                    ((inner, Some(out.content_size)), foot)
+                }
+                None => {
+                    let (inner, foot) = add_contents(ui);
+                    ((inner, None), foot)
+                }
             };
-            let (inner, shown, natural) = titled_footed(ui, row, state, body, footer);
+            let (inner, shown, natural) = titled_footed(ui, row, footed, body);
             closed = shown.closed();
             fold_clicked = shown.fold_clicked();
             row_bottom = Some(shown.rect.bottom());
-            inner.flatten().map(|(inner, content)| {
+            inner.map(|((inner, content), pressed)| {
                 took = Some(content.unwrap_or(natural));
-                inner
+                (inner, pressed)
             })
         });
         let shown =
             shown.map(|s| egui::InnerResponse { inner: s.inner.flatten(), response: s.response });
         if let Some(took) = took {
             ctx.data_mut(|d| d.insert_temp(natural_id, took));
+        }
+        // (A dialog shown with no footer, noted as such for the tests.)
+        if !footed && !folded && shown.is_some() {
+            let seen = FooterSeen {
+                title: title.clone(),
+                rect: None,
+                window: egui::Rect::NOTHING,
+                note: None,
+                check: None,
+                buttons: Vec::new(),
+                enter_withheld: false,
+                layer: shown.as_ref().map_or(egui::LayerId::background(), |s| s.response.layer_id),
+                margin: 0.0,
+            };
+            record_footer(ctx, seen);
+        }
+        if let Some(s) = &shown {
+            window_seen(ctx, &title, s.response.rect, margin.left as f32);
         }
         // The arrow: folded, with its size (its row as wide); shown again,
         // nothing kept (egui keeps the size a window's edges were left at).
@@ -3726,34 +3841,27 @@ struct Row<'t> {
     /// Whether the window grows to what it holds (not resized by its
     /// edges).
     grows: bool,
+    /// Resized by its edges and given a size: its footer at the window's
+    /// foot, the body in the room above (M4's U27 review: one not given
+    /// a size fits its content, with no dead room under it).
+    fills: bool,
 }
 
 /// The boards' title row over `add_contents` (laid out with the row's
 /// margin round it) in a window or modal with no margin of its own: its
 /// room kept first, the row painted across the width the body made
-/// (`mg_uikit::title_row_with`). What the body gave (none where it is
-/// folded, the row alone), the row shown, and the size the body took
-/// inside its margin.
-fn titled<R>(
+/// (`mg_uikit::title_row_with`); and where the body says a footer
+/// ([`Foot`]), the footer under it across the window's width, outside the
+/// body's margin ([`Dialog::show_foot`]). What the body gave with the
+/// footer's presses (none where it is folded, the row alone), the row
+/// shown, and the size the body took inside its margin.
+fn titled_footed<R>(
     ui: &mut Ui,
     row: Row<'_>,
-    add_contents: impl FnOnce(&mut Ui) -> R,
-) -> (Option<R>, mg_uikit::TitleRow, egui::Vec2) {
-    let none: Option<fn(&mut Ui, &mut ())> = None;
-    titled_footed(ui, row, &mut (), |ui, _| add_contents(ui), none)
-}
-
-/// [`titled`], with a footer under the body where `footer` (and the body
-/// not folded): across the window's width, outside the body's margin
-/// ([`Dialog::show_footed`]).
-fn titled_footed<S, R, F: FnOnce(&mut Ui, &mut S)>(
-    ui: &mut Ui,
-    row: Row<'_>,
-    state: &mut S,
-    add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
-    footer: Option<F>,
-) -> (Option<R>, mg_uikit::TitleRow, egui::Vec2) {
-    let Row { title, close, fold, folded_width, margin, grows } = row;
+    footed: bool,
+    add_contents: impl FnOnce(&mut Ui) -> (R, Option<Foot>),
+) -> (Option<(R, Option<Pressed>)>, mg_uikit::TitleRow, egui::Vec2) {
+    let Row { title, close, fold, folded_width, margin, grows, fills } = row;
     // (Where the window grows to what it holds (`grows`, not resized by
     // its edges): as wide as its body was last frame, at least, and never
     // under egui's first width for a window's body (`egui::Resize`'s 320
@@ -3776,21 +3884,38 @@ fn titled_footed<S, R, F: FnOnce(&mut Ui, &mut S)>(
         .allocate_exact_size(egui::vec2(least, mg_uikit::metrics::TITLE_ROW), egui::Sense::hover());
     let (inner, took) = match folded_width {
         Some(_) => (None, egui::Vec2::ZERO),
+        None if fills && footed => {
+            // (Resized by its edges: the footer at the window's foot
+            // whatever the body holds, the body in the room above it,
+            // cut to it: a body that needs more scrolls itself.)
+            let room = ui.available_rect_before_wrap();
+            let high = mg_uikit::dialog::FOOTER_HEIGHT + ui.spacing().item_spacing.y;
+            let body_room =
+                egui::Rect::from_min_max(room.min, egui::pos2(room.right(), room.bottom() - high));
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(body_room)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+            );
+            child.set_clip_rect(body_room.intersect(ui.clip_rect()));
+            let body = egui::Frame::NONE.inner_margin(margin).show(&mut child, |ui| {
+                ui.set_min_height((body_room.height() - margin.sum().y).max(0.0));
+                add_contents(ui)
+            });
+            let took = body.response.rect.size() - margin.sum();
+            ui.advance_cursor_after_rect(body_room);
+            let (inner, foot) = body.inner;
+            let pressed = foot.map(|foot| place_foot(ui, foot, title));
+            (Some((inner, pressed)), took)
+        }
         None => {
-            let body =
-                egui::Frame::NONE.inner_margin(margin).show(ui, |ui| add_contents(ui, state));
-            // (Across the window, as wide as its row or its body.)
-            if let Some(footer) = footer {
-                let wide = ui.min_rect().width();
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(wide, mg_uikit::dialog::FOOTER_HEIGHT),
-                    egui::Sense::hover(),
-                );
-                let rect = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), rect.y_range());
-                let mut slot = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-                footer(&mut slot, state);
-            }
-            (Some(body.inner), body.response.rect.size() - margin.sum())
+            let body = egui::Frame::NONE.inner_margin(margin).show(ui, add_contents);
+            let took = body.response.rect.size() - margin.sum();
+            let (inner, foot) = body.inner;
+            // (Across the window, as wide as its row or its body, or as
+            // its buttons need.)
+            let pressed = foot.map(|foot| place_foot(ui, foot, title));
+            (Some((inner, pressed)), took)
         }
     };
     let rect = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), kept.y_range());
@@ -3800,35 +3925,84 @@ fn titled_footed<S, R, F: FnOnce(&mut Ui, &mut S)>(
 
 /// An `egui::Modal` (what stops the work until it is answered: a job's
 /// progress, a plugin's question) in the dialogs' frame, with no margin
-/// of its own: [`modal_titled`] draws in it.
+/// of its own: [`modal_titled_foot`] draws in it.
 pub(crate) fn modal_window(ctx: &egui::Context, id: egui::Id) -> egui::Modal {
     egui::Modal::new(id).frame(egui::Frame::window(&ctx.global_style()).inner_margin(0))
 }
 
 /// A modal's ([`modal_window`]) title row over `add_contents`, as a
-/// dialog's ([`Dialog`]; no Close: what is in it answers it). An
-/// `egui::Modal` has no name of its own, so the title is named as a
-/// label (as the heading that was its title was): a screen reader and a
-/// test find it by it. Its response, for a tip.
-pub(crate) fn modal_titled<R>(
+/// dialog's ([`Dialog`]; no Close: what is in it answers it), with the
+/// dialog pattern's footer, which `add_contents` says as it ends
+/// ([`Foot`], as [`Dialog::show_foot`]'s). An `egui::Modal` has no name of
+/// its own, so the title is named as a label: a screen reader and a test
+/// find it by it. The body's value, the footer's presses, the title's
+/// response (for a tip).
+pub(crate) fn modal_titled_foot<R>(
     ui: &mut Ui,
     title: &str,
-    add_contents: impl FnOnce(&mut Ui) -> R,
-) -> (R, egui::Response) {
-    let margin = ui.ctx().global_style().spacing.window_margin;
-    let row = Row { title, close: None, fold: None, folded_width: None, margin, grows: true };
-    let (inner, row, _) = titled(ui, row, add_contents);
-    let inner = inner.expect("a modal does not fold");
+    add_contents: impl FnOnce(&mut Ui) -> (R, Foot),
+) -> (R, Pressed, egui::Response) {
+    let (inner, pressed, named) = modal_parts(ui, title, |ui| {
+        let (r, foot) = add_contents(ui);
+        (r, Some(foot))
+    });
+    (inner, pressed.unwrap_or_default(), named)
+}
+
+fn modal_parts<R>(
+    ui: &mut Ui,
+    title: &str,
+    add_contents: impl FnOnce(&mut Ui) -> (R, Option<Foot>),
+) -> (R, Option<Pressed>, egui::Response) {
+    let margin = egui::Margin::same(mg_uikit::dialog::BODY_PADDING as i8);
+    let row = Row {
+        title,
+        close: None,
+        fold: None,
+        folded_width: None,
+        margin,
+        grows: true,
+        fills: false,
+    };
+    // Never larger than the application's window (as a `Dialog`, which
+    // `show_parts` holds so): no wider than it, and the body scrolls in the
+    // height its title row and footer leave.
+    let screen = ui.ctx().content_rect();
+    let edges = 2.0 * ui.visuals().window_stroke.width;
+    let spacing = ui.spacing().item_spacing.y;
+    ui.set_max_width(screen.width() - edges);
+    let body_high = screen.height()
+        - mg_uikit::metrics::TITLE_ROW
+        - mg_uikit::dialog::FOOTER_HEIGHT
+        - 2.0 * spacing
+        - margin.sum().y
+        - edges;
+    let scrolled = |ui: &mut Ui| {
+        egui::ScrollArea::vertical()
+            .id_salt(("modal-body", title))
+            .max_height(body_high.max(1.0))
+            .auto_shrink([true, true])
+            .show(ui, |ui| {
+                let out = add_contents(ui);
+                focus_in_sight(ui);
+                out
+            })
+            .inner
+    };
+    let (inner, row, _) = titled_footed(ui, row, true, scrolled);
+    let (inner, pressed) = inner.expect("a modal does not fold");
+    if pressed.is_some() {
+        window_seen(ui.ctx(), title, ui.min_rect(), margin.left as f32);
+    }
     let named = ui.interact(row.rect, ui.id().with(("modal-title", title)), egui::Sense::hover());
     named.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
-    (inner, named)
+    (inner, pressed, named)
 }
 
 /// A dialog that its own buttons answer (OK and Cancel, Yes and No, a
 /// wizard's Finish), with no close button: [`centered`], not folded or
 /// resized (a caller that wants it resized says so). Escape is its
-/// Cancel button's ([`cancel`]), or, for one whose answer is drawn some
-/// other way, what [`escape_here`] says inside it. (Aurora's message
+/// footer's Cancel ([`Foot`]). (Aurora's message
 /// boxes, pickers and wizards. An `egui::Modal`, the rest of the window
 /// dimmed and out of reach, is kept for what stops the work until it is
 /// answered: a job's progress, a plugin's question, a save a plugin
@@ -3859,8 +4033,20 @@ pub(crate) fn resizable<'a>(
 /// A dialog that its Close or Escape closes (`open`), as well as what it
 /// has to answer it: [`centered`], with a Close at its title row's right.
 pub(crate) fn dialog<'a>(ctx: &egui::Context, title: &str, open: &'a mut bool) -> Dialog<'a> {
+    let was = *open;
     let open = open_unless_escape(ctx, title, open);
+    if was && !*open {
+        note_press(ctx, title, "Close", "Escape");
+    }
     Dialog { open: Some(open), ..centered(ctx, title) }
+}
+
+/// Whether a wizard's step list stands at the left of `ui`'s room: only
+/// where the page beside it keeps 320 points. In a window near its least
+/// size the list would squeeze the page's controls to a letter's width;
+/// the page bar still names the page there.
+pub(crate) fn step_list_fits(ui: &Ui) -> bool {
+    ui.available_width() >= mg_uikit::dialog::STEP_LIST_WIDTH + 320.0
 }
 
 /// Whether a dialog is open (one that Escape closes or a Cancel answers,
@@ -3926,8 +4112,8 @@ pub(crate) fn files_already(
     }
     let mut answer = None;
     let always_id = egui::Id::new(("files-already-always", place));
-    let always = ctx.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
-    modal(ctx, format!("Files Already in the {place}")).show(ctx, |ui| {
+    let (on, tip) = always_now(ctx, always_id, &format!("{QUESTIONS_AT} › Files there already"));
+    let footed = modal(ctx, format!("Files Already in the {place}")).show_foot(ctx, |ui| {
         ui.label(said);
         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
             for (name, about) in files {
@@ -3937,25 +4123,29 @@ pub(crate) fn files_already(
                 }
             }
         });
-        ui.horizontal(|ui| {
-            let n = files.len();
-            if ui.button(format!("Replace {n}")).on_hover_text(replace).clicked() {
-                answer = Some(Already::Replace);
-            }
-            if ui.button("Skip Those").on_hover_text(skip).clicked() {
-                answer = Some(Already::Skip);
-            }
-            if cancel(ui) {
-                answer = Some(Already::Cancel);
-            }
-        });
-        always_box(
-            ui,
-            always_id,
-            "Always do this",
-            &format!("{QUESTIONS_AT} › Files there already"),
-        );
+        let foot = Foot::new()
+            .check("Always do this", on, Some(tip))
+            .main(format!("Replace {}", files.len()), true)
+            .no_enter()
+            .tip(replace)
+            .button("Skip Those", true)
+            .tip(skip)
+            .cancel();
+        ((), foot)
     });
+    let mut always = false;
+    if let Some(f) = footed {
+        always = always_kept(ctx, always_id, f.pressed.checked);
+        if f.pressed.main() {
+            answer = Some(Already::Replace);
+        }
+        if f.pressed.clicked("Skip Those") {
+            answer = Some(Already::Skip);
+        }
+        if f.pressed.cancelled() {
+            answer = Some(Already::Cancel);
+        }
+    }
     // (Always so: Options' choice, from now on.)
     match answer {
         Some(Already::Replace) if always => *there = FilesThere::Replace,
@@ -3969,70 +4159,491 @@ pub(crate) fn files_already(
     answer
 }
 
-/// A question's "Always do this" box (`id`: the question's, its state kept
-/// while it is asked), on hover where Options changes it again
-/// (`options_at`, "Tools › Options › General › Questions"): whether it is
-/// ticked. Asked for by a builder (Carcerian): a question always given
-/// the same answer is answered once.
-pub(crate) fn always_box(ui: &mut Ui, id: egui::Id, label: &str, options_at: &str) -> bool {
-    // (Asked anew, not shown the pass before: the tick is the last
-    // asking's, which was answered with it or without. Kept, the box came
-    // ticked the next time the question was asked, with Options set back
-    // to Ask, and one answer became the setting again.)
-    let (asked_id, now) = (id.with("asked"), ui.ctx().cumulative_pass_nr());
-    let anew = ui.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
-    let mut on = !anew && ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    ui.check_box(&mut on, label).on_hover_text(format!(
-        "Your answer is kept, and this isn't asked again: {options_at} changes it"
-    ));
-    ui.data_mut(|d| {
+/// A question's "Always do this" box in its footer ([`Foot::check`];
+/// `id` the question's, its state kept while it is asked): whether it is
+/// ticked now, and its tip saying where Options changes it again
+/// (`options_at`, "Tools › Options › General › Questions"). Asked anew
+/// (not shown the pass before), it is not: kept, the box came ticked the
+/// next time the question was asked, with Options set back to Ask, and
+/// one answer became the setting again. [`always_kept`] keeps what the
+/// footer left it at. Asked for by a builder (Carcerian): a question
+/// always given the same answer is answered once.
+pub(crate) fn always_now(ctx: &egui::Context, id: egui::Id, options_at: &str) -> (bool, String) {
+    let (asked_id, now) = (id.with("asked"), ctx.cumulative_pass_nr());
+    let anew = ctx.data(|d| d.get_temp::<u64>(asked_id)).is_none_or(|at| now > at + 1);
+    let on = !anew && ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    (on, format!("Your answer is kept, and this isn't asked again: {options_at} changes it"))
+}
+
+/// Keeps what a footer's "Always do this" box was left at (`checked`,
+/// [`Pressed::checked`]) for the question `id`:
+/// whether it is ticked.
+pub(crate) fn always_kept(ctx: &egui::Context, id: egui::Id, checked: Option<bool>) -> bool {
+    let on = checked.unwrap_or(false);
+    let now = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
         d.insert_temp(id, on);
-        d.insert_temp(asked_id, now);
+        d.insert_temp(id.with("asked"), now);
     });
     on
 }
 
-/// Where the questions' answers are kept, for [`always_box`]'s tip.
+/// Where the questions' answers are kept, for [`always_now`]'s tip.
 pub(crate) const QUESTIONS_AT: &str = "Tools › Options › General › Questions";
 
-/// A dialog's Cancel button: clicked, or Escape pressed for its window.
+/// A Cancel button outside a dialog's footer (a row of a page's own):
+/// clicked, or Escape pressed for the window it is in.
 pub(crate) fn cancel(ui: &mut Ui) -> bool {
-    cancel_button(ui, None)
-}
-
-/// [`cancel`], saying on hover that changes are discarded.
-pub(crate) fn cancel_discard(ui: &mut Ui) -> bool {
-    cancel_button(ui, Some("Discard changes"))
-}
-
-fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
-    let mut r = ui.button("Cancel");
-    if let Some(h) = hover {
-        r = r.on_hover_text(h);
-    }
+    let r = ui.button("Cancel");
     cancelled(ui, r.clicked())
 }
 
-/// A picker's footer (the dialog pattern's, `mg_uikit::dialog::Footer`,
-/// M4's U26: Select Portrait's, Select Texture's): `note` at its left (a
-/// count), OK in the accent fill (enabled where `ok`, its tip "Accept
-/// changes") and Cancel ("Discard changes") at its right. Whether OK was
-/// clicked, and whether Cancel was: its click, the title row's Close
-/// ([`Dialog::close_as_cancel`]) or Escape, as [`cancel_discard`]'s.
-pub(crate) fn picker_footer(ui: &mut Ui, note: Option<String>, ok: bool) -> (bool, bool) {
-    use mg_uikit::{ButtonLook, KitButton};
-    let mut footer = mg_uikit::dialog::Footer::new();
+/// A picker's footer (Select Portrait's, Select Texture's, M4's U26): `note`
+/// at its left (a count), OK in the accent fill (enabled where `ok`, its
+/// tip "Accept changes") and Cancel ("Discard changes") at its right.
+pub(crate) fn picker_footer(note: Option<String>, ok: bool) -> Foot {
+    let mut foot = Foot::new();
     if let Some(note) = note {
-        footer = footer.note(note);
+        foot = foot.note(note);
     }
-    let shown = footer
-        .button(
-            KitButton::new(None, "OK").look(ButtonLook::Primary).enabled(ok).tip("Accept changes"),
-        )
-        .button(KitButton::new(None, "Cancel").tip("Discard changes"))
-        .show(ui);
-    let clicked = |i: usize| shown.buttons.get(i).is_some_and(egui::Response::clicked);
-    (ok && clicked(0), cancelled(ui, clicked(1)))
+    foot.main("OK", ok).tip("Accept changes").cancel_discard()
+}
+
+/// What a button of a dialog's footer is to it ([`Foot`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FootRole {
+    /// The main action: first (after a wizard's Back), in the accent
+    /// fill, and Enter's while it is enabled.
+    Main,
+    /// Another action, in its place.
+    Other,
+    /// What leaves the dialog without its action: Cancel (or a Done, a
+    /// Later), last; Escape's, and a Close of the title row's that is its
+    /// Cancel ([`Dialog::close_as_cancel`]).
+    Cancel,
+}
+
+#[derive(Clone, Debug)]
+struct FootButton {
+    words: String,
+    tip: Option<String>,
+    enabled: bool,
+    role: FootRole,
+}
+
+/// A dialog's footer (the dialog pattern, the Dialogs board's `.dlg-foot`,
+/// M4's U27), said by its body as it ends ([`Dialog::show_foot`]): a note
+/// or count at its left (or a setting's check box), its buttons at its
+/// right in the order given, the code's order (the main action first in
+/// the accent fill, a wizard's Back before it; Cancel, or a Done, last).
+/// The one place Enter and Escape answer a dialog: Enter presses the main
+/// action while it is enabled and the dialog is the one in front (with no
+/// control holding the keys: a one-line text field gives them up at
+/// Enter, a multi-line one and a focused button keep them), Escape its
+/// Cancel. Laid out by the kit (`mg_uikit::dialog::Footer`), never cut:
+/// the dialog is at least as wide as its buttons need.
+#[derive(Clone, Debug, Default)]
+#[must_use = "a dialog's body gives it to show_foot"]
+pub(crate) struct Foot {
+    note: Option<String>,
+    /// A check box at the left: its words, whether it is on, its tip.
+    check: Option<(String, bool, Option<String>)>,
+    buttons: Vec<FootButton>,
+    /// Enter withheld from the main action ([`Foot::no_enter`]).
+    no_enter: bool,
+    /// Escape takes the main action where there is no leave button
+    /// ([`Foot::main_on_escape`]).
+    main_on_escape: bool,
+}
+
+impl Foot {
+    /// A footer with nothing in it yet.
+    pub(crate) fn new() -> Foot {
+        Foot::default()
+    }
+
+    /// With `note` at its left in `text-2`, shortened where the buttons
+    /// need the room (its words its tooltip then): a count.
+    pub(crate) fn note(mut self, note: impl Into<String>) -> Foot {
+        self.note = Some(note.into());
+        self
+    }
+
+    /// With a check box at its left (a setting: "Don't ask when nothing
+    /// else names them"), `on` or not, tipped with `tip` where given;
+    /// [`Pressed::checked`] says what it was left at.
+    pub(crate) fn check(mut self, words: impl Into<String>, on: bool, tip: Option<String>) -> Foot {
+        self.check = Some((words.into(), on, tip));
+        self
+    }
+
+    fn push(mut self, words: impl Into<String>, enabled: bool, role: FootRole) -> Foot {
+        self.buttons.push(FootButton { words: words.into(), tip: None, enabled, role });
+        self
+    }
+
+    /// With the main action `words`, enabled where `enabled`: in the
+    /// accent fill, and Enter's while enabled.
+    pub(crate) fn main(self, words: impl Into<String>, enabled: bool) -> Foot {
+        self.push(words, enabled, FootRole::Main)
+    }
+
+    /// With another button, `words`, enabled where `enabled`.
+    pub(crate) fn button(self, words: impl Into<String>, enabled: bool) -> Foot {
+        self.push(words, enabled, FootRole::Other)
+    }
+
+    /// With Cancel last: clicked, or Escape for the dialog, or its title
+    /// row's Close where that is its Cancel.
+    pub(crate) fn cancel(self) -> Foot {
+        self.push("Cancel", true, FootRole::Cancel)
+    }
+
+    /// [`Foot::cancel`], saying on hover that changes are discarded.
+    pub(crate) fn cancel_discard(self) -> Foot {
+        self.cancel().tip("Discard changes")
+    }
+
+    /// With `words` last as what leaves the dialog (a Done, a Later, a
+    /// Close): Escape's, as a Cancel.
+    pub(crate) fn leave(self, words: impl Into<String>) -> Foot {
+        self.push(words, true, FootRole::Cancel)
+    }
+
+    /// The tip of the button given last.
+    pub(crate) fn tip(mut self, tip: impl Into<String>) -> Foot {
+        if let Some(b) = self.buttons.last_mut() {
+            b.tip = Some(tip.into());
+        }
+        self
+    }
+
+    /// Enter withheld from the main action (the orchestrator's ruling in
+    /// M4's U27 review): a main action that grants trust, overrides a
+    /// protection, overwrites or quits. It stays first and in the accent;
+    /// Enter presses it only where it holds the focus, as at the tip.
+    pub(crate) fn no_enter(mut self) -> Foot {
+        self.no_enter = true;
+        self
+    }
+
+    /// Escape takes the main action, where the footer has no leave button
+    /// (a plugin's Message: its one OK).
+    pub(crate) fn main_on_escape(mut self) -> Foot {
+        self.main_on_escape = true;
+        self
+    }
+}
+
+/// How a dialog's footer was answered this frame ([`Foot`]).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Pressed {
+    words: Vec<String>,
+    clicked: Vec<bool>,
+    /// The main action pressed: clicked, or Enter.
+    main: bool,
+    /// Left: its Cancel clicked, Escape, or the Close that is its Cancel.
+    cancelled: bool,
+    /// What the check box was left at, where it has one.
+    pub(crate) checked: Option<bool>,
+}
+
+impl Pressed {
+    /// The main action pressed (clicked, or Enter while it is enabled).
+    pub(crate) fn main(&self) -> bool {
+        self.main
+    }
+
+    /// Left without the action: Cancel (or the Done, Later or Close given
+    /// last as leaving), Escape, or the title row's Close that is its
+    /// Cancel.
+    pub(crate) fn cancelled(&self) -> bool {
+        self.cancelled
+    }
+
+    /// The button `words` clicked (an enabled one: a disabled button is
+    /// never pressed).
+    pub(crate) fn clicked(&self, words: &str) -> bool {
+        self.words.iter().zip(&self.clicked).any(|(w, c)| *c && w == words)
+    }
+
+    /// The `i`th button clicked, in the order given.
+    pub(crate) fn nth(&self, i: usize) -> bool {
+        self.clicked.get(i).copied().unwrap_or(false)
+    }
+}
+
+/// What a dialog showed of its footer in the frame last drawn (M4's U27):
+/// for tests, which hold every dialog to the pattern (the main action
+/// first in the accent, Cancel last, the footer whole).
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct FooterSeen {
+    /// The dialog's title.
+    pub title: String,
+    /// The footer's rect (`None`: a dialog shown with no footer).
+    pub rect: Option<egui::Rect>,
+    /// The dialog's whole window (its frame), once drawn.
+    pub window: egui::Rect,
+    pub note: Option<String>,
+    pub check: Option<String>,
+    pub buttons: Vec<ButtonSeen>,
+    /// Enter withheld from its main action ([`Foot::no_enter`]).
+    pub enter_withheld: bool,
+    /// The layer it is drawn on (its window's, or its modal's).
+    pub layer: egui::LayerId,
+    /// Its body's margin, inside its window's edges.
+    pub margin: f32,
+}
+
+/// A footer's button as shown ([`FooterSeen`]).
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct ButtonSeen {
+    pub words: String,
+    /// The main action, drawn in the accent fill.
+    pub main: bool,
+    /// What leaves the dialog (Cancel, Done, Later): Escape's.
+    pub leaves: bool,
+    pub enabled: bool,
+    pub rect: egui::Rect,
+}
+
+fn footers_id() -> egui::Id {
+    egui::Id::new("mg-dialog-footers")
+}
+
+fn record_footer(ctx: &egui::Context, seen: FooterSeen) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
+        if kept.0 != pass {
+            *kept = (pass, Vec::new());
+        }
+        kept.1.push(seen);
+    });
+}
+
+/// Notes the window of the dialog `title` drawn this pass in its record.
+fn window_seen(ctx: &egui::Context, title: &str, window: egui::Rect, margin: f32) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
+        if kept.0 == pass
+            && let Some(seen) = kept.1.iter_mut().rev().find(|f| f.title == title)
+        {
+            seen.window = window;
+            seen.margin = margin;
+        }
+    });
+}
+
+/// The dialogs drawn in the frame last run, each with what its footer
+/// showed (for tests: [`FooterSeen`]).
+#[doc(hidden)]
+pub fn footers_shown(ctx: &egui::Context) -> Vec<FooterSeen> {
+    // (Those of the pass last run alone: a pass that drew none left the
+    // record of the one before.)
+    let last = ctx.cumulative_pass_nr().saturating_sub(1);
+    let kept = ctx.data(|d| d.get_temp::<(u64, Vec<FooterSeen>)>(footers_id()));
+    kept.filter(|k| k.0 == last).map(|k| k.1).unwrap_or_default()
+}
+
+fn presses_id() -> egui::Id {
+    egui::Id::new("mg-dialog-presses")
+}
+
+/// The footer buttons pressed since this was last asked, each as its
+/// dialog's title and its words, and how (`"click"`, `"Enter"`,
+/// `"Escape"`; a dialog with a Close that Escape closed: `"Close"` by
+/// `"Escape"`): for tests, which hold Enter and Escape to what a dialog's
+/// buttons say. Kept only once asked (the first call starts the record),
+/// so the application keeps none.
+#[doc(hidden)]
+pub fn dialog_presses(ctx: &egui::Context) -> Vec<(String, String, &'static str)> {
+    ctx.data_mut(|d| {
+        let kept = d.get_temp_mut_or_default::<Vec<(String, String, &'static str)>>(presses_id());
+        std::mem::take(kept)
+    })
+}
+
+fn note_press(ctx: &egui::Context, title: &str, words: &str, how: &'static str) {
+    ctx.data_mut(|d| {
+        type Kept = Vec<(String, String, &'static str)>;
+        if let Some(mut kept) = d.get_temp::<Kept>(presses_id()) {
+            kept.push((title.to_string(), words.to_string(), how));
+            d.insert_temp(presses_id(), kept);
+        }
+    });
+}
+
+/// Whether the dialog on `layer` is the one in front: the `egui::Modal`
+/// on top, or, with no modal up, the dialog opened last. (A dialog under a
+/// job's window took its Enter and Escape too.)
+fn in_front(ctx: &egui::Context, layer: egui::LayerId) -> bool {
+    match layer.order {
+        egui::Order::Middle => {
+            !modal_over(ctx, layer)
+                && ctx
+                    .data(|x| x.get_temp::<Dialogs>(dialogs_id()))
+                    .is_some_and(|d| d.open.last() == Some(&layer))
+        }
+        _ => ctx.memory(|m| m.top_modal_layer()) == Some(layer),
+    }
+}
+
+/// The width a footer check box's words and box take.
+fn check_width(ui: &Ui, words: &str) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let galley = ui.painter().layout_no_wrap(words.to_string(), font, egui::Color32::WHITE);
+    mg_uikit::controls::BOX + ui.spacing().icon_spacing + galley.size().x + 2.0
+}
+
+/// The least width `foot` needs (its ends' room, its buttons and check
+/// box; the note is shortened), and the width its check box takes: its
+/// words whole, or, where they would make the footer wider than the
+/// application's window (the least window), cut to what is left, with
+/// their whole words on hover.
+fn foot_least(ui: &Ui, foot: &Foot) -> (f32, f32) {
+    let least = |check: Option<f32>| {
+        let mut kit = mg_uikit::dialog::Footer::new();
+        for b in &foot.buttons {
+            kit = kit.button(mg_uikit::KitButton::new(None, b.words.clone()));
+        }
+        if let Some(width) = check {
+            kit = kit.left(width, |_| {});
+        }
+        kit.least_width(ui)
+    };
+    let Some((words, _, _)) = &foot.check else { return (least(None), 0.0) };
+    let whole = check_width(ui, words);
+    let full = least(Some(whole));
+    let room = ui.ctx().content_rect().width() - 2.0 * ui.visuals().window_stroke.width - 2.0;
+    let shortest = mg_uikit::controls::BOX + ui.spacing().icon_spacing + 24.0;
+    let width = match full > room {
+        true => (whole - (full - room)).max(shortest).min(whole),
+        false => whole,
+    };
+    (least(Some(width)), width)
+}
+
+/// Shows `foot` (a dialog's, titled `title`) across `ui`'s width so far
+/// (at least as wide as it needs), under what `ui` holds: the strip, its
+/// presses (Enter and Escape among them), recorded for tests.
+fn place_foot(ui: &mut Ui, foot: Foot, title: &str) -> Pressed {
+    use mg_uikit::{ButtonLook, KitButton};
+    let (least, check_room) = foot_least(ui, &foot);
+    let wide = ui.min_rect().width().max(least);
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(wide, mg_uikit::dialog::FOOTER_HEIGHT),
+        egui::Sense::hover(),
+    );
+    let left = ui.min_rect().left();
+    let rect =
+        egui::Rect::from_x_y_ranges(left..=left + wide.max(ui.min_rect().width()), rect.y_range());
+    let mut slot = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+    let Foot { note, check, buttons, no_enter, main_on_escape } = foot;
+    let mut kit = mg_uikit::dialog::Footer::new();
+    if let Some(note) = &note {
+        kit = kit.note(note.clone());
+    }
+    let checked = std::cell::Cell::new(None);
+    if let Some((words, on, tip)) = &check {
+        let width = check_room;
+        let cut = width < check_width(&slot, words) - 0.5;
+        let (words, tip, checked) = (words.clone(), tip.clone(), &checked);
+        let mut on = *on;
+        kit = kit.left(width, move |ui| {
+            use mg_uikit::Controls as _;
+            // (Cut to its room at the least window: its words on hover.)
+            ui.set_max_width(width);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            let mut r = ui.check_box(&mut on, words.clone());
+            let tip = match (cut, tip) {
+                (true, Some(t)) => Some(format!("{words}. {t}")),
+                (true, None) => Some(words),
+                (false, t) => t,
+            };
+            if let Some(tip) = tip {
+                r = r.on_hover_text(tip);
+            }
+            let _ = r;
+            checked.set(Some(on));
+        });
+    }
+    for b in &buttons {
+        let look = if b.role == FootRole::Main { ButtonLook::Primary } else { ButtonLook::Raised };
+        let mut k = KitButton::new(None, b.words.clone()).look(look).enabled(b.enabled);
+        if let Some(tip) = &b.tip {
+            k = k.tip(tip.clone());
+        }
+        kit = kit.button(k);
+    }
+    let shown = kit.show(&mut slot);
+    let clicked: Vec<bool> =
+        (shown.buttons.iter().zip(&buttons)).map(|(r, b)| b.enabled && r.clicked()).collect();
+    let layer = ui.layer_id();
+    let main_at = buttons.iter().position(|b| b.role == FootRole::Main);
+    let main_enabled = main_at.is_some_and(|i| buttons[i].enabled);
+    // (Enter: the main action's, enabled, in the dialog in front, with no
+    // control holding the keys.)
+    let enter = main_enabled && !no_enter && in_front(ui.ctx(), layer) && enter(ui);
+    let leave_at = buttons.iter().rposition(|b| b.role == FootRole::Cancel);
+    // (Escape: the main action's, where it is told so and nothing else
+    // leaves.)
+    let escaped = main_on_escape && leave_at.is_none() && main_enabled && cancelled(ui, false);
+    let main = main_at.is_some_and(|i| clicked[i]) || enter || escaped;
+    let cancelled = match leave_at {
+        Some(i) => cancelled(ui, clicked[i]),
+        None => false,
+    };
+    for (i, b) in buttons.iter().enumerate() {
+        let how = match (clicked[i], b.role) {
+            (true, _) => Some("click"),
+            (false, FootRole::Main) if enter => Some("Enter"),
+            (false, FootRole::Main) if escaped => Some("Escape"),
+            (false, FootRole::Cancel) if cancelled && Some(i) == leave_at => Some("Escape"),
+            _ => None,
+        };
+        if let Some(how) = how {
+            note_press(ui.ctx(), title, &b.words, how);
+        }
+    }
+    let seen = FooterSeen {
+        title: title.to_string(),
+        rect: Some(shown.rect),
+        window: egui::Rect::NOTHING,
+        note,
+        check: check.map(|(w, _, _)| w),
+        buttons: (buttons.iter().zip(&shown.buttons))
+            .map(|(b, r)| ButtonSeen {
+                words: b.words.clone(),
+                main: b.role == FootRole::Main,
+                leaves: b.role == FootRole::Cancel,
+                enabled: b.enabled,
+                rect: r.rect,
+            })
+            .collect(),
+        enter_withheld: no_enter,
+        layer: ui.layer_id(),
+        margin: 0.0,
+    };
+    record_footer(ui.ctx(), seen);
+    Pressed {
+        words: buttons.into_iter().map(|b| b.words).collect(),
+        clicked,
+        main,
+        cancelled,
+        checked: checked.get(),
+    }
+}
+
+/// What [`Dialog::show_foot`] gave: the body's value (`None` where the
+/// dialog is folded to its title row), the footer's presses, the window.
+pub(crate) struct Footed<R> {
+    pub(crate) inner: Option<R>,
+    pub(crate) pressed: Pressed,
+    pub(crate) response: egui::Response,
 }
 
 /// A Cancel's answer: `clicked`, the title row's Close the frame before
@@ -4043,9 +4654,17 @@ fn cancelled(ui: &Ui, clicked: bool) -> bool {
     // `Dialog::close_as_cancel`.)
     let layer = ui.layer_id();
     let closed = ui.ctx().data_mut(|d| d.remove_temp::<bool>(closed_as_cancel_id(layer)));
+    // (An `egui::Modal`'s Escape: the modal on top, as egui's own
+    // `should_close` reads it.)
+    let modal_escape = || {
+        ui.ctx().memory(|m| m.top_modal_layer()) == Some(layer)
+            && !egui::Popup::is_any_open(ui.ctx())
+            && ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    };
     clicked
         || closed == Some(true)
         || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
+        || (layer.order != egui::Order::Middle && modal_escape())
 }
 
 /// Where a dialog's Close that is its Cancel ([`Dialog::close_as_cancel`])
@@ -5905,7 +6524,10 @@ mod row_choice_tests {
         let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
             move |ui, (asked, on): &mut (bool, bool)| {
                 if *asked {
-                    *on = super::always_box(ui, id, "Always do this", "Options");
+                    // (As a footer's check box shows it: `Foot::check`.)
+                    let (mut now, tip) = super::always_now(ui.ctx(), id, "Options");
+                    ui.checkbox(&mut now, "Always do this").on_hover_text(tip);
+                    *on = super::always_kept(ui.ctx(), id, Some(now));
                 } else {
                     ui.label("Nothing asked");
                 }

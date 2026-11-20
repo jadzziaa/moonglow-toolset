@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T20:19:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T08:30:21Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -550,23 +550,23 @@ Every control of the screens mocked in the second round and its home in the mock
 | Today | In the redesign |
 |---|---|
 | Window title, centered | Left-aligned in a bar row ✓ M3 T11 (moved by the row; a Close where Escape closes the dialog, the pickers' too; a job's window and a plugin's question the same row with no Close) |
-| Button row, left-aligned | Footer row with a rule above, buttons at the right, a setting or count at the left |
-| Main button | Accent fill. The order stays: action first, Cancel last |
-| Wizard steps (Creature Wizard has nine) | Step list at the left, with a check on done steps |
-| Wizard page | Page-header bar over each page |
-| Find and Replace Text: Find, "Replace in N" | Footer |
-| Delete from Module: "Don't ask…" checkbox | Footer, at the left |
-| Build Module: Counted as Used | Stays under the results |
-| Adjust Location, Build Module's missing resources | Flowed into columns |
-| Wording: animation speed, X rotation | Sentence case |
-| Rename, Unsaved Changes, Duplicate Tags, Area Wizard, Resize Area, Recover Unsaved Work | Drawn in the same pattern |
+| Button row, left-aligned | Footer row with a rule above, buttons at the right, a setting or count at the left ✓ M4 U27 (every dialog; Enter presses the main action but one that grants trust, overrides a protection, overwrites or quits; Escape is Cancel; the keys go to the window in front) |
+| Main button | Accent fill. The order stays: action first, Cancel last ✓ M4 U27 (what leaves without acting, Done, Later or Close, last) |
+| Wizard steps (Creature Wizard has nine) | Step list at the left, with a check on done steps ✓ M4 U27 (the step list on Moonglow's own multi-page wizards; a Script Wizard page not ticked shows as off; a plugin's pages, which name no other page, have none) |
+| Wizard page | Page-header bar over each page ✓ M4 U27 (an icon and the page's title) |
+| Find and Replace Text: Find, "Replace in N" | Footer ✓ M4 U27 (the count "N strings, M times" at its left; Find the main button) |
+| Delete from Module: "Don't ask…" checkbox | Footer, at the left ✓ M4 U27 |
+| Build Module: Counted as Used | Stays under the results ✓ M4 U27 (still drawn under the results) |
+| Adjust Location, Build Module's missing resources | Flowed into columns ✓ M4 U27 (Adjust Location's four-column grid; Missing Resources in two columns) |
+| Wording: animation speed, X rotation | Sentence case ✓ M4 U27 |
+| Rename, Unsaved Changes, Duplicate Tags, Area Wizard, Resize Area, Recover Unsaved Work | Drawn in the same pattern ✓ M4 U27 |
 
 
 #### New
 
-- The step list, the page header bar and the footer row.
-- The accent fill on the main button.
-- Wording fixes: "6 strings, 5 times" in place of "string(s)" and "time(s)".
+- The step list, the page header bar and the footer row. ✓ M4 U27
+- The accent fill on the main button. ✓ M4 U27
+- Wording fixes: "6 strings, 5 times" in place of "string(s)" and "time(s)". ✓ M4 U27
 
 #### Not Drawn
 

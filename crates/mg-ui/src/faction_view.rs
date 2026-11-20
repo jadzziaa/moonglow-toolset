@@ -492,7 +492,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     let ctx = ui.ctx().clone();
     if let Some(mut add) = view.adding.clone() {
         let mut close = false;
-        crate::widgets::modal(&ctx, "Add Faction").show(&ctx, |ui| {
+        let footed = crate::widgets::modal(&ctx, "Add Faction").show_foot(&ctx, |ui| {
             crate::widgets::field_label(ui, "Name");
             let field = ui.add(mg_uikit::text_field(&mut add.name));
             crate::widgets::autofocus(ui, &field);
@@ -503,23 +503,21 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
                     ui.selectable_value(&mut add.parent, p, name(f, p));
                 }
             });
-            ui.horizontal(|ui| {
-                let ok = !add.name.trim().is_empty();
-                if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
-                    || (ok && crate::widgets::enter(ui))
-                {
-                    let mut now = f.clone();
-                    let id = now.add(add.name.trim(), add.global, add.parent);
-                    view.selected = id;
-                    view.reveal = true;
-                    changed = Some((format!("Add faction {}", add.name.trim()), now));
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
+            ((), crate::widgets::Foot::new().main("OK", !add.name.trim().is_empty()).cancel())
         });
+        if let Some(footed) = footed {
+            if footed.pressed.main() {
+                let mut now = f.clone();
+                let id = now.add(add.name.trim(), add.global, add.parent);
+                view.selected = id;
+                view.reveal = true;
+                changed = Some((format!("Add faction {}", add.name.trim()), now));
+                close = true;
+            }
+            if footed.pressed.cancelled() {
+                close = true;
+            }
+        }
         view.adding = if close { None } else { Some(add) };
     }
     // (The faction the window was opened on, or none: a removal or an Undo
@@ -537,23 +535,22 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     }
     if let Some((id, mut new_name)) = view.renaming.clone() {
         let mut close = false;
-        crate::widgets::modal(&ctx, "Change Faction Name").show(&ctx, |ui| {
+        let footed = crate::widgets::modal(&ctx, "Change Faction Name").show_foot(&ctx, |ui| {
             let field = ui.add(mg_uikit::text_field(&mut new_name));
             crate::widgets::autofocus(ui, &field);
-            ui.horizontal(|ui| {
-                if ui.add_enabled(!new_name.trim().is_empty(), egui::Button::new("OK")).clicked()
-                    || (!new_name.trim().is_empty() && crate::widgets::enter(ui))
-                {
-                    let mut now = f.clone();
-                    now.factions[id as usize].name = new_name.trim().to_string();
-                    changed = Some(("Rename faction".into(), now));
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
+            ((), crate::widgets::Foot::new().main("OK", !new_name.trim().is_empty()).cancel())
         });
+        if let Some(footed) = footed {
+            if footed.pressed.main() {
+                let mut now = f.clone();
+                now.factions[id as usize].name = new_name.trim().to_string();
+                changed = Some(("Rename faction".into(), now));
+                close = true;
+            }
+            if footed.pressed.cancelled() {
+                close = true;
+            }
+        }
         view.renaming = if close { None } else { Some((id, new_name)) };
         if close {
             view.renaming_of = None;

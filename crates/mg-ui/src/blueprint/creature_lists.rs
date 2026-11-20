@@ -2346,30 +2346,36 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             MissingFeats::Ask => {
                 // (Escape is its No.)
                 let always_id = ask.with("always");
-                let always = ui.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
+                let (on, tip) = crate::widgets::always_now(
+                    ui.ctx(),
+                    always_id,
+                    &format!("{} › Equipping without the feats", crate::widgets::QUESTIONS_AT),
+                );
                 let window = crate::widgets::modal(ui.ctx(), "Missing Feats").id(ask.with("modal"));
-                let mut escaped = false;
-                window.show(ui.ctx(), |ui| {
+                let footed = window.show_foot(ui.ctx(), |ui| {
                     ui.set_max_width(360.0);
                     crate::widgets::field_label(ui, text);
-                    super::row(ui, |ui| {
-                        yes = ui.button("Yes").clicked();
-                        no = ui.button("No").clicked();
-                    });
-                    crate::widgets::always_box(
-                        ui,
-                        always_id,
-                        "Always do this",
-                        &format!("{} › Equipping without the feats", crate::widgets::QUESTIONS_AT),
-                    );
-                    escaped = crate::widgets::escape_here(ui) && !yes && !no;
+                    (
+                        (),
+                        crate::widgets::Foot::new()
+                            .check("Always do this", on, Some(tip))
+                            .main("Yes", true)
+                            .leave("No"),
+                    )
                 });
+                let mut always = false;
+                let mut said_no = false;
+                if let Some(fd) = footed {
+                    said_no = fd.pressed.clicked("No");
+                    always = crate::widgets::always_kept(ui.ctx(), always_id, fd.pressed.checked);
+                    yes = fd.pressed.main();
+                    no = fd.pressed.cancelled();
+                }
                 // (Always so: Options' choice, from now on; not Escape's.)
-                if always && (yes || no) {
+                if always && (yes || said_no) {
                     f.app.settings.missing_feats =
                         if yes { MissingFeats::Add } else { MissingFeats::Refuse };
                 }
-                no |= escaped;
             }
         }
         if yes {

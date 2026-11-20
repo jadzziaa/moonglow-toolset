@@ -1020,10 +1020,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = "Check for Updates";
     let mut open = true;
     let (mut again, mut close, mut action) = (false, false, None);
-    crate::widgets::dialog(ctx, title, &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
-            ui.set_max_width(520.0);
+    let footed = crate::widgets::dialog(ctx, title, &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 520.0);
             let flatpak = app.updates.installer() == Some(Installer::Flatpak);
             match app.updates.report.clone() {
                 None if flatpak => {}
@@ -1050,18 +1051,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                      checksums from GitHub. Nothing about you, your modules or this computer.",
                 );
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let idle = !app.updates.checking();
-                if !flatpak && ui.add_enabled(idle, egui::Button::new("Check Again")).clicked() {
-                    again = true;
-                }
-                if ui.button("Close").clicked() {
-                    close = true;
-                }
-            });
-        },
-    );
+            let mut foot = crate::widgets::Foot::new();
+            if !flatpak {
+                foot = foot.main("Check Again", !app.updates.checking());
+            }
+            ((), foot.leave("Close"))
+        });
+    if let Some(f) = footed {
+        again = f.pressed.main();
+        close = f.pressed.cancelled();
+    }
     if let Some(a) = action {
         app.actions.push(a);
     }

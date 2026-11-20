@@ -354,10 +354,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut send = false;
     let mut show_output = false;
     let mut browse = false;
-    crate::widgets::dialog(ctx, "Publish to NWSync", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Publish to NWSync", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.label(
                 "Players' games download the module's haks and talk table from a web server \
                  before they join (nwserver's -nwsyncurl). This writes what the web server serves.",
@@ -365,7 +365,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.add_enabled_ui(!busy, |ui| {
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Repository folder");
-                    ui.add(mg_uikit::text_field(&mut p.folder).desired_width(320.0));
+                    // (Browse… kept in the room: the least window.)
+                    let browse_w = ui.spacing().interact_size.x + 4.0 * ui.spacing().item_spacing.x;
+                    let room = ui.available_width() - browse_w - 24.0;
+                    let width = 320.0_f32.min(room).max(80.0);
+                    ui.add(mg_uikit::text_field(&mut p.folder).desired_width(width));
                     browse = ui.button("Browse…").clicked();
                 });
                 ui.check_box(&mut p.with_module, "With the module itself").on_hover_text(
@@ -439,25 +443,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.colored_label(ui.visuals().warn_fg_color, problem);
                 }
             }
-            ui.horizontal(|ui| {
-                go = ui.add_enabled(!busy, egui::Button::new("Publish")).clicked();
-                prune = ui
-                    .add_enabled(!busy, egui::Button::new("Remove Unused Data"))
-                    .on_hover_text(
-                        "Delete data files no manifest names, older than two weeks. Remove old \
-                         manifests first.",
-                    )
-                    .clicked();
-                let tip = "Run the upload command for the data, then the manifests, then latest";
-                send = ui
-                    .add_enabled(!busy && command.is_some(), egui::Button::new("Upload"))
-                    .on_hover_text(tip)
-                    .on_disabled_hover_text(
-                        "Set an upload command in Options › Folders (or the project's \
-                         [nwsync] upload)",
-                    )
-                    .clicked();
-            });
             ui.separator();
             match &command {
                 Some(c) => {
@@ -491,7 +476,30 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     show_output = ui.small_button("Show Output").clicked();
                 });
             }
+            let upload_tip = if command.is_some() {
+                "Run the upload command for the data, then the manifests, then latest"
+            } else {
+                "Set an upload command in Options › Folders (or the project's [nwsync] upload)"
+            };
+            let foot = crate::widgets::Foot::new()
+                .main("Publish", !busy)
+                .button("Remove Unused Data", !busy)
+                .tip(
+                    "Delete data files no manifest names, older than two weeks. Remove old \
+                     manifests first.",
+                )
+                .button("Upload", !busy && command.is_some())
+                .tip(upload_tip);
+            ((), foot)
         });
+    if let Some(f) = footed {
+        go = f.pressed.main();
+        prune = f.pressed.clicked("Remove Unused Data");
+        send = f.pressed.clicked("Upload");
+        if f.pressed.cancelled() {
+            open = false;
+        }
+    }
     if show_output {
         app.project_commands.show = true;
     }

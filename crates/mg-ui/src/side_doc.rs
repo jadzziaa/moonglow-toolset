@@ -668,34 +668,37 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         Cancel,
     }
     let mut answer = None;
-    widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("side-doc-closing")).show(ctx, |ui| {
-        ui.label(format!("Save changes to {title}?"));
-        if let Some(failed) = &failed {
-            // (A path is long: wide enough to read in a few lines.)
-            ui.set_min_width(440.0);
-            ui.add(
-                egui::Label::new(egui::RichText::new(failed).color(ui.visuals().error_fg_color))
+    let footed = widgets::modal(ctx, "Unsaved Changes")
+        .id(egui::Id::new("side-doc-closing"))
+        .show_foot(ctx, |ui| {
+            ui.label(format!("Save changes to {title}?"));
+            if let Some(failed) = &failed {
+                // (A path is long: wide enough to read in a few lines.)
+                crate::widgets::fit_min_width(ui, 440.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(failed).color(ui.visuals().error_fg_color),
+                    )
                     .wrap(),
-            );
-        }
-        if more > 0 {
-            ui.weak(format!(
-                "{more} more {} unsaved changes after this.",
-                if more == 1 { "tab has" } else { "tabs have" }
-            ));
-        }
-        ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
-                answer = Some(Answer::Save);
+                );
             }
-            if ui.button("Don't Save").clicked() {
-                answer = Some(Answer::DontSave);
+            if more > 0 {
+                ui.weak(format!(
+                    "{more} more {} unsaved changes after this.",
+                    if more == 1 { "tab has" } else { "tabs have" }
+                ));
             }
-            if widgets::cancel(ui) {
-                answer = Some(Answer::Cancel);
-            }
+            ((), widgets::Foot::new().main("Save", true).button("Don't Save", true).cancel())
         });
-    });
+    if let Some(f) = footed {
+        if f.pressed.main() {
+            answer = Some(Answer::Save);
+        } else if f.pressed.clicked("Don't Save") {
+            answer = Some(Answer::DontSave);
+        } else if f.pressed.cancelled() {
+            answer = Some(Answer::Cancel);
+        }
+    }
     match answer {
         None => {}
         // (Nothing more is asked, and what waited for the answers is not

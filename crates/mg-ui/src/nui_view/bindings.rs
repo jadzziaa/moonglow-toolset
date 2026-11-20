@@ -232,7 +232,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     let window = widgets::dialog(ui.ctx(), "New Bind for a Property", &mut open)
                         .collapsible(false)
                         .resizable(false);
-                    window.show(ui.ctx(), |ui| {
+                    let footed = window.show_foot(ui.ctx(), |ui| {
                         let heading = widgets::field_label(ui, "Bind name");
                         let field =
                             ui.add(mg_uikit::text_field(&mut draft.name)).labelled_by(heading.id);
@@ -261,30 +261,32 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         if let Some(error) = error {
                             ui.weak(error);
                         }
-                        ui.horizontal(|ui| {
-                            if (ui
-                            .add_enabled(error.is_none(), egui::Button::new("Create"))
-                            .on_hover_text("Makes the bind and binds the property to it")
-                            .clicked()
-                            || (error.is_none() && widgets::enter(ui)))
+                        let foot = widgets::Foot::new()
+                            .main("Create", error.is_none())
+                            .tip("Makes the bind and binds the property to it")
+                            .cancel();
+                        (name.to_string(), foot)
+                    });
+                    if let Some(footed) = footed {
+                        if footed.pressed.main()
+                            && let Some(name) = footed.inner
                             // (Asked once more as it is made: the window
                             // may have changed under the open dialog.)
                             && compatible(doc, &path, &key, settings, &draft.value)
-                            {
-                                settings.bindings.insert(
-                                    name.into(),
-                                    Binding { value: draft.value.clone(), ..Default::default() },
-                                );
-                                if let Some(node) = doc.pointer_mut(&path) {
-                                    node[&key] = json!({"bind":name});
-                                }
-                                finish = true;
+                        {
+                            settings.bindings.insert(
+                                name.as_str().into(),
+                                Binding { value: draft.value.clone(), ..Default::default() },
+                            );
+                            if let Some(node) = doc.pointer_mut(&path) {
+                                node[&key] = json!({"bind":name});
                             }
-                            if widgets::cancel(ui) {
-                                finish = true;
-                            }
-                        });
-                    });
+                            finish = true;
+                        }
+                        if footed.pressed.cancelled() {
+                            finish = true;
+                        }
+                    }
                     finish |= !open;
                 }
                 ui.ctx().data_mut(|d| {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the editor's header and tree, a line's Data and the Search in the Right Dock's Node section, the Conversation panel, the bookmarks in the Outliner, the Status Bar's hints, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-17T04:26:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 ---
 
 # Conversations
@@ -410,6 +410,21 @@ store…), fill in a page for each, and name the script. **Finish** writes
 the source, compiles it and sets it on the line, as one undoable step.
 The script is the module's like any other: open it in the script editor
 to change it later.
+
+The wizard shows a **step list** at its left ("Step N of M"): Choose, one
+step for each condition or action page, and Name. Steps done carry a
+check, the current one is highlighted and those to come are dimmer. A
+page you did not tick on the first page shows as off, so the list never
+changes length (in a window made too narrow for it and the page, the
+list is left out). Over each page a **page bar** (an icon and the page's
+question) stands where a heading was. The footer holds **< Back**, **Next
+>** (the main button), **Finish** and **Cancel**; on the last page
+**Finish** is the main button and **Next >** is off, and **Finish** is
+off while the name is not a ResRef. **Enter** presses the main button
+whenever it is enabled, with a text field holding the keys too;
+**Escape** is Cancel. The window is resizable (it opens 720 by 500 and
+is never smaller than 560 by 420), and **Start the script editor** is
+in its body on the last page.
 
 The conversation stays live behind the wizard. Where lines were deleted
 or put back in it meanwhile, Finish sets the script on the line the

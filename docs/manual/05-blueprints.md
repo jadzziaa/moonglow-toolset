@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T00:55:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 ---
 
 # Blueprints
@@ -562,6 +562,17 @@ in a project where you have one): type others there to choose your own.
 A ResRef the module has already is refused there; one taken between that
 page and **Finish** gives the next free one from it, and no blueprint is
 replaced.
+
+Each wizard (the Creature Wizard and the blueprint wizards) shows a step
+list at its left ("Step N of M", with a check on the steps done, the
+current one highlighted and the rest dimmer) and a page bar, an icon and
+the page's title, over each page (in a window too narrow for both, the
+step list is left out and the page bar names the page). The footer is **< Back**, **Next >**
+(the main button), **Finish** and **Cancel**; on the last page **Finish**
+is the main button and **Next >** is off. **Enter** presses the main
+button while it is enabled, and **Escape** is Cancel. The blueprint
+wizards are resizable, and their **Launch Properties Dialog** box is at
+the footer's left on the last page.
 
 The Item Wizard's Name page has Aurora's **Magical**: ticked, choose an
 **Item Level** (1-5, 6-10, 11-15, 16-20) and an **Item Quality** (Low,

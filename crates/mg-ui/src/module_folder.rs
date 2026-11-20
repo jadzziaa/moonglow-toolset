@@ -33,37 +33,41 @@ pub(crate) fn open(app: &mut Moonglow, path: &Path) {
 pub(crate) fn ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(path) = app.module_folder.clone() else { return };
     let folder = folder_beside(&path).unwrap_or_else(|| path.with_extension(""));
-    crate::widgets::modal(ctx, "Open Directory as a Module").show(ctx, |ui| {
+    let id = egui::Id::new("module-folder-always");
+    let (on, tip) = crate::widgets::always_now(
+        ctx,
+        id,
+        "Tools › Options › General › Questions › A .mod with its folder beside it",
+    );
+    let footed = crate::widgets::modal(ctx, "Open Directory as a Module").show_foot(ctx, |ui| {
         ui.label("A directory with the same name has been found.");
         ui.label("Do you want to open this directory as a module?");
         ui.weak(folder.display().to_string());
-        let id = egui::Id::new("module-folder-always");
-        let always = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-        ui.horizontal(|ui| {
-            let mut chosen = None;
-            if ui.button("Open Directory").on_hover_text("Saved into the folder").clicked() {
-                chosen = Some((folder.clone(), ModuleFolders::Folder));
-            }
-            if ui.button("Open .mod File").clicked() {
-                chosen = Some((path.clone(), ModuleFolders::Module));
-            }
-            if let Some((p, choice)) = chosen {
-                // (Always so: Options' choice, from now on.)
-                if always {
-                    app.settings.module_folders = choice;
-                }
-                app.actions.push(Action::OpenModuleAsIs(p));
-                app.module_folder = None;
-            }
-            if crate::widgets::cancel(ui) {
-                app.module_folder = None;
-            }
-        });
-        crate::widgets::always_box(
-            ui,
-            id,
-            "Always do this",
-            "Tools › Options › General › Questions › A .mod with its folder beside it",
-        );
+        let foot = crate::widgets::Foot::new()
+            .check("Always do this", on, Some(tip))
+            .main("Open Directory", true)
+            .tip("Saved into the folder")
+            .button("Open .mod File", true)
+            .cancel();
+        ((), foot)
     });
+    let Some(f) = footed else { return };
+    let always = crate::widgets::always_kept(ctx, id, f.pressed.checked);
+    let chosen = if f.pressed.main() {
+        Some((folder, ModuleFolders::Folder))
+    } else if f.pressed.clicked("Open .mod File") {
+        Some((path, ModuleFolders::Module))
+    } else {
+        None
+    };
+    if let Some((p, choice)) = chosen {
+        // (Always so: Options' choice, from now on.)
+        if always {
+            app.settings.module_folders = choice;
+        }
+        app.actions.push(Action::OpenModuleAsIs(p));
+        app.module_folder = None;
+    } else if f.pressed.cancelled() {
+        app.module_folder = None;
+    }
 }

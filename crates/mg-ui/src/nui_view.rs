@@ -1723,25 +1723,26 @@ fn how_to_open(ui: &mut Ui, name: &str, state: &mut State) {
          void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
     );
     let mut open = true;
-    widgets::dialog(ui.ctx(), "How to Open It", &mut open)
+    let footed = widgets::dialog(ui.ctx(), "How to Open It", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ui.ctx(), |ui| {
+        .show_foot(ui.ctx(), |ui| {
             ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
             let mut shown = code.as_str();
             let field = egui::TextEdit::multiline(&mut shown).code_editor().desired_rows(6);
             crate::widgets::text_area(ui, ui.id().with("nui-open-code"), field);
-            ui.horizontal(|ui| {
-                if ui.button("Copy").clicked() {
-                    ui.ctx().copy_text(code.clone());
-                    state.how_to_open = false;
-                }
-                if ui.button("Close").clicked() {
-                    state.how_to_open = false;
-                }
-            });
             ui.weak("Pass the player who should see it. Build & Compile first.");
+            ((), widgets::Foot::new().main("Copy", true).leave("Close"))
         });
+    if let Some(footed) = &footed {
+        if footed.pressed.main() {
+            ui.ctx().copy_text(code.clone());
+            state.how_to_open = false;
+        }
+        if footed.pressed.cancelled() {
+            state.how_to_open = false;
+        }
+    }
     if !open {
         state.how_to_open = false;
     }

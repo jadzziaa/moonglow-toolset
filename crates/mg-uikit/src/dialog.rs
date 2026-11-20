@@ -2,8 +2,9 @@
 //! proposal's M4, Part 2, decision 1): the empty state ([`EmptyState`],
 //! the mock's `.empty`), which the toolset's "No area open" is (M4's
 //! U24), and the dialog's footer ([`Footer`], the boards' `.dlg-foot`,
-//! M4's U26: the pickers'; the wizards' and the other dialogs' with U27).
-//! The step list comes with the wizards (U27).
+//! M4's U26: the pickers'; the wizards' and the other dialogs' with U27),
+//! the body's room ([`BODY_PADDING`]), and a wizard's step list
+//! ([`StepList`]) and page bar ([`page_bar`]) (U27).
 
 use egui::{Align2, FontId, Rect, Response, Ui, pos2, vec2};
 
@@ -152,6 +153,213 @@ impl EmptyState {
         ui.advance_cursor_after_rect(Rect::from_min_max(room.min, pos2(room.right(), bottom)));
         shown
     }
+}
+
+/// The room round a dialog's body (`.dlg-body { padding: 12px }`, the
+/// Dialogs board's "Body: padding 12, gap 8").
+pub const BODY_PADDING: f32 = 12.0;
+
+/// A wizard's step list's width (`.steps { width: 190px }`).
+pub const STEP_LIST_WIDTH: f32 = 190.0;
+/// The room over and under its rows (`.steps { padding: 8px 0 }`).
+const STEP_LIST_PADDING: f32 = 8.0;
+/// Its heading's room at the left and under it (`.steps .hd { padding: 0
+/// 12px 6px }`) and its line (`line-height: 14px`).
+const STEP_HEADING_LEFT: f32 = 12.0;
+const STEP_HEADING_UNDER: f32 = 6.0;
+const STEP_HEADING_LINE: f32 = 14.0;
+/// A row's room at its left (`.steps .list-row { padding-left: 10px; gap:
+/// 8px }`) beside its 16-point check or the room of one.
+const STEP_ROW_LEFT: f32 = 10.0;
+const STEP_ROW_GAP: f32 = 8.0;
+
+/// A wizard's page bar's height (`.pg-h { height: 26px }`).
+pub const PAGE_BAR_HEIGHT: f32 = 26.0;
+/// Its room at its ends (`.pg-h { padding: 0 16px }`) and between its
+/// icon and its title (`gap: 8px`).
+const PAGE_BAR_PADDING: f32 = 16.0;
+const PAGE_BAR_GAP: f32 = 8.0;
+/// The room round a wizard's page under its bar (`.wpage .pbody {
+/// padding: 12px 16px }`): above and below, at the sides.
+pub const PAGE_PADDING: egui::Vec2 = vec2(16.0, 12.0);
+
+/// Where a wizard's step stands ([`StepList`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StepState {
+    /// Passed: in `text`, a check in `ok` before it.
+    Done,
+    /// The page shown: the row in `accent-fill`, its words in `on-fill`.
+    Current,
+    /// Still to come: in `text-2`.
+    ToCome,
+    /// Not taken with the choices made (a page switched off): in
+    /// `text-off`, kept in its place so that the list never changes under
+    /// the pointer.
+    Off,
+}
+
+/// A wizard's step list (`.steps`): [`STEP_LIST_WIDTH`] wide down its
+/// room's height at the left of the page, on `panel` with a `line` at
+/// its right, a heading in `text-3` ("Step 3 of 9") and a row a step
+/// ([`StepState`]). It tells where the wizard is and is not clicked (the
+/// board gives its rows no pointer and no hover): Back and Next move.
+/// Each row is named for a screen reader by its place and its step
+/// ("Step 3: Class and Level", apart from the dialog's title, which a
+/// first step may share), the current one selected, a step not taken
+/// disabled.
+///
+/// ```
+/// # egui::__run_test_ui(|ui| {
+/// use mg_uikit::dialog::{StepList, StepState};
+/// let shown = StepList::new("Step 2 of 3")
+///     .step("Category", StepState::Done)
+///     .step("Name", StepState::Current)
+///     .step("Finish", StepState::ToCome)
+///     .show(ui);
+/// assert_eq!(shown.rows.len(), 3);
+/// # });
+/// ```
+#[derive(Clone, Debug)]
+#[must_use = "show it with StepList::show"]
+pub struct StepList {
+    heading: String,
+    steps: Vec<(String, StepState)>,
+}
+
+/// What a [`StepList`] showed: its rect and each row's, in order.
+#[derive(Clone, Debug)]
+pub struct StepListShown {
+    pub rect: Rect,
+    pub rows: Vec<Rect>,
+}
+
+impl StepList {
+    /// A step list under `heading` ("Step 3 of 9").
+    pub fn new(heading: impl Into<String>) -> Self {
+        StepList { heading: heading.into(), steps: Vec::new() }
+    }
+
+    /// With the step `name` in `state` after those given before.
+    pub fn step(mut self, name: impl Into<String>, state: StepState) -> Self {
+        self.steps.push((name.into(), state));
+        self
+    }
+
+    /// Shows it at the left of the room `ui` has, down its height (or as
+    /// tall as its rows where the room has no set height), and takes that
+    /// strip: laid out from its steps and the room alone.
+    pub fn show(self, ui: &mut Ui) -> StepListShown {
+        let t = ui.tokens();
+        let room = ui.available_rect_before_wrap();
+        let rows_high = STEP_LIST_PADDING
+            + STEP_HEADING_LINE
+            + STEP_HEADING_UNDER
+            + self.steps.len() as f32 * metrics::ROW_HEIGHT
+            + STEP_LIST_PADDING;
+        let high = if room.height().is_finite() { room.height().max(rows_high) } else { rows_high };
+        let rect = Rect::from_min_size(room.min, vec2(STEP_LIST_WIDTH, high));
+        ui.advance_cursor_after_rect(rect);
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, t.panel);
+        let px = 1.0 / ui.ctx().pixels_per_point();
+        painter.vline(rect.right() - px / 2.0, rect.y_range(), egui::Stroke::new(px, t.line));
+        let small = FontId::proportional(metrics::SMALL_SIZE);
+        let body = FontId::proportional(metrics::BODY_SIZE);
+        let mut y = rect.top() + STEP_LIST_PADDING;
+        let heading = painter.layout_no_wrap(self.heading.clone(), small, t.text_3);
+        let at =
+            pos2(rect.left() + STEP_HEADING_LEFT, y + (STEP_HEADING_LINE - heading.size().y) / 2.0);
+        painter.galley(at, heading, t.text_3);
+        let named = ui.interact(
+            Rect::from_min_size(pos2(rect.left(), y), vec2(STEP_LIST_WIDTH, STEP_HEADING_LINE)),
+            ui.id().with(("mg-step-heading", &self.heading)),
+            egui::Sense::hover(),
+        );
+        let heading_words = self.heading.clone();
+        named.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &heading_words)
+        });
+        y += STEP_HEADING_LINE + STEP_HEADING_UNDER;
+        let mut rows = Vec::with_capacity(self.steps.len());
+        for (i, (name, state)) in self.steps.iter().enumerate() {
+            let row = Rect::from_min_size(
+                pos2(rect.left(), y),
+                vec2(STEP_LIST_WIDTH - px, metrics::ROW_HEIGHT),
+            );
+            let words = match state {
+                StepState::Done => t.text,
+                StepState::Current => {
+                    painter.rect_filled(row, 0.0, t.accent_fill);
+                    t.on_fill
+                }
+                StepState::ToCome => t.text_2,
+                StepState::Off => t.text_off,
+            };
+            let check = Rect::from_min_size(
+                pos2(row.left() + STEP_ROW_LEFT, row.center().y - metrics::ICON / 2.0),
+                vec2(metrics::ICON, metrics::ICON),
+            );
+            if *state == StepState::Done {
+                Icon::Check.paint(&painter, check, t.ok);
+            }
+            let left = check.right() + STEP_ROW_GAP;
+            let mut job =
+                egui::text::LayoutJob::simple_singleline(name.clone(), body.clone(), words);
+            job.wrap =
+                egui::text::TextWrapping::truncate_at_width((row.right() - 6.0 - left).max(0.0));
+            let galley = painter.layout_job(job);
+            painter.galley(pos2(left, row.center().y - galley.size().y / 2.0), galley, words);
+            let r = ui.interact(row, ui.id().with(("mg-step", i)), egui::Sense::hover());
+            let (enabled, current) = (*state != StepState::Off, *state == StepState::Current);
+            let named = format!("Step {}: {name}", i + 1);
+            r.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    enabled,
+                    current,
+                    &named,
+                )
+            });
+            rows.push(row);
+            y += metrics::ROW_HEIGHT;
+        }
+        StepListShown { rect, rows }
+    }
+}
+
+/// A wizard page's bar (`.pg-h`): [`PAGE_BAR_HEIGHT`] high across the
+/// room `ui` has, on `bar` with a `line` under it, the page's icon in
+/// `text-2` and its title in `text`, [`PAGE_BAR_PADDING`] in. Takes that
+/// row; its response names the title for a screen reader (a heading's
+/// label).
+pub fn page_bar(ui: &mut Ui, icon: Option<Icon>, title: &str) -> Response {
+    let t = ui.tokens();
+    let room = ui.available_rect_before_wrap();
+    let rect = Rect::from_min_size(room.min, vec2(room.width(), PAGE_BAR_HEIGHT));
+    ui.advance_cursor_after_rect(rect);
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 0.0, t.bar);
+    let px = 1.0 / ui.ctx().pixels_per_point();
+    painter.hline(rect.x_range(), rect.bottom() - px / 2.0, egui::Stroke::new(px, t.line));
+    let mut left = rect.left() + PAGE_BAR_PADDING;
+    if let Some(icon) = icon {
+        let at = Rect::from_min_size(
+            pos2(left, rect.center().y - metrics::ICON / 2.0),
+            vec2(metrics::ICON, metrics::ICON),
+        );
+        icon.paint(&painter, at, t.text_2);
+        left = at.right() + PAGE_BAR_GAP;
+    }
+    let body = FontId::proportional(metrics::BODY_SIZE);
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_string(), body, t.text);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(
+        (rect.right() - PAGE_BAR_PADDING - left).max(0.0),
+    );
+    let galley = painter.layout_job(job);
+    painter.galley(pos2(left, rect.center().y - galley.size().y / 2.0), galley, t.text);
+    let r = ui.interact(rect, ui.id().with(("mg-page-bar", title)), egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    r
 }
 
 /// A dialog's footer's height (`.dlg-foot { height: 46px }`).
@@ -316,7 +524,7 @@ impl<'a> Footer<'a> {
 mod tests {
     use super::*;
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable as _;
+    use egui_kittest::kittest::{NodeT as _, Queryable as _};
 
     /// Its parts stand in the middle of its room, one under the other,
     /// named for a screen reader, the buttons side by side where they fit
@@ -433,5 +641,81 @@ mod tests {
             ui_least = f.least_width(ui);
         });
         assert!(ui_least <= 336.0, "a wizard's footer fits a dialog's least: {ui_least}");
+    }
+
+    /// The board's `.steps`: 190 wide down its room, the heading then a
+    /// row a step, 22 high, from 28 below its top; the same rows whatever
+    /// the steps' states (the list never moves under the pointer); each
+    /// row named by its step, the current one selected, an Off one
+    /// disabled.
+    #[test]
+    fn a_step_list_stands_its_rows_alike_whatever_their_states() {
+        let states = [
+            [StepState::Current, StepState::ToCome, StepState::ToCome, StepState::Off],
+            [StepState::Done, StepState::Done, StepState::Current, StepState::Off],
+        ];
+        let mut seen = Vec::new();
+        for states in states {
+            let out = std::cell::RefCell::new(None);
+            let mut h = Harness::builder().with_size(vec2(600.0, 400.0)).build_ui(|ui| {
+                crate::apply(ui.ctx(), crate::Theme::Dark);
+                let mut list = StepList::new("Step 1 of 4");
+                for (name, state) in ["One", "Two", "Three", "Four"].iter().zip(states) {
+                    list = list.step(*name, state);
+                }
+                *out.borrow_mut() = Some(list.show(ui));
+            });
+            h.run_steps(2);
+            let shown = out.borrow_mut().take().unwrap();
+            assert_eq!(shown.rect.width(), STEP_LIST_WIDTH, "{shown:?}");
+            assert!(shown.rect.height() > 300.0, "down its room: {shown:?}");
+            assert_eq!(shown.rows.len(), 4);
+            assert_eq!(shown.rows[0].top() - shown.rect.top(), 28.0, "{shown:?}");
+            for pair in shown.rows.windows(2) {
+                assert_eq!(pair[1].top() - pair[0].top(), metrics::ROW_HEIGHT, "{shown:?}");
+            }
+            let current = states.iter().position(|s| *s == StepState::Current).unwrap();
+            for (i, name) in ["One", "Two", "Three", "Four"].iter().enumerate() {
+                let label = format!("Step {}: {name}", i + 1);
+                let node = h.get_by_label(&label);
+                assert_eq!(
+                    node.accesskit_node().toggled(),
+                    Some(if i == current {
+                        egui::accesskit::Toggled::True
+                    } else {
+                        egui::accesskit::Toggled::False
+                    }),
+                    "{name} selected"
+                );
+                assert_eq!(
+                    node.accesskit_node().is_disabled(),
+                    states[i] == StepState::Off,
+                    "{name} disabled"
+                );
+            }
+            let _ = h.get_by_label("Step 1 of 4");
+            seen.push(shown.rows);
+        }
+        assert_eq!(seen[0], seen[1], "the same rows whatever the states");
+    }
+
+    /// The board's `.pg-h`: 26 high across its room, named by its title.
+    #[test]
+    fn a_page_bar_is_26_high_across_its_room() {
+        let mut out = None;
+        let mut h = Harness::builder().with_size(vec2(500.0, 200.0)).build_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let room = ui.available_rect_before_wrap();
+            let r = page_bar(ui, Some(Icon::Wizard), "Class and Level");
+            out = Some((room, r.rect, ui.cursor().top()));
+        });
+        h.run_steps(2);
+        let _ = h.get_by_label("Class and Level");
+        let spacing = h.ctx.global_style().spacing.item_spacing.y;
+        drop(h);
+        let (room, bar, next) = out.unwrap();
+        assert_eq!(bar.height(), PAGE_BAR_HEIGHT);
+        assert_eq!(bar.x_range(), room.x_range());
+        assert_eq!(next, bar.bottom() + spacing);
     }
 }

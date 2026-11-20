@@ -115,7 +115,7 @@ pub(super) fn create_bind(
             let window = widgets::dialog(ui.ctx(), "New Bind", &mut open)
                 .collapsible(false)
                 .resizable(false);
-            window.show(ui.ctx(), |ui| {
+            let footed = window.show_foot(ui.ctx(), |ui| {
                 let name = widgets::field_label(ui, "Bind name");
                 let name_edit = ui
                     .add(mg_uikit::text_field(&mut draft.name).hint_text("e.g. is_open"))
@@ -137,26 +137,22 @@ pub(super) fn create_bind(
                 if let Some(error) = draft.error(bindings) {
                     ui.weak(error);
                 }
-                ui.horizontal(|ui| {
-                    let ok = draft.error(bindings).is_none();
-                    if ui.add_enabled(ok, egui::Button::new("Create")).clicked()
-                        || (ok && widgets::enter(ui))
-                    {
-                        let name = draft.name.trim().to_owned();
-                        let value = if draft.rows {
-                            json!([draft.value.clone()])
-                        } else {
-                            draft.value.clone()
-                        };
-                        bindings.insert(name.clone(), Binding { value, ..Default::default() });
-                        created = Some(name);
-                        finish = true;
-                    }
-                    if widgets::cancel(ui) {
-                        finish = true;
-                    }
-                });
+                let ok = draft.error(bindings).is_none();
+                ((), widgets::Foot::new().main("Create", ok).cancel())
             });
+            if let Some(footed) = footed {
+                if footed.pressed.main() {
+                    let name = draft.name.trim().to_owned();
+                    let value =
+                        if draft.rows { json!([draft.value.clone()]) } else { draft.value.clone() };
+                    bindings.insert(name.clone(), Binding { value, ..Default::default() });
+                    created = Some(name);
+                    finish = true;
+                }
+                if footed.pressed.cancelled() {
+                    finish = true;
+                }
+            }
             finish |= !open;
         }
         ui.ctx().data_mut(|d| {

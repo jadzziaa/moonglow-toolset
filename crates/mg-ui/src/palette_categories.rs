@@ -298,11 +298,12 @@ fn node<'a>(skeleton: &'a Gff, path: &[usize]) -> Option<&'a Struct> {
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.palette_categories.take() else { return };
     let mut open = true;
-    let mut done = None;
     let title = format!("Palette Categories: {}", w.kind.label());
-    let window =
-        crate::widgets::dialog(ctx, &title, &mut open).default_width(420.0).collapsible(false);
-    window.show(ctx, |ui| {
+    let window = crate::widgets::dialog(ctx, &title, &mut open)
+        .default_width(420.0)
+        .resizable(false)
+        .collapsible(false);
+    let footed = window.show_foot(ctx, |ui| {
         ui.label(if w.own {
             "This module's own categories, kept in the module."
         } else {
@@ -514,31 +515,28 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         if let Some(e) = &w.error {
             ui.colored_label(ui.visuals().error_fg_color, e);
         }
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.add_enabled(w.changed, egui::Button::new("OK")).clicked() {
-                done = Some(Done::Keep);
-            }
-            if crate::widgets::cancel(ui) {
-                done = Some(Done::Cancel);
-            }
-            if ui
-                .add_enabled(w.own, egui::Button::new("Use the Game's Categories"))
-                .on_hover_text(
-                    "Drop the module's own categories. Blueprints in one the game lacks leave the \
-                     palette.",
-                )
-                .clicked()
-            {
-                done = Some(Done::Revert);
-            }
-        });
+        let foot = crate::widgets::Foot::new()
+            .main("OK", w.changed)
+            .button("Use the Game's Categories", w.own)
+            .tip(
+                "Drop the module's own categories. Blueprints in one the game lacks leave the \
+                 palette.",
+            )
+            .cancel();
+        ((), foot)
     });
+    let done = match &footed {
+        Some(f) if f.pressed.main() => Some(Done::Keep),
+        Some(f) if f.pressed.clicked("Use the Game's Categories") => Some(Done::Revert),
+        Some(f) if f.pressed.cancelled() => Some(Done::Cancel),
+        _ => None,
+    };
     let key = w.kind.skeleton_key();
     // The names moved to the talk table that nodes still name are added
     // now, each node named by the line it took. (Not added: the window
     // stays, saying why.)
     let mut stay = false;
+    let mut done = done;
     if let Some(Done::Keep) = done
         && !w.pending.is_empty()
     {

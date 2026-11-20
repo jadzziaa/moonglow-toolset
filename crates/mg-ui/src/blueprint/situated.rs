@@ -248,7 +248,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.add_space(6.0);
     });
-    let state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
+    let mut state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
     if state.open {
         let game = f.app.game.as_deref();
         let names = |t: &str, name: &str, label: Option<&str>| {
@@ -309,157 +309,155 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         let count = rows.len();
         // Most of the screen's width (80%, 480 to 900), the grid 55% of
         // its height (320 to 640), the preview's column beside it.
-        let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 900.0);
+        // (No wider than the body's room: at the least window it ran past
+        // both its edges.)
+        let wide = (ui.ctx().content_rect().width() * 0.8)
+            .clamp(480.0, 900.0)
+            .min(crate::widgets::body_room_width(ui.ctx()));
         let tall = (ui.ctx().content_rect().height() * 0.55).clamp(320.0, 640.0);
         let window = crate::widgets::modal(ui.ctx(), "Select Portrait")
             .id(pick_id.with("modal"))
             .close_as_cancel();
         let grid_id = pick_id.with("pictures");
-        // (The picker's state, OK and Cancel: the body's and the footer's.)
-        let mut answer = (state, false, false);
-        window.show_footed(
-            ui.ctx(),
-            &mut answer,
-            |ui, (state, ok, _)| {
-                ui.set_width(wide);
-                ui.spacing_mut().item_spacing.y = 6.0;
-                super::row(ui, |ui| {
-                    // (The board's gap between the choices.)
-                    ui.spacing_mut().item_spacing.x = 16.0;
-                    for (m, text) in [
-                        (0, "Characters and Creatures"),
-                        (1, "Placeable Objects and Doors"),
-                        (2, "Plot Characters"),
-                    ] {
-                        ui.radio_choice(&mut state.mode, m, text);
-                    }
-                });
-                super::row(ui, |ui| {
-                    let combo =
-                        |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
-                            let text = value
-                                .and_then(|v| list.iter().find(|c| c.row as i32 == v))
-                                .map_or("Any".to_string(), |c| c.text.clone());
-                            let options: Vec<Option<i32>> = std::iter::once(None)
-                                .chain(list.iter().map(|c| Some(c.row as i32)))
-                                .collect();
-                            crate::widgets::dropdown((id, pick_id))
-                                .selected_text(text)
-                                .width(140.0)
-                                .show(ui, value, &options, |v| {
-                                    v.and_then(|v| list.iter().find(|c| c.row as i32 == v))
-                                        .map_or("Any".to_string(), |c| c.text.clone())
-                                });
-                        };
-                    if state.mode == 1 {
-                        ui.label("Category");
-                        combo(ui, "category", &mut state.category, &kinds);
-                    } else {
-                        ui.label("Race");
-                        combo(ui, "race", &mut state.race, &races);
-                        ui.label("Gender");
-                        combo(ui, "gender", &mut state.gender, &genders);
-                    }
-                });
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = PORTRAIT_GAP;
-                    let preview = 140.0;
-                    let size = egui::vec2(wide - preview - PORTRAIT_GAP, tall);
-                    let at = pick_id.with("at");
-                    let current = super::kept_for(ui.ctx(), at, &rows, &state.chosen, || {
-                        rows.iter().position(|r| state.chosen == Some(*r))
-                    });
-                    // (Not while a menu or popup is open over it: the dialog
-                    // is itself what has the keys.)
-                    let keys = !egui::Popup::is_any_open(ui.ctx());
-                    let (tile, gaps) = (crate::images::PORTRAIT_TILE, crate::images::PORTRAIT_GAPS);
-                    let grid = mg_uikit::gallery::GalleryGrid::new(grid_id, rows.len(), tile.x)
-                        .justified(tile, gaps.0)
-                        .row_gap(gaps.1)
-                        .label(0.0)
-                        .cursor(current)
-                        .keys_allowed(keys)
-                        .name("Portraits");
-                    let pad = egui::Margin { left: 6, right: 6, top: 4, bottom: 4 };
-                    let mut loader = f.app.loader();
-                    let shown =
-                        crate::widgets::picture_well(ui, grid_id.with("well"), size, pad, |ui| {
-                            let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
-                                let b = base(rows[i]).unwrap_or_default().to_lowercase();
-                                let picture = match loader.as_mut() {
-                                    Some(l) => l.portrait_cell(ui.ctx(), &b),
-                                    None => mg_uikit::gallery::Picture::Missing,
-                                };
-                                mg_uikit::gallery::GalleryCell::new("", picture)
-                                    .said(&format!("po_{b}"))
-                                    .lines(0)
-                                    .radius(3)
-                                    .kind(mg_uikit::Icon::Creature)
-                                    .selected(state.chosen == Some(rows[i]))
-                                    .paint(ui, rect, tile, cell, r);
-                                let r = r.clone().on_hover_text(b.as_str());
-                                if r.double_clicked() {
-                                    state.chosen = Some(rows[i]);
-                                    *ok = true;
-                                } else if r.clicked() {
-                                    state.chosen = Some(rows[i]);
-                                }
+        // (OK as the grid gives it: a double click, Enter on a picture.)
+        let mut ok_flag = false;
+        let footed = window.show_foot(ui.ctx(), |ui| {
+            let ok = &mut ok_flag;
+            ui.set_width(wide);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            // (Wrapped where the window is narrow, the least window's.)
+            ui.horizontal_wrapped(|ui| {
+                // (The board's gap between the choices.)
+                ui.spacing_mut().item_spacing.x = 16.0;
+                for (m, text) in [
+                    (0, "Characters and Creatures"),
+                    (1, "Placeable Objects and Doors"),
+                    (2, "Plot Characters"),
+                ] {
+                    ui.radio_choice(&mut state.mode, m, text);
+                }
+            });
+            super::row(ui, |ui| {
+                let combo =
+                    |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
+                        let text = value
+                            .and_then(|v| list.iter().find(|c| c.row as i32 == v))
+                            .map_or("Any".to_string(), |c| c.text.clone());
+                        let options: Vec<Option<i32>> = std::iter::once(None)
+                            .chain(list.iter().map(|c| Some(c.row as i32)))
+                            .collect();
+                        crate::widgets::dropdown((id, pick_id))
+                            .selected_text(text)
+                            .width(140.0)
+                            .show(ui, value, &options, |v| {
+                                v.and_then(|v| list.iter().find(|c| c.row as i32 == v))
+                                    .map_or("Any".to_string(), |c| c.text.clone())
                             });
-                            // (A row ahead of those in sight: their pictures read
-                            // before they come into sight.)
-                            if let Some(l) = loader.as_mut() {
-                                for i in out.drawn.end..out.ahead.end {
-                                    let b = base(rows[i]).unwrap_or_default().to_lowercase();
-                                    l.portrait_cell(ui.ctx(), &b);
-                                }
-                            }
-                            // (The keys choose as they move, a picker's; Enter on
-                            // the grid is OK.)
-                            if let Some(i) = out.moved.or(out.activated) {
+                    };
+                if state.mode == 1 {
+                    ui.label("Category");
+                    combo(ui, "category", &mut state.category, &kinds);
+                } else {
+                    ui.label("Race");
+                    combo(ui, "race", &mut state.race, &races);
+                    ui.label("Gender");
+                    combo(ui, "gender", &mut state.gender, &genders);
+                }
+            });
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = PORTRAIT_GAP;
+                let preview = 140.0;
+                let size = egui::vec2(wide - preview - PORTRAIT_GAP, tall);
+                let at = pick_id.with("at");
+                let current = super::kept_for(ui.ctx(), at, &rows, &state.chosen, || {
+                    rows.iter().position(|r| state.chosen == Some(*r))
+                });
+                // (Not while a menu or popup is open over it: the dialog
+                // is itself what has the keys.)
+                let keys = !egui::Popup::is_any_open(ui.ctx());
+                let (tile, gaps) = (crate::images::PORTRAIT_TILE, crate::images::PORTRAIT_GAPS);
+                let grid = mg_uikit::gallery::GalleryGrid::new(grid_id, rows.len(), tile.x)
+                    .justified(tile, gaps.0)
+                    .row_gap(gaps.1)
+                    .label(0.0)
+                    .cursor(current)
+                    .keys_allowed(keys)
+                    .name("Portraits");
+                let pad = egui::Margin { left: 6, right: 6, top: 4, bottom: 4 };
+                let mut loader = f.app.loader();
+                let shown =
+                    crate::widgets::picture_well(ui, grid_id.with("well"), size, pad, |ui| {
+                        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                            let b = base(rows[i]).unwrap_or_default().to_lowercase();
+                            let picture = match loader.as_mut() {
+                                Some(l) => l.portrait_cell(ui.ctx(), &b),
+                                None => mg_uikit::gallery::Picture::Missing,
+                            };
+                            mg_uikit::gallery::GalleryCell::new("", picture)
+                                .said(&format!("po_{b}"))
+                                .lines(0)
+                                .radius(3)
+                                .kind(mg_uikit::Icon::Creature)
+                                .selected(state.chosen == Some(rows[i]))
+                                .paint(ui, rect, tile, cell, r);
+                            let r = r.clone().on_hover_text(b.as_str());
+                            if r.double_clicked() {
+                                state.chosen = Some(rows[i]);
+                                *ok = true;
+                            } else if r.clicked() {
                                 state.chosen = Some(rows[i]);
                             }
-                            if out.activated.is_some()
-                                && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                            {
-                                *ok = true;
-                            }
-                            out
                         });
-                    let _ = loader;
-                    // (Opened at the one chosen, once, where the grid put it;
-                    // the grid given the keys.)
-                    if !state.placed {
-                        state.placed = match current {
-                            Some(at) => {
-                                crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at)
+                        // (A row ahead of those in sight: their pictures read
+                        // before they come into sight.)
+                        if let Some(l) = loader.as_mut() {
+                            for i in out.drawn.end..out.ahead.end {
+                                let b = base(rows[i]).unwrap_or_default().to_lowercase();
+                                l.portrait_cell(ui.ctx(), &b);
                             }
-                            None => true,
-                        };
-                        ui.memory_mut(|m| m.request_focus(grid_id));
-                    }
-                    ui.vertical(|ui| {
-                        ui.set_width(preview);
-                        if let Some(b) = state.chosen.and_then(base) {
-                            let b = b.to_lowercase();
-                            if f.app.picture(ui.ctx(), &format!("po_{b}l")).is_some() {
-                                portrait_image(f, ui, &b, 'l', 128.0, egui::Sense::hover());
-                            } else {
-                                portrait_image(f, ui, &b, 'm', 128.0, egui::Sense::hover());
-                            }
-                            ui.label(b);
                         }
+                        // (The keys choose as they move, a picker's; Enter on
+                        // the grid is OK.)
+                        if let Some(i) = out.moved.or(out.activated) {
+                            state.chosen = Some(rows[i]);
+                        }
+                        if out.activated.is_some() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
+                            *ok = true;
+                        }
+                        out
                     });
+                let _ = loader;
+                // (Opened at the one chosen, once, where the grid put it;
+                // the grid given the keys.)
+                if !state.placed {
+                    state.placed = match current {
+                        Some(at) => {
+                            crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at)
+                        }
+                        None => true,
+                    };
+                    ui.memory_mut(|m| m.request_focus(grid_id));
+                }
+                ui.vertical(|ui| {
+                    ui.set_width(preview);
+                    if let Some(b) = state.chosen.and_then(base) {
+                        let b = b.to_lowercase();
+                        if f.app.picture(ui.ctx(), &format!("po_{b}l")).is_some() {
+                            portrait_image(f, ui, &b, 'l', 128.0, egui::Sense::hover());
+                        } else {
+                            portrait_image(f, ui, &b, 'm', 128.0, egui::Sense::hover());
+                        }
+                        ui.label(b);
+                    }
                 });
-            },
-            |ui, (state, ok, cancel)| {
-                let any = state.chosen.is_some();
-                let (o, c) =
-                    crate::widgets::picker_footer(ui, Some(format!("{count} portraits")), any);
-                *ok |= o || (any && crate::widgets::enter(ui));
-                *cancel = c;
-            },
-        );
-        let (mut state, ok, cancel) = answer;
+            });
+            let any = state.chosen.is_some();
+            ((), crate::widgets::picker_footer(Some(format!("{count} portraits")), any))
+        });
+        let pressed = footed.map(|f| f.pressed).unwrap_or_default();
+        let ok = ok_flag || pressed.main();
+        let cancel = pressed.cancelled();
         if ok {
             pick = state.chosen;
         }
@@ -813,10 +811,19 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
         .resizable(true)
         .default_size([TRANSITION_MAP + 380.0, TRANSITION_MAP + 230.0])
         .min_size([TRANSITION_MAP + 220.0, TRANSITION_MAP + 190.0]);
-    window.show(&ctx, |ui| {
-        // What it leads to, what OK does, and OK: at the window's foot,
-        // the map and the lists taking the room above.
-        egui::Panel::bottom(pick_id.with("foot")).frame(egui::Frame::NONE).show(ui, |ui| {
+    // (OK can be pressed where the plan is worked out for the choice, and
+    // nothing in it refuses.)
+    let can =
+        state.worked.as_ref().filter(|w| Some(w.of.0) == state.chosen).is_some_and(|w| {
+            w.plan.is_some() && !w.said.iter().any(|s| matches!(s, Said::Refuses(_)))
+        });
+    let footed = window.show_foot(&ctx, |ui| {
+        // What it leads to and what OK does: under the map and the lists,
+        // which take the room above but what these lines took last frame
+        // (at least half the map's side: in a short window the body
+        // scrolls, nothing drawn over another, M4's U27 review).
+        let lines_id = pick_id.with("lines-high");
+        let lines = |ui: &mut Ui, state: &TransitionPick| {
             ui.add_space(4.0);
             let chosen = state.chosen.and_then(|p| state.destinations.iter().find(|d| d.object == p));
             match chosen {
@@ -844,42 +851,44 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                     }
                 }
             }
-            let can = worked.is_some_and(|w| {
-                w.plan.is_some() && !w.said.iter().any(|s| matches!(s, Said::Refuses(_)))
-            });
-            super::row(ui, |ui| {
-                ok |= ui
-                    .add_enabled(can, egui::Button::new("OK"))
-                    .on_hover_text("Set up the transition, one step to undo")
-                    .clicked()
-                    || (can && crate::widgets::enter(ui));
-                cancel = crate::widgets::cancel_discard(ui);
-            });
-        });
+        };
         if areas.is_empty() {
             ui.weak("No doors, triggers or waypoints with tags in the module's areas");
         }
-        super::row(ui, |ui| {
-            crate::widgets::field_label(ui, "Target area");
-            let options: Vec<Option<mg_core::ResRef>> = areas.iter().copied().map(Some).collect();
-            crate::widgets::dropdown(pick_id.with("area"))
-                .selected_text(name(&state.area))
-                .width(260.0)
-                .show(ui, &mut state.area, &options, name);
-            ui.separator();
+        // (The destinations beside the area where the row has the room,
+        // else under it: squeezed beside, they stood a letter a line.)
+        let beside = ui.available_width() >= 640.0;
+        let shown = |ui: &mut Ui, showing: &mut Option<ObjectKind>| {
             // Doors, triggers, waypoints, or all, on the map and in the
             // lists (a group named for them: the area toolbar's and the
             // palette's Doors are others).
-            super::row(ui, |ui| {
+            ui.horizontal(|ui| {
                 mg_uikit::name_group(ui, "Destinations Shown");
-                ui.selectable_value(&mut state.showing, None, "All");
+                ui.selectable_value(showing, None, "All");
                 for (kind, .., label) in [LEADS_TO[0], LEADS_TO[2], LEADS_TO[1]] {
-                    ui.selectable_value(&mut state.showing, Some(kind), label);
+                    ui.selectable_value(showing, Some(kind), label);
                 }
             });
+        };
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Target area");
+            let options: Vec<Option<mg_core::ResRef>> = areas.iter().copied().map(Some).collect();
+            let width = 260.0_f32.min(ui.available_width() - ui.spacing().item_spacing.x);
+            crate::widgets::dropdown(pick_id.with("area"))
+                .selected_text(name(&state.area))
+                .width(width)
+                .show(ui, &mut state.area, &options, name);
+            if beside {
+                ui.separator();
+                shown(ui, &mut state.showing);
+            }
         });
-        // Aurora's Connection Type: which ends are linked.
-        super::row(ui, |ui| {
+        if !beside {
+            shown(ui, &mut state.showing);
+        }
+        // Aurora's Connection Type: which ends are linked (wrapped onto a
+        // second line where the window is narrow).
+        ui.horizontal_wrapped(|ui| {
             mg_uikit::name_group(ui, "Connection Type");
             crate::widgets::field_label(ui, "Connection type");
             for c in Connection::ALL {
@@ -918,12 +927,14 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             .cloned()
             .collect();
         let is = |d: &Destination, chosen: &Option<Placed>| *chosen == Some(d.object);
+        // (The map smaller where the window is: the lines under it keep
+        // their room.)
+        let below: f32 = ui.data(|d| d.get_temp(lines_id)).unwrap_or(40.0);
+        let side = (ui.available_height() - below - ui.spacing().item_spacing.y)
+            .clamp(TRANSITION_MAP / 2.0, TRANSITION_MAP);
         ui.horizontal_top(|ui| {
             // The map: a click on a door, trigger or waypoint takes it.
             let shown = state.area.and_then(|a| crate::minimap::of(f.app, &ctx, a, &mut state.map));
-            // (Smaller where the window is: the lines under it keep
-            // their room.)
-            let side = ui.available_height().clamp(TRANSITION_MAP / 2.0, TRANSITION_MAP);
             if let Some(map) = shown.cloned() {
                 let (rect, r) = ui.allocate_exact_size(egui::Vec2::splat(side), egui::Sense::click());
                 r.widget_info(|| {
@@ -982,7 +993,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
             ui.vertical(|ui| {
                 egui::ScrollArea::vertical()
                     .id_salt(pick_id.with("lists"))
-                    .max_height(ui.available_height())
+                    .max_height(side)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         mg_uikit::list_rows(ui);
@@ -1031,7 +1042,16 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
                     });
             });
         });
+        let top = ui.cursor().top();
+        lines(ui, &state);
+        let high = ui.min_rect().bottom().max(ui.cursor().top()) - top;
+        ui.data_mut(|d| d.insert_temp(lines_id, high));
+        ((), crate::widgets::Foot::new().main("OK", can).tip("Set up the transition, one step to undo").cancel_discard())
     });
+    if let Some(f) = footed {
+        ok |= f.pressed.main();
+        cancel = f.pressed.cancelled();
+    }
     // (A double click on a row or the map: as OK, where OK can be pressed.)
     let plan = state.worked.as_ref().filter(|w| Some(w.of.0) == state.chosen);
     let plan = plan

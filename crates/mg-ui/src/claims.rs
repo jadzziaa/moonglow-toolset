@@ -650,11 +650,11 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut close = false;
     let mut chosen: Option<(ResRef, How)> = None;
-    crate::widgets::dialog(ctx, "Claims Table", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Claims Table", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(640.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 640.0);
             match &code {
                 Some(c) => ui.label(format!("{file}: whose each area is. Your code is {c}.")),
                 None => ui.label(format!(
@@ -667,89 +667,105 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
             // areas. Columns of set widths, a long holder's name cut and
             // whole on hover.)
             let height = ui.spacing().interact_size.y;
-            let rows = egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]);
-            mg_uikit::show_rows(rows, ui, listed.len(), |ui, range| {
-                ui.set_min_width(600.0);
-                let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
-                    let layout = egui::Layout::left_to_right(egui::Align::Center);
-                    ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
-                        ui.set_min_width(width);
-                        let said = text.text().to_string();
-                        ui.add(egui::Label::new(text).truncate()).on_hover_text(said);
-                    });
+            let narrow = crate::widgets::body_room_width(ui.ctx()) < 600.0;
+            let mut table = |ui: &mut egui::Ui, narrow: bool| {
+                let rows = match narrow {
+                    true => egui::ScrollArea::both(),
+                    false => egui::ScrollArea::vertical(),
                 };
-                for at in range {
-                    let l = &listed[at];
-                    ui.horizontal(|ui| {
-                        if at % 2 == 1 {
-                            let mut stripe = ui.available_rect_before_wrap();
-                            stripe.set_height(height);
-                            ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
-                        }
-                        let c = l.claim.as_ref();
-                        cell(ui, 130.0, egui::RichText::new(l.area.to_string()));
-                        let whose = match (l.whose, c.and_then(|c| c.holder())) {
-                            (Whose::Mine, Some(h)) => format!("yours: {h}"),
-                            (_, Some(h)) => h,
-                            (_, None) => "free".to_string(),
-                        };
-                        let whose = match l.whose {
-                            Whose::Others => {
-                                egui::RichText::new(whose).color(ui.visuals().warn_fg_color)
+                let rows = rows.max_height(360.0).auto_shrink([false, true]);
+                mg_uikit::show_rows(rows, ui, listed.len(), |ui, range| {
+                    ui.set_min_width(600.0);
+                    let cell = |ui: &mut egui::Ui, width: f32, text: egui::RichText| {
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+                            ui.set_min_width(width);
+                            let said = text.text().to_string();
+                            ui.add(egui::Label::new(text).truncate()).on_hover_text(said);
+                        });
+                    };
+                    for at in range {
+                        let l = &listed[at];
+                        ui.horizontal(|ui| {
+                            if at % 2 == 1 {
+                                let mut stripe = ui.available_rect_before_wrap();
+                                stripe.set_height(height);
+                                ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
                             }
-                            _ => egui::RichText::new(whose),
-                        };
-                        cell(ui, 190.0, whose);
-                        let mut notes = Vec::new();
-                        if c.is_some_and(|c| c.merged()) {
-                            notes.push("merged");
-                        } else if l.protected {
-                            notes.push("protected");
-                        }
-                        if !l.in_module {
-                            notes.push("not in the module");
-                        }
-                        cell(ui, 140.0, egui::RichText::new(notes.join(", ")).weak());
-                        match l.whose {
-                            Whose::Mine => {
-                                if ui.button("Release").clicked() {
-                                    chosen = Some((l.area, How::Release));
+                            let c = l.claim.as_ref();
+                            cell(ui, 130.0, egui::RichText::new(l.area.to_string()));
+                            let whose = match (l.whose, c.and_then(|c| c.holder())) {
+                                (Whose::Mine, Some(h)) => format!("yours: {h}"),
+                                (_, Some(h)) => h,
+                                (_, None) => "free".to_string(),
+                            };
+                            let whose = match l.whose {
+                                Whose::Others => {
+                                    egui::RichText::new(whose).color(ui.visuals().warn_fg_color)
                                 }
-                                if ui
-                                    .button("Hand To…")
-                                    .on_hover_text("Give your claim to another builder")
-                                    .clicked()
-                                {
-                                    w.hand = Some((l.area, String::new()));
-                                    w.take = None;
-                                }
+                                _ => egui::RichText::new(whose),
+                            };
+                            cell(ui, 190.0, whose);
+                            let mut notes = Vec::new();
+                            if c.is_some_and(|c| c.merged()) {
+                                notes.push("merged");
+                            } else if l.protected {
+                                notes.push("protected");
                             }
-                            Whose::Others => {
-                                let r =
-                                    ui.add_enabled(code.is_some(), egui::Button::new("Take Over…"));
-                                let r = r
-                                    .on_hover_text("Claim it in their place (asked first)")
-                                    .on_disabled_hover_text(
+                            if !l.in_module {
+                                notes.push("not in the module");
+                            }
+                            cell(ui, 140.0, egui::RichText::new(notes.join(", ")).weak());
+                            match l.whose {
+                                Whose::Mine => {
+                                    if ui.button("Release").clicked() {
+                                        chosen = Some((l.area, How::Release));
+                                    }
+                                    if ui
+                                        .button("Hand To…")
+                                        .on_hover_text("Give your claim to another builder")
+                                        .clicked()
+                                    {
+                                        w.hand = Some((l.area, String::new()));
+                                        w.take = None;
+                                    }
+                                }
+                                Whose::Others => {
+                                    let r = ui.add_enabled(
+                                        code.is_some(),
+                                        egui::Button::new("Take Over…"),
+                                    );
+                                    let r = r
+                                        .on_hover_text("Claim it in their place (asked first)")
+                                        .on_disabled_hover_text(
+                                            "Set your builder code first (Edit › Builder Code…)",
+                                        );
+                                    if r.clicked() {
+                                        w.take = Some(l.area);
+                                        w.hand = None;
+                                    }
+                                }
+                                Whose::Free => {
+                                    let r =
+                                        ui.add_enabled(code.is_some(), egui::Button::new("Claim"));
+                                    let r = r.on_disabled_hover_text(
                                         "Set your builder code first (Edit › Builder Code…)",
                                     );
-                                if r.clicked() {
-                                    w.take = Some(l.area);
-                                    w.hand = None;
+                                    if r.clicked() {
+                                        chosen = Some((l.area, How::Claim));
+                                    }
                                 }
                             }
-                            Whose::Free => {
-                                let r = ui.add_enabled(code.is_some(), egui::Button::new("Claim"));
-                                let r = r.on_disabled_hover_text(
-                                    "Set your builder code first (Edit › Builder Code…)",
-                                );
-                                if r.clicked() {
-                                    chosen = Some((l.area, How::Claim));
-                                }
-                            }
-                        }
-                    });
-                }
-            });
+                        });
+                    }
+                });
+            };
+            match narrow {
+                // (A well of its own, which scrolls sideways, where the
+                // window is too narrow for its columns: the least window.)
+                true => _ = egui::Frame::group(ui.style()).show(ui, |ui| table(ui, true)),
+                false => table(ui, false),
+            }
             if let Some(area) = w.take {
                 let who = listed
                     .iter()
@@ -814,8 +830,11 @@ fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
             }
             ui.separator();
             ui.weak("The table is a file of the checkout: commit it, so the others see it.");
-            close = ui.button("Close").clicked();
+            ((), crate::widgets::Foot::new().leave("Close"))
         });
+    if let Some(f) = footed {
+        close = f.pressed.cancelled();
+    }
     if let Some((area, how)) = chosen {
         change(app, area, how);
     }
@@ -868,11 +887,11 @@ fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let SaveAsk { areas, then, .. } = ask;
     let mut open = true;
     let (mut save, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, "Areas Not Yours", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Areas Not Yours", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(460.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 460.0);
             ui.label("The save would write changes to areas you have not claimed:");
             ui.add_space(4.0);
             for (_, why) in &areas {
@@ -884,12 +903,12 @@ fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
                  merge. Claim an area before building in it (its menu's Claim This Area), or \
                  save anyway.",
             );
-            ui.separator();
-            ui.horizontal(|ui| {
-                save = ui.button("Save Anyway").clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            ((), crate::widgets::Foot::new().main("Save Anyway", true).no_enter().cancel())
         });
+    if let Some(f) = footed {
+        save = f.pressed.main();
+        cancel = f.pressed.cancelled();
+    }
     if save {
         app.claims.save_ask = None;
         app.claims.cleared = true;
@@ -904,11 +923,11 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = app.claims.protected_ask.clone() else { return };
     let mut open = true;
     let (mut anyway, mut copy, mut cancel) = (false, false, false);
-    crate::widgets::dialog(ctx, "Protected Area", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Protected Area", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(460.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 460.0);
             let doing = |what: Protected| match what {
                 Protected::Tag => "Changing its Tag",
                 Protected::ResRef => "Renaming it",
@@ -952,25 +971,27 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
                 true => "A copy of it, under a new ResRef and Tag, is a new area and loses nothing.",
                 false => "A copy of an area, under a new ResRef and Tag, is a new area and loses nothing.",
             });
-            ui.separator();
-            ui.horizontal(|ui| {
-                if one {
-                    copy = ui.button("Make a Copy Instead…").clicked();
-                }
-                let first = ask.changes[0].2;
-                let same = ask.changes.iter().all(|c| c.2 == first);
-                let label = match (first, one) {
-                    (Protected::Tag, true) => "Change It Anyway",
-                    (Protected::ResRef, true) => "Rename It Anyway",
-                    (Protected::Deleted, true) => "Delete It Anyway",
-                    (Protected::ResRef, false) if same => "Rename Them Anyway",
-                    (Protected::Deleted, false) if same => "Delete Them Anyway",
-                    (_, false) => "Change Them Anyway",
-                };
-                anyway = ui.button(label).clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            let first = ask.changes[0].2;
+            let same = ask.changes.iter().all(|c| c.2 == first);
+            let label = match (first, one) {
+                (Protected::Tag, true) => "Change It Anyway",
+                (Protected::ResRef, true) => "Rename It Anyway",
+                (Protected::Deleted, true) => "Delete It Anyway",
+                (Protected::ResRef, false) if same => "Rename Them Anyway",
+                (Protected::Deleted, false) if same => "Delete Them Anyway",
+                (_, false) => "Change Them Anyway",
+            };
+            let mut foot = crate::widgets::Foot::new().main(label, true).no_enter();
+            if one {
+                foot = foot.button("Make a Copy Instead…", true);
+            }
+            ((), foot.cancel())
         });
+    if let Some(f) = footed {
+        anyway = f.pressed.main();
+        copy = f.pressed.clicked("Make a Copy Instead…");
+        cancel = f.pressed.cancelled();
+    }
     if anyway {
         app.claims.protected_ask = None;
         app.claims.let_through =

@@ -272,53 +272,60 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
     let Some(mut draft) = app.update_draft.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel, mut again) = (false, false, false);
-    crate::widgets::dialog(ctx, "Update Instances", &mut open).collapsible(false).show(ctx, |ui| {
-        let names: Vec<String> = draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
-        let shown_names = crate::text::some_of(&names, 7);
-        ui.label(format!(
-            "Makes each object placed from {shown_names} again from its blueprint, \
+    let footed = crate::widgets::dialog(ctx, "Update Instances", &mut open)
+        .collapsible(false)
+        .show_foot(ctx, |ui| {
+            let names: Vec<String> =
+                draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
+            let shown_names = crate::text::some_of(&names, 7);
+            ui.label(format!(
+                "Makes each object placed from {shown_names} again from its blueprint, \
                  where it stands: its tag, name, scripts and variables become the blueprint's."
-        ));
-        ui.horizontal(|ui| {
-            ui.radio_choice(&mut draft.only, None, "Every area");
-            if let Some(area) = draft.shown {
-                ui.radio_choice(&mut draft.only, Some(area), format!("Only {area}"));
+            ));
+            ui.horizontal(|ui| {
+                ui.radio_choice(&mut draft.only, None, "Every area");
+                if let Some(area) = draft.shown {
+                    ui.radio_choice(&mut draft.only, Some(area), format!("Only {area}"));
+                }
+            });
+            let in_scope = |o: &Affected, only: Option<ResRef>| only.is_none_or(|a| a == o.area);
+            ui.horizontal(|ui| {
+                if ui.small_button("All").clicked() {
+                    draft.objects.iter_mut().for_each(|o| o.on = true);
+                }
+                if ui.small_button("None").clicked() {
+                    draft.objects.iter_mut().for_each(|o| o.on = false);
+                }
+            });
+            let only = draft.only;
+            // (The rows in sight alone are laid out: Update All Instances
+            // lists tens of thousands in a large module.)
+            let shown: Vec<usize> =
+                (0..draft.objects.len()).filter(|&i| in_scope(&draft.objects[i], only)).collect();
+            let rows = egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
+            mg_uikit::show_rows(rows, ui, shown.len(), |ui, range| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                for &i in &shown[range] {
+                    let o = &mut draft.objects[i];
+                    ui.check_box(&mut o.on, &o.label);
+                }
+            });
+            let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
+            let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
+            if stale {
+                ui.colored_label(ui.visuals().warn_fg_color, format!("{UPDATE_STALE}."));
             }
-        });
-        let in_scope = |o: &Affected, only: Option<ResRef>| only.is_none_or(|a| a == o.area);
-        ui.horizontal(|ui| {
-            if ui.small_button("All").clicked() {
-                draft.objects.iter_mut().for_each(|o| o.on = true);
+            let mut foot = crate::widgets::Foot::new().main(format!("Update {n}"), n > 0 && !stale);
+            if stale {
+                foot = foot.button("List Again", true);
             }
-            if ui.small_button("None").clicked() {
-                draft.objects.iter_mut().for_each(|o| o.on = false);
-            }
+            ((), foot.cancel())
         });
-        let only = draft.only;
-        // (The rows in sight alone are laid out: Update All Instances
-        // lists tens of thousands in a large module.)
-        let shown: Vec<usize> =
-            (0..draft.objects.len()).filter(|&i| in_scope(&draft.objects[i], only)).collect();
-        let rows = egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
-        mg_uikit::show_rows(rows, ui, shown.len(), |ui, range| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-            for &i in &shown[range] {
-                let o = &mut draft.objects[i];
-                ui.check_box(&mut o.on, &o.label);
-            }
-        });
-        let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
-        let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
-        if stale {
-            ui.colored_label(ui.visuals().warn_fg_color, format!("{UPDATE_STALE}."));
-        }
-        ui.horizontal(|ui| {
-            ok =
-                ui.add_enabled(n > 0 && !stale, egui::Button::new(format!("Update {n}"))).clicked();
-            again = stale && ui.button("List Again").clicked();
-            cancel = crate::widgets::cancel(ui);
-        });
-    });
+    if let Some(f) = footed {
+        ok = f.pressed.main();
+        again = f.pressed.clicked("List Again");
+        cancel = f.pressed.cancelled();
+    }
     if again {
         // (The same blueprints and scope, everything ticked: what was
         // unticked is by places that are no more.)
@@ -463,25 +470,42 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
     }
     let mut open = true;
     let (mut find, mut replace, mut go) = (false, false, None);
-    crate::widgets::dialog(ctx, "Find and Replace Text", &mut open).default_width(560.0).show(
-        ctx,
-        |ui| {
+    let footed = crate::widgets::dialog(ctx, "Find and Replace Text", &mut open)
+        .default_width(560.0)
+        .show_foot(ctx, |ui| {
             ui.weak(
                 "The module's names, descriptions, conversation lines and journal, in every \
                  language they're written in (not the game's talk table); and, ticked, its \
                  tags, resrefs, variables and other text fields.",
             );
-            egui::Grid::new("text-replace").num_columns(2).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Find what");
-                let r = ui.add(mg_uikit::text_field(&mut draft.find).desired_width(320.0));
+            // (The board's `.form`: the labels in an 84-point column, the
+            // fields across the rest of the dialog, 6 apart.)
+            ui.scope(|ui| {
+                ui.spacing_mut().item_spacing.y = 6.0;
+                let field = |ui: &mut egui::Ui, label: &str, text: &mut String| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        let size = egui::vec2(84.0, ui.spacing().interact_size.y);
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        ui.allocate_ui_with_layout(size, layout, |ui| {
+                            ui.set_min_size(size);
+                            crate::widgets::field_label(ui, label);
+                        });
+                        let wide = ui.available_width();
+                        ui.add(
+                            mg_uikit::text_field(text)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_width(wide),
+                        )
+                    })
+                    .inner
+                };
+                let r = field(ui, "Find what", &mut draft.find);
                 crate::widgets::autofocus(ui, &r);
-                find = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.end_row();
-                crate::widgets::field_label(ui, "Replace with");
-                ui.add(mg_uikit::text_field(&mut draft.with).desired_width(320.0));
-                ui.end_row();
+                field(ui, "Replace with", &mut draft.with);
             });
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
                 ui.check_box(&mut draft.options.match_case, "Match case");
                 ui.check_box(&mut draft.options.whole_word, "Whole words");
                 ui.check_box(&mut draft.options.regex, "Regular expression").on_hover_text(
@@ -504,11 +528,13 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                 }
             };
             ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
                 for k in TextKind::PLAYERS {
                     tick(ui, k, None);
                 }
             });
             ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
                 for k in TextKind::ALL.into_iter().filter(|k| !k.players()) {
                     let hover = match k {
                         TextKind::Tag => {
@@ -541,8 +567,8 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                 );
             }
             let can = !draft.find.is_empty() && bad.is_none();
-            find &= can;
-            find |= ui.add_enabled(can, egui::Button::new("Find")).clicked();
+            let mut note = None;
+            let mut replace_n = None;
             // What was found, if it's still what's asked for.
             let asked = draft.searched.as_ref().is_some_and(for_now);
             let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
@@ -550,7 +576,12 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                 ui.weak("The module changed since. Find again for what it has now.");
             } else if asked {
                 let times: usize = draft.hits.iter().filter(|h| h.1).map(|h| h.0.count).sum();
-                ui.label(format!("{} string(s), {times} time(s)", draft.hits.len()));
+                let strings = draft.hits.len();
+                note = Some(format!(
+                    "{strings} {}, {times} {}",
+                    if strings == 1 { "string" } else { "strings" },
+                    if times == 1 { "time" } else { "times" }
+                ));
                 // (The hits in sight alone are laid out, each two lines
                 // high, a long text cut: "the" is found tens of thousands
                 // of times.)
@@ -560,35 +591,63 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                     + ui.text_style_height(&egui::TextStyle::Body);
                 let rows =
                     egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
-                // (Each hit exactly `tall`, the hits meeting: no gap between.)
-                mg_uikit::with_rows(ui, |ui| {
-                    rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
-                        for i in range {
-                            let (hit, on) = &mut draft.hits[i];
-                            let size = egui::vec2(ui.available_width(), tall);
-                            let down = egui::Layout::top_down(egui::Align::Min);
-                            ui.allocate_ui_with_layout(size, down, |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.horizontal(|ui| {
-                                    ui.check_box(on, "");
-                                    if ui.link(&hit.place).on_hover_text("Open it").clicked() {
-                                        go = Some(i);
-                                    }
+                // (Each hit exactly `tall`, the hits meeting: no gap between;
+                // in a well across the dialog, the board's: `inset`, a
+                // `line-soft` border, corners of 3.)
+                let t = mg_uikit::tokens(ui.ctx());
+                let well = egui::Frame::new()
+                    .fill(t.inset)
+                    .stroke(egui::Stroke::new(1.0, t.line_soft))
+                    .corner_radius(3)
+                    .inner_margin(egui::Margin { left: 6, right: 1, top: 1, bottom: 1 });
+                let shown = well.show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    mg_uikit::with_rows(ui, |ui| {
+                        rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
+                            for i in range {
+                                let (hit, on) = &mut draft.hits[i];
+                                let size = egui::vec2(ui.available_width(), tall);
+                                let down = egui::Layout::top_down(egui::Align::Min);
+                                let at = ui.allocate_ui_with_layout(size, down, |ui| {
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                    ui.horizontal(|ui| {
+                                        ui.check_box(on, "");
+                                        if ui.link(&hit.place).on_hover_text("Open it").clicked() {
+                                            go = Some(i);
+                                        }
+                                    });
+                                    let text: String = hit.text.chars().take(120).collect();
+                                    ui.indent(("hit", i), |ui| ui.weak(text));
                                 });
-                                let text: String = hit.text.chars().take(120).collect();
-                                ui.indent(("hit", i), |ui| ui.weak(text));
-                            });
-                        }
+                                // (A `line` under each hit, the board's `.hit`.)
+                                // (Across the well, from its left edge.)
+                                let r = at.response.rect;
+                                let across = (r.left() - 6.0)..=(r.left() + size.x);
+                                let stroke = egui::Stroke::new(1.0, t.line);
+                                ui.painter().hline(across, r.top() + tall - 0.5, stroke);
+                            }
+                        })
                     })
                 });
-                let n = draft.hits.iter().filter(|h| h.1).count();
-                replace =
-                    ui.add_enabled(n > 0, egui::Button::new(format!("Replace in {n}"))).clicked();
+                // (Named, for its rect: the hits are in it.)
+                shown.response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Results")
+                });
+                replace_n = Some(draft.hits.iter().filter(|h| h.1).count());
             } else if draft.searched.is_some() {
                 ui.weak("Find again for what's asked now.");
             }
-        },
-    );
+            let n = replace_n.unwrap_or(0);
+            let mut foot = crate::widgets::Foot::new();
+            if let Some(note) = note {
+                foot = foot.note(note);
+            }
+            ((), foot.main("Find", can).button(format!("Replace in {n}"), n > 0))
+        });
+    if let Some(f) = footed {
+        find = f.pressed.main();
+        replace = f.pressed.nth(1);
+    }
     if find && !draft.find.is_empty() {
         app.find_text(&mut draft);
     }

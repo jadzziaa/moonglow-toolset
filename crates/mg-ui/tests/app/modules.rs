@@ -1370,6 +1370,9 @@ fn published_to_nwsync_from_the_build_menu() {
         let text = std::fs::read_to_string(&order).unwrap_or_default();
         text.lines().map(|l| l.trim().to_string()).collect()
     };
+    // (A few frames first: the footer is at the window's foot, which the
+    // window finds in the frames after it opens.)
+    h.run_steps(4);
     h.get_by_label("Publish").click();
     h.run_steps(1);
     until_done(&mut h);

@@ -3691,7 +3691,7 @@ fn adjust_location_shows_speed_lerps_and_other_scopes() {
     for note in &a.kept {
         assert!(h.query_by_label(note).is_some(), "the window says so: {note}");
     }
-    h.get_by_label("Animation Speed");
+    h.get_by_label("Animation speed");
     let dir = mg_testkit::output_dir("ui-adjust-kept");
     let _ = std::fs::remove_file(dir.join("noted.png"));
     h.render().expect("render").save(dir.join("noted.png")).unwrap();

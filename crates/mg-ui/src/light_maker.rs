@@ -133,7 +133,6 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
         d.planned = Some((key, plan_for(app, d.spec, &d.hak)));
     }
     let mut open = true;
-    let mut done = None;
     // (The module's own haks, found in the hak folders as the window
     // opens: not each of them looked for every frame.)
     let names = crate::area_tools::kept_while_shown(
@@ -142,10 +141,11 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
         || -> Vec<String> { listed(app).into_iter().map(|(n, _)| n).collect() },
     );
     let title = if d.change.is_empty() { "Custom Light" } else { "Change Light" };
-    crate::widgets::dialog(ui.ctx(), title, &mut open).resizable(false).collapsible(false).show(
-        ui.ctx(),
-        |ui| {
-            ui.set_max_width(420.0);
+    let footed = crate::widgets::dialog(ui.ctx(), title, &mut open)
+        .resizable(false)
+        .collapsible(false)
+        .show_foot(ui.ctx(), |ui| {
+            crate::widgets::fit_width(ui, 420.0);
             egui::Grid::new("custom-light").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Color");
                 ui.color_edit_button_srgb(&mut d.spec.color);
@@ -214,24 +214,21 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 None => {}
             }
-            ui.horizontal(|ui| {
-                let ok = matches!(plan, Some(Ok(_)));
-                let reused = matches!(plan, Some(Ok(p)) if p.reused);
-                let label = match (reused, d.change.is_empty()) {
-                    (true, true) => "Place",
-                    (true, false) => "Change",
-                    (false, true) => "Write and Place",
-                    (false, false) => "Write and Change",
-                };
-                if ui.add_enabled(ok, egui::Button::new(label)).clicked() {
-                    done = Some(true);
-                }
-                if crate::widgets::cancel(ui) {
-                    done = Some(false);
-                }
-            });
-        },
-    );
+            let ok = matches!(plan, Some(Ok(_)));
+            let reused = matches!(plan, Some(Ok(p)) if p.reused);
+            let label = match (reused, d.change.is_empty()) {
+                (true, true) => "Place",
+                (true, false) => "Change",
+                (false, true) => "Write and Place",
+                (false, false) => "Write and Change",
+            };
+            ((), crate::widgets::Foot::new().main(label, ok).cancel())
+        });
+    let done = match &footed {
+        Some(f) if f.pressed.main() => Some(true),
+        Some(f) if f.pressed.cancelled() => Some(false),
+        _ => None,
+    };
     match done {
         Some(true) => {
             if let Some((_, Ok(plan))) = d.planned.take() {

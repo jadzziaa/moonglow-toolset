@@ -846,39 +846,48 @@ fn output_window(app: &mut Moonglow, ctx: &egui::Context) {
     let state = &mut app.project_commands;
     let Some(last) = state.last.as_ref().filter(|_| state.show) else { return };
     let mut open = true;
-    let (mut copy, mut close) = (false, false);
     let title = "Command Output";
     let partial = output.lock().unwrap_or_else(|e| e.into_inner()).begun();
-    crate::widgets::dialog(ctx, title, &mut open).default_size([640.0, 420.0]).show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            let said = last.ended.clone().unwrap_or_else(|| "Running…".into());
-            // (The heading's rule stops short of what is said beside it.)
-            let font = egui::TextStyle::Body.resolve(ui.style());
-            let words = ui.fonts_mut(|f| {
-                f.layout_no_wrap(said.clone(), font, egui::Color32::PLACEHOLDER).size().x
+    let footed = crate::widgets::dialog(ctx, title, &mut open)
+        .default_size([640.0, 420.0])
+        .show_foot(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let said = last.ended.clone().unwrap_or_else(|| "Running…".into());
+                // (The heading's rule stops short of what is said beside it.)
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let words = ui.fonts_mut(|f| {
+                    f.layout_no_wrap(said.clone(), font, egui::Color32::PLACEHOLDER).size().x
+                });
+                // (And a spacing more: the heading's scope, in this row,
+                // took its spacing too, and "Done." ran 3 points into the
+                // body's margin.)
+                let room = words + 3.0 * ui.spacing().item_spacing.x;
+                ui.scope(|ui| {
+                    ui.set_max_width((ui.available_width() - room).max(0.0));
+                    crate::widgets::section_heading(ui, &last.label);
+                });
+                match last.ended {
+                    Some(_) => ui.label(said),
+                    None => ui.weak(said),
+                };
             });
-            let room = words + 2.0 * ui.spacing().item_spacing.x;
-            ui.scope(|ui| {
-                ui.set_max_width((ui.available_width() - room).max(0.0));
-                crate::widgets::section_heading(ui, &last.label);
+            if last.dropped > 0 {
+                ui.weak(format!("({} lines before these are in the log only)", last.dropped));
+            }
+            let height = (ui.available_height() - 12.0).max(120.0);
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                output_lines(ui, last, &partial, height, "command-output");
             });
-            match last.ended {
-                Some(_) => ui.label(said),
-                None => ui.weak(said),
-            };
+            let foot = crate::widgets::Foot::new()
+                .main("Copy", true)
+                .tip("Copies the output, a line each")
+                .leave("Close");
+            ((), foot)
         });
-        if last.dropped > 0 {
-            ui.weak(format!("({} lines before these are in the log only)", last.dropped));
-        }
-        let height = (ui.available_height() - 40.0).max(120.0);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            output_lines(ui, last, &partial, height, "command-output");
-        });
-        ui.horizontal(|ui| {
-            copy = ui.button("Copy").on_hover_text("Copies the output, a line each").clicked();
-            close = ui.button("Close").clicked();
-        });
-    });
+    let (copy, close) = match footed {
+        Some(f) => (f.pressed.main(), f.pressed.cancelled()),
+        None => (false, false),
+    };
     if copy {
         let text: Vec<&str> = last.lines.iter().map(|(_, l)| l.as_str()).collect();
         ctx.copy_text(text.join("\n"));
@@ -936,12 +945,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    let (mut run, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, "Run a Project Command?", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Run a Project Command?", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(480.0);
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 480.0);
             let at = ask.upload.as_ref().map_or(&ask.root, |u| &u.folder);
             let file = match &ask.upload {
                 Some(u) if u.own => ".moonglow/user.toml",
@@ -972,12 +980,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                  settings for this folder, not in the project). Moonglow saves the module first, \
                  and reads its files again after."
             });
-            ui.separator();
-            ui.horizontal(|ui| {
-                run = ui.button("Allow and Run").clicked();
-                cancel = crate::widgets::cancel(ui);
-            });
+            ((), crate::widgets::Foot::new().main("Allow and Run", true).no_enter().cancel())
         });
+    let (run, cancel) = match footed {
+        Some(f) => (f.pressed.main(), f.pressed.cancelled()),
+        None => (false, false),
+    };
     if run {
         app.project_commands.ask = None;
         allow_and_run(app, &ask);

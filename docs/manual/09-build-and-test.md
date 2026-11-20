@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T12:05:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
 ---
 
 # Build, verify and test
@@ -25,12 +25,15 @@ Aurora's Build does:
   blueprints you changed: [Blueprints](05-blueprints.md#palettes)).
 - **Check that resources are available**: **Missing Resources** (scripts,
   blueprints, conversations, models… that something in the module names
-  but neither the module, its haks nor the game has) and, if ticked,
+  but neither the module, its haks nor the game has; its check boxes
+  flow in two columns) and, if ticked,
   **Unused** resources (in the module but used by nothing).
 
 Compile and Missing Resources are on by default, Unused off. The
 **Results** list what was found; double-click a result to open what it is
-about, and **Export…** saves the list as text. With **Build module on
+about. The window's foot has **Build** (the main button, which Enter
+presses), **Mark as Used**, **Export…**, which saves the list as text,
+and **Done**, which closes it. With **Build module on
 save** (Options › General), every save builds first (with Palettes
 ticked, every save makes the palettes anew, as Aurora's Build does).
 
@@ -119,12 +122,13 @@ that web server serves into a folder, as neverwinter.nim's
 
 Publishing again writes only the changed files. It runs as the other
 long work does (see [Long work](#long-work)): a small window shows how
-far it is and has **Cancel**, which stops before the next file and
+far it is and has **Cancel** (or **Escape**), which stops before the next file and
 writes no manifest (`latest` stays as it was; the data files written by
 then stay, for the next publish to find). Then the window shows the
 manifest's hash (**Copy** copies it, for `-nwsynchash`). Send the
-folder to the web server: by hand, or with **Upload** (below). `mg
-nwsync` does the same from the command line.
+folder to the web server: by hand, or with **Upload** (below). The
+window's foot has **Publish** (the main button), **Remove Unused Data**,
+**Upload** and **Close**. `mg nwsync` does the same from the command line.
 
 Keep the server's module loaded when nobody is on it: set
 `reload-when-empty = false` under `[server]` in its `settings.tml`
@@ -242,7 +246,8 @@ password.
 
 Compile All Scripts, Build Module (its Build button) and Verify Module
 run in the background: a small window names the work, shows how far it
-is, and has **Cancel**. Until it is done the rest of the window takes no
+is, and has **Cancel** in its footer (**Escape** cancels the work too).
+The words saying how far it is (`40 of 312`) are under the bar. Until it is done the rest of the window takes no
 input, so nothing changes under the work; what it made (compiled scripts,
 say) then goes in as one step that Undo takes back. Canceled, it changes
 nothing. The build before saving (Options › General) and the compile
