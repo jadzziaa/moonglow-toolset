@@ -208,12 +208,12 @@ fn the_area_wizard_s_size_segments_set_rows_and_columns() {
     assert_eq!(area_size(&h), (4, 4), "Small from 5 × 7");
 }
 
-/// Find and Replace Text with two hits found: Find what and Replace with
-/// reach across the dialog (to the right of the results' well and of the
-/// footer's last button), each wider than half the dialog's default 560,
-/// and the hits are inside the results' well.
+/// Find and Replace Text with two hits found (M4's U28: in Search
+/// Results, the Bottom Dock's): its form across the dock's top, Find what
+/// and Replace with side by side at 1280 wide, each its 200 points, and
+/// the strings found under the form, inside the dock.
 #[test]
-fn find_and_replace_shows_its_fields_across_and_its_results_in_a_well() {
+fn find_and_replace_shows_its_form_over_its_strings_in_the_bottom_dock() {
     use mg_edit::{Command, Edit};
     let dir = mg_testkit::scratch_dir("ui-board-replace");
     let path = sample_module(&dir);
@@ -244,11 +244,9 @@ fn find_and_replace_shows_its_fields_across_and_its_results_in_a_well() {
     h.get_by_label("Find").click();
     settle(&mut h);
     h.get_by_label("2 strings, 2 times");
-    let well = h.get_by_label("Results").rect();
-    for hit in ["camp_a.utw", "camp_b.utw"] {
-        let hit = h.get_all_by_label_contains(hit).next().unwrap().rect();
-        assert!(well.contains_rect(hit), "the hit {hit:?} in the well {well:?}");
-    }
+    dock_high(&mut h, 340);
+    settle(&mut h);
+    let dock = h.state().bottom_dock_rect().expect("open");
     let field = |value: &str| {
         h.get_all_by(|n| n.role() == Role::TextInput && n.value().as_deref() == Some(value))
             .next()
@@ -256,14 +254,22 @@ fn find_and_replace_shows_its_fields_across_and_its_results_in_a_well() {
             .rect()
     };
     let (find, with) = (field("orc"), field("Goblin"));
-    let last = h.get_by_label("Replace in 2").rect();
+    let replace = h.get_by_label("Replace in 2").rect();
     for (what, f) in [("Find what", find), ("Replace with", with)] {
-        assert!(f.width() > 280.0, "{what} {f:?}: across the dialog");
-        assert!((f.right() - well.right()).abs() < 2.0, "{what} {f:?} to the well's {well:?}");
-        assert!((f.right() - last.right()).abs() < 2.0, "{what} {f:?} to the footer's {last:?}");
-        assert!(f.left() > well.left() + 80.0, "{what} {f:?} after its label");
+        assert!(dock.contains_rect(f), "{what} {f:?} in the dock {dock:?}");
+        assert!(f.width() >= 190.0, "{what} {f:?}: its width");
     }
-    assert!((find.left() - with.left()).abs() < 0.5, "the labels in a column");
+    assert!((find.top() - with.top()).abs() < 0.5, "side by side: {find:?} {with:?}");
+    assert!(with.left() > find.right(), "Replace with after Find what");
+    for hit in ["camp_a.utw", "camp_b.utw"] {
+        let hit = h
+            .get_all_by_label_contains(hit)
+            .find(|n| n.accesskit_node().bounding_box().is_some())
+            .unwrap()
+            .rect();
+        assert!(dock.contains_rect(hit), "the hit {hit:?} in the dock {dock:?}");
+        assert!(hit.top() >= replace.bottom(), "the hit {hit:?} under the form's {replace:?}");
+    }
 }
 
 /// Appearance and Portrait at the least window (420 by 320): its body

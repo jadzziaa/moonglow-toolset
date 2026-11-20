@@ -78,9 +78,10 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/lib.rs",
         '→',
-        1,
+        2,
         Monospace,
-        "a verify finding's reference, from what to what: the log's alone",
+        "a verify finding's reference, from what to what: the log's alone; the other is the \
+         arrow Problems puts › for (its font has none)",
     ),
     (
         "crates/mg-ui/src/model_textures.rs",

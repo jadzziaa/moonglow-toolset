@@ -189,8 +189,21 @@ pub enum Panel {
     /// the Log, whatever the editor in front: the last search's hits, a
     /// click opening one (`search_results::body`). Fed by a script's
     /// searches (Find In Files, Find In Currently Open Scripts,
-    /// References); U28 adds the dialogs that become panels.
+    /// References), Find Instance and Find and Replace Text (U28: their
+    /// forms its header).
     SearchResults,
+    /// Hak Pak Conflict Analysis (M4's U28, a window before): a Bottom
+    /// Dock tab while its report is held, opened by Check for Conflicts…,
+    /// closed by its Close (`dock_reports::hak_body`).
+    HakConflicts,
+    /// Resources Used (M4's U28, Build › Area Statistics; a window before):
+    /// a Bottom Dock tab while its area's view is open
+    /// (`dock_reports::used_body`).
+    ResourcesUsed,
+    /// The Claims Table (M4's U28, Edit › Claims Table…; a window before):
+    /// a Bottom Dock tab while it is open and the project keeps claims
+    /// (`claims::table_body`).
+    ClaimsTable,
     /// A conversation's line chosen (M4's U14, the Conversation board's
     /// Right Dock): its text, condition, action, other actions and
     /// comments, a section each on one scroll, under the Node section's
@@ -334,7 +347,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 32] = [
+    pub(crate) const KEYED: [Panel; 35] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -367,18 +380,30 @@ impl Panel {
         Panel::Reaction,
         Panel::Reactions,
         Panel::Appearance,
+        Panel::HakConflicts,
+        Panel::ResourcesUsed,
+        Panel::ClaimsTable,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
     /// board's Compiler, Bookmarks, then Search Results, Log; Problems before
     /// Search Results, as the GalleryWide board's tabs have them (M4's U20).
-    pub(crate) const BOTTOM_TABS: &'static [Panel] =
-        &[Panel::Problems, Panel::SearchResults, Panel::Log];
+    /// U28's report tabs after them, each while open.
+    pub(crate) const BOTTOM_TABS: &'static [Panel] = &[
+        Panel::Problems,
+        Panel::SearchResults,
+        Panel::Log,
+        Panel::HakConflicts,
+        Panel::ResourcesUsed,
+        Panel::ClaimsTable,
+    ];
     /// The global panels' switches before the editor's own in the Status
     /// Bar (every board's Log, Problems: M4's U20), and after them (its
     /// Search Results).
     pub(crate) const SWITCHES_BEFORE: &'static [Panel] = &[Panel::Log, Panel::Problems];
-    pub(crate) const SWITCHES_AFTER: &'static [Panel] = &[Panel::SearchResults];
+    /// U28's report tabs' switches after Search Results', each while open.
+    pub(crate) const SWITCHES_AFTER: &'static [Panel] =
+        &[Panel::SearchResults, Panel::HakConflicts, Panel::ResourcesUsed, Panel::ClaimsTable];
 
     /// The dock it lives in.
     pub(crate) fn dock(self) -> Dock {
@@ -412,7 +437,10 @@ impl Panel {
             | Panel::Bookmarks
             | Panel::SearchResults
             | Panel::Checks
-            | Panel::Problems => Dock::Bottom,
+            | Panel::Problems
+            | Panel::HakConflicts
+            | Panel::ResourcesUsed
+            | Panel::ClaimsTable => Dock::Bottom,
             #[cfg(test)]
             Panel::Sample(n) if n < SAMPLE_BOTTOM => Dock::Right,
             #[cfg(test)]
@@ -455,6 +483,9 @@ impl Panel {
             Panel::Reaction => "Reaction",
             Panel::Reactions => "Reactions",
             Panel::Appearance => "Appearance",
+            Panel::HakConflicts => "Hak Pak Conflict Analysis",
+            Panel::ResourcesUsed => "Resources Used",
+            Panel::ClaimsTable => "Claims Table",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -497,6 +528,9 @@ impl Panel {
             Panel::Reaction,
             Panel::Reactions,
             Panel::Appearance,
+            Panel::HakConflicts,
+            Panel::ResourcesUsed,
+            Panel::ClaimsTable,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -542,6 +576,9 @@ impl Panel {
             Panel::Reaction => Icon::Edit,
             Panel::Reactions => Icon::List,
             Panel::Appearance => Icon::Info,
+            Panel::HakConflicts => Icon::Hak,
+            Panel::ResourcesUsed => Icon::Statistics,
+            Panel::ClaimsTable => Icon::Lock,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -608,6 +645,11 @@ impl Panel {
             Panel::Reaction => "Reaction: how the chosen faction regards the one chosen",
             Panel::Reactions => "Reactions: how the chosen faction regards the others",
             Panel::Appearance => "Appearance: the facts of the appearance chosen in the gallery",
+            Panel::HakConflicts => {
+                "Hak Pak Conflict Analysis: the resources the module's haks share and override"
+            }
+            Panel::ResourcesUsed => "Resources Used: what the area's view has loaded",
+            Panel::ClaimsTable => "Claims Table: whose each area is",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -632,6 +674,7 @@ impl Panel {
     fn header_tools(self) -> &'static [TopBarButton] {
         match self {
             Panel::Log => &LOG_TOOLS,
+            Panel::HakConflicts | Panel::ResourcesUsed | Panel::ClaimsTable => &REPORT_TOOLS,
             _ => &[],
         }
     }
@@ -647,10 +690,7 @@ impl Panel {
     fn badge(self, app: &Moonglow, editor: Option<&crate::Tab>) -> Option<mg_uikit::Badge> {
         match self {
             // (Its hits, where the last search found any.)
-            Panel::SearchResults => match app.search_results.hits.len() {
-                0 => None,
-                n => Some(mg_uikit::Badge::count(n)),
-            },
+            Panel::SearchResults => crate::search_results::badge(app),
             // (A NUI designer's errors and warnings, the NUI board's "1":
             // in `error` where any is an error, else in `warn`.)
             Panel::Checks => crate::nui_view::checks::badge(app, editor),
@@ -805,6 +845,10 @@ impl Panel {
             // (Problems too, M4's U20: with nothing found, the kit's empty
             // state.)
             Panel::SearchResults | Panel::Problems => true,
+            // (U28's report tabs: while their reports are held.)
+            Panel::HakConflicts => app.hak_report.is_some(),
+            Panel::ResourcesUsed => app.area_stats.is_some(),
+            Panel::ClaimsTable => app.claims.table.is_some(),
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -866,6 +910,10 @@ impl Panel {
             // (The Appearance Gallery's, M4's U26: facts to read, nothing to
             // take the keys.)
             Panel::Appearance => Keys::AppearanceFacts,
+            // (U28's report tabs: their tables' arrows.)
+            Panel::HakConflicts => Keys::HakReport,
+            Panel::ResourcesUsed => Keys::ResourcesUsed,
+            Panel::ClaimsTable => Keys::ClaimsTable,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -2263,6 +2311,38 @@ const LOG_TOOLS: [TopBarButton; 3] = [
     (Id::SaveLog, Icon::Save, "Save Log", "Save the whole log into a text file"),
     (Id::ClearLog, Icon::Eraser, "Clear Log", "Empty the log"),
 ];
+/// A report tab's tool (M4's U28): its Close, at the tab bar's end.
+const REPORT_TOOLS: [TopBarButton; 1] =
+    [(Id::CloseReport, Icon::Close, "Close Report", "Close this report")];
+
+/// The temporary datum a panel in the Bottom Dock leaves where its first
+/// row ends ([`first_row_ends`]).
+const FIRST_ROW: &str = "bottom-dock-first-row";
+
+/// A panel's body (Search Results, the reports' tabs) says where its first
+/// row ends, under its form or header: the Bottom Dock is never lower than
+/// that and the room under it, so that its least height shows the form and
+/// a whole row (M4's U28). In a script's window's pane, nothing reads it.
+pub(crate) fn first_row_ends(ui: &Ui, y: f32) {
+    // (The lowest said this frame: a form says where it ends whole, its
+    // rows where they are under it as drawn.)
+    let id = egui::Id::new(FIRST_ROW);
+    ui.ctx().data_mut(|d| {
+        let y = d.get_temp::<f32>(id).map_or(y, |was| was.max(y));
+        d.insert_temp(id, y);
+    });
+}
+
+/// A body with no rows in sight (nothing found yet, an empty state) says
+/// where what it drew ends, unless a row said where it ends: the dock's
+/// least height shows its form whole all the same.
+pub(crate) fn drawn_ends(ui: &Ui) {
+    let id = egui::Id::new(FIRST_ROW);
+    if ui.ctx().data(|d| d.get_temp::<f32>(id)).is_none() {
+        first_row_ends(ui, ui.min_rect().bottom());
+    }
+}
+
 /// The Bottom Dock's name: its tab bar's group.
 pub(crate) const BOTTOM_DOCK: &str = "Bottom Dock";
 /// The Test Module arrow's name (it opens the menu of the other ways to
@@ -3377,6 +3457,12 @@ pub(crate) fn shown(
     // Enter OK first where the pointer is over it, as docked.
     if active != Some(&Tab::Options) && options_hovered && enter_is_options_ok(app, ctx) {
         shown.hints.insert(0, Hint::keys(["Enter"], "OK"));
+    }
+    // A list of the Bottom Dock with the keys (M4's U28 review): its hints in
+    // the editor's place (the area view's keys are not its own meanwhile),
+    // the editor's counts kept.
+    if let Some(hints) = crate::dock_reports::hints(app, ctx, &k) {
+        shown.hints = hints;
     }
     // The Resources panel in use: its hints (the Resources board's), the
     // editor's counts kept.
@@ -5038,7 +5124,10 @@ pub(crate) fn panel_body(
             | Panel::Bookmarks
             | Panel::SearchResults
             | Panel::Checks
-            | Panel::Problems => {
+            | Panel::Problems
+            | Panel::HakConflicts
+            | Panel::ResourcesUsed
+            | Panel::ClaimsTable => {
                 let builder = egui::UiBuilder::new().max_rect(room);
                 let builder = LateSlot::salted(builder, host, panel.name(), pane);
                 let mut body = ui.new_child(builder);
@@ -5048,7 +5137,24 @@ pub(crate) fn panel_body(
                     Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
                     Panel::Checks => crate::nui_view::checks::panel(app, &mut body, editor),
                     Panel::Problems => crate::problems::body(app, &mut body),
+                    Panel::HakConflicts => crate::dock_reports::hak_body(app, &mut body),
+                    Panel::ResourcesUsed => crate::dock_reports::used_body(app, &mut body),
+                    Panel::ClaimsTable => crate::dock_reports::claims_body(app, &mut body),
                     _ => crate::search_results::body(app, &mut body),
+                }
+                // (U28's tabs, whose forms and headers are over their rows:
+                // where nothing is listed yet, what they drew ends. Not
+                // Problems', whose empty state fills its room, nor a
+                // script's panels', which hold the dock to nothing.)
+                let formed = matches!(
+                    panel,
+                    Panel::SearchResults
+                        | Panel::HakConflicts
+                        | Panel::ResourcesUsed
+                        | Panel::ClaimsTable
+                );
+                if host == Host::Dock && formed {
+                    drawn_ends(&body);
                 }
             }
             #[cfg(test)]
@@ -5107,8 +5213,13 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
     let t = mg_uikit::tokens(&ctx);
     let window = ctx.content_rect().size();
     let line = ui.text_style_height(&egui::TextStyle::Monospace);
-    // (The tab bar, a line of the log and the room round it.)
-    let least = metrics::DOCK_TABS + line + 8.0 + panel_line(ui);
+    // (The tab bar, a line of the log and the room round it; for a panel
+    // with a form or tools over its rows, down to its first row's end as
+    // last drawn, and the room under it: M4's U28.)
+    let base = metrics::DOCK_TABS + line + 8.0 + panel_line(ui);
+    // (Never more than half the window: a form taller than that scrolls
+    // over its rows, as at the least window.)
+    let least = base.max(app.dock_need.min(window.y * 0.5));
     // (The panel in front's tools: the Log's.)
     let buttons = front.header_tools();
     let tips: Vec<String> =
@@ -5196,11 +5307,21 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
             let picked = (bar.changed && tab_fits).then(|| held[tab]);
             app.bottom_rect = Some(ui.max_rect());
             let margin = Margin { left: 8, right: 8, top: 4, bottom: 4 };
+            let dock_top = ui.max_rect().top();
+            ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::new(FIRST_ROW)));
             match front {
                 Panel::Log => {
                     egui::Frame::new().inner_margin(margin).show(ui, |ui| app.log_ui(ui));
                 }
                 _ => panel_body(app, ui, (front, false), Host::Dock, pane_id, editor.as_ref()),
+            }
+            // (Its first row's end as drawn: the least height from the
+            // next frame, drawn again once where it changed.)
+            let first = ui.ctx().data_mut(|d| d.remove_temp::<f32>(egui::Id::new(FIRST_ROW)));
+            let need = first.map_or(0.0, |y| (y - dock_top + 8.0).ceil());
+            if (need - app.dock_need).abs() > 0.5 {
+                app.dock_need = need;
+                ui.ctx().request_repaint();
             }
             (bar.inner, picked)
         });

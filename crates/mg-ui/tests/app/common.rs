@@ -1120,6 +1120,51 @@ pub(crate) fn tileset_problems(
     h.state().problems.of(&source).expect("the tileset was checked").problems.clone()
 }
 
+/// What Problems holds of Build Module's last build (M4's U28, the owner's
+/// Q4), each as its row says it: "Error: mg_bad.nss, …", "Warning:
+/// hello.nss, Unused (source and compiled)" (none: not built).
+#[track_caller]
+pub(crate) fn build_results(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    problem_rows(h, &mg_ui::problems::Source::Build)
+}
+
+/// The Log in front of the Bottom Dock, by its switch where another panel
+/// is (Verify brings Problems to the front: M4's U28).
+pub(crate) fn log_in_front(h: &mut Harness<'_, Moonglow>) {
+    if h.state().bottom_dock_shows() != Some(mg_ui::Panel::Log) {
+        h.get_by_label("Status Bar").get_by_label("Log").click();
+        h.run();
+    }
+}
+
+/// The Bottom Dock made `high` points high, as its edge dragged would
+/// (a form over a list needs more than the default's room for its rows).
+pub(crate) fn dock_high(h: &mut Harness<'_, Moonglow>, high: u32) {
+    h.state_mut().settings.bottom_dock_height = Some(high);
+    h.run();
+}
+
+/// The first node named `label` drawn in the Bottom Dock (M4's U28: its
+/// tabs' bodies are not inside the dock's own node, so it is found by
+/// where it is drawn), failing where none is.
+#[track_caller]
+pub(crate) fn in_dock<'t>(h: &'t Harness<'_, Moonglow>, label: &'t str) -> egui_kittest::Node<'t> {
+    let dock = h.state().bottom_dock_rect().expect("the Bottom Dock open");
+    h.get_all_by_label(label)
+        .find(|n| n.accesskit_node().bounding_box().is_some() && dock.contains_rect(n.rect()))
+        .unwrap_or_else(|| panic!("{label} in the Bottom Dock {dock:?}"))
+}
+
+/// What Problems holds of `source`, each as its row's accessible name.
+#[track_caller]
+pub(crate) fn problem_rows(
+    h: &Harness<'_, Moonglow>,
+    source: &mg_ui::problems::Source,
+) -> Vec<String> {
+    let Some(set) = h.state().problems.of(source) else { return Vec::new() };
+    (set.problems.iter()).map(mg_ui::problems::row_name).collect()
+}
+
 /// The 2DA editor's header's control `name` (M4's U16, the kit's header
 /// `table_view::TABLE_HEADER`), wherever it is at this width: on the row
 /// (a joined group's toggle, "How cells show"'s, by its own name), or in
@@ -1789,6 +1834,15 @@ pub(crate) fn area_app(
 /// keeps others' areas read-only, the builder `ab`: an area read-only
 /// here.
 pub(crate) fn read_only_area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    read_only_area_harness_with(name, "")
+}
+
+/// [`read_only_area_harness`] with `rows` more in its claims table (each
+/// a 2DA row, numbered from 1).
+pub(crate) fn read_only_area_harness_with(
+    name: &str,
+    rows: &str,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let chest = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
         use mg_module::instances::{Placement, Placing, instance};
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -1811,7 +1865,7 @@ pub(crate) fn read_only_area_harness(name: &str) -> Option<(Harness<'static, Moo
     std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
     let table = format!(
         "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
-         0   {:<16} cd       claimed  2026-10-20  ****\n",
+         0   {:<16} cd       claimed  2026-10-20  ****\n{rows}",
         area.to_string()
     );
     std::fs::write(dir.join("claims.2da"), table).unwrap();

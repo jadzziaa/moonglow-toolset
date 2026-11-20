@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T07:36:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T12:25:59Z }
 ---
 
 # Options
@@ -319,7 +319,7 @@ window is one in As Tabs too, for a kind you moved to a window):
   does. Show in Module Tree on a tab's menu goes to it either way.
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
-  tree and the palettes). Areas are by name in Find Instance and the
+  tree and the palettes). Areas are by name in Find Instance's In Area and the
   area transition's destinations too.
 - **Hide empty groups in the module tree** (off): the tree's groups with
   nothing in them (Scripts (0)) and the kinds of object an area has none

@@ -1,7 +1,8 @@
 //! The area viewer's dialogs: Adjust Location (`TdlgLocation`: an exact
-//! position, bearing and visual transform for the selected objects) and Find Instance
-//! (`TdlgFindInstance`: placed objects across the module by type, area,
-//! blueprint and tag; a double click goes to one).
+//! position, bearing and visual transform for the selected objects); and
+//! Find Instance's search (`TdlgFindInstance`: placed objects across the
+//! module by type, area, blueprint and tag; a double click goes to one),
+//! whose form and rows are Search Results' since M4's U28.
 
 use egui::Ui;
 use glam::Vec3;
@@ -9,7 +10,6 @@ use mg_area::ObjectKind;
 use mg_core::{ResRef, ResType};
 use mg_edit::Command;
 use mg_resman::ResKey;
-use mg_uikit::Controls as _;
 
 use crate::{Action, Moonglow, Tab};
 
@@ -147,7 +147,6 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
 /// Draws the open dialogs.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     adjust_window(app, ui);
-    find_window(app, ui);
 }
 
 fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
@@ -562,7 +561,8 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
     }
 }
 
-/// The Find Instance window's criteria and results.
+/// Find Instance's criteria and results (M4's U28: Search Results' form
+/// and rows, `search_results`; before it a window of its own).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FindInstance {
     /// Which kinds to look for, by [`ObjectKind::index`].
@@ -572,11 +572,16 @@ pub struct FindInstance {
     pub template: String,
     pub tag: String,
     pub results: Vec<Found>,
-    /// How many times each area's GIT with a result in it had its lists
-    /// rewritten as they were found (`Workspace::rewrites`): a result is
-    /// a place in a list, another object's once one is put in or taken
-    /// out before it.
+    /// Whether a search was made (its results, none among them, are
+    /// shown; before, what fills the panel is said).
+    pub searched: bool,
+    /// How many times each area's GIT had its lists rewritten as the search
+    /// began (`Workspace::rewrites`): a result is a place in a list,
+    /// another object's once one is put in or taken out before it.
     found_at: std::collections::HashMap<ResRef, u64>,
+    /// Counted up as the results change (Search Results' order is made
+    /// again only then).
+    pub(crate) revision: u64,
 }
 
 impl Default for FindInstance {
@@ -587,25 +592,31 @@ impl Default for FindInstance {
             template: String::new(),
             tag: String::new(),
             results: Vec::new(),
+            searched: false,
             found_at: Default::default(),
+            revision: 0,
         }
     }
 }
 
 impl FindInstance {
-    /// Searches the module, and keeps what it found.
-    pub(crate) fn find(&mut self, app: &mut Moonglow) {
-        self.results = search(app, self);
-        let Some(ws) = app.ws.as_ref() else { return };
-        self.found_at = (self.results.iter())
-            .map(|r| (r.area, ws.rewrites(&ResKey::new(r.area, ResType::GIT))))
-            .collect();
+    /// Whether objects were put into or taken out of `area` since the
+    /// search began: its results may be other objects' places.
+    pub(crate) fn stale(&self, ws: &mg_edit::Workspace, area: ResRef) -> bool {
+        self.found_at.get(&area) != Some(&ws.rewrites(&ResKey::new(area, ResType::GIT)))
     }
 
-    /// Whether objects were put into or taken out of `area` since the
-    /// results were found: its results may be other objects' places.
-    fn stale(&self, ws: &mg_edit::Workspace, area: ResRef) -> bool {
-        self.found_at.get(&area) != Some(&ws.rewrites(&ResKey::new(area, ResType::GIT)))
+    /// A search's results, in place of the last one's; `at`, each area's
+    /// lists' rewrites as it began.
+    pub(crate) fn set_results(
+        &mut self,
+        results: Vec<Found>,
+        at: std::collections::HashMap<ResRef, u64>,
+    ) {
+        self.results = results;
+        self.found_at = at;
+        self.searched = true;
+        self.revision += 1;
     }
 }
 
@@ -619,39 +630,48 @@ pub struct Found {
     pub template: String,
 }
 
-/// The objects placed in the module's areas that match `f`'s criteria
-/// (tag and blueprint: case-insensitive parts).
-pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
-    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
-    let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+/// What a search looks for, sent to its job.
+#[derive(Debug, Clone)]
+struct Criteria {
+    kinds: [bool; 9],
+    area: Option<ResRef>,
+    template: String,
+    tag: String,
+}
+
+/// The objects placed in `module`'s areas that match `f`'s criteria
+/// (tag and blueprint: case-insensitive parts), an area at a time,
+/// `step` told how far it is (and whether to go on: none found where it
+/// says no).
+fn search_in(
+    module: &mg_module::Module,
+    f: &Criteria,
+    step: &mut dyn FnMut(usize, usize) -> bool,
+) -> Option<Vec<Found>> {
+    let mut areas: Vec<ResRef> = module.keys_of(ResType::ARE).map(|k| k.resref).collect();
     areas.sort();
     areas.retain(|a| f.area.is_none_or(|only| only == *a));
     // (Every word, case and accents aside, as a Filter finds a name.)
     let (tag, template) =
         (mg_core::text::Needle::new(&f.tag), mg_core::text::Needle::new(&f.template));
     let mut out = Vec::new();
-    for area in areas {
-        // (An area not open is read from the module's copy and not kept
-        // as a document: a search of a world left every area's GIT in the
-        // workspace until the next save.)
+    let total = areas.len();
+    for (n, area) in areas.into_iter().enumerate() {
+        if !step(n, total) {
+            return None;
+        }
+        // (The module's copy, read and let go: a search of a world kept
+        // no area's GIT as a document.)
         let key = ResKey::new(area, ResType::GIT);
-        let read;
-        let git = match ws.loaded(&key) {
-            Some(doc) => &doc.root,
-            None => match ws.module.get(&key).and_then(|b| mg_gff::Gff::read(b).ok()) {
-                Some(gff) => {
-                    read = gff;
-                    &read.root
-                }
-                None => continue,
-            },
+        let Some(gff) = module.get(&key).and_then(|b| mg_gff::Gff::read(b).ok()) else {
+            continue;
         };
         for kind in ObjectKind::ALL {
             if !f.kinds[kind.index()] {
                 continue;
             }
             let field = kind.resref_field();
-            for (index, s) in git.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
+            for (index, s) in gff.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
                 if tag.finds(&t) && template.finds(&bp) {
@@ -660,127 +680,61 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
             }
         }
     }
-    out
+    step(total, total);
+    Some(out)
 }
 
-fn find_window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(mut f) = app.find_instance.take() else { return };
-    let mut open = true;
-    let mut go = None;
-    let areas: Vec<ResRef> = app.ws.as_ref().map_or_else(Vec::new, |ws| {
-        let mut a: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
-        a.sort();
-        a
-    });
-    // Areas by name, when the module tree lists them so (Options ›
-    // General): each asked for as it is shown (the rows in sight, the
-    // list while it is open), not every area's every frame.
-    let naming = std::cell::RefCell::new((&mut *app, std::collections::HashMap::new()));
-    let label = |a: &ResRef| -> String {
-        let (app, labels) = &mut *naming.borrow_mut();
-        labels.entry(*a).or_insert_with(|| crate::tabs::area_label(app, *a)).clone()
+/// Find Instance's search, as a job (Search Results' Search, Enter in its
+/// fields): the module as it is, an area at a time, its progress in the
+/// job's window and Cancel there; what it finds into Search Results, in
+/// place of what was found before. A search while a job runs waits (the
+/// log says so), as every job does.
+pub(crate) fn start_find(app: &mut Moonglow) {
+    let Some(f) = app.find_instance.as_ref() else { return };
+    let Some(ws) = app.ws.as_ref() else { return };
+    let criteria =
+        Criteria { kinds: f.kinds, area: f.area, template: f.template.clone(), tag: f.tag.clone() };
+    // (Each area's lists as the search begins: what a result's place is
+    // of.)
+    let at: std::collections::HashMap<ResRef, u64> = (ws.module.keys_of(ResType::ARE))
+        .map(|k| (k.resref, ws.rewrites(&ResKey::new(k.resref, ResType::GIT))))
+        .collect();
+    app.start_job(
+        "Find Instance",
+        move |job| {
+            search_in(&job.module, &criteria, &mut |done, total| {
+                job.progress.step(done, total);
+                !job.progress.cancelled()
+            })
+        },
+        move |app, found| {
+            let Some(found) = found else { return };
+            let Some(f) = app.find_instance.as_mut() else { return };
+            f.set_results(found, at);
+            app.show_search(crate::search_results::Showing::Instances);
+        },
+    );
+}
+
+/// Goes to a placed object found (a double click on its row, Enter): its
+/// area opened at it; where objects were put in or taken out of its area
+/// since, its place may be another's by now, so the module is searched
+/// again and the log says so.
+pub(crate) fn go_to_found(app: &mut Moonglow, r: &Found) {
+    let stale = match (&app.ws, &app.find_instance) {
+        (Some(ws), Some(f)) => f.stale(ws, r.area),
+        _ => false,
     };
-    let footed = crate::widgets::dialog(ui.ctx(), "Find Instance", &mut open)
-        .default_width(460.0)
-        .show_foot(ui.ctx(), |ui| {
-            ui.horizontal_wrapped(|ui| {
-                crate::widgets::field_label(ui, "Search For");
-                for kind in ObjectKind::ALL {
-                    ui.check_box(&mut f.kinds[kind.index()], kind.label());
-                }
-            });
-            egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "In Area");
-                let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
-                let options: Vec<Option<ResRef>> =
-                    std::iter::once(None).chain(areas.iter().copied().map(Some)).collect();
-                crate::widgets::dropdown("find-area").selected_text(shown).show(
-                    ui,
-                    &mut f.area,
-                    &options,
-                    |a| a.map_or_else(|| "(all areas)".to_string(), |a| label(&a)),
-                );
-                ui.end_row();
-                crate::widgets::field_label(ui, "From Blueprint");
-                let field =
-                    ui.add(mg_uikit::text_field(&mut f.template).hint_text("blueprint resref"));
-                crate::widgets::autofocus(ui, &field);
-                ui.end_row();
-                crate::widgets::field_label(ui, "With Tag");
-                ui.add(mg_uikit::text_field(&mut f.tag).hint_text("tag"));
-                ui.end_row();
-            });
-            // (The rows in sight alone are laid out, in columns of set
-            // widths, a long name cut: with nothing typed every placed
-            // object of the module is found, tens of thousands.)
-            const WIDTHS: [f32; 4] = [76.0, 130.0, 120.0, 120.0];
-            let height = ui.spacing().interact_size.y;
-            let cell = |ui: &mut Ui, width: f32, add: &mut dyn FnMut(&mut Ui)| {
-                let layout = egui::Layout::left_to_right(egui::Align::Center);
-                ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
-                    ui.set_min_width(width);
-                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                    add(ui);
-                });
-            };
-            ui.horizontal(|ui| {
-                for (h, width) in ["Type", "Tag", "Area", "Blueprint"].into_iter().zip(WIDTHS) {
-                    cell(ui, width, &mut |ui| {
-                        ui.strong(h);
-                    });
-                }
-            });
-            let rows = egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]);
-            mg_uikit::show_rows(rows, ui, f.results.len(), |ui, range| {
-                for at in range {
-                    let r = &f.results[at];
-                    ui.horizontal(|ui| {
-                        if at % 2 == 1 {
-                            let mut stripe = ui.available_rect_before_wrap();
-                            stripe.set_height(height);
-                            ui.painter().rect_filled(stripe, 0.0, ui.visuals().faint_bg_color);
-                        }
-                        let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
-                        let texts = row.iter().map(String::as_str).chain([r.template.as_str()]);
-                        let mut double = false;
-                        for (text, width) in texts.zip(WIDTHS) {
-                            cell(ui, width, &mut |ui| {
-                                double |= ui.selectable_label(false, text).double_clicked();
-                            });
-                        }
-                        if double {
-                            go = Some(r.clone());
-                        }
-                    });
-                }
-            });
-            let note = format!("{} found; double click one to go to it", f.results.len());
-            ((), crate::widgets::Foot::new().note(note).main("Search", true).button("Clear", true))
-        });
-    let searching = footed.as_ref().is_some_and(|x| x.pressed.main());
-    if footed.as_ref().is_some_and(|x| x.pressed.clicked("Clear")) {
-        f = FindInstance::default();
-    }
-    if searching {
-        f.find(app);
-    }
-    if let Some(r) = go {
-        // (Its place in the area's list may be another's by now: found
-        // again, to go to what the list shows.)
-        if app.ws.as_ref().is_some_and(|ws| f.stale(ws, r.area)) {
-            f.find(app);
-            app.log.warn(format!(
-                "Find Instance: objects were added to or removed from {} since the search: \
-                 searched again",
-                r.area
-            ));
-        } else {
-            app.area_focus = Some((r.area, r.kind, r.index));
-            app.actions.push(Action::OpenTab(Tab::Area(r.area)));
-        }
-    }
-    if open {
-        app.find_instance = Some(f);
+    if stale {
+        app.log.warn(format!(
+            "Find Instance: objects were added to or removed from {} since the search: \
+             searched again",
+            r.area
+        ));
+        start_find(app);
+    } else {
+        app.area_focus = Some((r.area, r.kind, r.index));
+        app.actions.push(Action::OpenTab(Tab::Area(r.area)));
     }
 }
 
@@ -1097,6 +1051,87 @@ fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Three areas, each with two placeables ("TREE_<area><n>", from
+    /// `mg_tree`) and a creature ("GUARD", from `mg_guard`).
+    fn three_areas() -> mg_module::Module {
+        let mut m = mg_module::Module::new();
+        for area in ["a1", "a2", "a3"] {
+            let are = ResKey::parse(area, ResType::ARE).unwrap();
+            m.set_gff(are, &mg_gff::Gff::new(*b"ARE ")).unwrap();
+            let object = |tag: String, template: &str| {
+                let mut s = mg_gff::Struct::new(0);
+                s.set("Tag", mg_gff::Value::String(tag.into_bytes()));
+                s.set("TemplateResRef", mg_gff::Value::ResRef(template.as_bytes().to_vec()));
+                s
+            };
+            let mut git = mg_gff::Gff::new(*b"GIT ");
+            let trees = (0..2).map(|n| object(format!("TREE_{area}{n}"), "mg_tree")).collect();
+            git.root.set("Placeable List", mg_gff::Value::List(trees));
+            let guard = vec![object("GUARD".into(), "mg_guard")];
+            git.root.set("Creature List", mg_gff::Value::List(guard));
+            m.set_gff(ResKey::parse(area, ResType::GIT).unwrap(), &git).unwrap();
+        }
+        m
+    }
+
+    fn criteria(tag: &str, template: &str) -> Criteria {
+        Criteria { kinds: [true; 9], area: None, template: template.into(), tag: tag.into() }
+    }
+
+    /// M4's U28: Find Instance's search, as its job runs it, says how far
+    /// it is an area at a time and ends where Cancel says so, with nothing
+    /// found; let run, it finds by area, kind and place, by tag and by
+    /// blueprint.
+    #[test]
+    fn find_instance_s_search_says_how_far_it_is_and_stops_when_called_off() {
+        let m = three_areas();
+        let mut steps = Vec::new();
+        let found = search_in(&m, &criteria("", ""), &mut |done, total| {
+            steps.push((done, total));
+            true
+        })
+        .expect("not called off");
+        assert_eq!(steps, [(0, 3), (1, 3), (2, 3), (3, 3)], "an area at a time");
+        let said: Vec<String> = found
+            .iter()
+            .map(|f| format!("{}:{:?}:{}:{}", f.area, f.kind, f.index, f.tag))
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "a1:Creature:0:GUARD",
+                "a1:Placeable:0:TREE_a10",
+                "a1:Placeable:1:TREE_a11",
+                "a2:Creature:0:GUARD",
+                "a2:Placeable:0:TREE_a20",
+                "a2:Placeable:1:TREE_a21",
+                "a3:Creature:0:GUARD",
+                "a3:Placeable:0:TREE_a30",
+                "a3:Placeable:1:TREE_a31",
+            ]
+        );
+        let by_tag = search_in(&m, &criteria("tree_a2", ""), &mut |_, _| true).unwrap();
+        assert_eq!(by_tag.len(), 2, "{by_tag:?}");
+        let by_blueprint = search_in(&m, &criteria("", "GUARD"), &mut |_, _| true).unwrap();
+        assert_eq!(by_blueprint.len(), 3, "{by_blueprint:?}");
+        let mut only = criteria("", "");
+        only.area = Some(ResRef::from_str("a3").unwrap());
+        only.kinds[ObjectKind::Creature.index()] = false;
+        let in_one = search_in(&m, &only, &mut |_, _| true).unwrap();
+        assert_eq!(
+            in_one.iter().map(|f| f.tag.as_str()).collect::<Vec<_>>(),
+            ["TREE_a30", "TREE_a31"]
+        );
+        // Called off as the second area begins: nothing, and no area after.
+        let mut asked = 0;
+        let off = search_in(&m, &criteria("", ""), &mut |done, _| {
+            asked += 1;
+            done < 1
+        });
+        assert_eq!(off, None, "called off");
+        assert_eq!(asked, 2, "no area read after it was called off");
+    }
 
     /// Two placeables, the second turned a quarter, and the window as it
     /// opens on them.

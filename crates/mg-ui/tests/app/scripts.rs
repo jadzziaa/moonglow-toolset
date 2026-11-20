@@ -803,7 +803,7 @@ fn a_polish_script_reads_saves_and_compiles_in_its_codepage() {
 }
 
 #[test]
-fn build_on_save_opens_the_results_when_something_is_wrong() {
+fn build_on_save_opens_problems_when_something_is_wrong() {
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
         return;
@@ -820,8 +820,13 @@ fn build_on_save_opens_the_results_when_something_is_wrong() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
-    let build = h.state().build.clone().expect("the Build Module window, with the problem");
-    assert!(build.results.iter().any(|f| f.text.starts_with("Error:")), "{:?}", build.results);
+    // (Problems, M4's U28: its results there, brought to the front with
+    // the Bottom Dock open; no window.)
+    assert!(h.state().build.is_none(), "no window opened");
+    let results = build_results(&h);
+    assert!(results.iter().any(|r| r.starts_with("Error: mg_bad.nss")), "{results:?}");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems));
+    h.get_by_label_contains("Error: mg_bad.nss");
     assert!(h.state().log.entries.iter().any(|(_, m)| m == "Finished Building Module"));
 }
 

@@ -149,7 +149,6 @@ fn shoot_in(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str, li
 #[ignore]
 fn build_unused_and_counted_as_used() {
     use mg_module::verify::{ScriptFiles, Unused};
-    use mg_ui::build_view::{BuildWindow, Finding};
     mg_testkit::gpu::hold();
     let dir = mg_testkit::scratch_dir("screens-build-used");
     let project = dir.join("project");
@@ -164,8 +163,6 @@ fn build_unused_and_counted_as_used() {
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&project);
-    let mut w = BuildWindow::default();
-    w.unused = true;
     let unused = |n: &str, t, s| {
         let key = ResKey::parse(n, t).unwrap();
         Unused { key, script: s }
@@ -176,21 +173,52 @@ fn build_unused_and_counted_as_used() {
         unused("j_test", ResType::NSS, Some(ScriptFiles::SourceOnly)),
         unused("guard_spare", ResType::UTC, None),
     ];
-    w.results = found
+    // (M4's U28: the results are Problems' in the Bottom Dock, the first
+    // chosen.)
+    use mg_ui::problems::{Go, Problem, Source};
+    let problems = found
         .iter()
-        .map(|u| Finding { text: format!("Unused: {u}"), about: Some(u.key), unused: Some(*u) })
+        .map(|u| {
+            let mut p = Problem::new(
+                mg_module::doctor::Severity::Warning,
+                u.key.to_string(),
+                format!("Unused: {u}"),
+                Some(Go::Resource(u.key)),
+            );
+            p.unused = Some(*u);
+            p
+        })
         .collect();
-    w.selected = Some(0);
-    app.build = Some(w);
+    let checked = app.ws.as_ref().map(|ws| ws.revision());
+    app.problems.replace(Source::Build, problems, checked);
+    // (Built with Unused ticked: Counted as Used shows for it alone.)
+    app.problems.build_unused = true;
+    app.problems.select(Some((Source::Build, 0)));
+    app.settings.hide_log = false;
+    app.settings.bottom_dock_height = Some(320);
+    // (The dialog closed: Counted as Used and the row's menu are
+    // Problems' since M4's U28.)
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 720.0))
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_by_label("Counted as Used").click();
-    shoot(&mut h, &dir, "build-unused-counted-as-used");
-    h.get_by_label("Unused: j_debug.ncs (compiled only (no source))").click_secondary();
+    if h.state().bottom_dock_shows() != Some(mg_ui::Panel::Problems) {
+        h.get_by_label("Status Bar").get_by_label("Problems").click();
+        h.run();
+    }
+    // (The row's menu first: a click outside Counted as Used's popover,
+    // a right click too, would only close it.)
+    let row = "Warning: j_debug.ncs, Unused: j_debug.ncs (compiled only (no source))";
+    h.get_by_label(row).click_secondary();
+    h.run();
+    assert!(h.query_by_label(mg_ui::problems::MARK_AS_USED).is_some(), "the row's menu open");
     shoot(&mut h, &dir, "build-unused-mark-menu");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.get_by_label("Counted as Used").click();
+    h.run();
+    shoot(&mut h, &dir, "build-unused-counted-as-used");
 }
 
 /// Build › Round-Trip Check in its menu, with its tip, and what it says in
@@ -7999,8 +8027,8 @@ fn advanced_search() {
     shoot(&mut h, &dir, "advanced-search-or-not");
 }
 
-/// Edit › Find and Replace Text… over Chapter 1: "Aribeth" found, the
-/// tags ticked too (where the window has them).
+/// Edit › Find and Replace Text… over Chapter 1, the Bottom Dock's tab
+/// (a window before M4's U28): "Aribeth" found, the tags ticked too.
 #[test]
 #[ignore]
 fn find_and_replace_text() {
@@ -8528,8 +8556,9 @@ fn described_variables_and_the_builder_code() {
 
 /// The Domains of Dread's builder proposal, C6 to C8: an area another
 /// builder claimed (its banner, the module tree's marks), a merged area's
-/// Tag about to change, a save of an unclaimed area, File › Project, and
-/// the question before a project's command first runs.
+/// Tag about to change, a save of an unclaimed area, File › Project, the
+/// question before a project's command first runs, and the Claims Table,
+/// the Bottom Dock's tab (a window before M4's U28).
 #[test]
 #[ignore]
 fn claims_and_project_commands() {
@@ -8645,7 +8674,8 @@ fn claims_and_project_commands() {
         shoot(&mut h, &dir, name);
     }
     h.state_mut().builder_code = None;
-    // Edit › Claims Table…: the table whole, Take Over… asked, Hand To….
+    // Edit › Claims Table…, in the Bottom Dock: the table whole, Take
+    // Over… asked, Hand To….
     top_menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Claims Table…").click();
@@ -9844,8 +9874,9 @@ fn setup_store_project_blueprint_far_down() {
 }
 
 /// Hak Pak Conflict Analysis on The Domains of Dread's module and haks
-/// (`~/Projects/tdod-module/build`, where it is on this machine), then
-/// What the Module Uses: each hak's resources by what the module reaches.
+/// (`~/Projects/tdod-module/build`, where it is on this machine), the
+/// Bottom Dock's tab (a window before M4's U28), then What the Module
+/// Uses: each hak's resources by what the module reaches.
 #[test]
 #[ignore]
 fn hak_conflicts_and_what_the_module_uses() {
@@ -12353,6 +12384,40 @@ fn board_main() {
     shoot(&mut h, &board_dir(), "board_main");
 }
 
+/// `board_main` with Problems open (M4's U28): Build Module's findings of
+/// the chapter's scripts in the Bottom Dock, an error first and one chosen,
+/// the Status Bar counting them; the rest as the Main board.
+#[test]
+#[ignore]
+fn board_main_problems() {
+    use mg_module::doctor::Severity;
+    use mg_ui::problems::{Go, Problem, Source};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let p = |severity, n: &str, message: &str| {
+        Problem::new(severity, format!("{n}.nss"), message.into(), Some(Go::Resource(nss(n))))
+    };
+    let found = vec![
+        p(Severity::Error, "m1q3_formosa_9", "line 12: undefined identifier (GetFormosaState)"),
+        p(Severity::Warning, "m1q1faribeth_d", "line 40: variable nTalked declared but not used"),
+        p(Severity::Warning, "m1q3_end", "line 7: function GetQuestStep is never called"),
+    ];
+    let now = h.state().ws.as_ref().map(|ws| ws.revision());
+    h.state_mut().problems.replace(Source::Build, found, now);
+    h.state_mut().problems.select(Some((Source::Build, 0)));
+    h.state_mut().settings.hide_log = false;
+    h.state_mut().settings.bottom_dock_height = Some(200);
+    // (The area's view asks for frames as it draws: steps, not a run.)
+    h.run_steps(3);
+    if h.state().bottom_dock_shows() != Some(mg_ui::Panel::Problems) {
+        h.get_by_label("Status Bar").get_by_label("Problems").click();
+    }
+    h.run_steps(5);
+    shoot(&mut h, &board_dir(), "board_main_problems");
+}
+
 /// Narrow.png at 1280 by 800: the compact header (M4's U3), but no tool
 /// strip at the view's left; the Right Dock has no Properties tab beside
 /// Palette and Preview.
@@ -14718,28 +14783,6 @@ fn board_dialogs() {
     let dir = board_dir();
     let size = egui::vec2(1600.0, 720.0);
     let dlg = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
-    // (The dialog `title` made `by` taller by its bottom edge, as the
-    // board's: it keeps the height it opened with, before its results.)
-    fn taller(h: &mut Harness<'_, Moonglow>, title: &str, by: f32) {
-        let window = h.get_by_label(title).rect();
-        let from = egui::pos2(window.center().x, window.bottom() - 1.0);
-        let to = from + egui::vec2(0.0, by);
-        let press = |h: &mut Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool| {
-            let button = egui::PointerButton::Primary;
-            let modifiers = egui::Modifiers::NONE;
-            h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
-            h.run_steps(1);
-        };
-        h.hover_at(from);
-        h.run_steps(1);
-        press(h, from, true);
-        for k in 1..=6 {
-            h.hover_at(from + (to - from) * (k as f32 / 6.0));
-            h.run_steps(1);
-        }
-        press(h, to, false);
-        settle(h);
-    }
     let opened = |what: &str, open: &dyn Fn(&mut Harness<'_, Moonglow>), name: &str| {
         let mut h = shell_window(&root, size);
         h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
@@ -14748,7 +14791,8 @@ fn board_dialogs() {
         open(&mut h);
         h.run_steps(5);
         settle(&mut h);
-        assert!(h.query_by_label(what).is_some(), "{what} open");
+        // (Build Module is its dialog's title and Problems' heading too.)
+        assert!(h.query_all_by_label(what).next().is_some(), "{what} open");
         // (The pointer gone from the window: it hovers nothing.)
         h.event(egui::Event::PointerGone);
         settle(&mut h);
@@ -14798,7 +14842,10 @@ fn board_dialogs() {
             if let Some(hit) = d.hits.iter_mut().find(|h| h.0.place.contains("waypoint")) {
                 hit.1 = false;
             }
-            taller(h, "Find and Replace Text", 130.0);
+            // (M4's U28: its form and strings are Search Results' in the
+            // Bottom Dock, made taller there.)
+            h.state_mut().settings.bottom_dock_height = Some(360);
+            settle(h);
         },
         "board_dialogs_find_replace",
     );
@@ -14814,17 +14861,19 @@ fn board_dialogs() {
             settle(h);
             h.get_all_by_label("Build").last().unwrap().click_accesskit();
             settle(h);
-            let w = h.state_mut().build.as_mut().unwrap();
-            assert!(!w.results.is_empty(), "built");
-            // (A row of one line among the first in sight, an Unused one
-            // where there is one.)
-            let short =
-                |f: &mg_ui::build_view::Finding| !f.text.contains('\n') && f.text.len() < 70;
-            let first = w.results.iter().take(8);
-            let at = (first.clone().position(|f| short(f) && f.text.starts_with("Unused:")))
+            // (M4's U28: the results are Problems' in the Bottom Dock; a
+            // row of one line among the first chosen, an Unused one where
+            // there is one.)
+            use mg_ui::problems::Source;
+            let set = h.state().problems.of(&Source::Build).expect("built");
+            assert!(!set.problems.is_empty(), "built");
+            let short = |p: &mg_ui::problems::Problem| p.message.len() < 70;
+            let first = set.problems.iter().take(8);
+            let at = (first.clone().position(|p| short(p) && p.unused.is_some()))
                 .or_else(|| first.clone().position(short));
-            w.selected = Some(at.unwrap_or(0));
-            taller(h, "Build Module", 140.0);
+            h.state_mut().problems.select(Some((Source::Build, at.unwrap_or(0))));
+            h.state_mut().settings.bottom_dock_height = Some(300);
+            settle(h);
         },
         "board_dialogs_build",
     );
@@ -14850,11 +14899,12 @@ fn board_dialogs() {
 
 /// Dialogs without a footer before and after U26's change to
 /// `Dialog::show`'s room (the item spacing under the title row taken
-/// off): About, Find Text with Find In Files (the scripts'), Find and
-/// Replace Text, Build Module and Rename, each over Chapter1 in a window
+/// off): About, Find Text with Find In Files (the scripts'), Build Module
+/// and Rename, each over Chapter1 in a window
 /// of 1600 by 720 and in short ones, 1280 by 360 and by 320 (the least), into
 /// `screens/dialog-room/NAME-HEIGHT-SHOT.png` (`MG_SHOT`, default
-/// `after`). Options is a tab since U23, not a dialog.
+/// `after`). Options is a tab since U23, Find and Replace Text a Bottom
+/// Dock panel since U28: neither is a dialog.
 #[test]
 #[ignore]
 fn u26_dialog_room() {
@@ -14865,14 +14915,11 @@ fn u26_dialog_room() {
     let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
     let dlg = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
     type Open = fn(&mut Harness<'_, Moonglow>, ResKey);
-    let cases: [(&str, &str, Open); 5] = [
+    let cases: [(&str, &str, Open); 4] = [
         ("about", "About Moonglow Toolset", |h, _| h.state_mut().about = true),
         ("find-in-files", "Find Text", |h, _| {
             let s = &mut h.state_mut().script_tools.search;
             (s.open, s.in_files) = (true, true);
-        }),
-        ("find-replace", "Find and Replace Text", |h, _| {
-            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
         }),
         ("build", "Build Module", |h, _| {
             h.state_mut().build = Some(mg_ui::build_view::BuildWindow::default());

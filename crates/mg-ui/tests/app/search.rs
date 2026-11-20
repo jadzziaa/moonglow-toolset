@@ -327,9 +327,19 @@ fn find_and_replace_text_across_the_module() {
     h.get_by_label("Find").click();
     h.run();
     h.get_by_label("2 strings, 2 times");
-    // The second unticked: one replaced.
-    h.state_mut().text_replace.as_mut().unwrap().hits[1].1 = false;
+    dock_high(&mut h, 360);
+    settle(&mut h);
+    // The second unticked (by its tick, M4's U28: a row of Search
+    // Results'): one replaced.
+    h.get_all_by(|n| {
+        n.role() == egui::accesskit::Role::CheckBox
+            && n.label().is_some_and(|l| l.starts_with("Replace in camp_b.utw"))
+    })
+    .next()
+    .expect("camp_b's tick")
+    .click();
     h.run();
+    assert!(!h.state().text_replace.as_ref().unwrap().hits[1].1, "camp_b's unticked");
     h.get_by_label("Replace in 1").click();
     h.run();
     let name = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {

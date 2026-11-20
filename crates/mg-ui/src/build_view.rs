@@ -1,8 +1,14 @@
 //! Build › Build Module (Aurora's `TdlgVerifyModule`): compile passes
 //! (scripts, creature challenge ratings, encounters, palettes), then checks
-//! for missing resources and, if asked, unused ones, listed as results; a double click opens what a result is about,
-//! and the list can be exported as text. Aurora's defaults: Compile and
-//! Missing Resources on, Unused and Spell Check off.
+//! for missing resources and, if asked, unused ones. Aurora's defaults:
+//! Compile and Missing Resources on, Unused and Spell Check off.
+//!
+//! M4's U28, by the owner's Q4(a): the dialog keeps its options and Build,
+//! Mark as Used, Export… and Done; its results go to Problems as a source
+//! of their own ([`crate::problems::Source::Build`]), which Build opens (a
+//! click on a result's place, or a double click on its row, opens what it is
+//! about), and Counted as Used is the Build heading's button there. Mark as
+//! Used counts the Unused result chosen in Problems as used.
 
 use mg_uikit::Controls as _;
 use std::collections::BTreeMap;
@@ -13,8 +19,8 @@ use mg_module::project_file::UsedRules;
 use mg_module::verify::Category;
 use mg_resman::ResKey;
 
+use crate::Moonglow;
 use crate::dialogs::FileKind;
-use crate::{Action, Moonglow, Tab};
 
 /// The categories Missing Resources checks, in Aurora's order.
 pub const MISSING: [Category; 11] = [
@@ -34,13 +40,53 @@ pub const MISSING: [Category; 11] = [
 /// One line of the results, and the resource it is about.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
+    /// The line as the log says it ("Error: …", "Unused: …").
     pub text: String,
     pub about: Option<ResKey>,
     /// Of an Unused line, what is unused (Mark as Used takes it).
     pub unused: Option<mg_module::verify::Unused>,
+    /// Its kind in Problems: a script that does not compile and a missing
+    /// resource that breaks the game are errors; an unused one, and one
+    /// missing that the game does without, warnings.
+    pub severity: mg_module::doctor::Severity,
+    /// Its words in Problems, after its place (the line without "Error: "
+    /// or "Unused: ").
+    pub message: String,
 }
 
-/// The Build Module window.
+impl Finding {
+    fn error(text: String, about: Option<ResKey>) -> Finding {
+        let message = text.strip_prefix("Error: ").unwrap_or(&text).to_string();
+        Finding { text, about, unused: None, severity: Severity::Error, message }
+    }
+
+    /// As Problems lists it: its place the resource it is about.
+    fn problem(&self) -> crate::problems::Problem {
+        let at = self.about.map(|k| k.to_string()).unwrap_or_default();
+        let go = self.about.map(crate::problems::Go::Resource);
+        let mut p = crate::problems::Problem::new(self.severity, at, self.message.clone(), go);
+        p.unused = self.unused;
+        p
+    }
+}
+
+use mg_module::doctor::Severity;
+
+/// Counted as Used's field: the name or glob typed, and the key of
+/// `[used]` it goes in (`scripts`, `conversations`, `blueprints`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsedDraft {
+    pub text: String,
+    pub kind: &'static str,
+}
+
+impl Default for UsedDraft {
+    fn default() -> UsedDraft {
+        UsedDraft { text: String::new(), kind: "scripts" }
+    }
+}
+
+/// The Build Module window: its options (its results are Problems').
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildWindow {
     /// Advanced Controls: the options are shown.
@@ -56,12 +102,6 @@ pub struct BuildWindow {
     pub unused_scripts: bool,
     pub unused_conversations: bool,
     pub unused_blueprints: bool,
-    pub results: Vec<Finding>,
-    pub selected: Option<usize>,
-    /// Counted as Used: the name or glob typed, and the key of `[used]`
-    /// it goes in (`scripts`, `conversations`, `blueprints`).
-    pub mark_draft: String,
-    pub mark_kind: &'static str,
     /// The external compiler a build is given (Options › Script Editor),
     /// set as it starts.
     pub(crate) external: Option<mg_module::external_compiler::ExternalCompiler>,
@@ -85,32 +125,53 @@ impl Default for BuildWindow {
             unused_scripts: true,
             unused_conversations: true,
             unused_blueprints: true,
-            results: Vec::new(),
-            selected: None,
-            mark_draft: String::new(),
-            mark_kind: "scripts",
             external: None,
             debug: false,
         }
     }
 }
 
+/// Where Mark as Used writes (the project file beside the module), where
+/// the module has a folder.
+pub(crate) fn used_place(app: &Moonglow) -> Option<mg_module::project_file::Place> {
+    (app.ws.as_ref())
+        .and_then(|ws| ws.module.location.as_ref())
+        .and_then(mg_module::project_file::ProjectFile::place_to_write)
+}
+
+/// The Unused result of Build's chosen in Problems, if one is.
+pub(crate) fn chosen_unused(app: &Moonglow) -> Option<mg_module::verify::Unused> {
+    let p = app.problems.selected()?;
+    let build = app.problems.of(&crate::problems::Source::Build)?;
+    build.problems.iter().any(|x| std::ptr::eq(x, p)).then_some(p.unused).flatten()
+}
+
+/// Build Module's results said in its footer: where they are.
+pub(crate) fn results_note(app: &Moonglow) -> Option<String> {
+    let set = app.problems.of(&crate::problems::Source::Build)?;
+    let (errors, warnings) = set.counts();
+    let words = crate::problems::counted(errors, warnings)
+        .unwrap_or_else(|| crate::problems::NOTHING.to_string());
+    Some(format!("{words}, in Problems"))
+}
+
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.build.take() else { return };
     let mut open = true;
-    let (mut build, mut done, mut export, mut go) = (false, false, false, None);
-    // (Mark as Used: `[used]`'s key, the name or glob, added or taken out.)
-    let mut mark: Option<(&'static str, String, bool)> = None;
-    let place = app
-        .ws
-        .as_ref()
-        .and_then(|ws| ws.module.location.as_ref())
-        .and_then(mg_module::project_file::ProjectFile::place_to_write);
-    let used = app.ws.as_ref().map(|ws| ws.module.project_file.used.clone()).unwrap_or_default();
+    let (mut build, mut done, mut export) = (false, false, false);
+    let place = used_place(app);
+    let chosen = chosen_unused(app);
+    let note = results_note(app);
+    let can_export =
+        app.problems.of(&crate::problems::Source::Build).is_some_and(|s| !s.problems.is_empty());
     let footed = crate::widgets::dialog(ctx, "Build Module", &mut open)
         .collapsible(false)
         .default_width(560.0)
         .show_foot(ctx, |ui| {
+            // (Wide enough for its footer's note, "5 errors · 9 warnings,
+            // in Problems", beside the four buttons, where the window has
+            // the room.)
+            ui.set_min_width(540.0_f32.min(ctx.content_rect().width() - 48.0));
             // The four checks, always; Advanced Controls shows what each
             // covers.
             ui.horizontal(|ui| {
@@ -170,108 +231,44 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     });
                 });
             }
-            ui.separator();
-            crate::widgets::field_label(ui, "Results");
-            egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(
-                ui,
-                |ui| {
-                    // (The results in sight are laid out, the others take a
-                    // row's room: a world's first Unused check is 20,000.)
-                    mg_uikit::list_rows(ui);
-                    let row = mg_uikit::row_pitch(ui);
-                    for (i, f) in w.results.iter().enumerate() {
-                        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
-                        if !ui.is_rect_visible(room) && !f.text.contains('\n') {
-                            ui.add_space(row);
-                            continue;
-                        }
-                        let r = ui.selectable_label(w.selected == Some(i), &f.text);
-                        if r.clicked() {
-                            w.selected = Some(i);
-                        }
-                        if r.double_clicked() {
-                            go = f.about;
-                        }
-                        let Some(u) = f.unused else { continue };
-                        mg_uikit::context_menu(&r, |ui| {
-                            let r =
-                                ui.add_enabled(place.is_some(), egui::Button::new("Mark as Used"));
-                            if r.on_disabled_hover_text(NO_PLACE)
-                                .on_hover_text(MARK_HOVER)
-                                .clicked()
-                                && let Some(kind) = UsedRules::key_for(u.key.restype)
-                            {
-                                mark = Some((kind, u.key.resref.to_string(), true));
-                                ui.close();
-                            }
-                        });
-                    }
-                },
-            );
-            let chosen = w.selected.and_then(|i| w.results.get(i)).and_then(|f| f.unused);
-            if w.unused {
-                egui::CollapsingHeader::new("Counted as Used")
-                    .icon(mg_uikit::collapsing_icon)
-                    .id_salt("build-used")
-                    .show(ui, |ui| {
-                        if let Some(change) = marks(ui, &mut w, &used, place.as_ref()) {
-                            mark = Some(change);
-                        }
-                    });
-            }
             let can = chosen.is_some() && place.is_some();
             let mark_tip = if place.is_none() {
                 NO_PLACE
             } else if chosen.is_none() {
-                "Choose an Unused result first"
+                CHOOSE_UNUSED
             } else {
                 MARK_HOVER
             };
-            let foot = crate::widgets::Foot::new()
+            let mut foot = crate::widgets::Foot::new();
+            if let Some(note) = &note {
+                foot = foot.note(note.clone());
+            }
+            let foot = foot
                 .main("Build", true)
-                .button("Mark as Used", can)
+                .button(crate::problems::MARK_AS_USED, can)
                 .tip(mark_tip)
-                .button("Export…", !w.results.is_empty())
+                .button("Export…", can_export)
                 .leave("Done");
-            (chosen, foot)
+            ((), foot)
         });
     if let Some(f) = footed {
         build = f.pressed.main();
         done = f.pressed.cancelled();
         export = f.pressed.clicked("Export…");
-        if f.pressed.clicked("Mark as Used")
-            && let Some(u) = f.inner.flatten()
-            && let Some(kind) = UsedRules::key_for(u.key.restype)
+        if f.pressed.clicked(crate::problems::MARK_AS_USED)
+            && let Some(u) = chosen
         {
-            mark = Some((kind, u.key.resref.to_string(), true));
-        }
-    }
-    if let Some((kind, pattern, add)) = mark
-        && set_used(app, kind, &pattern, add)
-    {
-        // (What the project file counts as used now is no longer said.)
-        let rules = app.ws.as_ref().map(|ws| ws.module.project_file.used.clone());
-        let rules = rules.unwrap_or_default();
-        let selected = w.selected.and_then(|i| w.results.get(i).cloned());
-        w.results.retain(|f| {
-            f.unused.is_none_or(|u| rules.marking(u.key.resref, u.key.restype).is_none())
-        });
-        w.selected = selected.and_then(|s| w.results.iter().position(|f| *f == s));
-        if add {
-            w.mark_draft.clear();
+            mark_used(app, u);
         }
     }
     if export
         && let Some(path) =
             app.dialogs.save_file(FileKind::Any, Some(std::path::Path::new("build.txt")))
     {
-        let text: String = w.results.iter().map(|f| format!("{}\n", f.text)).collect();
+        let text = export_text(app);
         if let Err(e) = std::fs::write(&path, text) {
             app.log.error(format!("{}: {e}", path.display()));
         }
-    }
-    if let Some(t) = go.and_then(Tab::for_resource) {
-        app.actions.push(Action::OpenTab(t));
     }
     let options = build.then(|| {
         let mut options = w.clone();
@@ -282,30 +279,109 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if open && !done {
         app.build = Some(w);
     }
-    // The build, in the background; its results come to the window when it
-    // is done (the window's state is back in place by then).
+    // The build, in the background; its results go to Problems when it is
+    // done, brought to the front with the Bottom Dock open.
     if let Some(options) = options {
+        let unused = options.unused;
         app.start_job(
             "Build Module",
             move |job| job.game.as_deref().map(|game| work(&job.module, game, &options)),
-            |app, built| {
+            move |app, built| {
                 let results = match built {
                     Some(built) => finish(app, built),
-                    None => vec![Finding { text: NO_GAME.into(), about: None, unused: None }],
+                    None => vec![Finding::error(NO_GAME.into(), None)],
                 };
-                if let Some(w) = &mut app.build {
-                    w.results = results;
-                    w.selected = None;
-                }
+                show_results(app, &results, true, unused);
             },
         );
     }
 }
 
-/// Why Mark as Used can't be: the module has no folder.
-const NO_PLACE: &str = "Save the module first: the project file is kept beside it";
+/// A build's results into Problems in place of the last build's, of the
+/// module as it is now (its own edits made): brought to the front, the
+/// Bottom Dock opened where `open` or anything was found.
+fn show_results(app: &mut Moonglow, results: &[Finding], open: bool, unused: bool) {
+    let problems: Vec<_> = results.iter().map(Finding::problem).collect();
+    let found = !problems.is_empty();
+    let checked = app.ws.as_ref().map(|ws| ws.revision());
+    app.problems.replace(crate::problems::Source::Build, problems, checked);
+    app.problems.build_unused = unused;
+    app.problems.ask_forward(open || found);
+    // (Its command's: not a build on save, which leaves the keys be.)
+    app.problems.take_keys = found && open;
+}
 
-const MARK_HOVER: &str = "Count it as used from now on (kept in the project file's [used])";
+/// Export…: Build's results in Problems as text, a line each ("Error:
+/// m1q1.nss: …").
+pub(crate) fn export_text(app: &Moonglow) -> String {
+    let Some(set) = app.problems.of(&crate::problems::Source::Build) else { return String::new() };
+    (set.problems.iter())
+        .map(|p| {
+            let word = if p.severity == Severity::Error { "Error" } else { "Warning" };
+            match p.at.is_empty() {
+                true => format!("{word}: {}\n", p.message),
+                false => format!("{word}: {}: {}\n", p.at, p.message),
+            }
+        })
+        .collect()
+}
+
+/// Mark as Used (the Build dialog's button, an Unused result's menu in
+/// Problems): `u` counted as used from now on in the project file's
+/// `[used]`, and the Unused results it covers now taken from Problems.
+pub(crate) fn mark_used(app: &mut Moonglow, u: mg_module::verify::Unused) {
+    let Some(kind) = UsedRules::key_for(u.key.restype) else { return };
+    change_used(app, kind, &u.key.resref.to_string(), true);
+}
+
+/// A change to `[used]` written; Build's Unused results it now covers
+/// taken from Problems.
+fn change_used(app: &mut Moonglow, kind: &'static str, pattern: &str, add: bool) -> bool {
+    if !set_used(app, kind, pattern, add) {
+        return false;
+    }
+    // (What the project file counts as used now is no longer said.)
+    let rules = app.ws.as_ref().map(|ws| ws.module.project_file.used.clone());
+    let rules = rules.unwrap_or_default();
+    app.problems.retain(&crate::problems::Source::Build, |p| {
+        p.unused.is_none_or(|u| rules.marking(u.key.resref, u.key.restype).is_none())
+    });
+    true
+}
+
+/// Build's Counted as Used in Problems: under its button, what the
+/// project file counts as used, each with Remove, and a field to add a
+/// name or glob.
+pub(crate) fn counted_as_used(app: &mut Moonglow, button: &egui::Response) {
+    let place = used_place(app);
+    let used = app.ws.as_ref().map(|ws| ws.module.project_file.used.clone()).unwrap_or_default();
+    let mut draft = std::mem::take(&mut app.build_used);
+    let mut change = None;
+    egui::Popup::menu(button)
+        .id(egui::Id::new("build-counted-as-used"))
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .width(380.0)
+        .show(|ui| {
+            ui.set_max_width(380.0);
+            change = marks(ui, &mut draft, &used, place.as_ref());
+        });
+    app.build_used = draft;
+    if let Some((kind, pattern, add)) = change
+        && change_used(app, kind, &pattern, add)
+        && add
+    {
+        app.build_used.text.clear();
+    }
+}
+
+/// Why Mark as Used can't be: no Unused result is chosen.
+const CHOOSE_UNUSED: &str = "Choose an Unused result in Problems first";
+
+/// Why Mark as Used can't be: the module has no folder.
+pub(crate) const NO_PLACE: &str = "Save the module first: the project file is kept beside it";
+
+pub(crate) const MARK_HOVER: &str =
+    "Count it as used from now on (kept in the project file's [used])";
 
 /// The `[used]` keys, and what Counted as Used calls each.
 const USED_KINDS: [(&str, &str); 3] =
@@ -316,7 +392,7 @@ const USED_KINDS: [(&str, &str); 3] =
 /// asked for: the key, the name or glob, added or taken out.
 fn marks(
     ui: &mut egui::Ui,
-    w: &mut BuildWindow,
+    w: &mut UsedDraft,
     used: &UsedRules,
     place: Option<&mg_module::project_file::Place>,
 ) -> Option<(&'static str, String, bool)> {
@@ -358,21 +434,19 @@ fn marks(
         let label =
             |key: &&'static str| USED_KINDS.iter().find(|(k, _)| k == key).map_or("", |k| k.1);
         let keys: Vec<&'static str> = USED_KINDS.iter().map(|(k, _)| *k).collect();
-        crate::widgets::dropdown("build-used-kind").selected_text(label(&w.mark_kind)).show(
+        crate::widgets::dropdown("build-used-kind").selected_text(label(&w.kind)).show(
             ui,
-            &mut w.mark_kind,
+            &mut w.kind,
             &keys,
             label,
         );
         let r = ui.add(
-            mg_uikit::text_field(&mut w.mark_draft)
-                .hint_text("name or glob (ai_*)")
-                .desired_width(160.0),
+            mg_uikit::text_field(&mut w.text).hint_text("name or glob (ai_*)").desired_width(160.0),
         );
-        let problem = (!w.mark_draft.trim().is_empty())
-            .then(|| mg_module::project_file::Patterns::new(&[w.mark_draft.trim()]).err())
+        let problem = (!w.text.trim().is_empty())
+            .then(|| mg_module::project_file::Patterns::new(&[w.text.trim()]).err())
             .flatten();
-        let can = !w.mark_draft.trim().is_empty() && problem.is_none();
+        let can = !w.text.trim().is_empty() && problem.is_none();
         let add = ui.add_enabled(can, egui::Button::new("Add"));
         let add = match &problem {
             Some(p) => add.on_disabled_hover_text(p),
@@ -380,7 +454,7 @@ fn marks(
         };
         let typed = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if can && (add.clicked() || typed) {
-            change = Some((w.mark_kind, w.mark_draft.trim().to_string(), true));
+            change = Some((w.kind, w.text.trim().to_string(), true));
         }
     });
     change
@@ -415,21 +489,13 @@ fn set_used(app: &mut Moonglow, kind: &'static str, pattern: &str, add: bool) ->
 }
 
 /// Options › General › Build module on save: the build with Aurora's
-/// defaults before saving; the Build Module window opens with the results
-/// if it found problems.
+/// defaults before saving; its results go to Problems, brought to the
+/// front with the Bottom Dock open if it found problems.
 pub(crate) fn build_on_save(app: &mut Moonglow) {
-    let was_open = app.build.is_some();
-    let mut w = app.build.take().unwrap_or_default();
     let external = app.external_compiler();
     let debug = app.settings.debug_info;
     let results = run(app, &BuildWindow { external, debug, ..Default::default() });
-    let clean =
-        results.len() == 1 && results[0].about.is_none() && results[0].text == "No errors found";
-    w.results = results;
-    w.selected = None;
-    if was_open || !clean {
-        app.build = Some(w);
-    }
+    show_results(app, &results, false, false);
 }
 
 /// A blueprint type (the Unused › Blueprints check).
@@ -443,16 +509,16 @@ const NO_GAME: &str =
 
 /// Runs the build and waits for it (the build before saving): the compile
 /// passes, as one undoable command, then the checks. The results are the
-/// problems found ("No errors found" if none, as in Aurora); what each pass
-/// did goes to the log.
+/// problems found (none: the log says "No errors found", as Aurora's
+/// results did); what each pass did goes to the log.
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
-    let none = |text: &str| vec![Finding { text: text.into(), about: None, unused: None }];
+    let none = |text: &str| vec![Finding::error(text.into(), None)];
     let Some(game) = app.game.as_deref() else { return none(NO_GAME) };
     let Some(ws) = app.ws.as_mut() else { return none("No module open") };
     let built = match ws.snapshot() {
         Ok(module) => work(&module, game, w),
-        Err(e) => return vec![Finding { text: e.to_string(), about: None, unused: None }],
+        Err(e) => return none(&e.to_string()),
     };
     finish(app, built)
 }
@@ -482,18 +548,17 @@ fn work(module: &mg_module::Module, game: &mg_rules::GameData, w: &BuildWindow) 
 /// done); the problems.
 fn finish(app: &mut Moonglow, built: Built) -> Vec<Finding> {
     let Built { edits, mut out, notes } = built;
-    let line = |text: String, about: Option<ResKey>| Finding { text, about, unused: None };
     if !edits.is_empty()
         && let Err(e) = app.apply(Command::new("Build Module", edits))
     {
-        out.push(line(format!("Error: {e}"), None));
+        out.push(Finding::error(format!("Error: {e}"), None));
     }
     app.log.info("Building Module...");
     for n in notes {
         app.log.info(n);
     }
     if out.is_empty() {
-        out.push(line("No errors found".into(), None));
+        app.log.info("No errors found");
     }
     for f in &out {
         app.log.info(f.text.clone());
@@ -511,7 +576,7 @@ fn compile(
     out: &mut Vec<Finding>,
     notes: &mut Vec<String>,
 ) -> mg_module::Module {
-    let line = |text: String, about: Option<ResKey>| Finding { text, about, unused: None };
+    let line = Finding::error;
     let mut staged = module.clone();
     if w.compile {
         if w.compile_scripts {
@@ -567,7 +632,6 @@ fn check(
     out: &mut Vec<Finding>,
     notes: &mut Vec<String>,
 ) {
-    let line = |text: String, about: Option<ResKey>| Finding { text, about, unused: None };
     // (Every GFF of the module read once for both checks.)
     let references = if w.missing || w.unused {
         mg_module::verify::module_references(module)
@@ -586,17 +650,23 @@ fn check(
         for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
             n += 1;
             let what = format!("is {}", m.what());
-            out.push(line(
-                format!(
-                    "{:?}: {:?} {} ({} {}) {what}",
-                    m.category,
-                    m.reference.kind,
-                    m.reference.target,
-                    m.reference.from,
-                    m.reference.path
-                ),
-                Some(m.reference.from),
-            ));
+            let text = format!(
+                "{:?}: {:?} {} ({} {}) {what}",
+                m.category,
+                m.reference.kind,
+                m.reference.target,
+                m.reference.from,
+                m.reference.path
+            );
+            let severity = if m.is_error() { Severity::Error } else { Severity::Warning };
+            let message = text.clone();
+            out.push(Finding {
+                text,
+                about: Some(m.reference.from),
+                unused: None,
+                severity,
+                message,
+            });
         }
         notes.push(format!("Build: {n} missing resources"));
     }
@@ -614,6 +684,12 @@ fn check(
                 text: format!("Unused: {u}"),
                 about: Some(u.key),
                 unused: Some(*u),
+                severity: Severity::Warning,
+                // (Its place is its name: what is unused of it after it.)
+                message: match u.script {
+                    Some(s) => format!("Unused ({})", s.words()),
+                    None => "Unused".to_string(),
+                },
             });
         }
         notes.push(format!("Build: {} unused resources", unused.len()));

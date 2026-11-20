@@ -883,7 +883,17 @@ fn a_plugin_s_checks_run_with_verify() {
         log.iter().any(|(l, m)| *l == mg_ui::Level::Error && m.contains("a check only reads")),
         "{log:#?}"
     );
+    // (M4's U28: Verify's findings are Problems' too, which it brings to
+    // the front, the plugin's among them.)
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems));
+    let found = problem_rows(&h, &mg_ui::problems::Source::Verify);
+    assert!(
+        found.iter().any(|r| r.starts_with("Warning: ") && r.contains("gate_guard")),
+        "{found:?}"
+    );
+    h.get_by_label(found.iter().find(|r| r.contains("gate_guard")).unwrap());
     // The log's Clear empties it, before a second Verify.
+    log_in_front(&mut h);
     h.get_by_label("Clear Log").click();
     h.run();
     assert!(h.state().log.entries.is_empty());
@@ -904,6 +914,7 @@ fn a_plugin_s_checks_run_with_verify() {
         "{log:#?}"
     );
     // One plugin's check left out, by its id: the other plugin's runs.
+    log_in_front(&mut h);
     h.get_by_label("Clear Log").click();
     h.run();
     h.state_mut().settings.verify_skip = vec!["example.tag-conventions/tag-case".into()];
@@ -968,6 +979,7 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(tag(&mut h), "gate_guard");
+    log_in_front(&mut h);
     h.get_by_label("Clear Log").click();
     h.run();
     assert!(h.state().log.fixes.is_empty(), "the log's fixes go with it");

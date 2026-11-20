@@ -1,7 +1,8 @@
 //! Openers for the dialogs of the area view and its tools: Resize, Rotate and
-//! Change Tileset, Adjust Location, Find Instance, Edit Areas Together,
-//! Create Set, Resources Used, Bake Walkmesh, Select a Color, Custom Light,
-//! Save as Prefab and Palette Categories.
+//! Change Tileset, Adjust Location, Edit Areas Together, Create Set, Bake
+//! Walkmesh, Select a Color, Custom Light, Save as Prefab and Palette
+//! Categories. (Find Instance and Resources Used are the Bottom Dock's
+//! since M4's U28: `search_results.rs`, `dock_reports.rs`.)
 
 use super::Opener;
 use super::openers_core::clear_field;
@@ -155,23 +156,12 @@ pub(crate) fn openers() -> Vec<Opener> {
             h.get_by_label("Adjust Location…").click();
             settle(h);
         }),
-        Opener::new("area_tools.rs:find_window#1", "Find Instance", area, |h| {
-            edit_item(h, "Find Instance…")
-        })
-        .enter_does("lists what it finds, in it", |h| super::shows_other_words(h, "Find Instance"))
-        .field(0),
         Opener::new("area_view.rs:set_window#1", "Create Set", area, |h| {
             let area = area_of(h);
             h.state_mut().area_views.get_mut(&area).unwrap().set_name = Some(String::new());
         })
         .field(0)
         .off(|h| clear_field(h, "Create Set", 0)),
-        Opener::new("area_view.rs:stats_window#1", "Resources Used", area, |h| {
-            h.get_by_label("Build").click();
-            h.run_steps(2);
-            h.get_by_label("Area Statistics").click();
-            settle(h);
-        }),
         Opener::new("bake_view.rs:save_window#1", "Baked Models No Longer Used", bake, open_tidy),
         Opener::new("bake_view.rs:window#1", "Bake Walkmesh to Transform", bake, open_bake),
         Opener::new("tile_select.rs:panel#1", "Select a Color", wide, |h| {

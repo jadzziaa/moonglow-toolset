@@ -669,6 +669,24 @@ fn click(h: &mut App<'_>, label: &str) {
     h.run_steps(2);
 }
 
+/// The row `row` of the Top Bar's menu `menu`, clicked (M4's U28: Find
+/// Instance and Build Module as a builder opens them).
+fn menu(h: &mut App<'_>, menu: &str, row: &str) {
+    h.get_by_label("Top Bar").get_by_label(menu).click();
+    h.run_steps(2);
+    let keyed = format!("{row} ");
+    let at = h
+        .query_all_by(|n| n.label().is_some_and(|l| l == row || l.starts_with(&keyed)))
+        .next()
+        .unwrap_or_else(|| panic!("no {row:?} in {menu}: was the command renamed?"))
+        .rect();
+    let (pos, button, modifiers) = (at.center(), egui::PointerButton::Primary, Default::default());
+    h.hover_at(pos);
+    h.event(egui::Event::PointerButton { pos, button, pressed: true, modifiers });
+    h.event(egui::Event::PointerButton { pos, button, pressed: false, modifiers });
+    h.run_steps(3);
+}
+
 /// [`click`] on the first thing labelled `label` that is not in the group
 /// `group` (the Module panel's Properties, in the "Left Dock", beside a
 /// blueprint's Properties page).
@@ -2498,13 +2516,48 @@ fn frames_at_144_in_a_persistent_world() {
         h.state_mut().placeable_gallery = None;
     }
     // Find Instance with nothing typed: every placed object of the 300
-    // areas found, the rows in sight laid out (the review's A18).
-    h.state_mut().find_instance = Some(Default::default());
-    h.run_steps(2);
+    // areas found, the rows in sight laid out (the review's A18). (M4's
+    // U28: opened by Edit's menu, its form and hits in Search Results in
+    // the Bottom Dock.)
+    menu(&mut h, "Edit", "Find Instance…");
+    assert_eq!(
+        h.state().bottom_dock_shows(),
+        Some(mg_ui::Panel::SearchResults),
+        "Search Results not shown"
+    );
     click(&mut h, "Search");
+    // (A job since U28: until it ends.)
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 120, "the search did not end");
+    }
+    h.run_steps(3);
     let found = h.state().find_instance.as_ref().map_or(0, |f| f.results.len());
     view(&mut h, &mut r, &format!("Find Instance, {found} found"), None);
     h.state_mut().find_instance = None;
+    // Build Module (Unused and Missing Resources, not Compile) over the
+    // 300 areas: its findings in Problems in the Bottom Dock, the dialog
+    // over the view.
+    menu(&mut h, "Build", "Build Module…");
+    if let Some(w) = h.state_mut().build.as_mut() {
+        (w.unused, w.missing, w.compile) = (true, true, false);
+    }
+    h.run_steps(2);
+    h.query_all_by_label("Build").last().expect("Build").click_accesskit();
+    // (Until the build's job ends.)
+    let started = std::time::Instant::now();
+    h.run_steps(2);
+    while h.state().busy() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 120, "the build did not end");
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems), "Problems not shown");
+    let found =
+        h.state().problems.of(&mg_ui::problems::Source::Build).map_or(0, |s| s.problems.len());
+    view(&mut h, &mut r, &format!("Build Module, {found} found, in Problems"), None);
+    h.state_mut().build = None;
 
     // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a
     // filter typed.

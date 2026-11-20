@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -31,7 +31,7 @@ unless their file (under `crates/`) follows the name.
 | Advanced: Variables `…` | Variables window | ✅ [module_name_in_every_language_and_variables] |
 | Description: memo + `…` all languages | multi-line field (line ends kept) + `…` | ✅ [multi_line_text_keeps_its_line_ends] |
 | Custom Content: hak list, Add (from hak folders), Remove, Move Up, Move Down | same; changes apply when the module is reopened | ✅ |
-| Custom Content: Check for Conflicts… (TdlgHakPak) | report window (the text of `mg haks`) | ◐ report text only; Aurora's dialog lists conflicts in a grid |
+| Custom Content: Check for Conflicts… (TdlgHakPak) | Hak Pak Conflict Analysis, a Bottom Dock tab (M4 U28): the haks read one by one as a job (its progress, Cancel stops it), then the conflicts, the overrides and the haks each a sortable grid, What the Module Uses, Copy Report (the text of `mg haks`) | ✅ [hak_conflicts_is_a_tab_with_views_sorting_keys_and_close, the_report_says_how_far_it_is_and_stops_when_called_off] |
 | Custom Content: Custom Tlk File (tlk folder) | list of `.tlk` in the user's `tlk/`; the chosen table is loaded for StrRef lookups | ✅ |
 | OK / Cancel | the same: every change applies as it is made, one undoable step, and Cancel sets back what the window changed since it was opened, as one step; at the right end of the window's header (M4 U9) | ✅ [the_editors_cancel_sets_back_what_they_changed, module_and_area_properties_list_their_pages_under_their_header] |
 | The tabs Basic … Custom Content | the pages listed at the left with icons, one after another on one scroll (a page clicked comes to the top; M4 U9) | ✅ [module_and_area_properties_list_their_pages_under_their_header] |

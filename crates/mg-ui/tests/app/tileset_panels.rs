@@ -311,7 +311,12 @@ fn a_gone_source_is_said_and_a_set_is_removed() {
     let rows = h.get_by_label(mg_ui::problems::PROBLEM_ROWS);
     assert!(rows.query_by_label_contains("File not found").is_some());
     // Removed by its heading's menu.
-    rows.get_by_label("zzt01.set, 1 error").click_secondary();
+    // (The heading is named by its source alone, its counts the tab bar's:
+    // M4's U28 review; the link of a finding has the same words.)
+    let heading = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.label().as_deref() == Some("zzt01.set") && n.role() == egui::accesskit::Role::Unknown
+    };
+    rows.query_all_by(heading).next().expect("the heading").click_secondary();
     settle(&mut h);
     h.get_by_label(mg_ui::problems::REMOVE).click();
     settle(&mut h);
@@ -322,7 +327,8 @@ fn a_gone_source_is_said_and_a_set_is_removed() {
     let id = h.state().tilesets[0].id;
     tv::record_check(h.state_mut(), id, std::slice::from_ref(&finding));
     settle(&mut h);
-    h.get_by_label(mg_ui::problems::PROBLEM_ROWS).get_by_label("zzt01.set, 1 error").focus();
+    let rows = h.get_by_label(mg_ui::problems::PROBLEM_ROWS);
+    rows.query_all_by(heading).next().expect("the heading").focus();
     settle(&mut h);
     h.key_press(egui::Key::Delete);
     settle(&mut h);
@@ -422,7 +428,9 @@ fn problems_with_nothing_in_it_says_what_fills_it() {
     let said = h.get_by_label(mg_ui::problems::NOTHING).rect();
     assert!(dock.contains_rect(said), "{said:?} in {dock:?}");
     assert!(h.query_by_label(mg_ui::problems::FILLED_BY).is_some());
-    assert!(h.query_by_label_contains("Verify Module").is_none(), "no promise of Verify's");
+    // (M4's U28: Build Module and Verify Module fill it too, and say so.)
+    assert!(h.query_by_label_contains("Build Module").is_some(), "Build's named, drawn");
+    assert!(h.query_by_label_contains("Verify Module").is_some(), "Verify's named, drawn");
 }
 
 /// The Outliner lists the tileset's parts with their counts (the plan's):
@@ -1139,6 +1147,7 @@ fn a_finding_of_the_whole_file_names_the_file() {
     assert_eq!(tileset_problems(&h, &path)[0].at, "zzt01.set");
     let link = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.data().supports_action(egui::accesskit::Action::Focus)
+            && n.role() != egui::accesskit::Role::Unknown
             && n.label().as_deref() == Some("zzt01.set")
     };
     let rows = h.get_by_label(mg_ui::problems::PROBLEM_ROWS);

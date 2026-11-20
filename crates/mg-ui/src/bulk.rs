@@ -343,10 +343,11 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
     }
 }
 
-/// The Find and Replace Text window (Edit › Find and Replace Text…): the
-/// module's player-facing strings, and where ticked its tags, resrefs,
-/// variables and other text fields (`mg_module::text`), found as typed or
-/// by a regular expression.
+/// Find and Replace Text (Edit › Find and Replace Text…; M4's U28: Search
+/// Results' form and rows, before it a window of its own): the module's
+/// player-facing strings, and where ticked its tags, resrefs, variables
+/// and other text fields (`mg_module::text`), found as typed or by a
+/// regular expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextReplace {
     pub find: String,
@@ -361,19 +362,118 @@ pub struct TextReplace {
     /// are in: one changed since may have another struct where a hit's
     /// path leads.
     found_at: (u64, Vec<ResKey>),
+    /// Whether they are stale, worked out for the module's revision it
+    /// holds (Search Results' badge and form ask each frame: not every
+    /// resource with a hit looked at each frame).
+    stale_seen: std::cell::Cell<Option<(u64, bool)>>,
     /// Why the text asked for is not a regular expression, if it is not
     /// one, and what that was worked out for (not compiled every frame).
     checked: Option<((String, mg_module::text::Options), Option<String>)>,
-    /// Find again next frame (after a replace is applied).
-    refind: bool,
+    /// The hit the keys are on (Search Results' rows: Up and Down move it,
+    /// Space ticks it, Enter opens it).
+    pub(crate) current: Option<usize>,
+    /// The hits' rows laid out last frame (those in sight).
+    pub(crate) strings_seen: (usize, usize),
+    /// The ticked hits and the times they hold, counted as the ticks
+    /// change, not each frame.
+    ticked: (usize, usize),
 }
 
 impl TextReplace {
     /// Whether a resource with a hit in it changed since the hits were
     /// found.
     pub fn stale(&self, ws: &mg_edit::Workspace) -> bool {
+        let now = ws.revision();
+        if let Some((seen, stale)) = self.stale_seen.get()
+            && seen == now
+        {
+            return stale;
+        }
         let (at, keys) = &self.found_at;
-        keys.iter().any(|k| ws.changed_at(k) > *at)
+        let stale = keys.iter().any(|k| ws.changed_at(k) > *at);
+        self.stale_seen.set(Some((now, stale)));
+        stale
+    }
+
+    /// Whether the hits are of what is asked now (its text and options).
+    pub(crate) fn asked_now(&self) -> bool {
+        self.searched.as_ref().is_some_and(|(f, o)| *f == self.find && *o == self.options)
+    }
+
+    /// Why Find what is not a regular expression where it is asked to be
+    /// one, worked out again only as the text or the options change.
+    pub(crate) fn regex_problem(&mut self) -> Option<String> {
+        let now = (self.find.clone(), self.options);
+        if !self.checked.as_ref().is_some_and(|(what, _)| *what == now) {
+            let bad = (self.options.regex && !self.find.is_empty())
+                .then(|| mg_module::text::Finder::new(&self.find, self.options).err())
+                .flatten();
+            self.checked = Some((now, bad));
+        }
+        self.checked.as_ref().and_then(|(_, bad)| bad.clone())
+    }
+
+    /// A hit ticked or unticked; the counts follow.
+    pub(crate) fn tick(&mut self, at: usize, on: bool) {
+        if let Some(h) = self.hits.get_mut(at) {
+            h.1 = on;
+        }
+        self.count_ticked();
+    }
+
+    fn count_ticked(&mut self) {
+        let on = self.hits.iter().filter(|h| h.1);
+        self.ticked = on.fold((0, 0), |(n, times), h| (n + 1, times + h.0.count));
+    }
+
+    /// The ticked hits, and how many times the text is in them.
+    pub(crate) fn ticked(&self) -> (usize, usize) {
+        self.ticked
+    }
+
+    /// "6 strings, 5 times" ("1 string, 1 time"): the strings found and the
+    /// times the text is in those ticked.
+    pub(crate) fn count_words(&self) -> String {
+        let strings = self.hits.len();
+        let times = self.ticked.1;
+        format!(
+            "{strings} {}, {times} {}",
+            if strings == 1 { "string" } else { "strings" },
+            if times == 1 { "time" } else { "times" }
+        )
+    }
+
+    /// The strings' rows laid out last frame (for the tests: those in
+    /// sight alone).
+    #[doc(hidden)]
+    pub fn strings_seen(&self) -> (usize, usize) {
+        self.strings_seen
+    }
+
+    /// The hits let go of (the module closed): the form keeps what was
+    /// typed.
+    pub(crate) fn forget_hits(&mut self) {
+        self.hits.clear();
+        self.searched = None;
+        self.found_at = Default::default();
+        self.stale_seen.set(None);
+        self.current = None;
+        self.ticked = (0, 0);
+    }
+
+    /// Hits found, in place of the last search's, all ticked.
+    fn set_hits(
+        &mut self,
+        hits: Vec<mg_module::text::Hit>,
+        at: (u64, Vec<ResKey>),
+        searched: (String, mg_module::text::Options),
+    ) {
+        self.found_at = at;
+        self.stale_seen.set(None);
+        self.hits = hits.into_iter().map(|h| (h, true)).collect();
+        self.searched = Some(searched);
+        self.current = None;
+        self.count_ticked();
     }
 }
 
@@ -387,14 +487,28 @@ impl Default for TextReplace {
             hits: Vec::new(),
             searched: None,
             found_at: Default::default(),
+            stale_seen: Default::default(),
             checked: None,
-            refind: false,
+            current: None,
+            strings_seen: (0, 0),
+            ticked: (0, 0),
         }
     }
 }
 
+/// What a find looks for: the module's keys of its hits, its revision as it
+/// began.
+fn found_keys(hits: &[mg_module::text::Hit]) -> Vec<ResKey> {
+    let mut keys: Vec<ResKey> = hits.iter().map(|h| h.key).collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
 impl Moonglow {
-    /// Finds the window's text in the module (its unsaved edits included).
+    /// Finds the text of `draft` in the module (its unsaved edits
+    /// included), on this thread: the tests'. The window's Find runs it as
+    /// a job ([`start_find_text`]).
     pub fn find_text(&mut self, draft: &mut TextReplace) {
         let Some(ws) = self.ws.as_mut() else { return };
         if let Err(e) = ws.flush() {
@@ -405,13 +519,8 @@ impl Moonglow {
         let game = self.game.as_deref().map(|g| g.codepage());
         let options = mg_module::text::Options { game, ..draft.options };
         let hits = mg_module::text::find(&ws.module, &draft.find, options, &draft.kinds);
-        let mut keys: Vec<ResKey> = hits.iter().map(|h| h.key).collect();
-        keys.dedup();
-        keys.sort();
-        keys.dedup();
-        draft.found_at = (ws.revision(), keys);
-        draft.hits = hits.into_iter().map(|h| (h, true)).collect();
-        draft.searched = Some((draft.find.clone(), draft.options));
+        let at = (ws.revision(), found_keys(&hits));
+        draft.set_hits(hits, at, (draft.find.clone(), draft.options));
     }
 
     /// Replaces the found text in the ticked strings, as one command; how
@@ -461,214 +570,64 @@ impl Moonglow {
     }
 }
 
-/// The Find and Replace Text window.
-pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
-    use mg_module::text::TextKind;
-    let Some(mut draft) = app.text_replace.take() else { return };
-    if std::mem::take(&mut draft.refind) {
-        app.find_text(&mut draft);
+/// Find and Replace Text's Find, as a job (Search Results' Find, Enter in
+/// Find what): the module as it is, a resource at a time, its progress in
+/// the job's window and Cancel there; what it finds into Search Results in
+/// place of the last search's.
+pub(crate) fn start_find_text(app: &mut Moonglow) {
+    let Some(d) = app.text_replace.as_mut() else { return };
+    if d.find.is_empty() || d.regex_problem().is_some() {
+        return;
     }
-    let mut open = true;
-    let (mut find, mut replace, mut go) = (false, false, None);
-    let footed = crate::widgets::dialog(ctx, "Find and Replace Text", &mut open)
-        .default_width(560.0)
-        .show_foot(ctx, |ui| {
-            ui.weak(
-                "The module's names, descriptions, conversation lines and journal, in every \
-                 language they're written in (not the game's talk table); and, ticked, its \
-                 tags, resrefs, variables and other text fields.",
-            );
-            // (The board's `.form`: the labels in an 84-point column, the
-            // fields across the rest of the dialog, 6 apart.)
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                let field = |ui: &mut egui::Ui, label: &str, text: &mut String| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        let size = egui::vec2(84.0, ui.spacing().interact_size.y);
-                        let layout = egui::Layout::left_to_right(egui::Align::Center);
-                        ui.allocate_ui_with_layout(size, layout, |ui| {
-                            ui.set_min_size(size);
-                            crate::widgets::field_label(ui, label);
-                        });
-                        let wide = ui.available_width();
-                        ui.add(
-                            mg_uikit::text_field(text)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_width(wide),
-                        )
-                    })
-                    .inner
-                };
-                let r = field(ui, "Find what", &mut draft.find);
-                crate::widgets::autofocus(ui, &r);
-                field(ui, "Replace with", &mut draft.with);
-            });
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                ui.check_box(&mut draft.options.match_case, "Match case");
-                ui.check_box(&mut draft.options.whole_word, "Whole words");
-                ui.check_box(&mut draft.options.regex, "Regular expression").on_hover_text(
-                    "Find what is a regular expression. Replace with may use its groups ($1, \
-                     ${name}).",
-                );
-            });
-            let mut tick = |ui: &mut egui::Ui, k: TextKind, hover: Option<&str>| {
-                let mut on = draft.kinds.contains(&k);
-                let r = ui.check_box(&mut on, k.label());
-                let r = match hover {
-                    Some(h) => r.on_hover_text(h),
-                    None => r,
-                };
-                if r.changed() {
-                    draft.kinds.retain(|x| *x != k);
-                    if on {
-                        draft.kinds.push(k);
-                    }
-                }
-            };
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                for k in TextKind::PLAYERS {
-                    tick(ui, k, None);
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                for k in TextKind::ALL.into_iter().filter(|k| !k.players()) {
-                    let hover = match k {
-                        TextKind::Tag => {
-                            "Objects' and areas' tags. A tag made another's is warned of."
-                        }
-                        TextKind::ResRef => {
-                            "Fields naming a script, blueprint or conversation. Rename… renames \
-                             the resource itself."
-                        }
-                        TextKind::Variable => "Local variables' names and string values",
-                        _ => "The other text fields (a door's Linked To, a key's tag, comments)",
-                    };
-                    tick(ui, k, Some(hover));
-                }
-            });
-            let for_now = |(f, o): &(String, mg_module::text::Options)| {
-                *f == draft.find && *o == draft.options
-            };
-            if !draft.checked.as_ref().is_some_and(|(what, _)| for_now(what)) {
-                let bad = (draft.options.regex && !draft.find.is_empty())
-                    .then(|| mg_module::text::Finder::new(&draft.find, draft.options).err())
-                    .flatten();
-                draft.checked = Some(((draft.find.clone(), draft.options), bad));
-            }
-            let bad = draft.checked.as_ref().and_then(|(_, bad)| bad.clone());
-            if let Some(e) = &bad {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    format!("Not a regular expression: {e}"),
-                );
-            }
-            let can = !draft.find.is_empty() && bad.is_none();
-            let mut note = None;
-            let mut replace_n = None;
-            // What was found, if it's still what's asked for.
-            let asked = draft.searched.as_ref().is_some_and(for_now);
-            let stale = app.ws.as_ref().is_some_and(|ws| draft.stale(ws));
-            if asked && stale {
-                ui.weak("The module changed since. Find again for what it has now.");
-            } else if asked {
-                let times: usize = draft.hits.iter().filter(|h| h.1).map(|h| h.0.count).sum();
-                let strings = draft.hits.len();
-                note = Some(format!(
-                    "{strings} {}, {times} {}",
-                    if strings == 1 { "string" } else { "strings" },
-                    if times == 1 { "time" } else { "times" }
-                ));
-                // (The hits in sight alone are laid out, each two lines
-                // high, a long text cut: "the" is found tens of thousands
-                // of times.)
-                let line = ui.spacing().interact_size.y;
-                let tall = line
-                    + ui.spacing().item_spacing.y
-                    + ui.text_style_height(&egui::TextStyle::Body);
-                let rows =
-                    egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]);
-                // (Each hit exactly `tall`, the hits meeting: no gap between;
-                // in a well across the dialog, the board's: `inset`, a
-                // `line-soft` border, corners of 3.)
-                let t = mg_uikit::tokens(ui.ctx());
-                let well = egui::Frame::new()
-                    .fill(t.inset)
-                    .stroke(egui::Stroke::new(1.0, t.line_soft))
-                    .corner_radius(3)
-                    .inner_margin(egui::Margin { left: 6, right: 1, top: 1, bottom: 1 });
-                let shown = well.show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    mg_uikit::with_rows(ui, |ui| {
-                        rows.show_rows(ui, tall, draft.hits.len(), |ui, range| {
-                            for i in range {
-                                let (hit, on) = &mut draft.hits[i];
-                                let size = egui::vec2(ui.available_width(), tall);
-                                let down = egui::Layout::top_down(egui::Align::Min);
-                                let at = ui.allocate_ui_with_layout(size, down, |ui| {
-                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                    ui.horizontal(|ui| {
-                                        ui.check_box(on, "");
-                                        if ui.link(&hit.place).on_hover_text("Open it").clicked() {
-                                            go = Some(i);
-                                        }
-                                    });
-                                    let text: String = hit.text.chars().take(120).collect();
-                                    ui.indent(("hit", i), |ui| ui.weak(text));
-                                });
-                                // (A `line` under each hit, the board's `.hit`.)
-                                // (Across the well, from its left edge.)
-                                let r = at.response.rect;
-                                let across = (r.left() - 6.0)..=(r.left() + size.x);
-                                let stroke = egui::Stroke::new(1.0, t.line);
-                                ui.painter().hline(across, r.top() + tall - 0.5, stroke);
-                            }
-                        })
-                    })
-                });
-                // (Named, for its rect: the hits are in it.)
-                shown.response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Results")
-                });
-                replace_n = Some(draft.hits.iter().filter(|h| h.1).count());
-            } else if draft.searched.is_some() {
-                ui.weak("Find again for what's asked now.");
-            }
-            let n = replace_n.unwrap_or(0);
-            let mut foot = crate::widgets::Foot::new();
-            if let Some(note) = note {
-                foot = foot.note(note);
-            }
-            ((), foot.main("Find", can).button(format!("Replace in {n}"), n > 0))
-        });
-    if let Some(f) = footed {
-        find = f.pressed.main();
-        replace = f.pressed.nth(1);
+    let Some(ws) = app.ws.as_ref() else { return };
+    let (find, kinds) = (d.find.clone(), d.kinds.clone());
+    let searched = (d.find.clone(), d.options);
+    let game = app.game.as_deref().map(|g| g.codepage());
+    let options = mg_module::text::Options { game, ..d.options };
+    // (The revision as it begins: the snapshot is of it.)
+    let revision = ws.revision();
+    app.start_job(
+        "Find and Replace Text",
+        move |job| {
+            mg_module::text::find_with(&job.module, &find, options, &kinds, &mut |done, total| {
+                job.progress.step(done, total);
+                !job.progress.cancelled()
+            })
+        },
+        move |app, hits| {
+            let Some(hits) = hits else { return };
+            let Some(d) = app.text_replace.as_mut() else { return };
+            let at = (revision, found_keys(&hits));
+            d.set_hits(hits, at, searched);
+            app.show_search(crate::search_results::Showing::Text);
+        },
+    );
+}
+
+/// Replace in N: the found text replaced in the ticked strings, as one
+/// step of Undo, then found again (what is left).
+pub(crate) fn replace(app: &mut Moonglow) {
+    let Some(d) = app.text_replace.clone() else { return };
+    if app.replace_text(&d) > 0 {
+        // (Found again once the replace is applied: what's left. The
+        // replace is an action of this frame; the find, a job, comes after
+        // it.)
+        app.text_refind = true;
     }
-    if find && !draft.find.is_empty() {
-        app.find_text(&mut draft);
-    }
-    if replace {
-        app.replace_text(&draft);
-        // Found again once applied: what's left.
-        draft.refind = true;
-        ctx.request_repaint();
-    }
-    if let Some(i) = go {
-        let hit = &draft.hits[i].0;
-        let usage = mg_module::rename::Usage {
-            from: hit.key,
-            path: mg_module::refs::Location::Gff(hit.field()),
-            place: hit.place.clone(),
-        };
-        app.go_to_usage(&usage);
-    }
-    if open {
-        app.text_replace = Some(draft);
-    }
+}
+
+/// Opens hit `at` (its link, Enter): its resource at the field.
+pub(crate) fn go_to_hit(app: &mut Moonglow, at: usize) {
+    let Some(hit) = app.text_replace.as_ref().and_then(|d| d.hits.get(at)).map(|h| h.0.clone())
+    else {
+        return;
+    };
+    let usage = mg_module::rename::Usage {
+        from: hit.key,
+        path: mg_module::refs::Location::Gff(hit.field()),
+        place: hit.place.clone(),
+    };
+    app.go_to_usage(&usage);
 }
 
 #[cfg(test)]

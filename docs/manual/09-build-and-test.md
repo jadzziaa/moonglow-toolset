@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
 ---
 
 # Build, verify and test
@@ -30,12 +30,32 @@ Aurora's Build does:
   **Unused** resources (in the module but used by nothing).
 
 Compile and Missing Resources are on by default, Unused off. The
-**Results** list what was found; double-click a result to open what it is
-about. The window's foot has **Build** (the main button, which Enter
-presses), **Mark as Used**, **Export…**, which saves the list as text,
-and **Done**, which closes it. With **Build module on
+window's foot has **Build** (the main button, which Enter
+presses), **Mark as Used**, **Export…**, which saves the findings as text
+(a line each, `Error: x.nss: message`), and **Done**, which closes it.
+Once it has built, the foot says how many errors and warnings it found,
+"in Problems": the results are not in the window but in **Problems** in
+the Bottom Dock (see [Build Module's results](#build-modules-results)).
+With **Build module on
 save** (Options › General), every save builds first (with Palettes
 ticked, every save makes the palettes anew, as Aurora's Build does).
+
+### Build Module's results
+
+The results go to **Problems** in the Bottom Dock, under a **Build
+Module** heading, its counts beside the dock's tabs, errors first. Each row has its severity,
+its place (the link **Go to it** opens it) and its message, cut where it is
+long (the tip has the whole). Click a row to choose it; the arrow keys,
+Page Up, Page Down, Home and End move the choice; Enter or a double click
+goes to the resource. While the build runs, Problems says "Build Module
+is running"; nothing found is said in the log, and once the build has
+run the heading says "No problems found". With **Build module on save**, the results go
+to Problems the same way; Problems comes to the front, and the Bottom
+Dock opens only where something was found.
+
+When the module changes after a build, the heading says "Changed since
+the check: not counted", and its findings are no longer counted in the
+Status Bar's Problems switch. Closing the module takes them away (Verify's too): a click on one would open another module's resource.
 
 ### What counts as used
 
@@ -77,13 +97,15 @@ x.nss (source and compiled)`, `x.ncs (compiled only (no source))` or
 A name made as a script runs (`ExecuteScript("ai_" + sMode)`, a name
 read from a variable or a 2DA of the module's own) is not seen. Name
 those in the project file: select the line and **Mark as Used** (or
-right-click it), which writes its name into
+right-click it in Problems; the footer's **Mark as Used** acts on the Unused result chosen there), which writes its name into
 [the project file](03-modules.md#the-project-file-moonglowtoml)'s
 `[used]` (beside a `.mod`, `NAME.moonglow.toml`, made where there is
-none); the line goes, and so do the others it names. **Counted as
-Used**, under the results, lists what `[used]` names, with **Remove**
-beside each, and adds a name or a glob (`j_ai_*`: `*` any letters) of a
-script, a conversation or a blueprint. Aurora never reads or writes the
+none); the line goes, and so do the others it names. The
+**Counted as Used** button, on the Build Module heading in Problems (it
+shows where the build was asked for its Unused results), opens
+what `[used]` names, with **Remove** beside each, and the kind, a field and
+**Add** for a name or a glob (`j_ai_*`: `*` any letters) of a
+script, a conversation or a blueprint (Enter adds). Aurora never reads or writes the
 file, so the marks stay when the module is saved there. `mg used`
 does the same from the command line.
 
@@ -244,7 +266,8 @@ password.
 
 ## Long work
 
-Compile All Scripts, Build Module (its Build button) and Verify Module
+Compile All Scripts, Build Module (its Build button), Verify Module,
+Find Instance, Find and Replace Text and the Hak Pak Conflict Analysis
 run in the background: a small window names the work, shows how far it
 is, and has **Cancel** in its footer (**Escape** cancels the work too).
 The words saying how far it is (`40 of 312`) are under the bar. Until it is done the rest of the window takes no
@@ -259,7 +282,11 @@ are yours again once it is done or canceled.
 ## Verify Module
 
 **Build › Verify Module** writes to the log, as errors and warnings, what
-is missing and what is wrong with the module's custom content. To leave
+is missing and what is wrong with the module's custom content. Its errors
+and warnings also go to **Problems** in the Bottom Dock, under a **Verify
+Module** heading, each with its resource as its place (Enter, a double click
+or the link go there) and its fix button beside it where one is offered;
+Problems comes to the front when anything was found. To leave
 some of it out (a hak's tileset errors you are not going to fix),
 untick its group, or one check of it, in **Options › Verify**, or name
 the hak or the tileset there; the summary line says what was left out,
@@ -274,7 +301,9 @@ source that compiles, and one that doesn't compile is said not compiled
 such script was said not compiled).
 
 **Fixes.** A problem whose right change is plain has a button beside it
-in the log that says what it does: **Retag the other as …** for a tag
+in the log, and beside the finding in Problems, that says what it does
+(the button says the fix itself, **Fix All (n)** beside the first of several of one check, and a check mark, **Fixed**, once made), as
+the log's does: **Retag the other as …** for a tag
 the project wants unique, **Move the variables to the GIT** for an
 area's variables in its ARE, **Remove the variable** for one only the
 scripts set kept in a file (`var-runtime`), **Take the transform off**
@@ -514,4 +543,10 @@ read.
 ## Area Statistics
 
 **Build › Area Statistics** shows, for the area shown last, its tiles,
-its objects and the memory its models take.
+its objects and the memory its models take. The report is a tab of the
+Bottom Dock, **Resources Used**, which comes to the front: a table of
+what is used (Tiles, Objects, Tile models, Object models, Meshes,
+Triangles, Model memory, Textures), under the area's label. Click a row
+and the arrow keys move; Ctrl+C copies the row. **Close Report**, at the
+end of the dock's tab bar (also in the command palette), closes it; it
+goes too when the module is closed.

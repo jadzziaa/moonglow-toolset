@@ -241,18 +241,34 @@ fn escape_and_a_click_outside_close_it_alone() {
     settle(&mut h);
     assert!(!h.state().quick_open.is_open());
     assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some(), "Properties stays");
-    // A dialog's too (Find Instance, which Escape closes).
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    // Over Search Results' form, the keys in its field (Find Instance since
+    // M4's U28): Escape closes Quick Open alone, the field's Escape next
+    // closes the Bottom Dock.
     menu_command(&mut h, "Edit", "Find Instance…");
-    assert!(h.state().find_instance.is_some());
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::SearchResults));
     quick_open(&mut h, "inn");
     h.key_press(egui::Key::Escape);
     settle(&mut h);
     assert!(!h.state().quick_open.is_open());
-    assert!(h.state().find_instance.is_some(), "Find Instance stays");
+    assert!(!h.state().settings.hide_log, "the Bottom Dock stays");
+    menu_command(&mut h, "Edit", "Find Instance…");
     h.key_press(egui::Key::Escape);
     settle(&mut h);
-    assert!(h.state().find_instance.is_none(), "its own Escape next");
+    assert!(h.state().settings.hide_log, "the field's own Escape next");
+    h.state_mut().settings.hide_log = false;
+    // A dialog's too (Help › About, which Escape closes; Find Instance was
+    // one until M4's U28).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    h.state_mut().about = true;
+    settle(&mut h);
+    quick_open(&mut h, "inn");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.state().quick_open.is_open());
+    assert!(h.state().about, "About stays");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.state().about, "its own Escape next");
     // A click outside (on the Status Bar): closed, nothing opened.
     quick_open(&mut h, "inn");
     let tabs = h.state().dock.iter_all_tabs().count();

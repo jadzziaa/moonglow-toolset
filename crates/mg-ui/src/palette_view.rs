@@ -518,8 +518,9 @@ pub(crate) enum Keys {
     /// A NUI designer's Checks (M4's U19), in the Bottom Dock: no arrows of
     /// its own; F6 gives its first row's control the focus.
     NuiChecks,
-    /// Problems (M4's U20), in the Bottom Dock: no arrows of its own; F6
-    /// gives its first row's link the focus.
+    /// Problems (M4's U20), in the Bottom Dock: F6 gives its first row's
+    /// link the focus; Up, Down, Page Up, Page Down, Home and End choose a
+    /// finding, Enter goes to it (M4's U28).
     Problems,
     /// A tileset's Textures (M4's U20): no arrows of their own; F6 gives
     /// the first texture's Copy the focus.
@@ -550,13 +551,46 @@ pub(crate) enum Keys {
     /// The Appearance Gallery's Appearance panel (M4's U26): facts to
     /// read, no arrows; F6 there takes the keys from the panes.
     AppearanceFacts,
+    /// The Bottom Dock's report tabs (M4's U28): Hak Pak Conflict
+    /// Analysis', Resources Used's and the Claims Table's tables, whose
+    /// arrows choose a row and Ctrl + C copies it.
+    HakReport,
+    ResourcesUsed,
+    ClaimsTable,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
     ctx.data_mut(|d| {
         d.insert_temp(egui::Id::new("palette-arrow-keys"), to != Keys::Area);
         d.insert_temp(egui::Id::new("arrow-keys-of"), to);
+        d.remove_temp::<bool>(egui::Id::new(KEYS_HELD));
     });
+}
+
+/// The keys given to `to` by a command (a report opened, a search's
+/// results, Verify's findings: M4's U28 review, the orchestrator's ruling):
+/// they stay its while the pointer moves or rests over an area's view,
+/// until the pointer is pressed somewhere ([`let_go_of_held_keys`]) or
+/// another pane is given them.
+pub(crate) fn hold_keys(ctx: &egui::Context, to: Keys) {
+    give_keys(ctx, to);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(KEYS_HELD), true));
+}
+
+const KEYS_HELD: &str = "arrow-keys-held";
+
+/// Whether the keys are held by the pane a command gave them to
+/// ([`hold_keys`]).
+pub(crate) fn keys_held(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(KEYS_HELD))).unwrap_or(false)
+}
+
+/// Each frame's start: a press anywhere ends a command's hold on the keys
+/// (they stay where they are, to be taken by a click as any pane's are).
+pub(crate) fn let_go_of_held_keys(ctx: &egui::Context) {
+    if ctx.input(|i| i.pointer.any_pressed()) {
+        ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new(KEYS_HELD)));
+    }
 }
 
 /// A thin outline round the pane the keys are (`rect`), so that it shows

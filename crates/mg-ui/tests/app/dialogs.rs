@@ -11,7 +11,17 @@ use crate::common::*;
 /// The window named `title` (a dialog: its accessible name is its
 /// title), where it is now.
 fn window_rect(h: &Harness<'_, Moonglow>, title: &str) -> egui::Rect {
-    h.get_by_label(title).rect()
+    dialog_node(h, title).rect()
+}
+
+/// The dialog named `title`: the window of that name where another node
+/// shares it (Tools › Plugins' window, and the Plugins switch).
+fn dialog_node<'t>(h: &'t Harness<'_, Moonglow>, title: &'t str) -> egui_kittest::Node<'t> {
+    let mut all = h.get_all_by_label(title);
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let first = all.next().unwrap_or_else(|| panic!("no {title}"));
+    if window(&first) { first } else { all.find(window).unwrap_or(first) }
 }
 
 /// A press at `from`, the pointer moved to `to` a step a frame (each
@@ -541,7 +551,8 @@ fn a_picker_s_close_is_its_cancel() {
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its Properties stay");
 }
 
-/// A dialog resized by its edges (Find and Replace Text) is made
+/// A dialog resized by its edges (Tools › Plugins; Find and Replace Text
+/// was, before M4's U28 made it Search Results') is made
 /// narrower by its edge as well as wider: its title row does not hold it
 /// at the width it had.
 #[test]
@@ -551,11 +562,9 @@ fn a_resizable_dialog_is_made_narrower_by_its_edge() {
     app.open_module(&sample_module(&dir));
     let mut h = harness(app, 1100.0, 800.0);
     h.run();
-    // (Ctrl+H: Edit › Find and Replace Text…)
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.state_mut().plugins.window = true;
     settle(&mut h);
-    assert!(h.state().text_replace.is_some(), "open");
-    const TITLE: &str = "Find and Replace Text";
+    const TITLE: &str = "Plugins";
     let was = resting(&mut h, TITLE);
     let edge = egui::pos2(was.right() - 1.0, was.center().y);
     press_drag(&mut h, edge, edge - egui::vec2(120.0, 0.0));
@@ -600,8 +609,8 @@ fn every_stop_of_tab_in_a_dialog_is_a_named_control() {
     }
 }
 
-/// A dialog that folds (Find and Replace Text, which egui's own arrow
-/// folded) has the arrow at its title row's left, "Collapse": clicked, the
+/// A dialog that folds (Tools › Plugins; Find and Replace Text, which
+/// egui's own arrow folded, until M4's U28) has the arrow at its title row's left, "Collapse": clicked, the
 /// dialog is its row alone and the arrow is "Expand"; clicked again, the
 /// dialog is as it was, its size kept; and so by the keyboard (the arrow
 /// focused, Enter). A dialog its buttons answer (New Module) has none.
@@ -612,19 +621,19 @@ fn a_dialog_folds_to_its_title_row_and_back() {
     app.open_module(&sample_module(&dir));
     let mut h = harness(app, 1100.0, 800.0);
     h.run();
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.state_mut().plugins.window = true;
     settle(&mut h);
-    const TITLE: &str = "Find and Replace Text";
+    const TITLE: &str = "Plugins";
     let open = resting(&mut h, TITLE);
     let arrow = |h: &Harness<'_, Moonglow>, name: &str| -> Option<egui::Rect> {
-        h.get_by_label(TITLE).query_all_by_label(name).map(|n| n.rect()).next()
+        dialog_node(h, TITLE).query_all_by_label(name).map(|n| n.rect()).next()
     };
     let at = arrow(&h, "Collapse").expect("the arrow at its row's left");
     assert!(at.left() - open.left() < 6.0 && at.top() - open.top() < 6.0, "{at:?} {open:?}");
     tip_at(&mut h, at.center(), "Collapse the dialog to its title row");
     for keyboard in [false, true] {
         let press = |h: &mut Harness<'_, Moonglow>, name: &str| {
-            let node = h.get_by_label(TITLE).query_all_by_label(name).next().unwrap();
+            let node = dialog_node(h, TITLE).query_all_by_label(name).next().unwrap();
             if keyboard {
                 node.focus();
                 h.run();
@@ -638,7 +647,10 @@ fn a_dialog_folds_to_its_title_row_and_back() {
         let folded = resting(&mut h, TITLE);
         assert!(folded.height() < 32.0, "its row alone (keyboard {keyboard}): {folded:?}");
         assert!(arrow(&h, "Collapse").is_none() && arrow(&h, "Expand").is_some());
-        assert!(h.query_by_label("Find what").is_none(), "no body while folded");
+        assert!(
+            h.query_by_label_contains("A plugin adds commands").is_none(),
+            "no body while folded"
+        );
         press(&mut h, "Expand");
         let back = resting(&mut h, TITLE);
         assert!((back.size() - open.size()).length() < 1.0, "{back:?} as {open:?}");

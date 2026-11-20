@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
 ---
 
 # Areas
@@ -467,7 +467,7 @@ Options › Keyboard):
 | B | Paint on or off |
 | Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
 | X, T, N, Shift+N, R, Shift+R | the tile tools: the Eraser, Refine Tile, Next and Previous Tile Appearance, Rotate Tile and clockwise ([Painting terrain](#painting-terrain)) |
-| Double-click an object in Find Instance | go to it |
+| Double-click an object in Find Instance's hits (Search Results), or Enter on it | go to it |
 
 The keys drive the area view the pointer was in last, also while the
 pointer is over the palette or the module tree (not while you type in a
@@ -1018,12 +1018,27 @@ trigger is left as it was, as in Aurora: for an area transition, run
 Verify, which says which ones are left at another level, where the
 game may hide them.
 
-**Edit › Find Instance…** lists the placed objects across the module by
-kind, area, blueprint and tag; double-click one to go to it. The footer says how many were found, and has
-**Search** (the main button), **Clear** and **Close**. Where
-objects were added to or removed from its area since the search, the
-double click searches again instead (the log says so): the list is then
-of the area as it is.
+**Edit › Find Instance…** opens the Bottom Dock on **Search Results**,
+with the search form as the panel's header: **Search For** (the kinds),
+**In Area**, **From Blueprint** and **With Tag**, and the buttons **Search**
+(the main button) and **Clear**. The hits are listed under it as a table
+(Type, Tag, Area, Blueprint); the form's line says how many were found
+("No objects found", "1 object found", "12 objects found"). Enter in
+a field searches, and Escape in a field closes the Bottom Dock. Tab goes
+through the form to the table's heads; there the arrow keys choose a hit,
+and Shift+Tab goes back into the form (after Enter in a field, back to
+that field). In the least window the form
+scrolls by whole lines, and a field reached by Tab is scrolled into
+sight. The search
+is a job, with progress and **Cancel**. Click a column head to sort by it,
+and again to sort the other way. Click a hit to choose it; the arrow keys,
+Page Up, Page Down, Home and End move the choice; Enter or a double click
+goes to the object, and Ctrl+C copies the row. Opened by its command over
+an area, the table keeps the keys until you click elsewhere, even with the
+pointer over the area; the Status Bar shows its keys. Where objects were added
+to or removed from its area since the search, going to one searches again
+instead (the log says so): the list is then of the area as it is. Closing
+the module clears the search.
 
 **Prefabs** are groups of placed objects saved under a name, such as a
 camp, a market stall or a furnished room: the way to copy a group of
@@ -1728,7 +1743,8 @@ bring their own, as painting does) are said in the log. It is one step,
 which **Undo** takes back; to try a tileset and keep the area as it is,
 copy it first (the module tree's **Copy…**) and change the copy.
 **Build › Area Statistics** counts the area's tiles and objects and the
-memory its models take.
+memory its models take, in the **Resources Used** tab of the Bottom Dock
+([Build and test](09-build-and-test.md#area-statistics)).
 
 ## Claimed and protected areas
 

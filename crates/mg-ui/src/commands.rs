@@ -136,6 +136,9 @@ pub enum Id {
     /// View › Copy Log and Save Log…: the whole log, each line with its
     /// time, to the clipboard or into a text file (Jasperre's report).
     CopyLog,
+    /// The report tab in front of the Bottom Dock closed (Hak Pak Conflict
+    /// Analysis, Resources Used, the Claims Table: M4's U28).
+    CloseReport,
     SaveLog,
     /// View › Clear Log: the log emptied.
     ClearLog,
@@ -647,6 +650,7 @@ impl Id {
             }
             Id::SaveLog => ("save-log", "Save Log…", "The whole log into a text file"),
             Id::ClearLog => ("clear-log", "Clear Log", "Empty the log"),
+            Id::CloseReport => ("close-report", "Close Report", "Close the report tab in front"),
             Id::HidePanels => (
                 "hide-panels",
                 "Hide All Panels",
@@ -771,6 +775,7 @@ impl Id {
             }
             Id::ViewLog | Id::ResetLayout => true,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
+            Id::CloseReport => crate::dock_reports::in_front(app).is_some(),
             // (Whenever the Left Dock holds a panel: its Resources panel
             // without a module too.)
             // (Or the Outliner alone: a table's columns without a module.)
@@ -860,6 +865,7 @@ impl Id {
             Id::Undo => "Nothing to undo",
             Id::Redo => "Nothing to redo",
             Id::CopyLog | Id::SaveLog | Id::ClearLog => "The log is empty",
+            Id::CloseReport => "No report tab is in front of the Bottom Dock",
             Id::ResizeArea
             | Id::RotateArea
             | Id::ChangeTileset
@@ -959,19 +965,13 @@ impl Id {
                 }
                 return;
             }
-            Id::FindInstance => {
-                app.find_instance.get_or_insert_with(Default::default);
-                return;
-            }
+            Id::FindInstance => return app.open_find_instance(),
             Id::EditAreasTogether => {
                 app.area_chooser.get_or_insert_with(Default::default);
                 return;
             }
             Id::UpdateAllInstances => return app.update_all_instances(),
-            Id::ReplaceText => {
-                app.text_replace.get_or_insert_with(Default::default);
-                return;
-            }
+            Id::ReplaceText => return app.open_find_text(),
             Id::IndentToTabs | Id::IndentToSpaces => {
                 let tabs = self == Id::IndentToTabs;
                 // (The lines selected, where the script had the keys as the
@@ -1017,6 +1017,9 @@ impl Id {
             Id::PublishNwsync => return crate::nwsync_view::open(app),
             Id::AreaStatistics => {
                 app.area_stats = shown_area(app);
+                if app.area_stats.is_some() {
+                    crate::dock_reports::bring(app, crate::shell::Panel::ResourcesUsed);
+                }
                 return;
             }
             Id::Plugins => {
@@ -1079,6 +1082,12 @@ impl Id {
             }
             Id::ResetLayout => return app.reset_layout(ctx),
             Id::CopyLog => return app.copy_log(ctx),
+            Id::CloseReport => {
+                if let Some(p) = crate::dock_reports::in_front(app) {
+                    crate::dock_reports::close(app, p);
+                }
+                return;
+            }
             Id::SaveLog => return app.save_log(),
             Id::ClearLog => return app.log.clear(),
         };

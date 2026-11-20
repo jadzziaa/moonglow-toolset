@@ -95,6 +95,10 @@ pub struct Job {
     /// ([`Moonglow::start_job_to_its_end`]).
     to_its_end: bool,
     started: Instant,
+    /// The module it works on, where it needs one: [`Moonglow::modules_opened`]
+    /// as it began. Closed or another opened before it ends, what it made
+    /// is let go, not given to the module open then.
+    module_of: Option<u64>,
 }
 
 impl std::fmt::Debug for Job {
@@ -323,6 +327,7 @@ impl Moonglow {
             }),
             to_its_end,
             started: Instant::now(),
+            module_of: needs_module.then_some(self.modules_opened),
         });
         if !self.background_jobs {
             self.finish_job();
@@ -378,6 +383,11 @@ impl Moonglow {
         let Some(job) = self.job.take() else { return };
         crate::trace::note(format!("job ends: {} ({:.0?})", job.title, job.started.elapsed()));
         match job.thread.join() {
+            // (Its module closed, or another opened, while it ran: what it
+            // found is the other module's.)
+            Ok(_) if job.module_of.is_some_and(|m| m != self.modules_opened) => {
+                self.log.info(format!("{}: {MODULE_GONE}", job.title));
+            }
             Ok(_) if job.progress.cancelled() && !job.to_its_end => {
                 self.log.info(format!("{}: canceled", job.title));
             }
@@ -385,6 +395,25 @@ impl Moonglow {
             Err(panic) => {
                 self.log.error(format!("{} failed: {}", job.title, panic_text(&panic)));
             }
+        }
+    }
+}
+
+/// What the log says of a job whose module was closed, or another opened,
+/// while it ran.
+pub(crate) const MODULE_GONE: &str =
+    "its module was closed before it was done, and what it found was let go";
+
+impl Moonglow {
+    /// The module is being closed, or another opened: a job on it is
+    /// called off (its thread stops at its next look), and whatever it
+    /// still hands over is let go ([`Job`]'s `module_of`). The window's
+    /// job dialog is modal, so this is what a path round it meets (a file
+    /// handed to the running window, a plugin, a test).
+    pub(crate) fn let_go_of_module_job(&mut self) {
+        self.modules_opened += 1;
+        if let Some(job) = self.job.as_ref().filter(|j| j.module_of.is_some()) {
+            job.progress.cancel.store(true, Ordering::Relaxed);
         }
     }
 }
@@ -589,6 +618,38 @@ mod tests {
         until_done(&mut app);
         assert!(logged(&app, Level::Info, "counted 1"), "{:?}", app.log.entries);
         assert!(!logged(&app, Level::Info, "another ran"));
+    }
+
+    /// A job on the module whose module is closed (or another opened)
+    /// before it is done is called off, and what it hands over is let go,
+    /// not given to the module open then (M4's U28 review: a search's
+    /// strings landed in the next module's Search Results); one that needs
+    /// no module is left to end.
+    #[test]
+    fn a_job_whose_module_is_closed_hands_nothing_over() {
+        for (module, closed) in [(true, true), (true, false), (false, true)] {
+            let mut app = app(&format!("ui-job-closed-{module}-{closed}"));
+            let (go, wait) = mpsc::channel::<()>();
+            let work = move |_: &Context| {
+                wait.recv().ok();
+            };
+            let finish = |app: &mut Moonglow, ()| app.log.info("handed over");
+            match module {
+                true => app.start_job("Find", work, finish),
+                false => app.start_job_anywhere("Find", work, finish),
+            }
+            let progress = app.job.as_ref().unwrap().progress.clone();
+            if closed {
+                app.close();
+            }
+            go.send(()).unwrap();
+            until_done(&mut app);
+            let handed = logged(&app, Level::Info, "handed over");
+            let gone = logged(&app, Level::Info, &format!("Find: {MODULE_GONE}"));
+            assert_eq!(handed, !(module && closed), "{module} {closed}: {:?}", app.log.entries);
+            assert_eq!(gone, module && closed, "{module} {closed}");
+            assert_eq!(progress.cancelled(), module && closed, "called off where let go");
+        }
     }
 
     /// A job that needs no module (a hak's save, an export) is given none,

@@ -502,12 +502,12 @@ pub(crate) fn to_problems(app: &mut Moonglow, d: &TilesetDoc, findings: &[Findin
             if at.is_empty() {
                 at = Source::Tileset(d.path.clone()).title();
             }
-            Problem {
-                severity: f.severity,
+            Problem::new(
+                f.severity,
                 at,
-                message: f.message.clone(),
-                go: Some(Go::Tileset { path: d.path.clone(), place }),
-            }
+                f.message.clone(),
+                Some(Go::Tileset { path: d.path.clone(), place }),
+            )
         })
         .collect();
     let found = !problems.is_empty();

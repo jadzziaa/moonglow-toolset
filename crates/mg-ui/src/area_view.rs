@@ -5686,7 +5686,11 @@ fn camera_input(
     if !response.hovered() {
         view.pointer_was_in = false;
     }
-    if response.hovered() && (moved || came_in) {
+    // (Not the keys a command gave a pane, M4's U28 review: they are held
+    // until a press, here or anywhere.)
+    let held = crate::palette_view::keys_held(ui.ctx());
+    let pressed = ui.input(|i| i.pointer.any_pressed());
+    if response.hovered() && (if held { pressed } else { moved || came_in }) {
         crate::palette_view::give_arrows(ui.ctx(), false);
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
@@ -8228,50 +8232,26 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     });
 }
 
-/// Area Statistics (Aurora's Resources Used): what the area's loaded
-/// models use.
-pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(area) = app.area_stats else { return };
-    let Some(view) = app.area_views.get(&area) else {
-        app.area_stats = None;
-        return;
-    };
-    let mut open = true;
-    let footed = crate::widgets::dialog(ctx, "Resources Used", &mut open)
-        .collapsible(false)
-        .resizable(false)
-        .show_foot(ctx, |ui| {
-            ui.strong(area.to_string());
-            egui::Grid::new("usage").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-                if let Some(m) = &view.model {
-                    ui.label("Tiles");
-                    ui.label(format!("{} ({} by {})", m.tiles.len(), m.width, m.height));
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Objects");
-                    ui.label(m.objects.len().to_string());
-                    ui.end_row();
-                }
-                if let Some(u) = view.scene.as_ref().map(|s| s.usage()) {
-                    for (label, value) in [
-                        ("Tile models", u.tile_models.to_string()),
-                        ("Object models", u.object_models.to_string()),
-                        ("Meshes", u.meshes.to_string()),
-                        ("Triangles", u.triangles.to_string()),
-                        ("Model memory", format!("{:.1} MB", u.buffer_bytes as f64 / 1048576.0)),
-                        ("Textures", u.textures.to_string()),
-                    ] {
-                        crate::widgets::field_label(ui, label);
-                        ui.label(value);
-                        ui.end_row();
-                    }
-                }
-            });
-            ((), crate::widgets::Foot::new().leave("Done"))
-        });
-    let done = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
-    if !open || done {
-        app.area_stats = None;
+/// Resources Used's rows (Build › Area Statistics, Aurora's Resources
+/// Used; a Bottom Dock tab since M4's U28): what the area's view has
+/// loaded, a few numbers it keeps.
+pub(crate) fn resources_used(view: &AreaView) -> Vec<(&'static str, String)> {
+    let mut rows: Vec<(&'static str, String)> = Vec::new();
+    if let Some(m) = &view.model {
+        rows.push(("Tiles", format!("{} ({} by {})", m.tiles.len(), m.width, m.height)));
+        rows.push(("Objects", m.objects.len().to_string()));
     }
+    if let Some(u) = view.scene.as_ref().map(|s| s.usage()) {
+        rows.extend([
+            ("Tile models", u.tile_models.to_string()),
+            ("Object models", u.object_models.to_string()),
+            ("Meshes", u.meshes.to_string()),
+            ("Triangles", u.triangles.to_string()),
+            ("Model memory", format!("{:.1} MB", u.buffer_bytes as f64 / 1048576.0)),
+            ("Textures", u.textures.to_string()),
+        ]);
+    }
+    rows
 }
 
 /// Where the placed object `index` of `kind` is in `area`'s GIT, as

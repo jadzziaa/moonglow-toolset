@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T08:30:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T12:25:59Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -576,11 +576,11 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Dialogs That Could Become Dock Panels
 
-- Find Instance: a results list searched again and again, a Search Results tab.
-- Find and Replace Text: the hits in Search Results, the form as its header.
-- Build Module: Results as Problems, the options as a panel.
+- Find Instance: a results list searched again and again, a Search Results tab. ✓ M4 U28 (its form the panel's header, its hits a sortable table under it; the search a job with Cancel)
+- Find and Replace Text: the hits in Search Results, the form as its header. ✓ M4 U28 (the board's two-line rows; Space ticks, Enter opens; the search a job with Cancel)
+- Build Module: Results as Problems, the options as a panel. ✓ M4 U28 (by the owner's Q4(a): Results and Counted as Used in Problems, the options and Build, Mark as Used, Export… and Done kept in the dialog; Verify's findings in Problems too, Q5(a))
 - Plugins: a manager kept open, a Right Dock panel or a tab.
-- Hak Pak Conflict Analysis, Resources Used, Claims Table, Areas Not Yours: Bottom Dock tabs.
+- Hak Pak Conflict Analysis, Resources Used, Claims Table, Areas Not Yours: Bottom Dock tabs. ✓ M4 U28 (the first three, each closed by Close Report; Areas Not Yours stays the question a save asks, a dialog)
 - Edit Areas Together: a Properties-style panel.
 - Light maker, Bake Walkmesh to Transform: the area editor's Right Dock.
 - Stay dialogs: wizards, confirmations, Rename, Adjust Location, the pickers, NWSync publish.

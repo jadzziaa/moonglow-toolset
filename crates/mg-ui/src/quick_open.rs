@@ -1183,6 +1183,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::ViewPalettes
         | Id::ViewLog
         | Id::CopyLog
+        | Id::CloseReport
         | Id::SaveLog
         | Id::HidePanels => true,
         Id::NewModule

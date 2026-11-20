@@ -31,6 +31,7 @@ pub mod dialog_export;
 pub mod dialog_view;
 pub mod dialogs;
 mod dock_look;
+pub mod dock_reports;
 pub mod faction_view;
 mod form_pages;
 mod gff_view;
@@ -95,6 +96,7 @@ pub mod quick_open;
 pub mod recovery;
 pub mod references;
 pub mod renderer_check;
+mod report_table;
 mod ro_gff;
 pub mod saved;
 mod script_layout;
@@ -612,6 +614,9 @@ pub struct Log {
     pub times: Vec<String>,
     /// The fixes the last Verify's findings offer, each beside its line.
     pub fixes: Vec<OfferedFix>,
+    /// Counted up as the fixes change (offered, made, undone, let go of):
+    /// Problems' Fix All follows it.
+    pub(crate) fixes_revision: u64,
     /// What those fixes were worked out on.
     pub(crate) fix_guard: mg_edit::fix::Guard,
     /// Each line's height as the panel last drew it (0: not yet): the
@@ -645,6 +650,7 @@ impl Log {
         self.entries.clear();
         self.times.clear();
         self.fixes.clear();
+        self.fixes_revision += 1;
         self.rows.clear();
     }
 
@@ -1047,7 +1053,8 @@ pub struct Moonglow {
     pub bake: bake_view::BakeState,
     /// The settings Custom Light was last written with, offered next.
     pub last_light: mg_module::lights::LightSpec,
-    /// The Find Instance window.
+    /// Find Instance's form and hits (Edit › Find Instance…, the Bottom
+    /// Dock's Search Results tab; a window before M4's U28).
     pub find_instance: Option<area_tools::FindInstance>,
     /// The Tile Properties panel's tiles and values, while it shows tiles
     /// (`tile_select::panel`: read again as the selection or the area
@@ -1079,6 +1086,8 @@ pub struct Moonglow {
     pub(crate) tile_props_aside: std::collections::HashMap<mg_core::ResRef, tile_select::TileProps>,
     /// The Build Module window, while it is open.
     pub build: Option<build_view::BuildWindow>,
+    /// Build's Counted as Used field in Problems: what is typed in it.
+    pub(crate) build_used: build_view::UsedDraft,
     /// Setup Store (a creature's context menu).
     pub store_wizard: Option<store_wizard::StoreWizard>,
     /// Add Popup Text (a placeable's context menu).
@@ -1087,7 +1096,8 @@ pub struct Moonglow {
     pub levelup: Option<levelup_view::LevelupWizard>,
     /// Wizards › Creature Wizard.
     pub creature_wizard: Option<creature_wizard::CreatureWizard>,
-    /// The area whose Area Statistics window is open.
+    /// The area Resources Used reports on, while its Bottom Dock tab is
+    /// open (the Area Statistics window before M4's U28).
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
     pub resize_area: Option<area_reshape::ResizeDraft>,
@@ -1184,8 +1194,12 @@ pub struct Moonglow {
     pub update_draft: Option<bulk::UpdateDraft>,
     /// The Edit Areas Together window: the areas being chosen.
     pub(crate) area_chooser: Option<area_props::AreaChooser>,
-    /// The Find and Replace Text window.
+    /// Find and Replace Text's form and the strings it found (Search
+    /// Results' header and rows, M4's U28).
     pub text_replace: Option<bulk::TextReplace>,
+    /// Find and Replace Text's Find to be run again (a Replace in N made):
+    /// at the next frame's start, as a job.
+    pub(crate) text_refind: bool,
     /// The Advanced Search tab's state.
     pub advanced_search: search::AdvancedSearch,
     /// What its last question found in each resource, for the next time
@@ -1215,11 +1229,22 @@ pub struct Moonglow {
     tlk_stamp: Option<(PathBuf, std::time::SystemTime)>,
     /// The blueprint palettes pane.
     pub palette: palette_view::PaletteView,
-    /// The hak conflict report being shown.
-    pub hak_report: Option<String>,
-    /// What the module uses of its haks, shown with the conflict report
-    /// once asked for (`mg_preview::usage`, as `mg haks --usage`).
-    pub hak_usage: Option<String>,
+    /// Hak Pak Conflict Analysis' report and how it is shown: its Bottom
+    /// Dock tab's state (M4's U28; a window before), with What the Module
+    /// Uses' lines once asked for (`mg_preview::usage`, as `mg haks
+    /// --usage`).
+    pub hak_report: Option<dock_reports::HakConflicts>,
+    /// Resources Used's table (its row chosen).
+    pub(crate) used_table: report_table::Table,
+    /// Resources Used's rows, and what they were counted for (the area,
+    /// the revision its view read, whether it was reading).
+    #[allow(clippy::type_complexity)]
+    pub(crate) used_rows:
+        Option<((mg_core::ResRef, Option<u64>, bool), std::sync::Arc<Vec<(&'static str, String)>>)>,
+    /// The Bottom Dock's least height for the panel in front, as its first
+    /// row's end was last drawn (`shell::first_row_ends`): its form and a
+    /// whole row (M4's U28).
+    pub(crate) dock_need: f32,
     /// The custom talk table loaded into the game data, by name.
     custom_tlk: Option<String>,
     pub var_edit: Option<widgets::VarTableEdit>,
@@ -1554,6 +1579,9 @@ pub struct Moonglow {
     /// Jobs run while the window keeps drawing (the application turns
     /// this on); off, starting a job waits for it, as tests want.
     pub background_jobs: bool,
+    /// How many times a module was opened or closed: a job on the module
+    /// knows the one it began on (`jobs`; M4's U28 review).
+    pub(crate) modules_opened: u64,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -1741,6 +1769,7 @@ impl Moonglow {
             least_size_for: None,
             area_chooser: None,
             text_replace: None,
+            text_refind: false,
             advanced_search: Default::default(),
             search_kept: Default::default(),
             prefab_dir: None,
@@ -1767,6 +1796,7 @@ impl Moonglow {
             panel_pages: HashMap::new(),
             area_stats: None,
             build: None,
+            build_used: Default::default(),
             store_wizard: None,
             popup_text: None,
             levelup: None,
@@ -1776,7 +1806,9 @@ impl Moonglow {
             change_tileset: None,
             palette: Default::default(),
             hak_report: None,
-            hak_usage: None,
+            used_table: Default::default(),
+            used_rows: None,
+            dock_need: 0.0,
             custom_tlk: None,
             var_edit: None,
             var_pages: HashMap::new(),
@@ -1891,6 +1923,7 @@ impl Moonglow {
             quick_open: Default::default(),
             job: None,
             background_jobs: false,
+            modules_opened: 0,
         }
     }
 
@@ -1987,6 +2020,7 @@ impl Moonglow {
         // (Tab is a 2DA grid's with its keys, before any control can take
         // it: M4's U16.)
         self.active_tab_now = table_view::front_of_focused(self);
+        report_table::tab_from_the_rows(ui.ctx());
         table_view::keep_tab_for_the_grid(self, ui.ctx());
         faction_view::keep_tab_for_the_matrix(self, &ui.ctx().clone());
         // (The game's text is read by the open module's table, if its haks
@@ -2168,6 +2202,7 @@ impl Moonglow {
         shell::frame_yields(self, ui.ctx());
         shell::take_dock_sizes(self, ui.ctx());
         shell::keys_leave_panels_not_drawn(self, ui.ctx());
+        palette_view::let_go_of_held_keys(ui.ctx());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -2218,6 +2253,9 @@ impl Moonglow {
         // description typed set where its field was left, M4's U21.)
         hak_view::follow_all(self, ui.ctx());
         // (A Bottom Dock panel a script asked to the front last frame.)
+        search_results::follow(self);
+        problems::follow(self);
+        dock_reports::follow(self);
         shell::bottom_forward(self);
         // (The game's dialog.tlk shown made again from changed game data
         // before anything reads it: the panels and the Status Bar, drawn
@@ -2392,7 +2430,6 @@ impl Moonglow {
         // (A Bottom Dock panel drawn before what it shows changed.)
         shell::follow_bottom(self, ui.ctx());
         area_reshape::windows(self, ui.ctx());
-        area_view::stats_window(self, ui.ctx());
         build_view::window(self, ui.ctx());
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
@@ -2417,44 +2454,8 @@ impl Moonglow {
         module_props::attach_window(self, ui.ctx());
         talk_typed::window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
-        bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
-        let (busy, mut usage) = (self.busy(), false);
-        if let Some(report) = &self.hak_report {
-            let mut open = true;
-            let footed = crate::widgets::dialog(ui.ctx(), "Hak Pak Conflict Analysis", &mut open)
-                .default_size([600.0, 400.0])
-                .show_foot(ui.ctx(), |ui| {
-                    // (A line as long as it is, scrolled to sideways.)
-                    let text = |ui: &mut egui::Ui, t: &str| {
-                        ui.add(egui::Label::new(egui::RichText::new(t).monospace()).extend())
-                    };
-                    egui::ScrollArea::both().show(ui, |ui| {
-                        if let Some(used) = &self.hak_usage {
-                            text(ui, used);
-                            ui.separator();
-                        }
-                        text(ui, report)
-                    });
-                    let tip =
-                        "Which haks' resources the module uses, hak by hak, to trim a release";
-                    let foot =
-                        crate::widgets::Foot::new().main("What the Module Uses", !busy).tip(tip);
-                    ((), foot)
-                });
-            if let Some(f) = footed {
-                usage = f.pressed.main();
-                open &= !f.pressed.cancelled();
-            }
-            if !open {
-                self.hak_report = None;
-                self.hak_usage = None;
-            }
-        }
-        if usage {
-            self.hak_usage_job();
-        }
         plugins::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
         plugins::project_window(self, ui.ctx());
@@ -4379,6 +4380,7 @@ impl Moonglow {
         }
         let mut m = m;
         self.restore_locks(&mut m);
+        self.let_go_of_module_job();
         self.ws = Some(Workspace::new(m));
         // (The last module's tags, and the bytes they were read from, let go.)
         self.tag_cache = Default::default();
@@ -4488,7 +4490,7 @@ impl Moonglow {
     /// What the module uses of its haks, worked out as a job and shown
     /// above the conflict report: each hak's line and every hak's, as
     /// `mg haks --usage` says them.
-    fn hak_usage_job(&mut self) {
+    pub(crate) fn hak_usage_job(&mut self) {
         let Some(install) = self.install.clone() else { return };
         let work = move |c: &jobs::Context| -> Result<String, String> {
             let started = std::time::Instant::now();
@@ -4513,23 +4515,42 @@ impl Moonglow {
         self.start_job("What the Module Uses", work, |app, made| match made {
             Ok(text) => {
                 app.log.info("What the module uses of its haks: in Hak Pak Conflict Analysis");
-                app.hak_usage = Some(text);
+                if let Some(h) = &mut app.hak_report {
+                    h.set_usage(text);
+                    dock_reports::bring(app, shell::Panel::HakConflicts);
+                }
             }
             Err(e) => app.log.error(format!("What the module uses: {e}")),
         });
     }
 
+    /// Hak Pak Conflict Analysis (Module Properties › Custom Content ›
+    /// Check for Conflicts…), as a job: each hak opened and its resources
+    /// listed against the game's, its progress told and Cancel there; the
+    /// report into its Bottom Dock tab, brought to the front (M4's U28).
     fn hak_report(&mut self) {
-        let (Some(ws), Some(install)) = (&self.ws, &self.install) else { return };
-        let haks = ws.module.haks().unwrap_or_default();
-        match mg_module::haks::hak_report(install, &haks) {
-            Ok(r) => {
-                self.log.info(format!("{} conflicting hak resources", r.conflicts().count()));
-                self.hak_report = Some(r.to_text());
-                self.hak_usage = None;
+        let Some(install) = self.install.clone() else { return };
+        let work = move |c: &jobs::Context| -> Option<Result<mg_module::haks::HakReport, String>> {
+            let haks = c.module.haks().unwrap_or_default();
+            // (A hak at a time: "Reading hak 3 of 40", Cancel stopping it
+            // before the next.)
+            let mut step = |n: usize, total: usize| {
+                c.progress.say(format!("Reading hak {} of {total}", (n + 1).min(total)));
+                c.progress.step(n, total);
+                !c.progress.cancelled()
+            };
+            let report = mg_module::haks::hak_report_with(&install, &haks, &mut step);
+            report.map_err(|e| e.to_string()).transpose()
+        };
+        self.start_job("Hak Pak Conflict Analysis", work, |app, made| match made {
+            Some(Ok(r)) => {
+                app.log.info(format!("{} conflicting hak resources", r.conflicts().count()));
+                app.show_hak_report(r);
             }
-            Err(e) => self.log.error(format!("Hak report failed: {e}")),
-        }
+            Some(Err(e)) => app.log.error(format!("Hak report failed: {e}")),
+            // (Called off: nothing to say.)
+            None => {}
+        });
     }
 
     /// Whether closing the module now would lose work: unsaved edits, or a
@@ -4642,6 +4663,7 @@ impl Moonglow {
         self.open_tabs = Default::default();
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
+        self.let_go_of_module_job();
         self.ws = None;
         // (Quick Open's build of the load order gives up; with no game data
         // there is nothing of it to keep.)
@@ -4685,11 +4707,20 @@ impl Moonglow {
         self.tile_mode_areas.clear();
         self.tile_props_aside.clear();
         self.area_stats = None;
+        self.hak_report = None;
+        self.claims.table = None;
         self.resize_area = None;
         self.rotate_area = None;
         self.change_tileset = None;
         self.adjust = None;
         self.find_instance = None;
+        if let Some(d) = &mut self.text_replace {
+            d.forget_hits();
+        }
+        // (Build's and Verify's findings are the module's: a click on one
+        // would open another module's resource.)
+        self.problems.remove(&problems::Source::Build);
+        self.problems.remove(&problems::Source::Verify);
         self.area_focus = None;
         self.start_focus = None;
         self.heard = None;
@@ -6851,6 +6882,7 @@ impl Moonglow {
             o.step = step;
             o.record = Some(record);
         }
+        self.log.fixes_revision += 1;
         true
     }
 
@@ -6876,6 +6908,7 @@ impl Moonglow {
     /// offered again (their guard as before them), or made again.
     pub(crate) fn fixes_follow(&mut self, step: Option<u64>, redo: bool) {
         let Some(step) = step else { return };
+        self.log.fixes_revision += 1;
         let at: Vec<usize> = (self.log.fixes.iter().enumerate())
             .filter(|(_, o)| o.step == Some(step))
             .map(|(i, _)| i)
@@ -7033,8 +7066,29 @@ impl Moonglow {
                 }
                 // (The last Verify's fixes alone are offered.)
                 app.log.fixes.clear();
+                app.log.fixes_revision += 1;
                 app.log.fix_guard = guard;
+                // (Its errors and warnings to Problems too, each with its
+                // place and the log's line of its fix: the owner's Q5.)
+                let mut places = verify_places(&missing, &found).into_iter();
+                let mut problems = Vec::new();
                 for (level, text, fix) in verify_report_fixes(&missing, &found) {
+                    let severity = match level {
+                        LogLevel::Error => Some(mg_module::doctor::Severity::Error),
+                        LogLevel::Warn => Some(mg_module::doctor::Severity::Warning),
+                        LogLevel::Info => None,
+                    };
+                    if let Some(severity) = severity {
+                        let key = places.next();
+                        let at = key.map(|k| k.to_string()).unwrap_or_default();
+                        let go = key.map(problems::Go::Resource);
+                        // (Problems' font has no right arrow, the log's has:
+                        // M4's U28 review saw a box in its place.)
+                        let said = text.replace(" \u{2192} ", " › ");
+                        let mut p = problems::Problem::new(severity, at, said, go);
+                        p.fix = fix.is_some().then_some(app.log.entries.len());
+                        problems.push(p);
+                    }
                     if let Some(fix) = fix {
                         let line = app.log.entries.len();
                         let check = (found.iter())
@@ -7058,6 +7112,11 @@ impl Moonglow {
                         LogLevel::Info => app.log.info(text),
                     }
                 }
+                let found_any = !problems.is_empty();
+                let checked = app.ws.as_ref().map(|ws| ws.revision());
+                app.problems.replace(problems::Source::Verify, problems, checked);
+                app.problems.ask_forward(found_any);
+                app.problems.take_keys = found_any;
                 let findings: Vec<&mg_module::doctor::Finding> =
                     found.iter().map(|f| &f.finding).collect();
                 let errors = missing.iter().filter(|m| m.is_error()).count()
@@ -7371,6 +7430,24 @@ pub fn verify_report(
 ) -> Vec<(LogLevel, String)> {
     let found: Vec<mg_edit::fix::Found> = findings.iter().cloned().map(Into::into).collect();
     verify_report_fixes(missing, &found).into_iter().map(|(l, t, _)| (l, t)).collect()
+}
+
+/// The resource each error and warning of [`verify_report_fixes`] is
+/// about, in its order (Problems' places): a missing reference's, where it
+/// is made; a finding's resource.
+fn verify_places(
+    missing: &[mg_module::verify::Missing],
+    found: &[mg_edit::fix::Found],
+) -> Vec<ResKey> {
+    use mg_module::doctor::Severity;
+    let missing: Vec<_> = missing.iter().filter(|m| !m.placed_from_gone_blueprint()).collect();
+    let of = |s: Severity| found.iter().filter(move |x| x.finding.severity == s);
+    let mut out: Vec<ResKey> =
+        missing.iter().filter(|m| m.is_error()).map(|m| m.reference.from).collect();
+    out.extend(of(Severity::Error).map(|x| x.finding.resource));
+    out.extend(missing.iter().filter(|m| !m.is_error()).map(|m| m.reference.from));
+    out.extend(of(Severity::Warning).map(|x| x.finding.resource));
+    out
 }
 
 /// [`verify_report`], each finding's line with the fix it offers.

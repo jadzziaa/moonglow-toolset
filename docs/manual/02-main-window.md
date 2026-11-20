@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T08:30:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
 ---
 
 # The main window
@@ -285,7 +285,7 @@ changes them; the menus show the current keys.
 | Ctrl+S | Save the module; in a script editor that has the keyboard, the script into the module (its own Save: see [Scripts](07-scripts.md)) |
 | Ctrl+Z | Undo |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
-| Ctrl+H | Find and Replace Text |
+| Ctrl+H | Find and Replace Text (opens the Bottom Dock on Search Results) |
 | Ctrl+Alt+A | Area Wizard |
 | Ctrl+Alt+F | Faction Editor |
 | Ctrl+Alt+J | Journal Editor |
@@ -874,12 +874,12 @@ in reach (and a dialog in the middle of a short window can cover what
 is behind it, the Welcome page's title too). Its **title row** runs
 across its top, the title at the left: drag the row to move the dialog
 (a drag on the rest of it, where no control is, moves nothing). A
-dialog that Escape closes (Find and Replace Text, Build Module, Rename,
+dialog that Escape closes (Build Module, Rename,
 About) has a **Close** at the row's right, after its own buttons when
 you go through it with Tab, and so do the pickers Select Portrait and
 Select Texture, whose Close is their Cancel; one that only its own
 buttons answer (a question, a wizard) has none. A dialog that folds
-(Find and Replace Text, Find Instance, Plugins and most dialogs that
+(Plugins and most dialogs that
 Escape closes) has the arrow at the row's left: **Collapse** folds it
 to its row, **Expand** shows it again as it was. A job's window (a
 running command's progress, a plugin's question) has the same row, with
@@ -892,8 +892,7 @@ do this**, Close Moonglow?'s **Don't ask again**), at its right its
 buttons. The main action comes first, in the accent fill (a wizard's **<
 Back** before it), then the other actions, then **Cancel**, or what
 leaves without acting (**Done**, **Later**, **Close**) last. A dialog
-that Escape closes by its title row's Close (Find Instance, Find Text,
-Hak Pak Conflict Analysis, Publish to NWSync) has no Close in its footer
+that Escape closes by its title row's Close (Publish to NWSync) has no Close in its footer
 too. **Enter** presses the main action whenever it is enabled, also with a
 one-line text field holding the keys, and not while it is disabled;
 **Escape** is Cancel, or closes the dialog (a plugin's message, whose
@@ -1391,11 +1390,38 @@ brings (a script's **Compiler** and **Bookmarks**: see
 [Scripts](07-scripts.md); a NUI window's **Checks**, its switch counting
 what the checks found: see [NUI Creator](18-nui-creator.md)), each a tab
 with its switch in the Status Bar. A NUI window's new errors open the dock
-on Checks, as a script's failed compile opens it on Compiler.
+on Checks, as a script's failed compile opens it on Compiler. A report
+is a tab of the dock too, while it is open: **Hak Pak Conflict
+Analysis**, **Resources Used** and **Claims Table** (see Modules ›
+Claimed areas, Modules › What the module uses of its haks and Build and
+test › Area Statistics). **Close Report**, a button at the end of the
+dock's tab bar (also a command in the command palette), closes the one in
+front. A report's table sorts by a column head (click; again for the other
+way; Resources Used's does not), takes the arrow keys, Page Up, Page Down,
+Home and End after a click on a row (or at once, when its command opened
+it: the keys stay with it until you click elsewhere, even with the
+pointer over an area), and Ctrl+C copies the row. The Status Bar shows
+the keys of the list that has them. Where the Claims Table is narrow,
+its other columns narrow first, and its actions fold into one **Actions**
+button per row only where they still do not fit. A command
+that fills a tab opens the dock and brings the tab to the front. However
+low you drag the dock, it still shows the panel's form (or header) and one
+whole row.
 **Problems** lists what each source of findings found last, each under
-its name with its counts, errors first, a source's findings replacing
-what it found before: today a tileset's **Check** (see Areas › Making
-tilesets); a click on a finding's place goes there. Its switch counts the
+its name, errors first, a source's findings replacing
+what it found before: a tileset's **Check** (see Areas › Making
+tilesets), **Build Module** and **Verify Module** (see Build and test); a
+click on a finding's place goes there. A row is chosen by a click, the
+arrow keys, Page Up, Page Down, Home and End move the choice, and Enter or
+a double click goes to it. A source's counts are said once, in the tab
+bar's place, and agree with its switch's; while Build Module or Verify
+Module runs, Problems says so ("Verify Module is running"). Build
+Module's heading has **Counted as Used** (where the build was asked for
+its Unused results);
+an Unused result's right-click menu has **Mark as Used**; Verify
+Module's findings have their fix button beside them where one is offered.
+When the module changes after Build Module's check, its heading says
+"Changed since the check: not counted". Its switch counts the
 current findings (those of a file changed since, closed without saving or
 gone stay listed, marked, not counted), red where one is an error; a Check
 that finds anything opens the dock on it. A heading's right click (or
@@ -1403,7 +1429,10 @@ Delete with it focused) offers Remove from Problems. With nothing in it, it says
 It is the main window's: a floating tileset's Check fills it too.
 **Search Results** lists what the last search found (a script's
 Find In Files, Find In Currently Open Scripts and References); its
-switch shows how many lines, and a click on one opens it. A switch off
+switch shows how many lines, and a click on one opens it. **Edit › Find
+Instance…** and **Edit › Find and Replace Text…** (Ctrl+H) open the dock
+on it too, with their form as the panel's header: see Areas › Find
+Instance and Modules › Find and Replace Text. A switch off
 opens the dock on its panel, one on closes the dock. Where nothing was
 chosen, the dock opens on the editor's own first panel (a script's
 Compiler), else on the log.
@@ -1436,7 +1465,8 @@ click it to open the log. A screen reader hears it as "Last log line:"
 and the line.
 
 While long work runs as a job (Build Module, Compile All Scripts,
-Verify Module, a hak saved, an NWSync publish, a project's or a
+Verify Module, Find Instance, Find and Replace Text, the Hak Pak Conflict
+Analysis, a hak saved, an NWSync publish, a project's or a
 plugin's command, among others), the right of the Status Bar shows its name and a bar: how much is done
 where the job says, a mark going to and fro where it does not. Rest the
 pointer on it for how far it is. One job runs at a time, in a window of

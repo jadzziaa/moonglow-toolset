@@ -1268,15 +1268,21 @@ fn adjust_location_and_find_instance() {
     assert_eq!(found.len(), 2, "both waypoints share the blueprint's tag");
     assert!(found.iter().all(|f| f.kind == ObjectKind::Waypoint && f.area == area));
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
-    // (Where its row is once the window has taken the list's size.)
-    h.run_steps(40);
-    let second = h.get_all_by_label(&found[1].template).nth(1).expect("the second result").rect();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    // (M4's U28: its rows are Search Results', in the Bottom Dock, made
+    // high enough for both.)
+    let name = format!("Waypoint {}", found[1].tag);
+    let dock = h.state().bottom_dock_rect().expect("open");
+    let rows: Vec<egui::Rect> = h.get_all_by_label(&name).map(|n| n.rect()).collect();
+    assert!(rows.iter().all(|r| dock.contains_rect(*r)), "{rows:?} in {dock:?}");
+    let second = rows.get(1).copied().expect("the second result");
     h.hover_at(second.center());
     for _ in 0..2 {
         press(&h, second.center(), true, egui::Modifiers::NONE);
         press(&h, second.center(), false, egui::Modifiers::NONE);
     }
-    h.run_steps(4);
+    settle(&mut h);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
     // A tag in the game's codepage (é, one byte in Windows-1252) is found
     // as typed: it was read as UTF-8, and matched nothing.
@@ -1729,12 +1735,16 @@ fn walkmesh_overlay_and_area_statistics() {
     h.run_steps(2);
     h.get_by_label("Area Statistics").click();
     h.run_steps(3);
-    h.get_by_label("Resources Used");
-    h.get_by_label("Triangles");
-    h.get_by_label("16 (4 by 4)");
-    h.get_by_label("Done").click();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    // (M4's U28: a Bottom Dock tab, Resources Used, its rows in it.)
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ResourcesUsed));
+    in_dock(&h, "Triangles");
+    assert_eq!(in_dock(&h, "Tiles").value().as_deref(), Some("16 (4 by 4)"));
+    in_dock(&h, "Close Report").click();
     h.run_steps(2);
     assert!(h.state().area_stats.is_none());
+    assert_ne!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ResourcesUsed));
     if std::env::var_os("MOONGLOW_SCREENS").is_some() {
         let image = h.render().expect("render");
         let out = mg_testkit::output_dir("screens");
@@ -7805,9 +7815,10 @@ fn results_found_before_the_module_changed_are_not_acted_on() {
     assert_eq!(waypoint_tags(&mut h, area), ["WP_X", "WP_C"]);
     // Find Instance: a double click on the last result (WP_C, third as
     // found) goes nowhere, and the results are found again.
-    let rows: Vec<egui::Rect> = h.get_all_by_label("WP_C").map(|n| n.rect()).collect();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    let rows: Vec<egui::Rect> = h.get_all_by_label("Waypoint WP_C").map(|n| n.rect()).collect();
     let at = rows.last().expect("its row").center();
-    h.run_steps(40);
     h.hover_at(at);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -7846,13 +7857,22 @@ fn find_instance_lays_out_the_results_in_sight() {
             template: "mg_tree".into(),
         })
         .collect();
+    find.searched = true;
     app.find_instance = Some(find);
     let mut h = harness(app, 1000.0, 700.0);
-    h.run_steps(4);
-    h.get_by_label("5000 found; double click one to go to it");
-    h.get_by_label("TREE_0");
-    let rows = h.query_all_by_label("mg_tree").count();
+    settle(&mut h);
+    // (M4's U28: in Search Results, opened by its command.)
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Find Instance…").click();
+    dock_high(&mut h, 340);
+    settle(&mut h);
+    in_dock(&h, "5000 objects found");
+    in_dock(&h, "Placeable TREE_0");
+    let rows = h.query_all_by_label_contains("Placeable TREE_").count();
     assert!((5..60).contains(&rows), "{rows} rows laid out");
+    let (from, end) = h.state().search_results.instance_rows_seen();
+    assert_eq!(end - from, rows, "the rows seen are those laid out");
 }
 
 /// The review's A16: the boxes of a large selection are drawn as one

@@ -1778,11 +1778,13 @@ fn build_module_compiles_and_reports() {
     assert!(w.compile && w.missing && !w.unused, "Aurora's defaults");
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);
-    let results: Vec<String> =
-        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
+    // (Its results in Problems, M4's U28: brought to the front, open.)
+    let results = build_results(&h);
     let has = |s: &str| results.iter().any(|r| r.contains(s));
-    assert!(has("Error:"), "the bad script: {results:?}");
+    assert!(has("Error: mg_bad.nss"), "the bad script: {results:?}");
     assert!(has("mg_nosuchscript"), "{results:?}");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems));
+    h.get_by_label_contains("Error: mg_bad.nss");
     let log = &h.state().log.entries;
     assert!(
         log.iter().any(|(_, m)| m.contains("1 encounter creature entries")),
@@ -1815,14 +1817,19 @@ fn build_module_marks_an_unused_script_as_used() {
         .with_size([900.0, 900.0])
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(2);
+    dock_high(&mut h, 360);
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);
-    let results = |h: &Harness<'_, Moonglow>| -> Vec<String> {
-        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect()
-    };
-    let line = "Unused: hello.nss (source and compiled)";
+    let results = build_results;
+    // (In Problems, M4's U28: a warning, its place the script.)
+    let line = "Warning: hello.nss, Unused (source and compiled)";
     assert!(results(&h).iter().any(|r| r == line), "{:?}", results(&h));
     assert!(!results(&h).iter().any(|r| r.contains("hello.ncs")), "once: {:?}", results(&h));
+    // (Nothing chosen: the dialog's Mark as Used can't be.)
+    assert!(
+        h.get_by_label("Mark as Used").accesskit_node().is_disabled(),
+        "no Unused result chosen"
+    );
     h.get_by_label(line).click();
     h.run();
     h.get_by_label("Mark as Used").click();
@@ -1836,8 +1843,12 @@ fn build_module_marks_an_unused_script_as_used() {
     // Built again: still not said.
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);
-    assert!(!results(&h).is_empty() && !results(&h).iter().any(|r| r.contains("hello")));
-    // Counted as Used lists it, and takes it out.
+    assert!(!results(&h).iter().any(|r| r.contains("hello")), "{:?}", results(&h));
+    let log = &h.state().log.entries;
+    let last = &log[log.len().saturating_sub(3)..];
+    assert!(last.iter().any(|(_, m)| m == "No errors found"), "{log:?}");
+    // Counted as Used (Build's heading's, in Problems) lists it, and takes
+    // it out.
     h.get_by_label("Counted as Used").click();
     h.run();
     h.get_by_label("Script: hello");
@@ -2046,10 +2057,9 @@ fn a_build_without_game_data_says_so() {
     h.run_steps(2);
     h.get_all_by_label("Build").last().unwrap().click();
     h.run_steps(3);
-    let results: Vec<String> =
-        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
+    let results = build_results(&h);
     assert_eq!(results.len(), 1, "{results:?}");
-    assert!(results[0].starts_with("No game data"), "{results:?}");
+    assert!(results[0].starts_with("Error: No game data"), "{results:?}");
 }
 
 /// Verify's report: errors first; objects placed from a blueprint that is
@@ -2684,12 +2694,15 @@ fn check_for_conflicts_says_what_the_module_uses_of_its_haks() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::HakReport);
     h.run();
+    // (A Bottom Dock tab, M4's U28: brought to the front.)
     assert!(h.state().hak_report.is_some());
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::HakConflicts));
     h.get_by_label("What the Module Uses").click();
     h.run();
-    let used = h.state().hak_usage.clone().expect("the walk ran");
+    let used = h.state().hak_report.as_ref().and_then(|r| r.usage.clone()).expect("the walk ran");
     assert!(used.contains("mg_content\t2 of 3 used"), "{used}");
     assert!(used.contains("1 unused"), "{used}");
+    // (Its lines its own view's rows, shown.)
     assert!(h.query_by_label_contains("What the module uses (in the game a player has)").is_some());
 }
 

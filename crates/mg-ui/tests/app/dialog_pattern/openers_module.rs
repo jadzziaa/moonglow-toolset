@@ -1,7 +1,9 @@
 //! Openers for the dialogs of the "module" group (see `dialog_pattern.rs`):
-//! the dialogs about the module as a whole (Build Module, Find and Replace
-//! Text, Delete from Module, Rename, Duplicate Tags, Recover Unsaved Work,
-//! Export and Import Resources, Claims, About, Updates...).
+//! the dialogs about the module as a whole (Build Module, Delete from
+//! Module, Rename, Duplicate Tags, Recover Unsaved Work, Export and Import
+//! Resources, Claims, About, Updates...). (Find and Replace Text, the Claims
+//! Table and Hak Pak Conflict Analysis are the Bottom Dock's since M4's
+//! U28.)
 
 use super::Opener;
 use super::openers_core::{clear_field, click_reached};
@@ -248,27 +250,21 @@ pub(crate) fn openers() -> Vec<Opener> {
         Opener::new("build_view.rs:window#1", "Build Module", module, |h| {
             h.state_mut().build = Some(Default::default())
         })
-        .enter_does("builds the module and says so, in it", |h| {
-            super::shows_other_words(h, "Build Module")
+        // (M4's U28: what it finds is in Problems, nothing found the log's.)
+        .enter_does("builds the module and says so, in Problems or the log", |h| {
+            h.state().problems.of(&mg_ui::problems::Source::Build).is_some()
+                || h.state().log.entries.iter().any(|(_, m)| m == "No errors found")
         }),
         Opener::new("builder_code.rs:window#1", "Builder Code", project, |h| {
             menu_item(h, "Edit", "Builder Code…")
         })
         .field(0),
-        Opener::new("bulk.rs:text_window#1", "Find and Replace Text", module, |h| {
-            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H)
-        })
-        .field(0)
-        .off(|h| clear_field(h, "Find and Replace Text", 0)),
         Opener::new("bulk.rs:update_window#1", "Update Instances", area, |h| {
             let waypoint = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
             h.state_mut().update_instances_of(vec![waypoint]);
         }),
         Opener::new("claims.rs:protected_window#1", "Protected Area", claimed_merged, retag_start),
         Opener::new("claims.rs:save_window#1", "Areas Not Yours", claimed_other, save_the_claimed),
-        Opener::new("claims.rs:table_window#1", "Claims Table", claimed_other, |h| {
-            menu_item(h, "Edit", "Claims Table…")
-        }),
         Opener::new("copy_as.rs:window#1", "Copy hello.nss", module, |h| {
             h.state_mut().actions.push(mg_ui::Action::CopyDialog(script()))
         })
@@ -332,14 +328,5 @@ pub(crate) fn openers() -> Vec<Opener> {
             h.state_mut().about = true
         })
         .bare(),
-        Opener::new("lib.rs:ui#1", "Hak Pak Conflict Analysis", module_with_game, |h| {
-            h.state_mut().hak_report = Some("No conflicts.".into())
-        })
-        .job()
-        .enter_does("lists what the module uses, in it", |h| {
-            let listed = h.state().hak_usage.as_deref().unwrap_or_default();
-            super::is_shown(h, "Hak Pak Conflict Analysis")
-                && listed.starts_with("What the module uses")
-        }),
     ]
 }

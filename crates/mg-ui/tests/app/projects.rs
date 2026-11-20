@@ -2075,7 +2075,9 @@ fn a_builder_code_that_holds_claims_is_said_in_its_window() {
 
 /// C6: Edit › Claims Table… shows the table whole (every area of it and
 /// the module, whose each is), and takes another builder's claim over
-/// (asked first), hands this builder's on, releases and claims.
+/// (asked first), hands this builder's on, releases and claims. (M4's
+/// U28: a Bottom Dock tab, a row an area, its name the area's and its
+/// value whose it is and the notes; closed by Close Report.)
 #[test]
 fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     let table = format!(
@@ -2089,11 +2091,12 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Claims Table…").click();
-    h.run();
-    h.get_by_label("claims.2da: whose each area is. Your code is ab.");
-    h.get_by_label("cd since 2026-10-20");
-    h.get_by_label("kz_gone");
-    h.get_by_label("merged, not in the module");
+    settle(&mut h);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ClaimsTable));
+    let said = |h: &Harness<'_, Moonglow>, area: &str| in_dock(h, area).value().unwrap_or_default();
+    in_dock(&h, "claims.2da: whose each area is. Your code is ab.");
+    assert_eq!(said(&h, "start"), "cd since 2026-10-20");
+    assert_eq!(said(&h, "kz_gone"), "free, merged, not in the module");
     let row = |dir: &std::path::Path| {
         let text = std::fs::read_to_string(dir.join("claims.2da")).unwrap();
         text.lines().nth(3).unwrap().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
@@ -2119,7 +2122,7 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     h.run();
     assert_eq!(row(&dir), "0 start ab");
     assert!(logged(&h, "start taken over from cd by ab, in claims.2da: commit it, and tell them"));
-    h.get_by_label_contains("yours: ab since");
+    assert!(said(&h, "start").starts_with("yours: ab since"), "{}", said(&h, "start"));
     // Handed on: not to one's own code.
     h.get_by_label("Hand To…").click();
     h.run();
@@ -2135,11 +2138,12 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     assert_eq!(row(&dir), "0 start ef");
     assert!(logged(&h, "start handed to ef by ab, in claims.2da: commit it, and tell them"));
     // The window follows the table: another's again.
-    h.get_by_label_contains("ef since");
+    assert!(said(&h, "start").starts_with("ef since"), "{}", said(&h, "start"));
     assert!(h.query_by_label("Hand To…").is_none());
-    click_dialog_s_own_close(&mut h, "Claims Table");
-    h.run();
-    assert!(h.query_by_label("Claims Table").is_none());
+    in_dock(&h, "Close Report").click();
+    settle(&mut h);
+    assert!(h.query_by_label("claims.2da: whose each area is. Your code is ab.").is_none());
+    assert_ne!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ClaimsTable));
 }
 
 /// C6: Claim This Area (the module tree's menu) writes the builder's row

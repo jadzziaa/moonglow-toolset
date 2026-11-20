@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T08:51:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T12:25:59Z }
 ---
 
 # Coming from Aurora
@@ -36,8 +36,8 @@ Each names what Aurora does, then what Moonglow does instead.
   If the graphics card can't draw, only the area view and previews are
   unavailable; every editor still works.
 - **Error boxes that keep coming back** until you end the program.
-  Moonglow writes problems to the log at the bottom of the window and
-  carries on. **Build › Verify Module** finds most of what
+  Moonglow writes problems to the log at the bottom of the window (Build
+  and Verify also list theirs under **Problems**) and carries on. **Build › Verify Module** finds most of what
   makes Aurora crash in custom content (a tileset's counts, a missing tile
   model, two 2DA rows run together, an object on a 2DA row that isn't
   there) and names the hak, file and row (see
@@ -133,8 +133,8 @@ own.
   name, resref or tag, and close matches when nothing matches exactly;
   hover for a picture; Favorites and Recent at the top; drag custom
   blueprints between categories.
-- **Edit › Find Instance…** lists every object placed in the module.
-  Double-click one to go to it.
+- **Edit › Find Instance…** lists every object placed in the module, in
+  **Search Results** in the Bottom Dock. Double-click one to go to it.
 - **Tile variants**: Shift + right click steps the tile under the pointer
   through its variants.
 - **Unused resources**: Build › Build Module can list the resources that
@@ -146,7 +146,8 @@ own.
   ([What counts as used](09-build-and-test.md#what-counts-as-used)).
 - **Hak conflicts**: Module Properties › Custom Content › Check for
   Conflicts… lists the resources several haks provide (and which one the
-  game uses) and the game's resources the haks replace.
+  game uses) and the game's resources the haks replace, in a tab of the
+  Bottom Dock.
 - **The resource browser** (the Left Dock's Resources tab; Tools ›
   Resource Browser shows it) shows any resource
   in the game, the haks or the module, and where it comes from; models

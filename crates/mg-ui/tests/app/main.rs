@@ -24,6 +24,8 @@ mod dialog_pattern;
 mod dialog_pictures;
 mod dialogs;
 mod doc_tabs;
+mod dock_pictures;
+mod dock_tabs;
 mod drawing;
 mod fields;
 mod form_columns;

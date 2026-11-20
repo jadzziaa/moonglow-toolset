@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:54:43Z }
 ---
 
 # Modules
@@ -188,7 +188,9 @@ back:
 
 ## Find and Replace Text
 
-**Edit › Find and Replace Text…** (Ctrl+H) finds text players read: the
+**Edit › Find and Replace Text…** (Ctrl+H) opens the Bottom Dock on
+**Search Results**, with the form as the panel's header and what it finds
+listed under it. It finds text players read: the
 module's names, descriptions, conversation lines, the journal and the rest
 (map notes and such), in every language each string has. Ticked on the
 second row, it looks in the fields builders and scripts read too:
@@ -211,16 +213,21 @@ door's Linked To, a key's tag, comments).
   where it would be longer than 32, and said in the log; a tag made
   another object's is said as a paste's is ([Duplicate
   tags](04-areas.md#duplicate-tags)).
-- **What's found** is listed by place, as in Find References. Click one to
-  go there; untick any to leave alone. When something it was found in
-  is changed with the window open, the list is of the module as it was:
-  **Find** again before replacing.
+- **What's found** is listed by place, as in Find References. Click a
+  string to choose it (the arrow keys, Page Up, Page Down, Home and End
+  move the choice); Space ticks or unticks it, and untick any to leave
+  alone; Enter or a double click, or the place link, opens it. When
+  something it was found in is changed after the search, the panel says
+  the module changed since: **Find** again before replacing. Enter in a
+  field searches and gives the list the keys (Shift+Tab goes back to the
+  field); Escape in a field closes the Bottom Dock. The search
+  is a job, with progress and **Cancel**. Closing the module lets the
+  hits go; the form stays.
 - **Replace** changes the ticked strings as one step that **Undo** takes
-  back, then lists what's left. The footer says how many there are as
+  back, then lists what's left. The panel says how many there are as
   "N strings, M times" ("1 string, 1 time"), while the list is current,
-  and has **Find** (the main button) and **Replace in N**, N the ticked
-  hits (off at 0). It has no Cancel: its title row's **Close** and
-  Escape close it.
+  and the form has **Find** (the main button) and **Replace in N**, N the
+  ticked hits (off at 0).
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
@@ -1307,7 +1314,7 @@ theirs to release. Without a builder code, Claim is there and off.
 
 **Edit › Claims Table…** shows the table whole: every area of it and
 of the module, whose each is and since when, merged or protected, and
-those the module doesn't have. Beside each, what you may do: **Claim**
+those the module doesn't have. It is a tab of the Bottom Dock, **Claims Table**, in front when you open it. Click a column head (Area, Whose, Notes) to sort by it, and again to sort the other way; after a click in the table, the arrow keys move the choice and Ctrl+C copies the row. **Close Report**, at the end of the dock's tab bar (also in the command palette), closes it. Beside each, what you may do: **Claim**
 a free one, **Release** or **Hand To…** one of yours (another builder's
 code, typed: the claim is theirs then), and **Take Over…** another's,
 asked first (their changes to it not yet merged would be the conflict
@@ -1597,11 +1604,16 @@ the same way.
 
 `mg haks MODULE --usage` says, hak by hak, which of its resources the
 module reaches and which nothing does: for cutting a release (or a
-player's download) to what is used. In the window, **Check for
-Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
-Conflict Analysis, and its **What the Module Uses** (the main button, in
-the footer beside **Close**) says the same above the conflicts (worked out as a job, on the module as it is, unsaved
-changes too). A line a hak, and one for them all:
+player's download) to what is used. In Moonglow, **Check for
+Conflicts…** (Module Properties › Custom Content) runs the Hak Pak
+Conflict Analysis as a job and shows it as a tab of the Bottom Dock. The
+tab has the views **Conflicts (n)**, **Overrides (n)**, **All (n)** and
+**Haks (n)**; its **What the Module Uses** button adds a view with the same
+(worked out as a job, on the module as it is, unsaved
+changes too), and **Copy Report** copies the whole report as text.
+Click a column head to sort; after a click in the table, the arrow keys
+move the choice and Ctrl+C copies the row. **Close Report** closes the
+tab. A line a hak, and one for them all:
 
 ```
 tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged
@@ -2642,3 +2654,4 @@ tileset are given) and **Cancel**. Its ResRef is made from the name, after [your
 builder code](#your-builder-code) where you have one (the wizard then
 shows it). **Edit › Resize Area…** and **Rotate Area…**
 change the area shown last, as in Aurora. See [Areas](04-areas.md).
+ area shown last, as in Aurora. See [Areas](04-areas.md).
