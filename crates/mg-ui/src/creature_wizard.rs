@@ -489,12 +489,27 @@ fn page(
             let side = 96.0;
             let tall = side + mg_uikit::gallery::label_height(false, 2, false);
             let gender = w.gender;
-            let current = shown.iter().position(|c| usize::from(w.appearance) == c.row);
-            let shown_area = egui::ScrollArea::vertical()
-                .id_salt("cw-appearances")
-                .max_height((ui.available_height() * 0.5).max(tall + 8.0))
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
+            // (Where the one chosen is among those found, once for them.)
+            let current = crate::blueprint::kept_for(
+                ui.ctx(),
+                egui::Id::new("cw-appearance-at"),
+                &found,
+                &w.appearance,
+                || shown.iter().position(|c| usize::from(w.appearance) == c.row),
+            );
+            // (In a well with its drawn scroll bar: the Pickers board's,
+            // half the page's room left.)
+            let well = egui::vec2(
+                ui.available_width(),
+                (ui.available_height() * 0.5).max(tall + 8.0 + 2.0),
+            );
+            let pad = egui::Margin { left: 8, right: 8, top: 4, bottom: 4 };
+            let shown_area = crate::widgets::picture_well(
+                ui,
+                egui::Id::new("cw-appearances"),
+                well,
+                pad,
+                |ui| {
                     let id = egui::Id::new("cw-appearance-pictures");
                     let keys = !egui::Popup::is_any_open(ui.ctx());
                     let grid = mg_uikit::gallery::GalleryGrid::new(id, shown.len(), side)
@@ -526,14 +541,23 @@ fn page(
                     }
                     looks.shown.extend(out.ahead.clone().map(|i| look_of(shown[i])));
                     out
-                });
+                },
+            );
+            // (The well's room taken: the page's rows go on under it.)
             // (Opened at the appearance chosen, once each time the page is
             // shown: a pass missed is the page left.)
             let placed_id = egui::Id::new("cw-appearances-placed");
             let pass = ui.ctx().cumulative_pass_nr();
             let (last, placed) =
                 ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
-            let placed = placed && last + 1 >= pass;
+            let fresh = last + 1 < pass;
+            // (The page just shown: its appearances' grid given the keys, so
+            // the one chosen is ringed in the accent as on the board, and the
+            // arrows move it, as Select Portrait's.)
+            if fresh {
+                ui.memory_mut(|m| m.request_focus(egui::Id::new("cw-appearance-pictures")));
+            }
+            let placed = placed && !fresh;
             let placed = placed
                 || match current {
                     Some(at) => crate::widgets::open_gallery_at(
@@ -576,53 +600,68 @@ fn page(
                 let preview = 140.0;
                 let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
                     .max(crate::images::PORTRAIT_THUMB + 40.0);
-                let (per_row, row_height) = crate::images::portrait_grid(ui, width);
                 ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(width);
-                        egui::ScrollArea::vertical()
-                            .id_salt(("cw-portraits", w.race, w.gender, w.all_portraits))
-                            .auto_shrink([false, false])
-                            .show_rows(
-                                ui,
-                                row_height,
-                                list.len().div_ceil(per_row),
-                                |ui, lines| {
-                                    for line in lines {
-                                        ui.horizontal(|ui| {
-                                            for (row, base) in
-                                                list.iter().skip(line * per_row).take(per_row)
-                                            {
-                                                let base = base.to_lowercase();
-                                                let r = loader
-                                                    .portrait(
-                                                        ui,
-                                                        &base,
-                                                        'm',
-                                                        crate::images::PORTRAIT_THUMB,
-                                                        egui::Sense::click(),
-                                                    )
-                                                    .on_hover_text(&base);
-                                                if w.portrait == Some(*row) {
-                                                    ui.painter().rect_stroke(
-                                                        r.rect.expand(1.0),
-                                                        2.0,
-                                                        egui::Stroke::new(
-                                                            1.0,
-                                                            mg_uikit::tokens(ui.ctx()).accent,
-                                                        ),
-                                                        egui::StrokeKind::Outside,
-                                                    );
-                                                }
-                                                if r.clicked() {
-                                                    w.portrait = Some(*row);
-                                                }
-                                            }
-                                        });
-                                    }
-                                },
-                            );
+                    // (In a well with its drawn scroll bar, justified rows of
+                    // 54 by 84 that reach it, as Select Portrait's.)
+                    let id = egui::Id::new(("cw-portraits", w.race, w.gender, w.all_portraits));
+                    let at = crate::blueprint::kept_for(
+                        ui.ctx(),
+                        egui::Id::new("cw-portrait-at"),
+                        &list,
+                        &w.portrait,
+                        || list.iter().position(|(r, _)| Some(*r) == w.portrait),
+                    );
+                    let keys = !egui::Popup::is_any_open(ui.ctx());
+                    let (tile, gaps) = (crate::images::PORTRAIT_TILE, crate::images::PORTRAIT_GAPS);
+                    let grid =
+                        mg_uikit::gallery::GalleryGrid::new(id.with("grid"), list.len(), tile.x)
+                            .justified(tile, gaps.0)
+                            .row_gap(gaps.1)
+                            .label(0.0)
+                            .cursor(at)
+                            .keys_allowed(keys)
+                            .name("Portraits");
+                    let size = egui::vec2(width, ui.available_height().max(tile.y + 12.0));
+                    let pad = egui::Margin { left: 6, right: 6, top: 4, bottom: 4 };
+                    let shown = crate::widgets::picture_well(ui, id, size, pad, |ui| {
+                        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                            let (row, base) = &list[i];
+                            let base = base.to_lowercase();
+                            let picture = loader.portrait_cell(ui.ctx(), &base);
+                            mg_uikit::gallery::GalleryCell::new("", picture)
+                                .said(&format!("po_{base}"))
+                                .lines(0)
+                                .radius(3)
+                                .kind(mg_uikit::Icon::Creature)
+                                .selected(w.portrait == Some(*row))
+                                .paint(ui, rect, tile, cell, r);
+                            if r.clone().on_hover_text(&base).clicked() {
+                                w.portrait = Some(*row);
+                            }
+                        });
+                        for i in out.drawn.end..out.ahead.end {
+                            loader.portrait_cell(ui.ctx(), &list[i].1.to_lowercase());
+                        }
+                        // (The keys choose as they move: a picker's.)
+                        if let Some(i) = out.moved.or(out.activated) {
+                            w.portrait = Some(list[i].0);
+                        }
+                        out
                     });
+                    // (Opened at the portrait chosen, once each time the page
+                    // or the list is shown, as Select Portrait opens.)
+                    let placed_id = id.with("placed");
+                    let pass = ui.ctx().cumulative_pass_nr();
+                    let (last, placed) =
+                        ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
+                    let placed = (placed && last + 1 >= pass)
+                        || match at {
+                            Some(at) => {
+                                crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at)
+                            }
+                            None => true,
+                        };
+                    ui.data_mut(|d| d.insert_temp(placed_id, (pass, placed)));
                     ui.vertical(|ui| {
                         ui.set_width(preview);
                         let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));

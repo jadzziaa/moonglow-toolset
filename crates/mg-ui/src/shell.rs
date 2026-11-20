@@ -271,6 +271,12 @@ pub enum Panel {
     /// Reaction, in Advanced: a row a faction, Full detail at its foot
     /// (`faction_view::reactions_panel`).
     Reactions,
+    /// The Appearance Gallery's chosen appearance (M4's U26, the
+    /// AppearanceGallery board's Right Dock, under its Preview): its row,
+    /// name, label and model, and its kind's facts: a creature's model
+    /// type, size, movement rate, personal space, height and blood color
+    /// (`appearance_gallery::facts`).
+    Appearance,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -328,7 +334,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 31] = [
+    pub(crate) const KEYED: [Panel; 32] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -360,6 +366,7 @@ impl Panel {
         Panel::Faction,
         Panel::Reaction,
         Panel::Reactions,
+        Panel::Appearance,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -398,7 +405,8 @@ impl Panel {
             | Panel::Category
             | Panel::Faction
             | Panel::Reaction
-            | Panel::Reactions => Dock::Right,
+            | Panel::Reactions
+            | Panel::Appearance => Dock::Right,
             Panel::Log
             | Panel::Compiler
             | Panel::Bookmarks
@@ -446,6 +454,7 @@ impl Panel {
             Panel::Faction => "Faction",
             Panel::Reaction => "Reaction",
             Panel::Reactions => "Reactions",
+            Panel::Appearance => "Appearance",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -487,6 +496,7 @@ impl Panel {
             Panel::Faction,
             Panel::Reaction,
             Panel::Reactions,
+            Panel::Appearance,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -531,6 +541,7 @@ impl Panel {
             Panel::Faction => Icon::Faction,
             Panel::Reaction => Icon::Edit,
             Panel::Reactions => Icon::List,
+            Panel::Appearance => Icon::Info,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -596,6 +607,7 @@ impl Panel {
             Panel::Faction => "Faction: the faction chosen, its parent and Global effect",
             Panel::Reaction => "Reaction: how the chosen faction regards the one chosen",
             Panel::Reactions => "Reactions: how the chosen faction regards the others",
+            Panel::Appearance => "Appearance: the facts of the appearance chosen in the gallery",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -667,6 +679,11 @@ impl Panel {
             Panel::Properties => Some(crate::properties_panel::detail(app, editor)),
             Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => {
                 crate::tileset_view::panel_detail(app, editor, self)
+            }
+            // (The Appearance Gallery's: the model of the row chosen,
+            // "c_aribeth", and its table, "appearance.2da"; M4's U26.)
+            Panel::Preview | Panel::Appearance if crate::appearance_gallery::is_gallery(editor) => {
+                crate::appearance_gallery::panel_detail(app, editor, self)
             }
             // (A hak's: the resource chosen, "c_masterius.mdl", and the
             // hak's file, the Hak board's; M4's U21.)
@@ -781,7 +798,8 @@ impl Panel {
             | Panel::Category
             | Panel::Faction
             | Panel::Reaction
-            | Panel::Reactions => brings.has(self),
+            | Panel::Reactions
+            | Panel::Appearance => brings.has(self),
             // (Whatever the editor, with nothing open too, as every board
             // draws its switch: with no search yet, it says what fills it.)
             // (Problems too, M4's U20: with nothing found, the kit's empty
@@ -845,6 +863,9 @@ impl Panel {
             Panel::Faction => Keys::FactionPanel,
             Panel::Reaction => Keys::Reaction,
             Panel::Reactions => Keys::Reactions,
+            // (The Appearance Gallery's, M4's U26: facts to read, nothing to
+            // take the keys.)
+            Panel::Appearance => Keys::AppearanceFacts,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -1021,6 +1042,14 @@ const TILESET_SHARES: &[u16] = &[1008, 992];
 const HAK_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Details]];
 const HAK_FOLDED: &[Panel] = &[Panel::Preview, Panel::Details];
 const HAK_SHARES: &[u16] = &[1278, 722];
+/// The Appearance Gallery's Right Dock (M4's U26, the AppearanceGallery
+/// board's): Preview over Appearance, each a section with its header; one
+/// tab bar of the two under 1400; with the gallery into its window where
+/// it floats. The board's heights: Preview 60% of the dock, Appearance
+/// the rest.
+const GALLERY_RIGHT: &[Section] = &[&[Panel::Preview], &[Panel::Appearance]];
+const GALLERY_FOLDED: &[Panel] = &[Panel::Preview, Panel::Appearance];
+const GALLERY_SHARES: &[u16] = &[1200, 800];
 /// A journal's Right Dock (M4's U22, the Journal board's): Entry over
 /// Category, each a section with its header; one tab bar of the two under
 /// 1400; with the journal into its window where it floats. The board's
@@ -1205,6 +1234,18 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
             };
             Brings { outliner: true, right, folded, shares, floats: true, ..Brings::default() }
         }
+        // (The Appearance Gallery's Preview over Appearance, M4's U26, with
+        // the game's data read, whatever is open (Welcome opens it with no
+        // module); with it into its window where it floats. Its Preview its
+        // own, whatever the palettes.)
+        crate::Tab::PlaceableGallery if app.game.is_some() => Brings {
+            right: GALLERY_RIGHT,
+            folded: GALLERY_FOLDED,
+            shares: GALLERY_SHARES,
+            floats: true,
+            diagram: true,
+            ..Brings::default()
+        },
         crate::Tab::Table(_) => Brings {
             outliner: true,
             right: TABLE_RIGHT,
@@ -3266,6 +3307,8 @@ pub(crate) fn shown(
         Some(Tab::Tileset(id)) => crate::tileset_view::shown(app, &k, ctx, *id),
         // (A hak's, M4's U21: the Hak board's.)
         Some(Tab::Hak(id)) => crate::hak_view::shown(app, &k, ctx, *id),
+        // (The Appearance Gallery's, M4's U26: the AppearanceGallery board's.)
+        Some(Tab::PlaceableGallery) => crate::appearance_gallery::shown(app, ctx),
         // (The journal's and the faction editor's, M4's U22: their boards'.)
         Some(Tab::Journal) => crate::journal_view::shown(app, &k, ctx),
         Some(Tab::Factions) => crate::faction_view::shown(app, &k, ctx),
@@ -4799,6 +4842,8 @@ pub(crate) fn panel_body(
         Panel::Textures | Panel::Details => Margin::ZERO,
         Panel::Entry | Panel::Category => Margin::ZERO,
         Panel::Faction | Panel::Reaction | Panel::Reactions => Margin::ZERO,
+        Panel::Appearance => Margin::ZERO,
+        Panel::Preview if crate::appearance_gallery::is_gallery(editor) => Margin::ZERO,
         Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if crate::hak_view::hak_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if own.is_some() => Margin::ZERO,
@@ -4830,6 +4875,23 @@ pub(crate) fn panel_body(
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 crate::tileset_view::preview(app, &mut body, editor);
+            }
+            // (The Appearance Gallery's: the row chosen, M4's U26.)
+            Panel::Preview
+                if room.is_positive() && crate::appearance_gallery::is_gallery(editor) =>
+            {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, "gallery-preview", pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::appearance_gallery::preview(app, &mut body, editor);
+            }
+            Panel::Appearance => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::appearance_gallery::facts(app, &mut body, editor);
             }
             // (A hak's: the resource chosen, M4's U21.)
             Panel::Preview if room.is_positive() && crate::hak_view::hak_of(editor).is_some() => {

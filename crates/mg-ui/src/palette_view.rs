@@ -547,6 +547,9 @@ pub(crate) enum Keys {
     FactionPanel,
     Reaction,
     Reactions,
+    /// The Appearance Gallery's Appearance panel (M4's U26): facts to
+    /// read, no arrows; F6 there takes the keys from the panes.
+    AppearanceFacts,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

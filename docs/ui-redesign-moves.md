@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T20:19:02Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -632,17 +632,17 @@ Every control of the screens mocked in the second round and its home in the mock
 | Gallery cell: picture, name on two lines, favorite star, hover enlargement with ResRef and Tag | The shared picture cell; the hover enlargement as a tooltip beside the dock ✓ M4 U25 |
 | Tiles palette: Exact Tile, terrain and crosser headings with their tiles as pictures | Tiles palette toolbar (in the Gallery in the GalleryTiles board's order: List, Gallery, Exact Tile, the size slider, fold arrows, item count) and list, the tile's model name under each picture ✓ M4 U25 |
 | Tile Properties: All tiles (ignore fit), Variant (N fit here) with its Size slider, the variant grid | Tile Properties panel in the Right Dock; the Turn choices and search appear with All tiles on (not drawn) ✓ M4 U5 (the panel); ✓ M4 U25 (its pictures in the shared cell's small variant, their own slider) |
-| Appearance Gallery window: Placeables, Creatures, Doors; hint line with Use the Selection; Find; size slider; count | A document tab: the kind switch, Find, slider and count in its header, the hint line as a strip under it |
-| Appearance Gallery: click, double click, drag, right-click Give to the Selection | Unchanged; the common ones are Status Bar hints |
-| Select Portrait: three radio choices, Race, Gender or Category, the portrait grid, preview, count, OK, Cancel | A dialog by the dialog pattern; the count at the footer's left |
-| Select Texture: "To draw NAME with", Find, size slider, count, Interface textures too, grid, preview, OK, Cancel | A dialog by the dialog pattern |
-| Armor part gallery: "Pictures of" and the sixteen parts, two rows of part pictures | On the item's Appearance page, as today, with the shared cell |
-| Creature Wizard: appearance grid with Find an appearance, portrait grid with All portraits | The wizard's Appearance and Portrait step, with the step list |
+| Appearance Gallery window: Placeables, Creatures, Doors; hint line with Use the Selection; Find; size slider; count | A document tab: the kind switch, Find, slider and count in its header, the hint line as a strip under it; its Preview and Appearance panels in the Right Dock ✓ M4 U26 |
+| Appearance Gallery: click, double click, drag, right-click Give to the Selection | Unchanged; the common ones are Status Bar hints, each in the state it is true in, and the count at the Status Bar's right ✓ M4 U26 |
+| Select Portrait: three radio choices, Race, Gender or Category, the portrait grid, preview, count, OK, Cancel | A dialog by the dialog pattern; the count at the footer's left ✓ M4 U26 (the grid in a well, justified rows of 54 × 84, keys by the grid) |
+| Select Texture: "To draw NAME with", Find, size slider, count, Interface textures too, grid, preview, OK, Cancel | A dialog by the dialog pattern ✓ M4 U26 (the count stays on the toolbar row, as the board has it) |
+| Armor part gallery: "Pictures of" and the sixteen parts, two rows of part pictures | On the item's Appearance page, as today, with the shared cell ✓ M4 U26 (the parts as flat toggles, the part number the name, its armor class the detail) |
+| Creature Wizard: appearance grid with Find an appearance, portrait grid with All portraits | The wizard's Appearance and Portrait step, with the step list ✓ M4 U26 (its two grids in wells; the step list is U27's) |
 
 
 #### New
 
-- A Preview panel and an Appearance panel beside the Appearance Gallery.
+- A Preview panel and an Appearance panel beside the Appearance Gallery. ✓ M4 U26
 - Counts on the Tiles gallery's terrain and crosser headings. ✓ M4 U25
-- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs (the close button ✓ M3 T11).
+- A well with a scroll bar around a dialog's picture grid, and a close button on the two picker dialogs (the close button ✓ M3 T11; the well ✓ M4 U26).
 

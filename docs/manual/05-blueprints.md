@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T18:15:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T00:55:41Z }
 ---
 
 # Blueprints
@@ -271,8 +271,28 @@ The palette's buttons:
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.
 - **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
-  Appearances…** under **More** in the palette's Placeables): **Placeables**, **Creatures**
-  and **Doors** at its top choose whose. Every appearance in
+  Appearances…** under **More** in the palette's Placeables): a tab
+  whose header holds **Placeables**, **Creatures** and **Doors** (which
+  table's appearances), **Find**, the size slider and the count ("838
+  appearances (appearance.2da)", or "12 of 838" while Find narrows it;
+  where the tab is narrow, the slider and the count go into the header's
+  **…** menu); under it a line says what a click does now, with **Use
+  the Selection** where it was opened for one object (with a placeable
+  selected in the area and the Placeables shown: "A click takes a
+  placeable to place. Right click gives it to the 1 placeable
+  selected."). Where Find leaves none, it says "No appearance matches." The picture
+  clicked (or the one the arrow keys moved to) shows in the Right Dock's
+  **Preview** (its model, still: the play button sets it moving) and
+  **Appearance** (its row: the name, label and model, and a creature's
+  model type, size, movement rate, personal space, height and blood
+  color, a placeable's sound, shadow size and static, a door's sound and
+  whether it blocks sight); floating, the tab takes the two panels into
+  its own window. The Status Bar names what the mouse does here (Click
+  Give the appearance or Take to place, Right Click Menu where the
+  menu's **Give to the Selection** gives it, Drag Place in an area,
+  Double Click and the wizard it opens; only those true at the moment)
+  and, at its right, the count the header says ("838 appearances", or
+  "12 of 838 appearances" while Find narrows it). Every appearance in
   `placeables.2da`, `appearance.2da` or `genericdoors.2da` as a picture
   (a creature's: the creature it gives appearances to as it is, its
   head, colors, phenotype and what it wears, in each appearance; else a
@@ -772,7 +792,13 @@ Shared parts:
     drawn with (item, feat and spell icons, portraits, load screens, the
     area map's tiles and the GUI's own: more than three quarters of the
     game's textures), are left out unless **Interface textures too** is
-    ticked. The gallery closes when its page is left. The name can
+    ticked. The textures sit in a well with its scroll bar, their names
+    in monospace; it opens at the texture chosen, or else at the one
+    being replaced, ringed, which the preview at the right shows with
+    its name. **OK** stays off until another is chosen; the arrow keys
+    choose as they move and Enter is then **OK**; Esc or the close
+    button is **Cancel**. The gallery closes
+    when its page is left. The name can
     also be typed after **Drawn as**.
     **Reset** removes a replacement. PLT textures are marked *PLT*: a
     replacement draws the texture picked in their place, as it is,
@@ -1025,7 +1051,14 @@ A domain or school left **Not set** is the game's to choose.
   Monsters, as in Aurora); and its Name page takes a ResRef and Tag of
   your own.
 - **Portraits…** chooses the portrait from the game's, by race and
-  gender.
+  gender: **Select Portrait** opens at the one the object has, its
+  portraits in rows that fill the room (the space left over goes
+  between them), in a well with its scroll bar. A click chooses one,
+  the arrow keys, Home, End, Page Up and Page Down move the choice;
+  **OK** (or Enter, or a double click) takes it, **Cancel**, Esc or the
+  close button leaves the portrait as it was. The count is at the
+  footer's left. The Creature Wizard's appearances and portraits are
+  laid out the same way, the arrow keys choosing there too.
 
 ### Items
 
@@ -1041,7 +1074,9 @@ icon as it would be with each (what of it is drawn, at most 128 points
 tall), a weapon's part by that part alone, as
 large as it is in the icon, a part with a model and no icon by its
 number, and an armor's parts under their lists by **Pictures of**: the
-part chosen there (the torso first), each of its models alone as the
+part chosen in the row of part buttons there (the torso first; each
+picture named by its number, a torso's armor class under it), two rows
+of pictures at a time, each of its models alone as the
 body shown wears it, in the armor's colors, opened at the armor's own,
 a click giving the armor that one (the thighs, shins and feet both
 sides together); the item's model shows in the Preview panel beside the

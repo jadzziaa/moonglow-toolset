@@ -94,6 +94,10 @@ pub enum Picture {
     Making,
     /// Made, with nothing to draw: the kind's icon and "No picture".
     Missing,
+    /// The part `uv` of a texture filling the tile whatever its shape (a
+    /// portrait's: the upper 100/128 of its canvas, in a 54 by 84 tile;
+    /// M4's U26).
+    Fill(egui::TextureId, Rect),
 }
 
 /// What a cell looks like as the grid sees it, from the pointer and the
@@ -529,6 +533,9 @@ impl<'a> GalleryCell<'a> {
                 let at = letterboxed(ui.ctx(), id, tile);
                 painter.image(id, at, uv, fade);
             }
+            Picture::Fill(id, uv) => {
+                painter.with_clip_rect(tile).image(id, tile, uv, fade);
+            }
             Picture::Making | Picture::Missing => {
                 let side = KIND_ICON.min(tile.width() * 0.5).min(tile.height() * 0.5);
                 let icon = Rect::from_center_size(tile.center(), Vec2::splat(side));
@@ -678,6 +685,8 @@ pub struct GalleryGrid {
     columns: usize,
     label: f32,
     min_gap: f32,
+    /// Between rows where not the layout's own ([`GalleryGrid::row_gap`]).
+    row_gap: Option<f32>,
     ahead: usize,
     keys_allowed: bool,
     cursor: Option<usize>,
@@ -697,6 +706,7 @@ impl GalleryGrid {
             columns: 1,
             label: label_height(false, 2, false),
             min_gap: JUSTIFIED_GAP,
+            row_gap: None,
             ahead: 1,
             keys_allowed: true,
             cursor: None,
@@ -713,6 +723,14 @@ impl GalleryGrid {
     /// Fixed tiles of `tile`, justified at the least gap `min_gap`.
     pub fn justified(mut self, tile: Vec2, min_gap: f32) -> Self {
         (self.sizing, self.tile, self.min_gap) = (Sizing::Justified, tile, min_gap);
+        self
+    }
+
+    /// Rows `gap` apart, whatever the layout's own (Select Portrait's
+    /// portraits: justified at least 8 apart across, rows 3 apart; M4's
+    /// U26).
+    pub fn row_gap(mut self, gap: f32) -> Self {
+        self.row_gap = Some(gap);
         self
     }
 
@@ -758,12 +776,16 @@ impl GalleryGrid {
 
     /// The layout of the cells in `room`.
     pub fn layout(&self, room: f32) -> GridLayout {
-        match self.sizing {
+        let mut layout = match self.sizing {
             Sizing::Grow => GridLayout::grow(room, self.side, self.label),
             Sizing::Justified => GridLayout::justified(room, self.tile, self.label, self.min_gap),
             Sizing::Columns => GridLayout::columns(room, self.columns, self.label),
             Sizing::Fixed => GridLayout::small(room, self.side, self.label),
+        };
+        if let Some(gap) = self.row_gap {
+            layout.gap.y = gap;
         }
+        layout
     }
 
     /// The grid's id: its keys' cursor is kept under it.

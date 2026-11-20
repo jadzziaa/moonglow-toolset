@@ -520,7 +520,12 @@ fn a_picker_s_close_is_its_cancel() {
     h.get_by_label("Portraits…").click();
     h.run();
     // (A portrait chosen, not taken: the Close drops it.)
-    h.get_by_label("po_dw_f_01_").click();
+    // (The grid opens at the blueprint's own portrait and has the keys:
+    // Home brings the first in sight.)
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    // (Its cell, the first named so: the preview beside it is too.)
+    h.get_all_by_label("po_dw_f_01_").next().unwrap().click();
     settle(&mut h);
     // (Where the picker is once it rests: its first frame is egui's
     // sizing pass, laid out at a default place, and it grows about its

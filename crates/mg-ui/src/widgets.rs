@@ -3529,7 +3529,41 @@ impl<'a> Dialog<'a> {
         ctx: &egui::Context,
         add_contents: impl FnOnce(&mut Ui) -> R,
     ) -> Option<egui::InnerResponse<Option<R>>> {
+        let none: Option<fn(&mut Ui, &mut ())> = None;
+        self.show_parts(ctx, &mut (), |ui, _| add_contents(ui), none)
+    }
+
+    /// [`Dialog::show`] with a footer under the body (the dialog pattern's,
+    /// `mg_uikit::dialog::Footer`, M4's U26): `footer` lays it out across
+    /// the dialog's whole width, outside the body's margin and its scroll,
+    /// its rule from edge to edge; the body scrolls in the room the footer
+    /// leaves. `state` is the body's and the footer's both (the body's
+    /// choice, what the footer's OK reads).
+    pub(crate) fn show_footed<S, R>(
+        self,
+        ctx: &egui::Context,
+        state: &mut S,
+        add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
+        footer: impl FnOnce(&mut Ui, &mut S),
+    ) -> Option<egui::InnerResponse<Option<R>>> {
+        self.show_parts(ctx, state, add_contents, Some(footer))
+    }
+
+    fn show_parts<S, R, F: FnOnce(&mut Ui, &mut S)>(
+        self,
+        ctx: &egui::Context,
+        state: &mut S,
+        add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
+        footer: Option<F>,
+    ) -> Option<egui::InnerResponse<Option<R>>> {
         let Dialog { mut window, title, id, open, resizes, close_cancels, folds } = self;
+        // (A footer's height and the spacing above it, which its place
+        // under the body takes.)
+        let style = ctx.global_style();
+        let footer_high = match footer.is_some() {
+            true => mg_uikit::dialog::FOOTER_HEIGHT + style.spacing.item_spacing.y,
+            false => 0.0,
+        };
         if open.as_deref() == Some(&false) {
             return None;
         }
@@ -3538,7 +3572,6 @@ impl<'a> Dialog<'a> {
         // takes is caught, not the window's.)
         let body_id = id.with("mg-dialog-body");
         let body: Option<egui::Rect> = ctx.data(|d| d.get_temp(body_id));
-        let style = ctx.global_style();
         let margin = style.spacing.window_margin;
         let frame = egui::Frame::window(&style).inner_margin(0);
         // The room for its body: the application's window, less its title
@@ -3548,7 +3581,13 @@ impl<'a> Dialog<'a> {
         let edges = 2.0 * style.visuals.window_stroke.width;
         let room = egui::vec2(
             screen.width() - margin.sum().x - edges,
-            screen.height() - mg_uikit::metrics::TITLE_ROW - margin.sum().y - edges,
+            // (And the spacing under the row, which the body is put after.)
+            screen.height()
+                - mg_uikit::metrics::TITLE_ROW
+                - style.spacing.item_spacing.y
+                - footer_high
+                - margin.sum().y
+                - edges,
         )
         .max(egui::Vec2::splat(1.0));
         let natural_id = id.with("mg-dialog-natural");
@@ -3587,19 +3626,20 @@ impl<'a> Dialog<'a> {
                 margin,
                 grows: !resizes,
             };
-            let (inner, shown, natural) = titled(ui, row, |ui| {
+            let body = |ui: &mut Ui, state: &mut S| {
                 Some(match scroll {
                     Some(both) => {
                         let out = egui::ScrollArea::new(both)
                             .id_salt(natural_id)
                             .max_width(room.x)
                             .max_height(room.y)
-                            .show(ui, add_contents);
+                            .show(ui, |ui| add_contents(ui, state));
                         (out.inner, Some(out.content_size))
                     }
-                    None => (add_contents(ui), None),
+                    None => (add_contents(ui, state), None),
                 })
-            });
+            };
+            let (inner, shown, natural) = titled_footed(ui, row, state, body, footer);
             closed = shown.closed();
             fold_clicked = shown.fold_clicked();
             row_bottom = Some(shown.rect.bottom());
@@ -3699,6 +3739,20 @@ fn titled<R>(
     row: Row<'_>,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> (Option<R>, mg_uikit::TitleRow, egui::Vec2) {
+    let none: Option<fn(&mut Ui, &mut ())> = None;
+    titled_footed(ui, row, &mut (), |ui, _| add_contents(ui), none)
+}
+
+/// [`titled`], with a footer under the body where `footer` (and the body
+/// not folded): across the window's width, outside the body's margin
+/// ([`Dialog::show_footed`]).
+fn titled_footed<S, R, F: FnOnce(&mut Ui, &mut S)>(
+    ui: &mut Ui,
+    row: Row<'_>,
+    state: &mut S,
+    add_contents: impl FnOnce(&mut Ui, &mut S) -> R,
+    footer: Option<F>,
+) -> (Option<R>, mg_uikit::TitleRow, egui::Vec2) {
     let Row { title, close, fold, folded_width, margin, grows } = row;
     // (Where the window grows to what it holds (`grows`, not resized by
     // its edges): as wide as its body was last frame, at least, and never
@@ -3723,7 +3777,19 @@ fn titled<R>(
     let (inner, took) = match folded_width {
         Some(_) => (None, egui::Vec2::ZERO),
         None => {
-            let body = egui::Frame::NONE.inner_margin(margin).show(ui, add_contents);
+            let body =
+                egui::Frame::NONE.inner_margin(margin).show(ui, |ui| add_contents(ui, state));
+            // (Across the window, as wide as its row or its body.)
+            if let Some(footer) = footer {
+                let wide = ui.min_rect().width();
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(wide, mg_uikit::dialog::FOOTER_HEIGHT),
+                    egui::Sense::hover(),
+                );
+                let rect = egui::Rect::from_x_y_ranges(ui.min_rect().x_range(), rect.y_range());
+                let mut slot = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                footer(&mut slot, state);
+            }
             (Some(body.inner), body.response.rect.size() - margin.sum())
         }
     };
@@ -3944,12 +4010,40 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
     if let Some(h) = hover {
         r = r.on_hover_text(h);
     }
+    cancelled(ui, r.clicked())
+}
+
+/// A picker's footer (the dialog pattern's, `mg_uikit::dialog::Footer`,
+/// M4's U26: Select Portrait's, Select Texture's): `note` at its left (a
+/// count), OK in the accent fill (enabled where `ok`, its tip "Accept
+/// changes") and Cancel ("Discard changes") at its right. Whether OK was
+/// clicked, and whether Cancel was: its click, the title row's Close
+/// ([`Dialog::close_as_cancel`]) or Escape, as [`cancel_discard`]'s.
+pub(crate) fn picker_footer(ui: &mut Ui, note: Option<String>, ok: bool) -> (bool, bool) {
+    use mg_uikit::{ButtonLook, KitButton};
+    let mut footer = mg_uikit::dialog::Footer::new();
+    if let Some(note) = note {
+        footer = footer.note(note);
+    }
+    let shown = footer
+        .button(
+            KitButton::new(None, "OK").look(ButtonLook::Primary).enabled(ok).tip("Accept changes"),
+        )
+        .button(KitButton::new(None, "Cancel").tip("Discard changes"))
+        .show(ui);
+    let clicked = |i: usize| shown.buttons.get(i).is_some_and(egui::Response::clicked);
+    (ok && clicked(0), cancelled(ui, clicked(1)))
+}
+
+/// A Cancel's answer: `clicked`, the title row's Close the frame before
+/// ([`Dialog::close_as_cancel`]), or Escape on the window of `ui`.
+fn cancelled(ui: &Ui, clicked: bool) -> bool {
     // (In a window of its own: not a Cancel within a docked tab. And the
     // Close of a picker's title row, the frame before:
     // `Dialog::close_as_cancel`.)
     let layer = ui.layer_id();
     let closed = ui.ctx().data_mut(|d| d.remove_temp::<bool>(closed_as_cancel_id(layer)));
-    r.clicked()
+    clicked
         || closed == Some(true)
         || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
 }
@@ -5220,6 +5314,45 @@ pub(crate) fn open_gallery_at<R>(
     state.store(ctx, shown.id);
     ctx.request_repaint();
     false
+}
+
+/// A dialog's grid of pictures in a well (the Pickers board's `.well`,
+/// M4's U26): `size` with its border, the `inset` fill, a `line-soft`
+/// border with corners of 3, and in it a scroll (`id`) whose drawn bar
+/// stands at the well's right edge, the cells `pad` from its edges (the
+/// bar's room left out of the width they are laid out in, so justified
+/// rows reach it). The scroll's output, for [`open_gallery_at`].
+pub(crate) fn picture_well<R>(
+    ui: &mut Ui,
+    id: egui::Id,
+    size: egui::Vec2,
+    pad: egui::Margin,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::scroll_area::ScrollAreaOutput<R> {
+    let t = mg_uikit::tokens(ui.ctx());
+    let layout = egui::Layout::top_down(egui::Align::Min);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        egui::Frame::new()
+            .fill(t.inset)
+            .stroke(egui::Stroke::new(1.0, t.line_soft))
+            .corner_radius(3)
+            .inner_margin(1)
+            .show(ui, |ui| {
+                // (Less its margin and its border, both 1 a side: egui
+                // counts a frame's stroke in its size, and a well as wide
+                // as the room grew a window 2 points a frame.)
+                let inner = size - egui::Vec2::splat(4.0);
+                ui.set_min_size(inner);
+                ui.set_max_width(inner.x);
+                egui::ScrollArea::vertical()
+                    .id_salt(id)
+                    .max_height(inner.y)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| egui::Frame::new().inner_margin(pad).show(ui, add).inner)
+            })
+            .inner
+    })
+    .inner
 }
 
 /// A picture as [`Thumbnails::made`](crate::model_view::Thumbnails::made)

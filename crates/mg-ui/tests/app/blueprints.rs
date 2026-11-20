@@ -3759,15 +3759,20 @@ fn portraits_are_chosen_from_their_pictures() {
     let creatures = count(&h);
     // The first creature portrait is portraits.2da row 1, a dwarf woman:
     // its picture is loaded (its name is the picture's).
-    h.get_by_label("po_dw_f_01_").click();
+    // (The grid opens at the blueprint's own portrait and has the keys:
+    // Home brings the first in sight.)
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    // (Its cell, the first named so: the preview beside it is too.)
+    h.get_all_by_label("po_dw_f_01_").next().unwrap().click();
     h.run();
     // Placeables and doors have their own.
-    h.get_by_label("Placeable objects and doors").click();
+    h.get_by_label("Placeable Objects and Doors").click();
     h.run();
     let things = count(&h);
     assert!(creatures > 100 && things > 100 && creatures != things, "{creatures} {things}");
     assert!(h.query_by_label("po_dw_f_02_").is_none());
-    h.get_by_label("Characters and creatures").click();
+    h.get_by_label("Characters and Creatures").click();
     h.run();
     h.get_all_by_label("OK").last().unwrap().click();
     h.run();
@@ -4022,7 +4027,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
         .click();
     h.run();
     h.get_by_label("Torso Cloth 1 33").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(field(&mut h, &key).get("APart_7_Col_2"), Some(&Value::Byte(33)));
 
     // Another edit, and a save: both parts' colors are in the saved file.
@@ -4044,7 +4049,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.run();
     let pick = if cloth == 5 { 6 } else { 5 };
     h.get_by_label(&format!("Cloth 1 {pick}")).click();
-    h.run();
+    settle(&mut h);
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     let path = mg_testkit::test_output().join("ui-bp-part_colors/sample.mod");
@@ -4294,8 +4299,10 @@ fn the_gallery_opens_at_a_far_appearance() {
         .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .unwrap()
         .rect();
+    // (Under the header's Find, the hint strip, 26 high, and the grid's
+    // top padding: its row the first in sight.)
     let below = chosen.top() - find.bottom();
-    assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
+    assert!((26.0..=48.0).contains(&below), "{below} points under Find: {chosen:?}");
 }
 
 /// The game's blueprint, viewed, takes no typing, and its fields' text is

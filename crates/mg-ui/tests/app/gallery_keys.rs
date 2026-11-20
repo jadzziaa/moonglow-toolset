@@ -280,6 +280,45 @@ fn an_armor_s_parts_open_at_the_armor_s_own() {
     opened_far(&mut h, "Pictures of Thighs", "the armor's thighs");
     let (label, _) = grid_cursor(&h, "Pictures of Thighs").unwrap();
     assert_eq!(label, FAR_THIGHS.to_string());
+    // (The window made wider and narrower, the page's columns with it: it
+    // comes to rest, all the thighs in two rows at 1300 and 1600 with no
+    // scroll bar, which came and went each frame; and the armor's own is
+    // in sight, its row another.)
+    let grid_name = "Pictures of Thighs";
+    let columns = |h: &Harness<'_, Moonglow>| {
+        let count = grid(h, grid_name).accesskit_node().data().size_of_set();
+        let cells: Vec<egui::Rect> = h
+            .query_all_by(|n| {
+                n.role() != Role::List
+                    && n.data().size_of_set() == count
+                    && n.data().position_in_set().is_some()
+            })
+            .map(|n| n.rect())
+            .collect();
+        let top = cells.iter().map(|r| r.top()).fold(f32::INFINITY, f32::min);
+        cells.iter().filter(|r| (r.top() - top).abs() < 0.5).count()
+    };
+    let was = columns(&h);
+    h.set_size(egui::vec2(1700.0, 1200.0));
+    for width in [1300.0, 1600.0, 700.0] {
+        let dock = &mut h.state_mut().dock;
+        let surface = dock.find_tab_from(|t| matches!(t, Tab::Blueprint(_))).unwrap().surface;
+        dock.get_window_state_mut(surface).unwrap().set_size(egui::vec2(width, 1180.0));
+        settle(&mut h);
+        let now = columns(&h);
+        assert_ne!(now, was, "{width} wide: the columns changed ({now})");
+        let (label, place) = grid_cursor(&h, grid_name).expect("the armor's own, the keys' cursor");
+        assert_eq!(label, FAR_THIGHS.to_string());
+        let cell = h
+            .query_by(|n| {
+                n.data().position_in_set() == Some(place) && n.label() == Some(label.clone())
+            })
+            .unwrap()
+            .rect();
+        let list = grid(&h, grid_name).rect();
+        let seen = h.ctx.content_rect().intersect(list);
+        assert!(seen.contains_rect(cell), "{width} wide: {label} at {cell:?}, out of {seen:?}");
+    }
 }
 
 /// An armor's thighs far down its pictures.
@@ -306,4 +345,115 @@ fn the_variants_slider_runs_from_64_to_224_from_84() {
     assert_eq!(data.min_numeric_value(), Some(64.0), "its least");
     assert_eq!(data.max_numeric_value(), Some(224.0), "its most");
     assert_eq!(data.numeric_value(), Some(84.0), "its first");
+}
+
+/// Select Portrait, opened for a bandit.
+fn select_portrait(name: &str) -> Option<Harness<'static, Moonglow>> {
+    let (mut h, _) = blueprint_harness("nw_bandit001", name, ResType::UTC)?;
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    h.get_by_label("Portraits…").click();
+    settle(&mut h);
+    Some(h)
+}
+
+/// Select Portrait's grid takes no keys while a menu is open over it, nor
+/// while its Race dropdown is open; again once it is closed.
+#[test]
+fn select_portrait_takes_no_keys_with_a_menu_or_its_race_open() {
+    let Some(mut h) = select_portrait("keys_portrait") else { return };
+    keys_wait_for_menus(&mut h, "Portraits");
+    let before = grid_cursor(&h, "Portraits");
+    // (Its Race: the dropdown beside the dialog's label, the last drawn.)
+    let label = h.get_all_by_label("Race").last().unwrap().rect();
+    h.query_all_by(|n| n.role() == Role::ComboBox)
+        .find(|n| {
+            (n.rect().center().y - label.center().y).abs() < 6.0 && n.rect().left() > label.right()
+        })
+        .expect("Race's dropdown")
+        .click();
+    settle(&mut h);
+    assert!(egui::Popup::is_any_open(&h.ctx), "Race's dropdown open");
+    for key in [egui::Key::ArrowRight, egui::Key::End] {
+        h.key_press(key);
+        h.step();
+        assert_eq!(grid_cursor(&h, "Portraits"), before, "{key:?} taken with Race open");
+    }
+}
+
+/// The Creature Wizard's Appearance page, all portraits listed.
+fn wizard_portraits(name: &str) -> Option<Harness<'static, Moonglow>> {
+    let (mut h, _) = area_harness(name)?;
+    h.set_size(egui::vec2(1600.0, 900.0));
+    let mut w = mg_ui::creature_wizard::CreatureWizard::default();
+    (w.page, w.race, w.appearance, w.all_portraits) = (3, Some(6), 6, true);
+    w.classes = vec![(4, 1)];
+    h.state_mut().creature_wizard = Some(w);
+    settle(&mut h);
+    Some(h)
+}
+
+/// The portrait the wizard has chosen.
+fn wizard_portrait(h: &Harness<'_, Moonglow>) -> Option<u16> {
+    h.state().creature_wizard.as_ref().and_then(|w| w.portrait)
+}
+
+/// The Creature Wizard's portraits: the keys choose as they move (a
+/// picker's); none taken while a menu is open or while Find has the keys;
+/// and the page shown again opens at the portrait chosen, far down.
+#[test]
+fn the_creature_wizard_s_portraits_choose_by_the_keys_and_open_at_the_one_chosen() {
+    let Some(mut h) = wizard_portraits("keys_wizard_portraits") else { return };
+    keys_wait_for_menus(&mut h, "Portraits");
+    // The keys choose.
+    let was = wizard_portrait(&h);
+    h.key_press(egui::Key::ArrowRight);
+    settle(&mut h);
+    assert_ne!(wizard_portrait(&h), was, "the Right arrow chose the next");
+    // Find has the keys: the arrows are its own.
+    let before = (grid_cursor(&h, "Portraits"), wizard_portrait(&h));
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.placeholder() == Some("Find an appearance")
+    };
+    h.get(egui_kittest::kittest::by().predicate(find)).click();
+    settle(&mut h);
+    for key in [egui::Key::ArrowRight, egui::Key::ArrowLeft, egui::Key::End] {
+        h.key_press(key);
+        settle(&mut h);
+        let now = (grid_cursor(&h, "Portraits"), wizard_portrait(&h));
+        assert_eq!(now, before, "{key:?} taken from Find");
+    }
+    // The last portrait chosen, the page left and shown again: opened at it.
+    let first = *built(&h, "Portraits").iter().min().unwrap();
+    click_cell(&mut h, "Portraits", first);
+    h.key_press(egui::Key::End);
+    settle(&mut h);
+    let chosen = wizard_portrait(&h);
+    let (label, place) = grid_cursor(&h, "Portraits").expect("the last, in sight");
+    // (Wheeled back to the top, the chosen out of sight: the page shown
+    // again opens at it, not at the scroll it was left at.)
+    // (Over the chosen's cell, in sight: the List's box is its whole content.)
+    let list = h
+        .query_by(|n| n.data().position_in_set() == Some(place) && n.label() == Some(label.clone()))
+        .expect("the chosen's cell")
+        .rect();
+    let started = std::time::Instant::now();
+    while !built(&h, "Portraits").contains(&1) && started.elapsed().as_secs() < 20 {
+        h.event(egui::Event::PointerMoved(list.center()));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 2000.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        settle(&mut h);
+    }
+    assert!(built(&h, "Portraits").contains(&1), "wheeled to the top");
+    h.get_by_label("< Back").click();
+    settle(&mut h);
+    h.get_by_label("Next >").click();
+    settle(&mut h);
+    assert_eq!(wizard_portrait(&h), chosen, "kept");
+    opened_far(&mut h, "Portraits", "the wizard's portraits");
+    assert_eq!(grid_cursor(&h, "Portraits").unwrap().0, label);
 }

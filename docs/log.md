@@ -1,6 +1,15 @@
 # Update log
 
 ## 2026-11-19
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U26's review ([05](manual/05-blueprints.md)).
+  * **The armor part gallery** is two whole rows high at any width, from its own layout, its scroll bar there only where the part has more than two rows (it came and went each frame at some widths), and it opens at the armor's own part again when the page's width changes its columns.
+  * **The Appearance Gallery** takes the keys as its tab comes to the front, never from Find, another tab or a floating window; an arrow key moves the Preview and the Appearance panel; the panel's rows are 28 apart; the Status Bar's count is the header's words; a placeable's right click says Right Click Menu; the hint strip's words are cut where the tab is narrow.
+  * **Select Portrait** keeps its list as the keys move (a portrait not listed shows in the preview alone); **Select Texture** shows the texture being replaced in its preview, ringed where listed, its names in monospace one line under each picture, laid out from one width at its least size, and Enter is OK only with another chosen. The Creature Wizard's portraits choose by the keys and open at the one chosen.
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U26, the Appearance Gallery tab and the pickers**, as the AppearanceGallery and Pickers boards draw them ([05](manual/05-blueprints.md), [02](manual/02-main-window.md); [moves](ui-redesign-moves.md)).
+  * **The Appearance Gallery** is a tab with a header (Placeables, Creatures and Doors, Find, the size slider, the count) and a hint strip; the picture clicked shows in the Right Dock's **Preview** and a new **Appearance** panel (its row's facts), which come into its window when it floats.
+  * **The Status Bar** says what a click, a right click, a drag and a double click do in the state at hand, and the table's count at its right.
+  * **Select Portrait and Select Texture** end in the dialog footer (Select Portrait's count at its left, OK in the accent, Cancel), their grids in a well with its scroll bar; portraits keep 54 by 84 in rows that reach the scroll bar; each opens at the one chosen, the arrow keys choose, Enter is OK and Esc Cancel.
+  * **The armor part gallery**: the parts as flat buttons, each picture named by its number with a torso's armor class under it, two rows high wherever it is on the page. **The Creature Wizard**'s appearances and portraits in wells, the portraits as in Select Portrait.
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U25's review ([05](manual/05-blueprints.md), [04](manual/04-areas.md); [moves](ui-redesign-moves.md)).
   * **Placing from the Gallery**: with a blueprint held, the Status Bar says placing's keys (Click Place, Shift + Click Place more, Turn) and the Gallery's arrows, not Click Select.
   * **The palette's Gallery keys**: Home, End, Page Up and Page Down; nothing in a gallery moves while a menu is open; each picker opens at the one chosen, the Creature Wizard's appearances too, and a gallery opened again starts there.

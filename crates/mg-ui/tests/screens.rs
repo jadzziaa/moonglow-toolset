@@ -2957,7 +2957,10 @@ fn armor_part_pictures() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
-    let size = egui::vec2(1200.0, 900.0);
+    // (`MG_WIDTH` another window width, the pictures named with it, the
+    // window 1300 high: the part pictures' two rows whole under the lists.)
+    let wide: Option<f32> = std::env::var("MG_WIDTH").ok().and_then(|w| w.parse().ok());
+    let size = egui::vec2(wide.unwrap_or(1200.0), if wide.is_some() { 1300.0 } else { 900.0 });
     let mut h = pictured_blueprint(&root, &dir, ("nw_aarcl001", ResType::UTI), "Appearance", size);
     let settle = |h: &mut Harness<'_, Moonglow>| {
         for _ in 0..200 {
@@ -2968,7 +2971,7 @@ fn armor_part_pictures() {
         h.run_steps(60);
     };
     let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
-    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1160.0, 850.0));
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (size.x - 40.0, size.y - 50.0));
     settle(&mut h);
     // (The page scrolled down to the gallery under the lists, a step at a
     // time until its pictures are drawn: since M4's U11 the page has no
@@ -2987,10 +2990,11 @@ fn armor_part_pictures() {
         });
         settle(&mut h);
     }
-    shoot(&mut h, &dir, "armor-parts-torso");
+    let named = |n: &str| wide.map_or(n.to_string(), |w| format!("{n}-{w}"));
+    shoot(&mut h, &dir, &named("armor-parts-torso"));
     h.get_all_by_label("Right shoulder").last().unwrap().click();
     settle(&mut h);
-    shoot(&mut h, &dir, "armor-parts-shoulder");
+    shoot(&mut h, &dir, &named("armor-parts-shoulder"));
 }
 
 /// A creature's appearances as pictures: the bandit as it is (its head,
@@ -14774,6 +14778,53 @@ fn board_dialogs() {
     opened("Creature Wizard", &wizard, "board_dialogs_creature_wizard");
 }
 
+/// Dialogs without a footer before and after U26's change to
+/// `Dialog::show`'s room (the item spacing under the title row taken
+/// off): About, Find Text with Find In Files (the scripts'), Find and
+/// Replace Text, Build Module and Rename, each over Chapter1 in a window
+/// of 1600 by 720 and in short ones, 1280 by 360 and by 320 (the least), into
+/// `screens/dialog-room/NAME-HEIGHT-SHOT.png` (`MG_SHOT`, default
+/// `after`). Options is a tab since U23, not a dialog.
+#[test]
+#[ignore]
+fn u26_dialog_room() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("dialog-room");
+    std::fs::create_dir_all(&dir).unwrap();
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let dlg = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    type Open = fn(&mut Harness<'_, Moonglow>, ResKey);
+    let cases: [(&str, &str, Open); 5] = [
+        ("about", "About Moonglow Toolset", |h, _| h.state_mut().about = true),
+        ("find-in-files", "Find Text", |h, _| {
+            let s = &mut h.state_mut().script_tools.search;
+            (s.open, s.in_files) = (true, true);
+        }),
+        ("find-replace", "Find and Replace Text", |h, _| {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+        }),
+        ("build", "Build Module", |h, _| {
+            h.state_mut().build = Some(mg_ui::build_view::BuildWindow::default());
+        }),
+        ("rename", "Rename", |h, dlg| h.state_mut().actions.push(mg_ui::Action::RenameDialog(dlg))),
+    ];
+    for size in [egui::vec2(1600.0, 720.0), egui::vec2(1280.0, 360.0), egui::vec2(1280.0, 320.0)] {
+        for (name, title, open) in cases {
+            let mut h = shell_window(&root, size);
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+            h.state_mut().settings.hide_log = true;
+            settle(&mut h);
+            open(&mut h, dlg);
+            h.run_steps(5);
+            settle(&mut h);
+            assert!(h.query_all_by_label_contains(title).next().is_some(), "{title} open");
+            rest_pointer(&mut h);
+            shoot(&mut h, &dir, &format!("{name}-{}-{shot}", size.y));
+        }
+    }
+}
+
 /// The Creature Wizard open at its step `page` (0, Creature Wizard; 2,
 /// Class and Level; 3, Appearance and Portrait), Human chosen on its
 /// Monster Type step.
@@ -14796,8 +14847,8 @@ fn creature_wizard_at(h: &mut Harness<'_, Moonglow>, page: usize) {
 /// an armor's Appearance (`_armor`, the game's `nw_aarcl001` in a module
 /// of its own, its window floating, as `armor_part_pictures` has it) and
 /// the Creature Wizard's Appearance and Portrait (`_creature_wizard`).
-/// Today each grid draws its own cells, not the shared Quiet Tiles cell;
-/// no footer row.
+/// Each grid draws the shared Quiet Tiles cell, the dialogs' grids in an
+/// inset well, and the two dialogs end in the kit's footer.
 #[test]
 #[ignore]
 fn board_pickers() {
@@ -14819,6 +14870,8 @@ fn board_pickers() {
     let mut h = shell_window(&root, size);
     h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
     h.state_mut().settings.hide_log = true;
+    // (The size slider at the board's 80: eight to a row.)
+    h.state_mut().settings.gallery_tile = Some(80);
     let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
     h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
@@ -14829,6 +14882,35 @@ fn board_pickers() {
     pictures_made(&mut h);
     rest_pointer(&mut h);
     shoot(&mut h, &dir, "board_pickers_texture");
+    // (Another chosen, as the board has one: ringed, in the preview with
+    // its name, OK enabled; `board_pickers_texture_chosen`.)
+    let count = h
+        .query_all_by(|n| {
+            n.role() == egui::accesskit::Role::List && n.label().as_deref() == Some("Textures")
+        })
+        .next()
+        .expect("the textures' grid")
+        .accesskit_node()
+        .data()
+        .size_of_set();
+    let screen = h.ctx.content_rect();
+    let cell = h
+        .query_all_by(|n| {
+            n.role() != egui::accesskit::Role::List
+                && n.data().size_of_set() == count
+                && n.data().position_in_set().is_some()
+        })
+        .map(|n| n.rect())
+        .filter(|r| screen.contains_rect(*r))
+        .nth(10)
+        .expect("a texture in sight");
+    h.get_all_by(|n| n.data().size_of_set() == count && n.data().position_in_set().is_some())
+        .find(|n| n.rect() == cell)
+        .unwrap()
+        .click();
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "board_pickers_texture_chosen");
     // The armor part gallery.
     let scratch = mg_testkit::scratch_dir("screens-board-pickers");
     let mut h =
@@ -14841,10 +14923,13 @@ fn board_pickers() {
     let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1560.0, 640.0));
     pictures_made(&mut h);
-    h.hover_at(h.get_by_label("Pictures of").rect().center());
+    // (Scrolled so the part buttons are near the page's top, the two
+    // rows of pictures under them, as the board has them.)
+    let row = h.get_by_label("Pictures of").rect();
+    h.hover_at(row.center());
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -2000.0),
+        delta: egui::vec2(0.0, -(row.top() - 140.0)),
         phase: egui::TouchPhase::Move,
         modifiers: egui::Modifiers::NONE,
     });
@@ -15202,8 +15287,9 @@ fn board_gallery_wide() {
 
 /// AppearanceGallery.png: the Appearance Gallery opened from Faribeth's
 /// Properties (Gallery…), on Creatures, Faribeth's appearance chosen: a
-/// tab As Tabs, as on the board, but with no Preview and Appearance
-/// panels in the Right Dock; today's picture cells.
+/// tab As Tabs, as on the board, its header, hint strip and grid, the
+/// Preview and Appearance panels in the Right Dock showing her
+/// appearance, the Status Bar's hints and count.
 #[test]
 #[ignore]
 fn board_appearance_gallery() {
@@ -15217,6 +15303,181 @@ fn board_appearance_gallery() {
     rest_pointer(&mut h);
     pictures_shown(&mut h);
     shoot(&mut h, &board_dir(), "board_appearance_gallery");
+}
+
+/// The Appearance Gallery tab where a builder has it (M4's U26), each
+/// opened on its own (Tools › Appearance Gallery…, Placeables, a
+/// picture clicked so its panels show it): split beside an area
+/// (`u26_gallery_split`, 1600 by 900), floating in windows of 1600 by
+/// 900 and 1280 by 720 (`u26_gallery_floating_1600`, `_1280`), docked at
+/// 1280 by 800 (`u26_gallery_1280`) and in the narrow layout, 900 by 700
+/// (`u26_gallery_narrow`). The wide board's size is
+/// `board_gallery_wide`'s.
+#[test]
+#[ignore]
+fn u26_gallery_views() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+        frames_until(h, "the Appearance Gallery", |h| {
+            h.state().active_editor() == Some(&mg_ui::Tab::PlaceableGallery)
+        });
+        pictures_shown(h);
+        // (A picture clicked: the Preview and Appearance panels show it.
+        // Scrolled to it if it is not in sight.)
+        let screen = h.ctx.content_rect().with_min_y(140.0);
+        let in_sight = |h: &Harness<'_, Moonglow>| {
+            let tile = |n: &egui_kittest::Node<'_>| {
+                n.rect().height() > 60.0 && screen.contains_rect(n.rect())
+            };
+            h.query_all_by_label_contains("Barrel").find(tile).map(|n| n.rect())
+        };
+        let start = std::time::Instant::now();
+        let down_now = std::cell::Cell::new(false);
+        while in_sight(h).is_none() {
+            assert!(
+                start.elapsed().as_secs() < 20,
+                "no barrel's picture in sight: {:?} {screen:?}",
+                h.query_all_by_label_contains("Barrel").map(|n| n.rect()).collect::<Vec<_>>()
+            );
+            let grid = h
+                .query_all_by(|n| {
+                    n.role() == egui::accesskit::Role::List
+                        && n.label().as_deref() == Some("Placeables")
+                })
+                .next()
+                .expect("the gallery's grid")
+                .rect()
+                .intersect(screen);
+            h.hover_at(grid.center());
+            // (Up to the first row, then down: it opens at the row of the
+            // object selected, which may be past the barrels.)
+            let top = h.query_by(|n| n.data().position_in_set() == Some(1)).is_some();
+            let mut down = down_now.get();
+            down |= top;
+            down_now.set(down);
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, if down { -150.0 } else { 600.0 }),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            pictures_shown(h);
+        }
+        // (The Preview shows it, another row than before the click: the
+        // Appearance panel is the dock's other tab, behind.)
+        let rows = |h: &Harness<'_, Moonglow>| -> std::collections::BTreeSet<u32> {
+            (h.state().model_views.keys())
+                .filter_map(|s| match s {
+                    mg_ui::model_view::Source::Appearance { row, .. } => Some(*row),
+                    _ => None,
+                })
+                .collect()
+        };
+        let before = rows(h);
+        let cell = in_sight(h).unwrap();
+        h.get_all_by_label_contains("Barrel").find(|n| n.rect() == cell).unwrap().click();
+        pictures_shown(h);
+        let after = rows(h);
+        assert!(
+            after.difference(&before).next().is_some(),
+            "the barrel clicked: the Preview shows another row ({before:?}, then {after:?})"
+        );
+    };
+    let dir = board_dir();
+    // Split beside an area.
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    open(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(&mut h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    board_front(&mut h, &board_area_tab());
+    pictures_shown(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "u26_gallery_split");
+    // Floating.
+    for (size, at, name) in [
+        ((1600.0, 900.0), ((80.0, 70.0), (1200.0, 740.0)), "u26_gallery_floating_1600"),
+        ((1280.0, 720.0), ((40.0, 50.0), (1100.0, 620.0)), "u26_gallery_floating_1280"),
+    ] {
+        let mut h = board_window(&root, egui::vec2(size.0, size.1));
+        open(&mut h);
+        let tab = mg_ui::Tab::PlaceableGallery;
+        let path = h.state().dock.find_tab(&tab).unwrap();
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(at.0.0, at.0.1), egui::vec2(at.1.0, at.1.1));
+        h.state_mut().dock.detach_tab(path, rect);
+        h.run_steps(3);
+        place(&mut h, &tab, at.0, at.1);
+        pictures_shown(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, name);
+        // (The pointer over its hint strip: the Status Bar says the
+        // gallery's hints, `_hints`.)
+        let strip = h
+            .query_all_by(|n| n.value().is_some_and(|v| v.starts_with("A click takes")))
+            .next()
+            .expect("its hint strip")
+            .rect();
+        h.hover_at(strip.center());
+        pictures_shown(&mut h);
+        shoot(&mut h, &dir, &format!("{name}_hints"));
+    }
+    // Docked at 1280, and narrow.
+    for (size, name) in
+        [((1280.0, 800.0), "u26_gallery_1280"), ((900.0, 700.0), "u26_gallery_narrow")]
+    {
+        let mut h = board_window(&root, egui::vec2(size.0, size.1));
+        open(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, name);
+    }
+}
+
+/// Each picker at its least size (M4's U26): Select Portrait and Select
+/// Texture (480 wide, their grids at their least) in a window of 600 by
+/// 500, the Creature Wizard (560 by 440) in one of 800 by 600.
+#[test]
+#[ignore]
+fn u26_pickers_least() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let size = egui::vec2(600.0, 500.0);
+    let mut h = shell_window(&root, size);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().settings.hide_log = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
+    frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
+    // (Below the page's view at this size: brought into it first.)
+    h.get_by_label("Portraits…").scroll_to_me();
+    h.run_steps(10);
+    h.get_by_label("Portraits…").click();
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "u26_pickers_least_portrait");
+    let mut h = shell_window(&root, size);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().settings.hide_log = true;
+    let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
+    h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
+    frames_until(&mut h, "the Visuals page", |h| {
+        h.query_all_by_label("Select Texture…").next().is_some()
+    });
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "u26_pickers_least_texture");
+    let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
+    h.state_mut().settings.hide_log = true;
+    settle(&mut h);
+    creature_wizard_at(&mut h, 3);
+    pictures_made(&mut h);
+    rest_pointer(&mut h);
+    shoot(&mut h, &dir, "u26_pickers_least_creature_wizard");
 }
 
 // Menus that hold more than rows (the shell milestone's T1, its fix

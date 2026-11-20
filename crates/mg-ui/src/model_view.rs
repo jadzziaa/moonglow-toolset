@@ -375,6 +375,14 @@ pub enum Source {
         revision: u64,
         key: ResKey,
     },
+    /// An appearance of the Appearance Gallery (M4's U26): an object of
+    /// `restype` (a placeable's, creature's or door's blueprint type)
+    /// given row `row` of its table, a creature a plain body
+    /// (`appearance_gallery::object_of`), in the gallery's Preview alone.
+    Appearance {
+        restype: ResType,
+        row: u32,
+    },
 }
 
 impl Source {
@@ -419,6 +427,7 @@ impl Source {
             Source::Instance { path, .. } => {
                 crate::blueprint::instance_type(path).is_some_and(previewable)
             }
+            Source::Appearance { .. } => true,
             _ => self.key().is_some_and(|k| previewable(k.restype)),
         }
     }
@@ -435,6 +444,7 @@ impl Source {
             }
             // (No tab of its own: shown in its editor.)
             Source::Hak { hak, .. } => crate::Tab::Hak(*hak),
+            Source::Appearance { .. } => crate::Tab::PlaceableGallery,
         }
     }
 }
@@ -446,6 +456,7 @@ impl std::fmt::Display for Source {
             Source::Instance { area, .. } => write!(f, "an object placed in {area}"),
             Source::Copy { key, layer } => write!(f, "{key} from {layer}"),
             Source::Hak { key, .. } => write!(f, "{key} of the hak"),
+            Source::Appearance { restype, row } => write!(f, "appearance {row} ({restype:?})"),
         }
     }
 }
@@ -457,7 +468,7 @@ impl Source {
             Source::Resource(k) | Source::Copy { key: k, .. } | Source::Hak { key: k, .. } => {
                 Some(*k)
             }
-            Source::Instance { .. } => None,
+            Source::Instance { .. } | Source::Appearance { .. } => None,
         }
     }
 
@@ -475,6 +486,7 @@ impl Source {
             Source::Instance { path, .. } => {
                 crate::blueprint::instance_type(path) == Some(ResType::UTI)
             }
+            Source::Appearance { .. } => false,
         }
     }
 
@@ -533,6 +545,9 @@ fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Str
                 .ok_or_else(|| format!("{source}: not an object's entry"))?;
             let object = path.get(&git.root).cloned().ok_or_else(|| format!("{source}: gone"))?;
             (restype, object)
+        }
+        Source::Appearance { restype, row } => {
+            return Ok(crate::appearance_gallery::object_of(*restype, *row));
         }
     }))
 }
@@ -626,6 +641,7 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
             Source::Instance { .. } => {
                 object.resref("TemplateResRef").map(|r| ResKey::new(r, *restype))
             }
+            Source::Appearance { .. } => None,
         };
         let in_module = |k: &ResKey| app.ws.as_ref().is_some_and(|w| w.module.contains(k));
         if let Some(key) = key.filter(|k| in_module(k) || game.resman.contains(k)) {

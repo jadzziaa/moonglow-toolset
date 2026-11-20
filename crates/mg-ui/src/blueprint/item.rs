@@ -702,10 +702,32 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let id = f.id("uti-part-gallery");
     let all: Vec<&(&str, &[&str], &str)> = ARMOR_PARTS.iter().chain(&LOWER_PARTS).collect();
     let mut at: usize = ui.data(|d| d.get_temp(id)).unwrap_or(1).min(all.len() - 1);
+    // (The Pickers board's flat toggles, the one shown in the accent fill.)
     ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
         crate::widgets::field_label(ui, "Pictures of");
         for (i, (text, ..)) in all.iter().enumerate() {
-            if ui.selectable_label(at == i, *text).clicked() {
+            // (On, the kit's toggle in the accent fill; off, flat, still
+            // said as a toggle that is off.)
+            let look = match at == i {
+                true => mg_uikit::ButtonLook::Toggle,
+                false => mg_uikit::ButtonLook::Flat,
+            };
+            // (A button's words in title case: "Right Shoulder".)
+            let title: Vec<String> = text
+                .split(' ')
+                .map(|w| {
+                    let mut c = w.chars();
+                    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+                })
+                .collect();
+            let title = title.join(" ");
+            let r = ui.add(mg_uikit::KitButton::new(None, &title).toggle(at == i).look(look));
+            let on = at == i;
+            r.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &title)
+            });
+            if r.clicked() {
                 at = i;
             }
         }
@@ -715,24 +737,56 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let choices = armor_part_choices(game, table);
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let (female, pieces) = (on_woman(f), PART_PIECES[at]);
-    let tall = SIDE + mg_uikit::gallery::label_height(false, 2, false);
+    // (Its number as the name, a torso's armor class the detail under it:
+    // the board's "23" over "AC 8".)
+    let detailed = table == "parts_chest";
+    let label = mg_uikit::gallery::label_height(false, 1, detailed);
+    let tall = SIDE + label;
     let (mut keys, mut chosen) = (Vec::new(), None);
-    let gap = mg_uikit::gallery::GAP.y;
-    let area = egui::ScrollArea::vertical()
-        .id_salt(id.with(at))
-        .max_height(2.0 * tall + gap)
-        .auto_shrink([false, true]);
-    // Opened at the part the armor has (once for each part, once it is in
-    // sight: scrolled out of it, the offset was not kept).
-    let placed = id.with(("placed", at));
     let in_sight =
         ui.is_rect_visible(ui.available_rect_before_wrap().with_max_y(ui.cursor().top() + tall));
     let here = choices.iter().position(|c| c.row as i64 == current);
     let keys_allowed = !crate::shell::keys_blocked(ui.ctx());
     let grid = mg_uikit::gallery::GalleryGrid::new(id.with(("pictures", at)), choices.len(), SIDE)
+        .label(label)
         .cursor(here)
         .keys_allowed(keys_allowed)
         .name(format!("Pictures of {text}"));
+    // (Two rows high, from the grid's own layout in the room it gets: the
+    // cells grow with the page, and a height from SIDE cut the second
+    // row's "AC N" on a wide one. Two rows wherever it is on the page:
+    // low on a long page, the room left in the page's view was all egui
+    // gave it, 64 high.)
+    // (The room the grid gets in the scroll: its width in sight, as
+    // `GalleryGrid::show` takes it. Its bar decided by the count, not by
+    // egui's state: a bar shown only where needed took the room that made
+    // the cells smaller, two rows then fitted, the bar went, the cells grew
+    // past the height, and it came back each frame. All in two rows at the
+    // whole room: no bar; else the bar's room taken off, still more than
+    // two rows with fewer columns.)
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let whole = ui.available_width().min(seen).max(1.0);
+    let full = grid.layout(whole);
+    let fits = choices.len() <= 2 * full.columns;
+    let layout = match fits {
+        true => full,
+        false => grid.layout((whole - ui.spacing().scroll.allocated_width()).max(1.0)),
+    };
+    let high = 2.0 * layout.cell.y + layout.gap.y;
+    // Opened at the part the armor has (once for each part, once it is in
+    // sight: scrolled out of it, the offset was not kept; and again where
+    // the page's width changes its columns, the offset being another row).
+    let placed = id.with(("placed", at, layout.columns));
+    let bar = match fits {
+        true => egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+        false => egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+    };
+    let area = egui::ScrollArea::vertical()
+        .id_salt(id.with(at))
+        .scroll_bar_visibility(bar)
+        .max_height(high)
+        .min_scrolled_height(high)
+        .auto_shrink([false, true]);
     let shown = area.show(ui, |ui| {
         let key_of = |f: &mut Form<'_>, n: u16| {
             let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
@@ -743,7 +797,13 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             let n = c.row as u16;
             let key = key_of(f, n);
             let made = f.app.thumbnails.made(key);
-            mg_uikit::gallery::GalleryCell::new(&c.text, crate::widgets::cell_picture(made))
+            let number = n.to_string();
+            let detail = (c.text.split_once(" (").map(|(_, d)| d.trim_end_matches(')')))
+                .filter(|_| detailed);
+            mg_uikit::gallery::GalleryCell::new(&number, crate::widgets::cell_picture(made))
+                .said(&c.text)
+                .detail(detail)
+                .lines(1)
                 .kind(mg_uikit::Icon::Item)
                 .selected(i64::from(n) == current)
                 .paint(ui, rect, tile, cell, r);

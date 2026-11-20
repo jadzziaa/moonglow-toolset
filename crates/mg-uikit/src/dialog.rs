@@ -1,8 +1,9 @@
 //! The parts of a dialog and of a pane with nothing in it (the
-//! proposal's M4, Part 2, decision 1): so far the empty state
-//! ([`EmptyState`], the mock's `.empty`), which the toolset's "No area
-//! open" is (M4's U24). The dialog's footer and step list come with the
-//! dialogs (U26, U27).
+//! proposal's M4, Part 2, decision 1): the empty state ([`EmptyState`],
+//! the mock's `.empty`), which the toolset's "No area open" is (M4's
+//! U24), and the dialog's footer ([`Footer`], the boards' `.dlg-foot`,
+//! M4's U26: the pickers'; the wizards' and the other dialogs' with U27).
+//! The step list comes with the wizards (U27).
 
 use egui::{Align2, FontId, Rect, Response, Ui, pos2, vec2};
 
@@ -153,6 +154,164 @@ impl EmptyState {
     }
 }
 
+/// A dialog's footer's height (`.dlg-foot { height: 46px }`).
+pub const FOOTER_HEIGHT: f32 = 46.0;
+/// The room at its ends (`.dlg-foot { padding: 0 12px }`).
+pub const FOOTER_PADDING: f32 = 12.0;
+/// The room between its parts (`.dlg-foot { gap: 8px }`).
+pub const FOOTER_GAP: f32 = 8.0;
+
+/// What a footer's left control is drawn by.
+type AddLeft<'a> = Box<dyn FnOnce(&mut Ui) + 'a>;
+
+/// A dialog's footer (`.dlg-foot`, the dialog pattern of the proposal's
+/// §6.1 and Part 2's decision 1): [`FOOTER_HEIGHT`] high across the
+/// dialog, a `line-soft` rule above it, its count or note at the left in
+/// `text-2` (or a control: a setting, a wizard's step), its buttons at
+/// the right in the order given, the dialog's own (the main one first and
+/// in the accent fill, `ButtonLook::Primary`, Cancel last; a wizard's
+/// Back before its Next). The buttons are never cut: they stand from the
+/// right end whatever the width, and the note is shortened (its whole
+/// words its tooltip) where the room left of them is less than it needs.
+/// What Enter and Escape do is the dialog's own, not the footer's.
+///
+/// ```
+/// # egui::__run_test_ui(|ui| {
+/// use mg_uikit::dialog::Footer;
+/// use mg_uikit::{ButtonLook, KitButton};
+/// let shown = Footer::new()
+///     .note("555 portraits")
+///     .button(KitButton::new(None, "OK").look(ButtonLook::Primary))
+///     .button(KitButton::new(None, "Cancel"))
+///     .show(ui);
+/// assert_eq!(shown.buttons.len(), 2);
+/// assert_eq!(shown.rect.height(), mg_uikit::dialog::FOOTER_HEIGHT);
+/// # });
+/// ```
+#[must_use = "show it with Footer::show"]
+pub struct Footer<'a> {
+    note: Option<String>,
+    left: Option<(f32, AddLeft<'a>)>,
+    buttons: Vec<KitButton>,
+}
+
+impl std::fmt::Debug for Footer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Footer")
+            .field("note", &self.note)
+            .field("left", &self.left.as_ref().map(|(w, _)| *w))
+            .field("buttons", &self.buttons)
+            .finish()
+    }
+}
+
+impl Default for Footer<'_> {
+    fn default() -> Self {
+        Footer::new()
+    }
+}
+
+/// What a [`Footer`] showed: the buttons' responses in the order given,
+/// and the rect it took (the rule along its top).
+#[derive(Debug)]
+pub struct FooterShown {
+    pub buttons: Vec<Response>,
+    pub rect: Rect,
+    /// The note's rect, where it has one.
+    pub note: Option<Rect>,
+}
+
+impl<'a> Footer<'a> {
+    /// A footer with nothing in it yet.
+    pub fn new() -> Self {
+        Footer { note: None, left: None, buttons: Vec::new() }
+    }
+
+    /// With `note` at its left in `text-2`: a count ("555 portraits"), a
+    /// state.
+    pub fn note(mut self, note: impl Into<String>) -> Self {
+        self.note = Some(note.into());
+        self
+    }
+
+    /// With a control at its left, `width` wide, made by `add` in that
+    /// room (a setting, a wizard's step); after the note where it has one.
+    pub fn left(mut self, width: f32, add: impl FnOnce(&mut Ui) + 'a) -> Self {
+        self.left = Some((width, Box::new(add)));
+        self
+    }
+
+    /// With `button` after those given before (the right end's last).
+    pub fn button(mut self, button: KitButton) -> Self {
+        self.buttons.push(button);
+        self
+    }
+
+    /// The width its buttons and left control need with its ends' room:
+    /// the least a dialog with it is (the note, shortened, needs none).
+    pub fn least_width(&self, ui: &Ui) -> f32 {
+        let buttons: f32 = self.buttons.iter().map(|b| b.width(ui)).sum();
+        let gaps = FOOTER_GAP * self.buttons.len().saturating_sub(1) as f32;
+        let left = self.left.as_ref().map_or(0.0, |(w, _)| w + FOOTER_GAP);
+        2.0 * FOOTER_PADDING + buttons + gaps + left
+    }
+
+    /// Shows it across the room `ui` has, from its cursor down, and takes
+    /// that room.
+    pub fn show(self, ui: &mut Ui) -> FooterShown {
+        let t = ui.tokens();
+        let room = ui.available_rect_before_wrap();
+        let rect = Rect::from_min_size(room.min, vec2(room.width(), FOOTER_HEIGHT));
+        ui.advance_cursor_after_rect(rect);
+        ui.painter().hline(rect.x_range(), rect.top() + 0.5, egui::Stroke::new(1.0, t.line_soft));
+        let high = metrics::CONTROL_HEIGHT;
+        let top = (rect.center().y - high / 2.0).round();
+        // (From the right end, the last given there.)
+        let widths: Vec<f32> = self.buttons.iter().map(|b| b.width(ui)).collect();
+        let mut right = rect.right() - FOOTER_PADDING;
+        let mut places = vec![Rect::NOTHING; widths.len()];
+        for (i, w) in widths.iter().enumerate().rev() {
+            places[i] = Rect::from_min_size(pos2(right - w, top), vec2(*w, high));
+            right -= w + FOOTER_GAP;
+        }
+        let buttons: Vec<Response> =
+            self.buttons.into_iter().zip(&places).map(|(b, at)| ui.put(*at, b)).collect();
+        // The left: the note, then the control, in what the buttons leave.
+        let mut left = rect.left() + FOOTER_PADDING;
+        let end = if widths.is_empty() { rect.right() - FOOTER_PADDING } else { right };
+        let control = self.left.as_ref().map_or(0.0, |(w, _)| *w + FOOTER_GAP);
+        let mut note = None;
+        if let Some(words) = self.note {
+            let wide = (end - left - control).max(0.0);
+            let body = FontId::proportional(metrics::BODY_SIZE);
+            let mut job = egui::text::LayoutJob::simple_singleline(words.clone(), body, t.text_2);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(wide);
+            let galley = ui.painter().layout_job(job);
+            let size = galley.size();
+            let at = Rect::from_min_size(pos2(left, rect.center().y - size.y / 2.0), size);
+            let elided = galley.elided;
+            let r = ui.put(at, egui::Label::new(galley).selectable(false));
+            if elided {
+                r.on_hover_text(words);
+            }
+            note = Some(at);
+            left = at.right() + FOOTER_GAP;
+        }
+        if let Some((width, add)) = self.left {
+            let width = width.min((end - left).max(0.0));
+            let at = Rect::from_min_size(pos2(left, top), vec2(width, high));
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(at)
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            child.set_clip_rect(at.intersect(ui.clip_rect()));
+            add(&mut child);
+        }
+        FooterShown { buttons, rect, note }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +357,81 @@ mod tests {
         for r in &narrow {
             assert!(r.left() >= room.left() && r.right() <= room.right(), "inside: {narrow:?}");
         }
+    }
+
+    /// What a footer showed at `width`, frame after frame alike: its rect,
+    /// the buttons' rects, the note's.
+    fn footer_at(width: f32, note: &str, words: &[&str]) -> (Rect, Vec<Rect>, Option<Rect>) {
+        let mut out = Vec::new();
+        let mut h = Harness::builder().with_size(vec2(width, 200.0)).build_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            ui.add_space(20.0);
+            let mut footer = Footer::new().note(note);
+            for (i, w) in words.iter().enumerate() {
+                let look =
+                    if i == 0 { crate::ButtonLook::Primary } else { crate::ButtonLook::Raised };
+                footer = footer.button(KitButton::new(None, *w).look(look));
+            }
+            let shown = footer.show(ui);
+            out.push((shown.rect, shown.buttons.iter().map(|r| r.rect).collect(), shown.note));
+        });
+        h.run_steps(3);
+        for w in words {
+            let _ = h.get_by_label(w);
+        }
+        drop(h);
+        let n = out.len();
+        assert_eq!(out[n - 1], out[n - 2], "the same places frame after frame");
+        out.pop().unwrap()
+    }
+
+    /// The board's `.dlg-foot`: 46 high across its room, the buttons at
+    /// the right end 12 in, 8 apart, in the order given, centered on its
+    /// height; the note at the left end, 12 in, centered too.
+    #[test]
+    fn a_footer_has_its_buttons_at_the_right_in_order_and_its_note_at_the_left() {
+        let (rect, buttons, note) = footer_at(600.0, "555 portraits", &["OK", "Cancel"]);
+        assert_eq!(rect.height(), FOOTER_HEIGHT);
+        assert_eq!(rect.width(), 600.0 - 2.0 * 8.0, "across the room: {rect:?}");
+        let (ok, cancel) = (buttons[0], buttons[1]);
+        assert_eq!(cancel.right(), rect.right() - FOOTER_PADDING, "{buttons:?}");
+        assert_eq!(cancel.left() - ok.right(), FOOTER_GAP, "{buttons:?}");
+        assert!((ok.center().y - rect.center().y).abs() <= 0.5, "{ok:?} in {rect:?}");
+        let note = note.expect("a note");
+        assert_eq!(note.left(), rect.left() + FOOTER_PADDING);
+        assert!((note.center().y - rect.center().y).abs() <= 0.5, "{note:?} in {rect:?}");
+    }
+
+    /// Never cut: at a dialog's least width a wizard's four buttons stand
+    /// whole inside it and side by side, and a long note is shortened
+    /// short of them, never under them.
+    #[test]
+    fn a_footer_never_cuts_its_buttons() {
+        let words = ["< Back", "Next >", "Finish", "Cancel"];
+        // (A dialog's least: egui's 320 for its body and its margins.)
+        let (rect, buttons, note) = footer_at(
+            336.0 + 16.0,
+            "Step 4 of 9: Appearance and Portrait, a long note that cannot fit",
+            &words,
+        );
+        for b in &buttons {
+            assert!(b.left() >= rect.left() && b.right() <= rect.right(), "inside: {buttons:?}");
+            assert_eq!(b.height(), metrics::CONTROL_HEIGHT);
+        }
+        for pair in buttons.windows(2) {
+            assert_eq!(pair[1].left() - pair[0].right(), FOOTER_GAP, "{buttons:?}");
+        }
+        let note = note.expect("a note");
+        assert!(note.right() <= buttons[0].left() - FOOTER_GAP + 0.5, "{note:?} {buttons:?}");
+        let mut ui_least = 0.0;
+        egui::__run_test_ui(|ui| {
+            crate::apply(ui.ctx(), crate::Theme::Dark);
+            let mut f = Footer::new();
+            for w in words {
+                f = f.button(KitButton::new(None, w));
+            }
+            ui_least = f.least_width(ui);
+        });
+        assert!(ui_least <= 336.0, "a wizard's footer fits a dialog's least: {ui_least}");
     }
 }

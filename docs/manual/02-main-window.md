@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:25:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T20:19:02Z }
 ---
 
 # The main window
@@ -1455,7 +1455,12 @@ keys shown
 are yours: a command you gave another key in Options › Keyboard shows
 that key, and one you left without a key has no hint; on a Mac,
 Ctrl and Alt show as Cmd and Option. The Welcome page shows New module,
-Open module and Quick Open's keys; a script's tab its keys (Find, Find
+Open module and Quick Open's keys; the Appearance Gallery what a click,
+a right click, a drag and a double click on a picture do as things
+stand (a click gives the appearance where there is an object to give
+it to, takes a placeable to place where there is not; nothing where a
+click would do nothing), the arrow keys while its pictures have them,
+and its count at the right; a script's tab its keys (Find, Find
 next, Definition, References, Complete, Bookmark, Compile all,
 Replace); the Resources panel, while the pointer is over it or its list
 has the keys, its own (Up or Down to move in the list and Enter to open,

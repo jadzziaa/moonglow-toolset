@@ -2623,7 +2623,9 @@ pub(crate) fn page(h: &mut Harness<'_, Moonglow>, name: &str) {
     page_row(h, name).unwrap_or_else(|| panic!("no page {name} in a page list")).click();
     let started = std::time::Instant::now();
     loop {
-        h.run();
+        // (Settled, not run: a page's pictures are made a few a frame,
+        // the armor's two rows of part pictures among them.)
+        settle(h);
         let on = page_row(h, name)
             .is_some_and(|r| r.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True));
         if on {

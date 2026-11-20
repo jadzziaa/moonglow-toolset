@@ -8,6 +8,7 @@
 
 mod common;
 
+mod appearance_tab;
 mod area_header;
 mod area_tools;
 mod area_view;

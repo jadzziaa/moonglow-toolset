@@ -2248,7 +2248,9 @@ fn the_placeable_gallery_places_gives_and_makes_an_appearance() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
     h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Flame".into();
     h.run_steps(40);
-    assert!(h.query_by_label_contains("right click to give the 1 placeable selected").is_some());
+    assert!(
+        h.query_by_label_contains("Right click gives it to the 1 placeable selected.").is_some()
+    );
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-placeable-gallery").join("gallery.png")).unwrap();
     let appearance = |h: &mut Harness<'_, Moonglow>| {

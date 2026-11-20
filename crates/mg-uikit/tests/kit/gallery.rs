@@ -446,3 +446,65 @@ fn the_size_slider_says_the_side() {
     h.run();
     assert_eq!(side.get(), 129.0);
 }
+
+/// A picture that fills its tile (`Picture::Fill`, the portraits'): the
+/// texture drawn over the whole tile, the part of it named (its UV
+/// rectangle), not letterboxed, inside the tile.
+#[test]
+fn a_filled_picture_covers_its_tile_with_the_part_named() {
+    let texture = egui::TextureId::User(7);
+    let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
+    let tile = std::rc::Rc::new(Cell::new(Rect::NOTHING));
+    let seen = tile.clone();
+    let mut h = Harness::builder().with_size(egui::vec2(200.0, 200.0)).build_ui(move |ui| {
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(54.0, 84.0), egui::Sense::click());
+        seen.set(rect);
+        GalleryCell::new("", Picture::Fill(texture, uv)).lines(0).paint(
+            ui,
+            rect,
+            egui::vec2(54.0, 84.0),
+            CellState::default(),
+            &r,
+        );
+    });
+    h.run();
+    let meshes: Vec<egui::epaint::Mesh> = shapes(&h)
+        .into_iter()
+        .filter_map(|s| match s {
+            Shape::Mesh(m) if m.texture_id == texture => Some((*m).clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(meshes.len(), 1, "the picture drawn once");
+    let m = &meshes[0];
+    let (mut at, mut uvs) = (Rect::NOTHING, Rect::NOTHING);
+    for v in &m.vertices {
+        at.extend_with(v.pos);
+        uvs.extend_with(v.uv);
+    }
+    let tile = tile.get();
+    assert!((at.min - tile.min).length() < 0.01 && (at.max - tile.max).length() < 0.01, "{at:?}");
+    assert!((uvs.min - uv.min).length() < 0.001 && (uvs.max - uv.max).length() < 0.001, "{uvs:?}");
+}
+
+/// A grid's own row gap (`row_gap`): the rows that far apart, the gap
+/// across left as the layout makes it (justified: at least its least).
+#[test]
+fn a_row_gap_sets_the_rows_apart() {
+    let grid = GalleryGrid::new(egui::Id::new("rows"), 40, 54.0)
+        .justified(egui::vec2(54.0, 84.0), 8.0)
+        .row_gap(3.0)
+        .label(0.0);
+    let l = grid.layout(500.0);
+    assert_eq!(l.gap.y, 3.0);
+    assert!(l.gap.x >= 8.0, "{:?}", l.gap);
+    let (first, below) = (l.rect(egui::Pos2::ZERO, 0), l.rect(egui::Pos2::ZERO, l.columns));
+    assert!((below.top() - first.bottom() - 3.0).abs() < 0.01, "{first:?} {below:?}");
+    assert!((l.height(2 * l.columns) - (2.0 * 84.0 + 3.0)).abs() < 0.01);
+    // (Without it, the layout's own.)
+    let plain = GalleryGrid::new(egui::Id::new("rows"), 40, 54.0)
+        .justified(egui::vec2(54.0, 84.0), 8.0)
+        .label(0.0)
+        .layout(500.0);
+    assert_ne!(plain.gap.y, 3.0);
+}
