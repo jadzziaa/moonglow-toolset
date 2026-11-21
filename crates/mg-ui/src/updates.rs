@@ -103,6 +103,15 @@ impl Getting {
         *self.progress.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// An install of `release` in `state`, `got` of `of` bytes downloaded
+    /// so far, with nothing under way: the pictures' and the tests' way to
+    /// show each state of one (`get` starts a real one).
+    #[doc(hidden)]
+    pub fn shown(release: Release, now: bool, state: GetState, got: u64, of: Option<u64>) -> Self {
+        let progress = Arc::new(Mutex::new((got, of)));
+        Getting { release, now, state, progress, answer: None }
+    }
+
     pub fn ready(&self) -> Option<&Staged> {
         match &self.state {
             GetState::Ready(s) => Some(s),
@@ -130,7 +139,7 @@ pub struct Updates {
     /// What its check found (`None` while asking).
     pub report: Option<Outcome>,
     /// A newer release the automatic check found: the notice under the
-    /// toolbar, until dismissed.
+    /// Top Bar, until dismissed.
     pub notice: Option<Release>,
     /// The install of a release, under way or ready.
     pub getting: Option<Getting>,
@@ -190,6 +199,17 @@ impl Updates {
     /// A check is under way.
     pub fn checking(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// A check under way that never answers: the pictures' and the tests'
+    /// way to show the state of one (no request is made).
+    #[doc(hidden)]
+    pub fn check_never_answered(&mut self) {
+        let (send, receive) = std::sync::mpsc::channel();
+        // (Kept, so that the answer stays to come rather than the check
+        // stopping.)
+        std::mem::forget(send);
+        self.pending = Some((receive, true, false));
     }
 
     /// The automatic check looks whether it is due at the next frame, not
@@ -657,78 +677,219 @@ fn install_state(
             {
                 clicked = Clicked::TryAgain;
             }
-            ui.hyperlink_to("Release Page", &getting.release.page)
-                .on_hover_text("Download it from the release's page (opens the browser)");
+            let (words, tip) = Offer::ReleasePage.text();
+            ui.hyperlink_to(words, &getting.release.page).on_hover_text(tip);
         }
     }
     clicked
 }
 
-/// The notice of a newer release, under the toolbar, while there is one.
+/// A button of the update's line on the Welcome page ([`line`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Offer {
+    WhatsNew,
+    InstallNow,
+    Later,
+    ReleasePage,
+    RestartNow,
+    TryAgain,
+}
+
+impl Offer {
+    /// Its name and tip, the notice's.
+    pub(crate) fn text(self) -> (&'static str, &'static str) {
+        match self {
+            Offer::WhatsNew => ("What's New…", "The release's notes, and how to install it"),
+            Offer::InstallNow => {
+                ("Install Now", "Download, verify and install it, then ask to restart")
+            }
+            Offer::Later => {
+                ("Later", "Download and verify it now, and install it when Moonglow closes")
+            }
+            Offer::ReleasePage => {
+                ("Release Page", "What is new in it, and its downloads (opens the browser)")
+            }
+            Offer::RestartNow => {
+                ("Restart Now", "Install the update and restart with the module that is open")
+            }
+            Offer::TryAgain => {
+                ("Try Again", "Downloads it again from the start, and verifies it again")
+            }
+        }
+    }
+}
+
+/// What the Welcome page's Status says of updates: the notice's states
+/// (a newer release, its download, ready, failed), and a check under way.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Line {
+    /// What it says.
+    pub(crate) words: String,
+    /// Said as an error (a failed install).
+    pub(crate) error: bool,
+    /// Under way (a check, a download): a spinner in place of its icon.
+    pub(crate) busy: bool,
+    /// Its buttons, in order.
+    pub(crate) offers: Vec<Offer>,
+    /// The release it is of (none for a check), and whether it was to be
+    /// installed now (Try Again's).
+    release: Option<(Release, bool)>,
+}
+
+/// Whether this copy installs `release` ([`Updates::why_not`]), checked
+/// once for each release and way this copy is set up, not each frame.
+fn why_not(u: &Updates, release: &Release) -> Option<String> {
+    type Key = (String, usize, String, bool, bool, Option<std::path::PathBuf>);
+    thread_local! {
+        static KEPT: std::cell::RefCell<Option<(Key, Option<String>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+    let key: Key = (
+        release.version.to_string(),
+        release.assets.len(),
+        format!("{:?}", u.kind),
+        u.key.is_some(),
+        u.http.is_some(),
+        u.cache.clone(),
+    );
+    KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some((k, why)) = kept.as_ref()
+            && *k == key
+        {
+            return why.clone();
+        }
+        crate::welcome::count(crate::welcome::Counted::InstallCheck);
+        let why = u.why_not(release);
+        *kept = Some((key, why.clone()));
+        why
+    })
+}
+
+/// The update's line, if there is one to tell: the words and buttons of
+/// the strip under the Top Bar (`notice_bar`, which adds Don't Remind Me
+/// and its Close) and of the Welcome page's Status, which also says
+/// "Checking for updates…" while a check is under way. Nothing while the
+/// Check for Updates window tells of the same release (once is enough).
+pub(crate) fn line(app: &Moonglow) -> Option<Line> {
+    let u = &app.updates;
+    let release = u.notice.as_ref().or(u.getting.as_ref().map(|g| &g.release));
+    let told = |r: &Release| matches!(&u.report, Some(Outcome::Newer(t)) if t.version == r.version);
+    if u.window && release.is_some_and(told) {
+        return None;
+    }
+    let Some(release) = release else {
+        let checking = Line {
+            words: "Checking for updates…".into(),
+            error: false,
+            busy: true,
+            offers: Vec::new(),
+            release: None,
+        };
+        return u.checking().then_some(checking);
+    };
+    let installable = why_not(u, release).is_none();
+    let version = &release.version;
+    let getting = u.getting.as_ref().filter(|g| g.release.version == *version);
+    let (words, error, busy, offers) = match getting.map(|g| (g, &g.state)) {
+        Some((g, GetState::Downloading)) => {
+            let (got, of) = g.progress();
+            let words = match of.filter(|&t| t > 0) {
+                Some(total) => format!(
+                    "Downloading Moonglow {version}… {} of {}",
+                    megabytes(got),
+                    megabytes(total)
+                ),
+                None => format!("Downloading Moonglow {version}… {}", megabytes(got)),
+            };
+            (words, false, true, vec![])
+        }
+        Some((_, GetState::Ready(staged))) => {
+            let words = if staged.installed() {
+                format!("Moonglow {version} is installed: it runs from the next start.")
+            } else {
+                format!(
+                    "Moonglow {version} is downloaded and verified: it is installed when \
+                     Moonglow closes."
+                )
+            };
+            (words, false, false, vec![Offer::RestartNow])
+        }
+        Some((_, GetState::Failed(why))) => {
+            let words = format!("Moonglow {version} isn't installed: {why}.");
+            let offers = match installable {
+                true => vec![Offer::TryAgain, Offer::ReleasePage],
+                false => vec![Offer::ReleasePage],
+            };
+            (words, true, false, offers)
+        }
+        None => {
+            let words = format!("{} is out (you have {}).", named(release), Version::current());
+            let offers = match installable {
+                true => vec![Offer::WhatsNew, Offer::InstallNow, Offer::Later],
+                false => vec![Offer::WhatsNew, Offer::ReleasePage],
+            };
+            (words, false, false, offers)
+        }
+    };
+    let now = getting.is_some_and(|g| g.now);
+    Some(Line { words, error, busy, offers, release: Some((release.clone(), now)) })
+}
+
+/// Does what `offer` of `line` says.
+pub(crate) fn act(app: &mut Moonglow, ctx: &egui::Context, line: &Line, offer: Offer) {
+    let Some((release, now)) = line.release.clone() else { return };
+    match offer {
+        Offer::WhatsNew => whats_new(app, release),
+        Offer::InstallNow => get(app, release, true),
+        Offer::Later => get(app, release, false),
+        Offer::TryAgain => get(app, release, now),
+        Offer::ReleasePage => ctx.open_url(egui::OpenUrl::new_tab(&release.page)),
+        Offer::RestartNow => app.actions.push(Action::RestartToUpdate),
+    }
+}
+
+/// The notice of a newer release, under the Top Bar, while there is one:
+/// [`line`]'s words and buttons, with Don't Remind Me and its Close; not
+/// while the Welcome page tells it in sight (M4's U24: once is enough), nor
+/// while the Check for Updates window does.
 pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(release) = app.updates.notice.clone() else { return };
-    // (Not while the window tells of it: once is enough.)
-    let told =
-        matches!(&app.updates.report, Some(Outcome::Newer(r)) if r.version == release.version);
-    if app.updates.window && told {
+    if crate::welcome::in_sight(app, ui.ctx()) {
         return;
     }
+    let Some(line) = line(app) else { return };
     let mut close = false;
-    let mut action = None;
-    // (Try Again: Install Now's or Later's again.)
-    let mut again = None;
-    let installable = app.updates.why_not(&release).is_none();
+    let mut offered = None;
     egui::Panel::top("update-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
             let (mark, _) = ui.allocate_exact_size(side, egui::Sense::hover());
             mg_uikit::Icon::Info.paint(ui.painter(), mark, ui.visuals().hyperlink_color);
-            let getting =
-                app.updates.getting.as_ref().filter(|g| g.release.version == release.version);
-            if let Some(g) = getting {
-                match install_state(ui, g, true, false, installable) {
-                    Clicked::RestartNow => action = Some(Action::RestartToUpdate),
-                    Clicked::TryAgain => again = Some(g.now),
-                    _ => {}
+            if line.busy {
+                ui.spinner();
+            }
+            match line.error {
+                true => ui.colored_label(ui.visuals().error_fg_color, &line.words),
+                false => ui.label(&line.words),
+            };
+            for &offer in &line.offers {
+                let (words, tip) = offer.text();
+                if offer == Offer::ReleasePage {
+                    ui.hyperlink_to(words, &release.page).on_hover_text(tip);
+                } else if ui.button(words).on_hover_text(tip).clicked() {
+                    offered = Some(offer);
                 }
-            } else {
-                ui.label(format!("{} is out (you have {}).", named(&release), Version::current()));
-                if ui
-                    .button("What's New…")
-                    .on_hover_text("The release's notes, and how to install it")
-                    .clicked()
-                {
-                    whats_new(app, release.clone());
-                }
-                if installable {
-                    if ui
-                        .button("Install Now")
-                        .on_hover_text("Download, verify and install it, then ask to restart")
-                        .clicked()
-                    {
-                        get(app, release.clone(), true);
-                    }
-                    if ui
-                        .button("Later")
-                        .on_hover_text(
-                            "Download and verify it now, and install it when Moonglow closes",
-                        )
-                        .clicked()
-                    {
-                        get(app, release.clone(), false);
-                    }
-                } else {
-                    ui.hyperlink_to("Release Page", &release.page)
-                        .on_hover_text("What is new in it, and its downloads (opens the browser)");
-                }
-                if ui
+            }
+            // (Of a release not yet being got: What's New… leads.)
+            if line.offers.first() == Some(&Offer::WhatsNew)
+                && ui
                     .button("Don't Remind Me About This Version")
                     .on_hover_text("No notice for this version. A later one is told again.")
                     .clicked()
-                {
-                    app.settings.update_skipped = Some(release.version.to_string());
-                    close = true;
-                }
+            {
+                app.settings.update_skipped = Some(release.version.to_string());
+                close = true;
             }
             // (Named for what it closes: the renderer's notice can show with it.)
             let tip = "Close the notice (a later check tells again)";
@@ -738,11 +899,8 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
         });
     });
-    if let Some(a) = action {
-        app.actions.push(a);
-    }
-    if let Some(now) = again {
-        get(app, release, now);
+    if let Some(offer) = offered {
+        act(app, ui.ctx(), &line, offer);
     } else if close {
         app.updates.notice = None;
     }
@@ -801,6 +959,16 @@ fn said(app: &mut Moonglow, ui: &mut egui::Ui, outcome: &Outcome) -> Option<Acti
         }
         (None, Some(why)) => {
             ui.weak(why);
+            // (The notice's, which the Welcome page's Status leaves out:
+            // here for a copy that does not install too.)
+            if ui
+                .button("Don't Remind Me About This Version")
+                .on_hover_text("No notice for this version. A later one is told again.")
+                .clicked()
+            {
+                app.settings.update_skipped = Some(r.version.to_string());
+                app.updates.notice = None;
+            }
         }
         (None, None) => {
             ui.horizontal(|ui| {
@@ -852,10 +1020,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = "Check for Updates";
     let mut open = true;
     let (mut again, mut close, mut action) = (false, false, None);
-    crate::widgets::dialog(ctx, title, &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
-            ui.set_max_width(520.0);
+    let footed = crate::widgets::dialog(ctx, title, &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 520.0);
             let flatpak = app.updates.installer() == Some(Installer::Flatpak);
             match app.updates.report.clone() {
                 None if flatpak => {}
@@ -882,18 +1051,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                      checksums from GitHub. Nothing about you, your modules or this computer.",
                 );
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let idle = !app.updates.checking();
-                if !flatpak && ui.add_enabled(idle, egui::Button::new("Check Again")).clicked() {
-                    again = true;
-                }
-                if ui.button("Close").clicked() {
-                    close = true;
-                }
-            });
-        },
-    );
+            let mut foot = crate::widgets::Foot::new();
+            if !flatpak {
+                foot = foot.main("Check Again", !app.updates.checking());
+            }
+            ((), foot.leave("Close"))
+        });
+    if let Some(f) = footed {
+        again = f.pressed.main();
+        close = f.pressed.cancelled();
+    }
     if let Some(a) = action {
         app.actions.push(a);
     }

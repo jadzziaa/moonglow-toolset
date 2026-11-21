@@ -710,26 +710,54 @@ impl Moonglow {
 }
 
 /// Recover Unsaved Work: the copies a session that did not end left.
+/// The window's width on the board (U27: 548 by 173 with two copies).
+const RECOVER_WIDTH: f32 = 548.0;
+
 pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
     if app.recoveries.is_empty() {
         return;
     }
     let mut open = true;
     let (mut recover, mut discard, mut later) = (None, None, false);
-    crate::widgets::dialog(ui.ctx(), "Recover Unsaved Work", &mut open).collapsible(false).show(
-        ui.ctx(),
-        |ui| {
+    let footed = crate::widgets::dialog(ui.ctx(), "Recover Unsaved Work", &mut open)
+        .collapsible(false)
+        .show_foot(ui.ctx(), |ui| {
+            // (The board's 548 points wide, less the body's margins and the
+            // window's edges, where the screen has the room.)
+            crate::widgets::fit_min_width(ui, RECOVER_WIDTH - 24.0 - 2.0);
             ui.label("Moonglow closed without saving these modules. Their unsaved work was kept:");
+            // (The board's grid: the name takes what the times and the
+            // buttons leave, so the times stand in one column.)
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let width = |ui: &egui::Ui, words: &str| {
+                ui.painter()
+                    .layout_no_wrap(words.to_string(), font.clone(), egui::Color32::WHITE)
+                    .size()
+                    .x
+            };
+            let ages: Vec<String> = app.recoveries.iter().map(|c| age(c.note.time)).collect();
+            let time_w = ages.iter().map(|a| width(ui, a)).fold(0.0, f32::max);
+            let button =
+                |ui: &egui::Ui, words: &str| width(ui, words) + 2.0 * ui.spacing().button_padding.x;
+            let gap = 12.0;
+            let buttons = button(ui, "Recover") + button(ui, "Discard");
+            let name_w = (ui.available_width() - time_w - buttons - 3.0 * gap).max(80.0);
             mg_uikit::with_rows(ui, |ui| {
-                egui::Grid::new("recoveries").num_columns(4).spacing([12.0, 0.0]).show(ui, |ui| {
+                egui::Grid::new("recoveries").num_columns(4).spacing([gap, 0.0]).show(ui, |ui| {
                     for (i, c) in app.recoveries.iter().enumerate() {
                         let place = c
                             .note
                             .module
                             .as_ref()
                             .map_or_else(|| "never saved".to_string(), |p| p.display().to_string());
-                        ui.strong(&c.note.name).on_hover_text(place);
-                        ui.label(age(c.note.time));
+                        let height = ui.spacing().interact_size.y;
+                        let layout = egui::Layout::left_to_right(egui::Align::Center);
+                        ui.allocate_ui_with_layout(egui::vec2(name_w, height), layout, |ui| {
+                            ui.set_min_width(name_w);
+                            let name = egui::RichText::new(&c.note.name).strong();
+                            ui.add(egui::Label::new(name).truncate()).on_hover_text(place);
+                        });
+                        ui.label(&ages[i]);
                         if ui
                             .button("Recover")
                             .on_hover_text("Open it, and save to keep it")
@@ -748,9 +776,11 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
                     }
                 })
             });
-            later = ui.button("Later").on_hover_text("Ask again at the next start").clicked();
-        },
-    );
+            ((), crate::widgets::Foot::new().leave("Later").tip("Ask again at the next start"))
+        });
+    if let Some(f) = footed {
+        later = f.pressed.cancelled();
+    }
     if let Some(i) = recover {
         // (As an action: the open module's unsaved work is asked about
         // first, and the copy stays listed until it is opened.)

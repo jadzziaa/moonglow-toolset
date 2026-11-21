@@ -1,9 +1,10 @@
 //! Custom Light… (the lights proposal's way B, behind an option that is
 //! off by default): a light of the color, reach and shadows chosen, made
 //! as content ([`mg_module::lights`]: a model with one light node and a
-//! placeables.2da row) written into a hak the builder chooses in the
-//! window, which says plainly what it writes where, and that the
-//! module's players must have that hak, before anything is written.
+//! placeables.2da row) written into a hak the builder chooses in its
+//! Right Dock panel (M4's U29; a window before), which says plainly what
+//! it writes where, and that the module's players must have that hak,
+//! before anything is written.
 
 use egui::Ui;
 use glam::Vec3;
@@ -14,7 +15,7 @@ use mg_uikit::Controls as _;
 
 use crate::Moonglow;
 
-/// Which hak the light goes into, as chosen in the window.
+/// Which hak the light goes into, as chosen in its panel.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum HakPick {
     /// None yet: nothing is written until one is chosen.
@@ -27,7 +28,8 @@ pub enum HakPick {
     New(String),
 }
 
-/// The Custom Light window's state.
+/// The Custom Light panel's state (M4's U29: its Right Dock panel; a window
+/// before).
 #[derive(Debug, Clone)]
 pub struct LightDraft {
     pub area: ResRef,
@@ -121,127 +123,159 @@ fn plan_for(app: &Moonglow, spec: LightSpec, pick: &HakPick) -> Result<Plan, Str
     mg_module::lights::plan(&game.resman, game.codepage(), spec, hak, first)
 }
 
-/// Draws the window, when open.
-pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(mut d) = app.light_draft.take() else { return };
-    // (The option turned off meanwhile: nothing of it shows.)
-    if !generated_lights(app) {
-        return;
-    }
+/// The Right Dock's Custom Light (Change Light where it changes lights
+/// Moonglow made; M4's U29, a window before), while it is open: its main
+/// action (Write and Place, Place, Write and Change, Change) and Cancel at
+/// its top (`tool_sections::actions`), then the light's settings, the hak
+/// it is written into and what writing it does. `detail`: its header's
+/// words where its section has no header.
+pub(crate) fn panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    detail: Option<&str>,
+) -> Option<crate::tool_sections::Answer> {
+    let mut d = app.light_draft.take()?;
     let key = (d.spec.normalized(), d.hak.clone());
     if d.planned.as_ref().is_none_or(|(k, _)| *k != key) {
         d.planned = Some((key, plan_for(app, d.spec, &d.hak)));
     }
-    let mut open = true;
-    let mut done = None;
-    // (The module's own haks, found in the hak folders as the window
-    // opens: not each of them looked for every frame.)
+    // (The module's own haks, found in the hak folders as it opens: not
+    // each of them looked for every frame.)
     let names = crate::area_tools::kept_while_shown(
         ui.ctx(),
         egui::Id::new("custom-light-haks"),
         || -> Vec<String> { listed(app).into_iter().map(|(n, _)| n).collect() },
     );
-    let title = if d.change.is_empty() { "Custom Light" } else { "Change Light" };
-    crate::widgets::dialog(ui.ctx(), title, &mut open).resizable(false).collapsible(false).show(
-        ui.ctx(),
-        |ui| {
-            ui.set_max_width(420.0);
-            egui::Grid::new("custom-light").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Color");
-                ui.color_edit_button_srgb(&mut d.spec.color);
-                ui.end_row();
-                crate::widgets::field_label(ui, "Radius (m)");
-                crate::widgets::spin_draft(ui, &mut d.spec.radius, 0.1..=100.0, 0.5, |x| {
-                    x.speed(0.05).max_decimals(2)
-                });
-                ui.end_row();
-                crate::widgets::field_label(ui, "Multiplier")
-                    .on_hover_text("How much further the light reaches, not how bright it is");
-                crate::widgets::spin_draft(ui, &mut d.spec.multiplier, 0.1..=10.0, 0.1, |x| {
-                    x.speed(0.01).max_decimals(2)
-                });
-                ui.end_row();
-                crate::widgets::field_label(ui, "Priority").on_hover_text(
-                    "1 to 5: where too many lights meet, the game keeps priority 1 first",
-                );
-                let mut p = u32::from(d.spec.priority);
-                crate::widgets::spin_draft(ui, &mut p, 1..=5, 1.0, |x| x);
-                d.spec.priority = p.clamp(1, 5) as u8;
-                ui.end_row();
+    let ok = matches!(d.planned, Some((_, Ok(_))));
+    let label = words_of(&d);
+    let tip = match d.change.is_empty() {
+        true => "Write the light into the hak and place it",
+        false => "Write the light into the hak and give it to the lights selected",
+    };
+    let keys = crate::palette_view::Keys::LightMaker;
+    let leave = ("Cancel", "Close it without writing anything");
+    let why = match &d.planned {
+        Some((_, Err(e))) => Some(e.clone()),
+        _ => None,
+    };
+    let main = Some((label, ok, tip));
+    let answer = crate::tool_sections::actions(ui, keys, main, leave, detail, why.as_deref());
+    crate::tool_sections::scrolled(ui, "custom-light", |ui| {
+        // (Properties' grid, M4's U8 to U10: its label column, its fields,
+        // the check boxes in the fields' column. M4's U29 review.)
+        let grid = crate::blueprint::form_grid(ui, "custom-light").labels().spacing([12.0, 6.0]);
+        grid.show(ui, |ui| {
+            crate::widgets::field_label(ui, "Color");
+            ui.color_edit_button_srgb(&mut d.spec.color);
+            ui.end_row();
+            crate::widgets::field_label(ui, "Radius (m)");
+            crate::widgets::spin_draft(ui, &mut d.spec.radius, 0.1..=100.0, 0.5, |x| {
+                x.speed(0.05).max_decimals(2)
             });
-            ui.check_box(&mut d.spec.shadows, "Creatures' shadows are cast from it");
-            ui.check_box(&mut d.spec.lights_objects, "Lights creatures and placeables too")
+            ui.end_row();
+            crate::widgets::field_label(ui, "Multiplier")
+                .on_hover_text("How much further the light reaches, not how bright it is");
+            crate::widgets::spin_draft(ui, &mut d.spec.multiplier, 0.1..=10.0, 0.1, |x| {
+                x.speed(0.01).max_decimals(2)
+            });
+            ui.end_row();
+            crate::widgets::field_label(ui, "Priority").on_hover_text(
+                "1 to 5: where too many lights meet, the game keeps priority 1 first",
+            );
+            let mut p = u32::from(d.spec.priority);
+            crate::widgets::spin_draft(ui, &mut p, 1..=5, 1.0, |x| x);
+            d.spec.priority = p.clamp(1, 5) as u8;
+            ui.end_row();
+            // (Each wrapped at the page's edge: a cell's width is the
+            // grid's last frame's.)
+            let boxed = |ui: &mut Ui, on: &mut bool, text: &str| {
+                let room = crate::blueprint::room_right(ui).max(40.0);
+                ui.scope(|ui| {
+                    ui.set_max_width(room);
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                    ui.check_box(on, text)
+                })
+                .inner
+            };
+            ui.label("");
+            boxed(ui, &mut d.spec.shadows, "Creatures' shadows are cast from it");
+            ui.end_row();
+            ui.label("");
+            boxed(ui, &mut d.spec.lights_objects, "Lights creatures and placeables too")
                 .on_hover_text("The light node's affectdynamic: off, it lights the ground alone");
-            ui.weak(format!("Its light ends {} m out.", (d.spec.reach() * 100.0).round() / 100.0));
-            ui.add_space(crate::widgets::SECTION_GAP);
-            crate::widgets::section_heading(ui, "Written Into");
-            for name in &names {
-                let on = d.hak == HakPick::Listed(name.clone());
-                if ui.radio_button(on, format!("{name}.hak")).clicked() {
-                    d.hak = HakPick::Listed(name.clone());
-                }
-            }
-            ui.horizontal(|ui| {
-                let typed = match &d.hak {
-                    HakPick::New(n) => Some(n.clone()),
-                    _ => None,
-                };
-                let chosen =
-                    ui.radio_button(typed.is_some(), "A new hak:").clicked() && typed.is_none();
-                if chosen {
-                    d.hak = HakPick::New(String::new());
-                }
-                let mut name = typed.clone().unwrap_or_default();
-                let r = ui.add_enabled(
-                    typed.is_some() || chosen,
-                    mg_uikit::text_field(&mut name).desired_width(160.0).hint_text("name"),
-                );
-                if chosen {
-                    r.request_focus();
-                }
-                if r.changed() {
-                    d.hak = HakPick::New(name);
-                }
-            });
-            ui.add_space(crate::widgets::SECTION_GAP);
-            let plan = d.planned.as_ref().map(|(_, p)| p);
-            match plan {
-                Some(Ok(p)) => {
-                    ui.add(egui::Label::new(p.describe()).wrap());
-                }
-                Some(Err(e)) => {
-                    ui.colored_label(ui.visuals().warn_fg_color, e);
-                }
-                None => {}
-            }
-            ui.horizontal(|ui| {
-                let ok = matches!(plan, Some(Ok(_)));
-                let reused = matches!(plan, Some(Ok(p)) if p.reused);
-                let label = match (reused, d.change.is_empty()) {
-                    (true, true) => "Place",
-                    (true, false) => "Change",
-                    (false, true) => "Write and Place",
-                    (false, false) => "Write and Change",
-                };
-                if ui.add_enabled(ok, egui::Button::new(label)).clicked() {
-                    done = Some(true);
-                }
-                if crate::widgets::cancel(ui) {
-                    done = Some(false);
-                }
-            });
-        },
-    );
-    match done {
-        Some(true) => {
-            if let Some((_, Ok(plan))) = d.planned.take() {
-                app.last_light = d.spec.normalized();
-                made(app, &d, &plan);
+            ui.end_row();
+        });
+        ui.weak(format!("Its light ends {} m out.", (d.spec.reach() * 100.0).round() / 100.0));
+        ui.add_space(crate::widgets::SECTION_GAP);
+        crate::widgets::section_heading(ui, "Written Into");
+        for name in &names {
+            let on = d.hak == HakPick::Listed(name.clone());
+            if ui.radio_button(on, format!("{name}.hak")).clicked() {
+                d.hak = HakPick::Listed(name.clone());
             }
         }
-        Some(false) => {}
-        None if open => app.light_draft = Some(d),
-        None => {}
+        ui.horizontal_wrapped(|ui| {
+            let typed = match &d.hak {
+                HakPick::New(n) => Some(n.clone()),
+                _ => None,
+            };
+            let chosen =
+                ui.radio_button(typed.is_some(), "A new hak:").clicked() && typed.is_none();
+            if chosen {
+                d.hak = HakPick::New(String::new());
+            }
+            let mut name = typed.clone().unwrap_or_default();
+            let width = ui.available_width().clamp(80.0, 160.0);
+            let r = ui.add_enabled(
+                typed.is_some() || chosen,
+                mg_uikit::text_field(&mut name).desired_width(width).hint_text("name"),
+            );
+            if chosen {
+                r.request_focus();
+            }
+            if r.changed() {
+                d.hak = HakPick::New(name);
+            }
+        });
+        // (What it will write; where it cannot, why is said under its
+        // actions, in sight.)
+        if let Some((_, Ok(p))) = &d.planned {
+            ui.add_space(crate::widgets::SECTION_GAP);
+            ui.add(egui::Label::new(p.describe()).wrap());
+        }
+    });
+    let ok = matches!(d.planned, Some((_, Ok(_))));
+    app.light_draft = Some(d);
+    answer.or_else(|| crate::tool_sections::enter_after(ui, keys, ok, true))
+}
+
+/// Its main action's words: Write and Place, Place (a light written
+/// before, its row used again), Write and Change, Change.
+fn words_of(d: &LightDraft) -> &'static str {
+    let reused = matches!(&d.planned, Some((_, Ok(p))) if p.reused);
+    match (reused, d.change.is_empty()) {
+        (true, true) => "Place",
+        (true, false) => "Change",
+        (false, true) => "Write and Place",
+        (false, false) => "Write and Change",
+    }
+}
+
+/// Its main action's words where it is open and enabled (the Status Bar's
+/// Enter hint).
+pub(crate) fn main_words(app: &Moonglow) -> Option<&'static str> {
+    let d = app.light_draft.as_ref()?;
+    matches!(d.planned, Some((_, Ok(_)))).then(|| words_of(d))
+}
+
+/// Its main action pressed (made as the frame begins:
+/// `tool_sections::follow`): the light written and placed, or given to the
+/// lights chosen, the panel closed.
+pub(crate) fn finish(app: &mut Moonglow) {
+    let Some(mut d) = app.light_draft.take() else { return };
+    if let Some((_, Ok(plan))) = d.planned.take() {
+        app.last_light = d.spec.normalized();
+        made(app, &d, &plan);
     }
 }
 

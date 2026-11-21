@@ -303,8 +303,8 @@ const FOLDER: &str = "Neverwinter Nights Enhanced Edition on the second drive of
 /// A long module's name, for [`with_no_line_yet_nothing_is_shown_or_kept`].
 const MODULE: &str = "a_module_with_a_rather_long_file_name_for_the_status_bar_check";
 
-/// With nothing said yet, nothing follows the switch and no room is kept
-/// for it: the bar's controls are the switch and the right-hand items,
+/// With nothing said yet, nothing follows the switches and no room is kept
+/// for it: the bar's controls are the switches and the right-hand items,
 /// and at every width from 1400 to 2200 the bar is as it is with the log
 /// open (where it has no last line), the game folder (a long one, beside a
 /// long module's name) kept as long; a line said then takes the room
@@ -329,7 +329,10 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     h.state_mut().log.clear();
     settle(&mut h);
     let names: Vec<String> = bar_controls(&h, "Status Bar").into_iter().map(|c| c.0).collect();
-    assert_eq!(names, ["Log", MODULE, format!("…/{FOLDER}").as_str()]);
+    // (The switches: the Log's, Problems' and Search Results', M4's U13
+    // and U20.)
+    let folder = format!("…/{FOLDER}");
+    assert_eq!(names, ["Log", "Problems", "Search Results", MODULE, folder.as_str()]);
     let folder = &format!("…/{FOLDER}");
     let folder_width = in_bar(&h, folder).unwrap().rect().width();
     let mut differ = Vec::new();
@@ -351,7 +354,8 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
         let has = |n: &str| seen[0].iter().find(|c| c.0 == n).map(|c| c.1);
         if has(folder).is_none() {
             dropped += 1;
-            let (switch, name) = (has("Log").unwrap(), has(MODULE).unwrap());
+            // (From the last switch, Search Results', M4's U13.)
+            let (switch, name) = (has("Search Results").unwrap(), has(MODULE).unwrap());
             // (The room between them: the gaps, a separator and the folder.)
             let room = name.left() - switch.right() - 2.0 * 8.0;
             if room >= folder_width + 1.0 + 2.0 * 8.0 {
@@ -556,12 +560,13 @@ fn a_new_installation_opens_with_the_log_closed() {
 /// inside the bar and over no other; the module's name always there,
 /// everything at 2560 and 3440 (the long texts are wider than the
 /// board's); and they yield in the one order
-/// `shell::status_bar` builds, as the window narrows: the Bottom Dock's
-/// switches show their icons alone first (always under 1400, M3 T14); then
-/// the game folder goes (always under 1400; never shown beside a hint
-/// dropped or the line cut); then
+/// `shell::status_bar` builds, as the window narrows: the game folder goes
+/// (always under 1400; never shown beside a hint dropped or the line cut);
 /// the hints drop whole from the end (those shown always the first ones);
-/// then the last line is cut short from its cap (`shell::LAST_LINE_CAP`,
+/// the Bottom Dock's switches show their icons alone (always under 1400,
+/// M3 T14, there before the folder and the hints; from 1400 only once no
+/// hint is left, SPEC 12 and Script.png, the coordinator's ruling at M4's
+/// U13 review); then the last line is cut short from its cap (`shell::LAST_LINE_CAP`,
 /// the boards' `.sb-log`) down to its least room
 /// (`shell::LAST_LINE_LEAST`, 48 points), then goes; then the counts go
 /// from the end; then the job's name is cut short; the module's name
@@ -620,13 +625,17 @@ fn the_status_bar_holds_at_every_width() {
             window.x_range(),
             switch.center().y - half..=switch.center().y + half,
         );
-        let texts: Vec<egui::Rect> = drawn(h)
+        // (As seen: a text cut by its clip, a page's at a scroll's foot,
+        // counts only where it shows.)
+        let texts: Vec<egui::Rect> = drawn_clipped(h)
             .into_iter()
-            .filter_map(|s| match s {
-                egui::Shape::Text(t) => Some(t.visual_bounding_rect()),
+            .filter_map(|(s, clip)| match s {
+                egui::Shape::Text(t) => Some((t.visual_bounding_rect(), clip)),
                 _ => None,
             })
-            .filter(|r| r.center().y > bar.top() && r.center().y < bar.bottom())
+            .filter(|(r, _)| r.center().y > bar.top() && r.center().y < bar.bottom())
+            .filter(|(r, clip)| r.intersects(*clip))
+            .map(|(r, clip)| r.intersect(clip))
             .collect();
         (bar, bar_controls(h, "Status Bar"), texts)
     };
@@ -720,18 +729,31 @@ fn the_status_bar_holds_at_every_width() {
         let line_w = has(line).map(|r| r.width());
         let line_full = line_w.is_some_and(|w| w >= cap);
         let job_cut = job.is_none_or(|r| r.width() < full_job - 0.5);
-        let name_cut =
-            has(name).is_some_and(|r| drawn_texts(&h, r).iter().any(|w| w.contains('…')));
-        // The order they yield in: first the switches show their icons
-        // alone (always under 1400, M3 T14, and wherever the rest does not
-        // fit beside their words), then the folder goes (always under
-        // 1400), then the middle's.
+        // (Its own text as seen: a form's `…` clipped away under the bar
+        // is not its.)
+        let name_cut = has(name).is_some_and(|r| {
+            drawn_clipped(&h).into_iter().any(|(s, clip)| match s {
+                egui::Shape::Text(t) => {
+                    let at = t.visual_bounding_rect();
+                    r.expand(1.0).contains_rect(at)
+                        && clip.contains(at.center())
+                        && t.galley.text().contains('…')
+                }
+                _ => false,
+            })
+        });
+        // The order they yield in: under 1400 the switches' icons and no
+        // folder whatever the room (M3 T14); from 1400 the folder, then the
+        // hints, then the switches' words, then the line (U13's review).
         let icons = has("Log").is_some_and(|r| r.width() < 30.0);
         if width < 1400.0 && (!icons || has(folder).is_some()) {
             wrong.push(at("under 1400 the switches' words or the folder shown"));
         }
-        if !icons && has(folder).is_none() {
-            wrong.push(at("the folder gone beside the switches' words"));
+        if width >= 1400.0 && icons && hints_shown > 0 {
+            wrong.push(at("from 1400 the switches' icons beside a hint"));
+        }
+        if width >= 1400.0 && !icons && line_w.is_some_and(|_| !line_full) {
+            wrong.push(at("from 1400 the line cut beside the switches' words"));
         }
         if has(folder).is_some() && !(all_hints && line_full) {
             wrong.push(at("the folder shown beside a hint dropped or the line cut"));
@@ -754,12 +776,14 @@ fn the_status_bar_holds_at_every_width() {
         // (Which stage this width is at.)
         let stage = if has(folder).is_some() && !icons {
             "everything"
-        } else if has(folder).is_some() {
-            "the switches as icons"
-        } else if all_hints {
+        } else if !icons && all_hints {
             "the folder gone"
-        } else if hints_shown > 0 {
+        } else if !icons && hints_shown > 0 {
             "hints dropped"
+        } else if !icons && line_full {
+            "no hints, the switches' words"
+        } else if hints_shown > 0 {
+            "the switches as icons"
         } else if line_full {
             "no hints, the line whole"
         } else if line_w.is_some() {
@@ -799,9 +823,11 @@ fn the_status_bar_holds_at_every_width() {
     assert!(wrong.is_empty(), "{wrong:#?}");
     for stage in [
         "everything",
-        "the switches as icons",
         "the folder gone",
         "hints dropped",
+        // (Not "no hints, the switches' words": with this module's name and
+        // job the last hint goes under 1400, where the icons come first.)
+        "the switches as icons",
         "the line cut",
         "the line gone",
         "the counts gone",
@@ -817,8 +843,9 @@ fn the_status_bar_holds_at_every_width() {
 /// Clear Log) never over each other nor outside the dock; and, as the
 /// dock narrows, each stage in turn: the tab's words with all three
 /// tools; the tab its icon alone with the tools going one by one from the
-/// end; the icon alone with no tools; nothing under the icon's width. The
-/// tab is "Log" whatever its form; each tool not shown is in the View
+/// end; the icon alone with no tools; nothing under the icons' width (the
+/// Log's and Search Results', M4's U13). The tab is "Log" whatever its
+/// form; each tool not shown is in the View
 /// menu. (Since the yields, M3 T14, the dock under the editor area is
 /// about 100 points at its narrowest in the least window, 420, where the
 /// icon keeps two tools: the narrower stages are reached under it, in a
@@ -907,10 +934,12 @@ fn the_bottom_dock_s_tab_and_tools_never_overlap() {
             assert!(reached.contains(&i), "{stage:?} never seen: {seen:?}");
         }
     }
-    // Nothing under the icon tab's width; the icon alone from there.
+    // Nothing under the icon tabs' width (Problems', Search Results' and
+    // the Log's side by side since M4's U20: three of 34); the icons alone
+    // from there.
     for (w, stage) in &seen {
         if *stage == 0 {
-            assert!(*w < 34.0, "no tab in a dock {w} wide");
+            assert!(*w < 102.0, "no tab in a dock {w} wide");
         }
     }
 }

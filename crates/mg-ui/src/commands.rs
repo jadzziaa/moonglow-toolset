@@ -1,5 +1,5 @@
 //! The window's commands, in one table: what each is called, when it can
-//! be chosen and what it does. The menus, the toolbar, the keys (Options ›
+//! be chosen and what it does. The menus, the Top Bar, the keys (Options ›
 //! Keyboard) and whatever else offers commands read it, so a command is
 //! named, enabled and run the same wherever it is chosen, and every one of
 //! them can be given a key.
@@ -85,13 +85,16 @@ pub enum Id {
     RoundTrip,
     /// The area the module starts in, opened at the start location.
     GoToStart,
+    /// The camera of the area shown turned to face north again (the
+    /// compass's Reorient Camera).
+    ReorientCamera,
     TestModule,
     TestChoose,
     PackTarget,
     /// A nasher project's files its include leaves out, taken in.
     TakeInLeftOut,
     AreaStatistics,
-    /// The Plugins window.
+    /// The Plugins tab.
     Plugins,
     /// Install a plugin from its archive.
     InstallPlugin,
@@ -133,6 +136,9 @@ pub enum Id {
     /// View › Copy Log and Save Log…: the whole log, each line with its
     /// time, to the clipboard or into a text file (Jasperre's report).
     CopyLog,
+    /// The report tab in front of the Bottom Dock closed (Hak Pak Conflict
+    /// Analysis, Resources Used, the Claims Table: M4's U28).
+    CloseReport,
     SaveLog,
     /// View › Clear Log: the log emptied.
     ClearLog,
@@ -382,6 +388,8 @@ impl Id {
         }
         out.push(Id::FullScreen);
         out.push(Id::QuickOpen);
+        // (The compass's button's: no menu has it.)
+        out.push(Id::ReorientCamera);
         out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
         out.push(Id::MaximizeWindow);
         out.extend([Id::NextPane, Id::PreviousPane]);
@@ -549,6 +557,11 @@ impl Id {
                 "Write each GFF and 2DA of a copy anew and log what changes. The module is \
                  untouched.",
             ),
+            Id::ReorientCamera => (
+                "reorient-camera",
+                "Reorient Camera",
+                "Turn the camera of the area shown to face north again",
+            ),
             Id::GoToStart => (
                 "go-to-start",
                 "Go to Start Location",
@@ -637,6 +650,7 @@ impl Id {
             }
             Id::SaveLog => ("save-log", "Save Log…", "The whole log into a text file"),
             Id::ClearLog => ("clear-log", "Clear Log", "Empty the log"),
+            Id::CloseReport => ("close-report", "Close Report", "Close the report tab in front"),
             Id::HidePanels => (
                 "hide-panels",
                 "Hide All Panels",
@@ -757,14 +771,15 @@ impl Id {
             // (The docks' panels too: the Resources panel or the Palette
             // panel without a module.)
             Id::NextPane | Id::PreviousPane => {
-                open || crate::shell::left_shown(app).is_some()
-                    || crate::shell::right_shown(app).is_some()
+                open || crate::shell::left_holds(app) || crate::shell::right_shown(app).is_some()
             }
             Id::ViewLog | Id::ResetLayout => true,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
+            Id::CloseReport => crate::dock_reports::in_front(app).is_some(),
             // (Whenever the Left Dock holds a panel: its Resources panel
             // without a module too.)
-            Id::ViewTree => crate::shell::left_shown(app).is_some(),
+            // (Or the Outliner alone: a table's columns without a module.)
+            Id::ViewTree => crate::shell::left_holds(app),
             Id::HidePanels => open,
             // (Whenever the Right Dock holds a panel: the Palette panel
             // without a module too, once asked for.)
@@ -783,12 +798,17 @@ impl Id {
             Id::Undo => app
                 .local_can_undo(false)
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some())),
-            Id::Redo => app
-                .local_can_undo(true)
-                .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
-            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics => {
-                shown_area(app).is_some()
-            }
+            Id::Redo => app.local_can_undo(true).unwrap_or_else(|| {
+                app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())
+                    // (Not with something typed in the journal's panels
+                    // waiting to be set: M4's U22 review.)
+                    && !crate::journal_view::typing_pending(app)
+            }),
+            Id::ResizeArea
+            | Id::RotateArea
+            | Id::ChangeTileset
+            | Id::AreaStatistics
+            | Id::ReorientCamera => shown_area(app).is_some(),
             Id::IndentToTabs | Id::IndentToSpaces => script_in_front(app).is_some(),
             Id::PackTarget => self.shown(app),
             // (A project's or a module folder's: a .mod's folder holds
@@ -845,7 +865,14 @@ impl Id {
             Id::Undo => "Nothing to undo",
             Id::Redo => "Nothing to redo",
             Id::CopyLog | Id::SaveLog | Id::ClearLog => "The log is empty",
-            Id::ResizeArea | Id::RotateArea | Id::ChangeTileset | Id::AreaStatistics if open => {
+            Id::CloseReport => "No report tab is in front of the Bottom Dock",
+            Id::ResizeArea
+            | Id::RotateArea
+            | Id::ChangeTileset
+            | Id::AreaStatistics
+            | Id::ReorientCamera
+                if open =>
+            {
                 "It acts on the area shown last, and no area's view is open"
             }
             Id::IndentToTabs | Id::IndentToSpaces => {
@@ -894,7 +921,7 @@ impl Id {
             Id::AreaWizard => Action::AreaWizard,
             Id::Factions => Action::OpenTab(Tab::Factions),
             Id::Journal => Action::OpenTab(Tab::Journal),
-            Id::TalkTable => Action::OpenTab(Tab::TalkTable),
+            Id::TalkTable => Action::ShowModuleTalk,
             Id::Palettes => Action::ShowPanel(crate::Panel::Palette),
             Id::PreviewWindow => Action::ShowPanel(crate::Panel::Preview),
             Id::PlaceableGallery => Action::PlaceableGallery,
@@ -938,19 +965,14 @@ impl Id {
                 }
                 return;
             }
-            Id::FindInstance => {
-                app.find_instance.get_or_insert_with(Default::default);
-                return;
-            }
+            Id::FindInstance => return app.open_find_instance(),
             Id::EditAreasTogether => {
                 app.area_chooser.get_or_insert_with(Default::default);
-                return;
+                // (Shown, open or not: M4's U29.)
+                return crate::tool_sections::bring(app, crate::shell::Panel::AreasTogether);
             }
             Id::UpdateAllInstances => return app.update_all_instances(),
-            Id::ReplaceText => {
-                app.text_replace.get_or_insert_with(Default::default);
-                return;
-            }
+            Id::ReplaceText => return app.open_find_text(),
             Id::IndentToTabs | Id::IndentToSpaces => {
                 let tabs = self == Id::IndentToTabs;
                 // (The lines selected, where the script had the keys as the
@@ -996,10 +1018,13 @@ impl Id {
             Id::PublishNwsync => return crate::nwsync_view::open(app),
             Id::AreaStatistics => {
                 app.area_stats = shown_area(app);
+                if app.area_stats.is_some() {
+                    crate::dock_reports::bring(app, crate::shell::Panel::ResourcesUsed);
+                }
                 return;
             }
             Id::Plugins => {
-                app.plugins.window = true;
+                app.actions.push(Action::OpenTab(crate::Tab::Plugins));
                 return;
             }
             Id::InstallPlugin => return app.install_plugin(),
@@ -1012,6 +1037,12 @@ impl Id {
             Id::CheckUpdates => return crate::updates::check_now(app),
             Id::GoToStart => {
                 crate::area_view::go_to_start(app);
+                return;
+            }
+            Id::ReorientCamera => {
+                if let Some(view) = shown_area(app).and_then(|a| app.area_views.get_mut(&a)) {
+                    crate::area_view::tools::reorient(view);
+                }
                 return;
             }
             Id::FullScreen => {
@@ -1041,15 +1072,23 @@ impl Id {
                 let show = app.panels_hidden();
                 // (A Right Dock not drawn keeps its fold for the next area.)
                 let right = crate::shell::right_shown(app).is_some();
-                for panel in [Id::ViewTree, Id::ViewPalettes, Id::ViewLog] {
+                for panel in [Id::ViewTree, Id::ViewPalettes] {
                     if panel != Id::ViewPalettes || right {
                         app.show_panel(panel, show);
                     }
                 }
+                // (The Bottom Dock as a whole, on whichever tab it shows.)
+                app.settings.hide_log = !show;
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
             Id::CopyLog => return app.copy_log(ctx),
+            Id::CloseReport => {
+                if let Some(p) = crate::dock_reports::in_front(app) {
+                    crate::dock_reports::close(app, p);
+                }
+                return;
+            }
             Id::SaveLog => return app.save_log(),
             Id::ClearLog => return app.log.clear(),
         };
@@ -1402,13 +1441,17 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     } else if other || ctx.input(|i| i.modifiers.ctrl || i.modifiers.shift) {
         app.menu_alt_spoiled = true;
     }
-    // F10 with the pointer over an area's view is that view's while it is
-    // Select Tiles' key there (Aurora's), unless a menu is open to close.
+    // F10 with the pointer over an area editor (its header, shelf or view)
+    // is that editor's while it is Select Tiles' key there (Aurora's),
+    // unless a menu is open to close.
     let areas = std::mem::take(&mut app.area_hovered)
         && app.menu_open.is_none()
         && ctx.input(|i| app.keymap.pressed(i, crate::keys::Cmd::SelectTiles));
-    let toggle =
-        alt_released || (!areas && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F10)));
+    // (F10 alone: egui's NONE matches Shift too, and Shift+F10 opens a
+    // focused row's menu, M4's U23 fix.)
+    let f10 =
+        |i: &mut egui::InputState| !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::F10);
+    let toggle = alt_released || (!areas && ctx.input_mut(f10));
 
     let mut tops: Vec<(egui::Id, egui::Response)> = Vec::new();
     let mut keys = std::mem::take(&mut app.menu_keys);

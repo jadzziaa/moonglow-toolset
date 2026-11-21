@@ -30,6 +30,9 @@ fn set<T: GffValue>(label: &str, f: &Field<T>, v: T) -> Action {
     ))
 }
 
+/// The width under which the hak list's commands take two rows.
+const HAK_CONTROLS_ROW: f32 = 600.0;
+
 /// The dialog's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Page {
@@ -79,14 +82,30 @@ pub(crate) const EVENTS: [(&str, &str); 22] = [
     ("OnModuleStart", "Mod_OnModStart"),
 ];
 
-/// Module Properties, over its OK and Cancel (`blueprint::ok_cancel`).
+/// Module Properties, under its header with OK and Cancel at its right
+/// end (`blueprint::ok_cancel_header`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let targets = [(info_key(), mg_edit::GffPath::root())];
-    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
+    let pressed = match &mut app.ws {
+        Some(ws) => {
+            let name = ws.doc(&info_key()).ok().map(|g| g.root.read(&ifo::MOD_NAME));
+            let name =
+                name.map(|n| crate::tree::shown(app.game.as_deref(), &n)).unwrap_or_default();
+            let title = crate::blueprint::Title {
+                header: "Module Properties header".into(),
+                icon: mg_uikit::Icon::Module,
+                name: if name.trim().is_empty() { "Module Properties" } else { name.trim() },
+                sub: "module.ifo",
+            };
+            let tips = crate::blueprint::OK_CANCEL_TIPS;
+            crate::blueprint::ok_cancel_header(ui, &title, false, tips)
+        }
+        None => None,
+    };
     let pending = app.actions.len();
     pages(app, ui);
     let tab = crate::Tab::ModuleProperties;
-    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed);
 }
 
 fn pages(app: &mut Moonglow, ui: &mut Ui) {
@@ -101,15 +120,23 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             return;
         }
     };
-    ui.horizontal(|ui| {
-        for (page, label) in PAGES {
-            ui.selectable_value(&mut app.module_page, page, label);
-        }
-    });
-    ui.separator();
-    let page = app.module_page;
-    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
-    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+    // (The pages one after another on one scroll, the list at their left:
+    // `module_page` keeps the page at the top.)
+    let names: Vec<&'static str> = PAGES.iter().map(|(_, n)| *n).collect();
+    let asked = app.module_page;
+    let mut top = PAGES.iter().position(|(p, _)| *p == asked).unwrap_or(0);
+    let id = egui::Id::new("module-properties-pages");
+    let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &names, &mut top);
+    let narrow = crate::form_pages::narrow(listed.body.available_width());
+    let scroll = crate::form_pages::scroll(
+        id,
+        &names,
+        !narrow,
+        listed.chosen,
+        crate::form_pages::page_columns(listed.body.available_width()),
+    );
+    scroll.show(&mut listed.body, &mut top, |ui, i| {
+        let page = PAGES[i].0;
         // (The module's fields as a blueprint's are: `blueprint::Form`'s,
         // their typing kept, a tag of 32 characters, a slider's drag one
         // change.)
@@ -121,9 +148,10 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             app,
             key,
             path: GffPath::root(),
-            also: Vec::new(),
-            root,
+            also: Default::default(),
+            root: root.clone(),
             together: Default::default(),
+            own_tab: false,
         };
         match page {
             Page::Basic => basic(&mut f, ui),
@@ -134,6 +162,12 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             Page::CustomContent => {}
         }
     });
+    // (Unless a page asked for another while it was drawn: brought to the
+    // top in the next frame.)
+    match app.module_page == asked {
+        true => app.module_page = PAGES[top].0,
+        false => ui.ctx().request_repaint(),
+    }
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
@@ -536,8 +570,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         .filter(|h| mg_resman::listed(&haks, h) != mg_resman::Listed::Found)
         .collect();
     // The list's commands, under it: what adds to it and checks it, and
-    // what is done with the rows chosen.
-    ui.horizontal(|ui| {
+    // what is done with the rows chosen. (In a narrow window, the latter
+    // on a row of their own: at their row's right end they stood over the
+    // first.)
+    let narrow = ui.available_width() < HAK_CONTROLS_ROW;
+    let commands = |ui: &mut Ui| {
         // (Commands, not a choice: the arrows move along them, Enter adds.)
         // (A Filter field over a long list: a builder's hundreds of haks.)
         let long = available.len() > crate::widgets::FILTERED_CHOICES;
@@ -577,6 +614,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         if ui.add_enabled(!haks.is_empty(), egui::Button::new("Check for Conflicts…")).clicked() {
             app.actions.push(Action::HakReport);
         }
+        if narrow {
+            ui.end_row();
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (low, high) = (state.selected.first().copied(), state.selected.last().copied());
             let some = !state.selected.is_empty();
@@ -607,7 +647,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 move_to = low.map(|l| l - 1);
             }
         });
-    });
+    };
+    match narrow {
+        true => ui.horizontal_wrapped(commands),
+        false => ui.horizontal(commands),
+    };
     ui.weak(
         "Drag rows to reorder them (Ctrl or Shift + click chooses more), or click the list and \
          use the keys: Up and Down, Alt + Up and Down to move, Delete to remove.",
@@ -683,7 +727,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         }
         let label = if tlk.is_empty() { "New…" } else { "Edit…" };
         if ui.button(label).on_hover_text("Tools › Talk Table").clicked() {
-            app.actions.push(Action::OpenTab(crate::Tab::TalkTable));
+            app.actions.push(Action::ShowModuleTalk);
         }
     });
     typed_lines(app, ui);
@@ -885,12 +929,14 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
     use mg_module::attach::There;
     let Some(mut draft) = app.attach.take() else { return };
     let mut done = None;
-    crate::widgets::modal(ctx, "Add Haks and Talk Table").show(ctx, |ui| {
+    let footed = crate::widgets::modal(ctx, "Add Haks and Talk Table").show_foot(ctx, |ui| {
         ui.label("Haks go at the top of the module's list, highest priority first:");
         let n = draft.placements.len();
         let mut swap = None;
         for (i, p) in draft.placements.iter().enumerate() {
-            ui.horizontal(|ui| {
+            // (Wrapped where the window is narrow: its Move Down ran past
+            // the least window's edge.)
+            ui.horizontal_wrapped(|ui| {
                 ui.monospace(if p.is_tlk {
                     format!("{}.tlk", p.name)
                 } else {
@@ -937,15 +983,15 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
         if draft.placements.iter().any(|p| p.there == There::Different) {
             ui.check_box(&mut draft.replace, "Replace the files of the same names that are there");
         }
-        ui.horizontal(|ui| {
-            if ui.button("OK").clicked() {
-                done = Some(true);
-            }
-            if crate::widgets::cancel(ui) {
-                done = Some(false);
-            }
-        });
+        ((), crate::widgets::Foot::new().main("OK", true).cancel())
     });
+    if let Some(f) = footed {
+        if f.pressed.main() {
+            done = Some(true);
+        } else if f.pressed.cancelled() {
+            done = Some(false);
+        }
+    }
     match done {
         None => app.attach = Some(draft),
         Some(false) => {}

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
 ---
 
 # Build, verify and test
@@ -25,14 +25,37 @@ Aurora's Build does:
   blueprints you changed: [Blueprints](05-blueprints.md#palettes)).
 - **Check that resources are available**: **Missing Resources** (scripts,
   blueprints, conversations, models… that something in the module names
-  but neither the module, its haks nor the game has) and, if ticked,
+  but neither the module, its haks nor the game has; its check boxes
+  flow in two columns) and, if ticked,
   **Unused** resources (in the module but used by nothing).
 
 Compile and Missing Resources are on by default, Unused off. The
-**Results** list what was found; double-click a result to open what it is
-about, and **Export…** saves the list as text. With **Build module on
+window's foot has **Build** (the main button, which Enter
+presses), **Mark as Used**, **Export…**, which saves the findings as text
+(a line each, `Error: x.nss: message`), and **Done**, which closes it.
+Once it has built, the foot says how many errors and warnings it found,
+"in Problems": the results are not in the window but in **Problems** in
+the Bottom Dock (see [Build Module's results](#build-modules-results)).
+With **Build module on
 save** (Options › General), every save builds first (with Palettes
 ticked, every save makes the palettes anew, as Aurora's Build does).
+
+### Build Module's results
+
+The results go to **Problems** in the Bottom Dock, under a **Build
+Module** heading, its counts beside the dock's tabs, errors first. Each row has its severity,
+its place (the link **Go to it** opens it) and its message, cut where it is
+long (the tip has the whole). Click a row to choose it; the arrow keys,
+Page Up, Page Down, Home and End move the choice; Enter or a double click
+goes to the resource. While the build runs, Problems says "Build Module
+is running"; nothing found is said in the log, and once the build has
+run the heading says "No problems found". With **Build module on save**, the results go
+to Problems the same way; Problems comes to the front, and the Bottom
+Dock opens only where something was found.
+
+When the module changes after a build, the heading says "Changed since
+the check: not counted", and its findings are no longer counted in the
+Status Bar's Problems switch. Closing the module takes them away (Verify's too): a click on one would open another module's resource.
 
 ### What counts as used
 
@@ -74,13 +97,15 @@ x.nss (source and compiled)`, `x.ncs (compiled only (no source))` or
 A name made as a script runs (`ExecuteScript("ai_" + sMode)`, a name
 read from a variable or a 2DA of the module's own) is not seen. Name
 those in the project file: select the line and **Mark as Used** (or
-right-click it), which writes its name into
+right-click it in Problems; the footer's **Mark as Used** acts on the Unused result chosen there), which writes its name into
 [the project file](03-modules.md#the-project-file-moonglowtoml)'s
 `[used]` (beside a `.mod`, `NAME.moonglow.toml`, made where there is
-none); the line goes, and so do the others it names. **Counted as
-Used**, under the results, lists what `[used]` names, with **Remove**
-beside each, and adds a name or a glob (`j_ai_*`: `*` any letters) of a
-script, a conversation or a blueprint. Aurora never reads or writes the
+none); the line goes, and so do the others it names. The
+**Counted as Used** button, on the Build Module heading in Problems (it
+shows where the build was asked for its Unused results), opens
+what `[used]` names, with **Remove** beside each, and the kind, a field and
+**Add** for a name or a glob (`j_ai_*`: `*` any letters) of a
+script, a conversation or a blueprint (Enter adds). Aurora never reads or writes the
 file, so the marks stay when the module is saved there. `mg used`
 does the same from the command line.
 
@@ -119,12 +144,13 @@ that web server serves into a folder, as neverwinter.nim's
 
 Publishing again writes only the changed files. It runs as the other
 long work does (see [Long work](#long-work)): a small window shows how
-far it is and has **Cancel**, which stops before the next file and
+far it is and has **Cancel** (or **Escape**), which stops before the next file and
 writes no manifest (`latest` stays as it was; the data files written by
 then stay, for the next publish to find). Then the window shows the
 manifest's hash (**Copy** copies it, for `-nwsynchash`). Send the
-folder to the web server: by hand, or with **Upload** (below). `mg
-nwsync` does the same from the command line.
+folder to the web server: by hand, or with **Upload** (below). The
+window's foot has **Publish** (the main button), **Remove Unused Data**,
+**Upload** and **Close**. `mg nwsync` does the same from the command line.
 
 Keep the server's module loaded when nobody is on it: set
 `reload-when-empty = false` under `[server]` in its `settings.tml`
@@ -240,9 +266,11 @@ password.
 
 ## Long work
 
-Compile All Scripts, Build Module (its Build button) and Verify Module
+Compile All Scripts, Build Module (its Build button), Verify Module,
+Find Instance, Find and Replace Text and the Hak Pak Conflict Analysis
 run in the background: a small window names the work, shows how far it
-is, and has **Cancel**. Until it is done the rest of the window takes no
+is, and has **Cancel** in its footer (**Escape** cancels the work too).
+The words saying how far it is (`40 of 312`) are under the bar. Until it is done the rest of the window takes no
 input, so nothing changes under the work; what it made (compiled scripts,
 say) then goes in as one step that Undo takes back. Canceled, it changes
 nothing. The build before saving (Options › General) and the compile
@@ -254,7 +282,11 @@ are yours again once it is done or canceled.
 ## Verify Module
 
 **Build › Verify Module** writes to the log, as errors and warnings, what
-is missing and what is wrong with the module's custom content. To leave
+is missing and what is wrong with the module's custom content. Its errors
+and warnings also go to **Problems** in the Bottom Dock, under a **Verify
+Module** heading, each with its resource as its place (Enter, a double click
+or the link go there) and its fix button beside it where one is offered;
+Problems comes to the front when anything was found. To leave
 some of it out (a hak's tileset errors you are not going to fix),
 untick its group, or one check of it, in **Options › Verify**, or name
 the hak or the tileset there; the summary line says what was left out,
@@ -269,7 +301,9 @@ source that compiles, and one that doesn't compile is said not compiled
 such script was said not compiled).
 
 **Fixes.** A problem whose right change is plain has a button beside it
-in the log that says what it does: **Retag the other as …** for a tag
+in the log, and beside the finding in Problems, that says what it does
+(the button says the fix itself, **Fix All (n)** beside the first of several of one check, and a check mark, **Fixed**, once made), as
+the log's does: **Retag the other as …** for a tag
 the project wants unique, **Move the variables to the GIT** for an
 area's variables in its ARE, **Remove the variable** for one only the
 scripts set kept in a file (`var-runtime`), **Take the transform off**
@@ -338,7 +372,7 @@ crash Aurora with an access violation that names nothing:
 | A placeable, placed or a blueprint, whose shader parameters store a `tdodTint` for a material its tint's variables also tint (a warning, `tint-stored`) | The Domains of Dread's script sets the variables' tint over the stored one as the module loads, so the stored one is never seen: take one of the two out |
 | A placeable, placed or a blueprint, whose Appearance is past row 65535 (an error, `appearance-range`) | the game carries an object's placeables.2da row as a 16-bit number: it draws row 65536 as row 0, 65537 as row 1, another model, without a word |
 | An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them, as does its fix |
-| A tile whose model draws a `replace_tex` texture and whose `Tile_ReplaceTex` is 0 or past `replacetexture.2da` (an error, `tile-replace`) | the game crashes as it loads the area: choose a row in Tile Properties' Replacement Texture |
+| A tile whose model draws a `replace_tex` texture and whose `Tile_ReplaceTex` is 0 or past `replacetexture.2da` (an error, `tile-replace`) | the game crashes as it loads the area: choose a row in Tile Properties' Replacement texture |
 | Neighboring tiles of an area that don't fit together: a corner whose terrain or height, or an edge whose crosser (a road, a stream), one tile has and its neighbor hasn't, as an area written by hand, by a script, by a plugin's `area:set_tile`, by the tiles palette's Exact Tile or by another tool can have (a warning, `tile-seam`, naming the tile, its neighbor and what each has). What a tileset's own group makes is the tileset's and not said: its tiles that disagree with each other (ttu01's two-tile group), and on its outside a corner they disagree about or a crosser no tile outside groups has. A tile the tileset lacks, or a hole in it, is the area's problems' to name | the ground of the two tiles doesn't meet (a step, a gap, a terrain cut off), or a road or a stream stops at the edge. Painting, Aurora's and Moonglow's, chooses tiles that fit, so it doesn't make one where the tileset has them. Paint the corner or the crosser again (painting chooses tiles that fit), or choose such tiles. The game loads the area as it is: of its own 1,462 areas, two ship areas of Tyrants of the Moonsea have eight (the plain deck beside a gangplank, where the tileset has the same deck with one) and Darkness over Daggerford one (a sandbank that ends at a cliff) |
 | An area's music or ambient sound, or a placed sound's or sound blueprint's sound, that the game plays nothing of (a warning, `sound-silent`, in the Objects group). Of an area: a `MusicDay`, `MusicNight` or `MusicBattle` row of `ambientmusic.2da`, or an `AmbientSndDay` or `AmbientSndNight` row of `ambientsound.2da` (the table the module's haks give, over the game's), whose `Resource` is found nowhere, is a file of a type the game doesn't look for there (music only as `.wav`), holds what the game doesn't play there (a WAVE as music, MP3 under `.wav` as an ambient sound, a WAVE under `.bmu` as one), or is no sound at all (neither WAVE nor MP3); and a row past the table's end. Of a placed sound object or a sound blueprint, each sound of its list: MP3 under `.wav` without the `BMU V1.0` header (bare, tagged, or inside a WAVE), no sound at all, and, where the sound is positional, a stereo WAVE (a sound found nowhere or only as `.bmu` is a missing reference, above). Each names the area or blueprint, the field and the row, or the sound: `Music mg_track.bmu is a WAVE, which the game does not play as music (it must hold MP3)`, `Sound mg_wind.wav is stereo, which the game does not play from a positional sound (make it mono, or the sound area-wide)`. A `Resource` longer than 16 characters is said too (`Music mus_wc_ruralguitar is a name longer than 16 characters, which the game does not find`: read for music, an ambient row's by the same limit on names). Row 0 and a blank `Resource` are no music, and nothing is said of them; nor of the stingers (`Stinger1` to `Stinger3`), or of stereo MP3, which the game was not seen to play or not. Of the game's own content it says three things, each silent in the game by its reading: `ambientsound.2da` row 200 (`al_mus_throne2.wav`, MP3 under `.wav`), Wyvern Crown of Cormyr's music row 83 (`mus_wc_ruralguitar`; the same track as `mus_wc_ruralg` plays), and the positional blueprints `lavalakeloop` and `sludgelake`, whose sounds are stereo IMA ADPCM WAVEs, silent as shipped and heard made area-wide (and Hordes of the Underdark's `q3_area_sanctum`, which places one). A positional sound is silent on a stereo WAVE of any kind (PCM and IMA ADPCM were read) at any distance. All of it as read in the game: battle music as music (started by script; in real combat not tried), placed sounds as `PlaySound`'s. Each file is read once a run, and only its first bytes (a mebibyte at most for a bare MP3), however large the track. `--skip sound-silent` leaves it out | the area loads and plays on silent where Moonglow plays the file: music must be a `.bmu` holding MP3 (with the `BMU V1.0` header or without, or inside a WAVE whose format is MP3); an ambient sound a `.wav` holding a PCM or ADPCM WAVE, or a `.bmu` holding MP3; a placed sound a `.wav` holding a WAVE, mono where it is positional, or MP3 behind the header ([Area sounds](04-areas.md#area-sounds)) |
 | An area transition trigger (`Type` 1) whose corners run clockwise seen from above, which the game neither shows under the pointer nor lets a player click (a warning, `transition-hidden`, in the Objects group), as an older Moonglow saved a trigger drawn clockwise or an Alt rectangle dragged north-west or south-east: `its points run clockwise`. Also, as a possibility, one left at another level: none of its corners within 1 m of the walkable ground under it (each one's `ZPosition` + `PointZ`), as a trigger is left when the ground is raised or lowered under it, when it is lifted by the blue arrow or Adjust Location's Z, or when an older Moonglow moved it across levels (or Aurora pasted it): `an area transition left at another level, which the game may neither show under the pointer nor take a click on: none of its points is within 1 m of the ground (the nearest, point 1, is 1.98 m below it by its ZPosition + PointZ)`. Why 1 m: nearer than that, whether the game shows it depends on the place, and what decides it isn't known (in the game: on flat ground 0.1 m off hides one; on a slope of Darkness over Daggerford's `c1ar1900_lizard` it still shows 0.6 m above and not 1 m above; the game's own transitions 0.23 to 0.31 m off are shown). A corner alone off the ground is not said (the game shows such an outline in part and takes a click on it), nor a corner over no walkable ground, nor a generic or trap trigger. Its fix, **Put the outline in order on the ground**, does in one step to undo what **Redraw Polygon** on the same corners does: the corners counterclockwise in Aurora's order, the trigger at height 0 and each corner 0.025 m above the ground under it, where the game shows a transition on every ground it was read on (`mg verify --fix transition-hidden` makes it too). Of the game's own modules it says nothing. `--skip transition-hidden` leaves it out | the game draws an area transition only with its corners counterclockwise, near enough to the ground under it; one it doesn't draw can't be clicked either, so the player never goes through ([Areas](04-areas.md#placing-objects)) |
@@ -509,4 +543,10 @@ read.
 ## Area Statistics
 
 **Build › Area Statistics** shows, for the area shown last, its tiles,
-its objects and the memory its models take.
+its objects and the memory its models take. The report is a tab of the
+Bottom Dock, **Resources Used**, which comes to the front: a table of
+what is used (Tiles, Objects, Tile models, Object models, Meshes,
+Triangles, Model memory, Textures), under the area's label. Click a row
+and the arrow keys move; Ctrl+C copies the row. **Close Report**, at the
+end of the dock's tab bar (also in the command palette), closes it; it
+goes too when the module is closed.

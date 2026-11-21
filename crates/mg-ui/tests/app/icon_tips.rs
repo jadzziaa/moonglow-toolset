@@ -1,7 +1,9 @@
 //! Every control drawn as an icon alone says what it is: a name for a
 //! screen reader and a tooltip under the pointer (the redesign's rule,
-//! `docs/ui-redesign-proposal.md` section 7), in the main windows with
-//! Options › General › Editors' toolbar buttons at Icons only.
+//! `docs/ui-redesign-proposal.md` section 7), in the main windows. (They
+//! were walked with Options' "Toolbar buttons" at Icons only until M4's
+//! U23 retired it: the Top Bar's and the editors' headers' icons are
+//! icons with tips whatever a settings file says.)
 
 use crate::common::*;
 
@@ -58,7 +60,7 @@ fn walk(
     walked
 }
 
-/// With Icons only, every icon-only button of the main window with an
+/// Every icon-only button of the main window with an
 /// area open, a creature's editor, the conversation editor, the script
 /// editor, the NUI Creator, Options and the hak editor has a name and a
 /// tooltip, enabled or not (an icon alone, grayed, says least).
@@ -67,7 +69,6 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     let Some((mut h, _area)) = area_harness("icon-tips") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
-    h.state_mut().settings.toolbar_icons_only = true;
     settle(&mut h);
     let (mut seen, mut wrong) = (Vec::new(), Vec::new());
     let mut counts = Vec::new();
@@ -155,12 +156,20 @@ fn every_icon_only_button_has_a_name_and_a_tooltip() {
     hak.save(Some(&hak_path)).unwrap();
     let dialogs = NoDialogs { open: vec![hak_path], ..Default::default() };
     let mut app = Moonglow::new(None, Box::new(dialogs));
-    app.settings.toolbar_icons_only = true;
+    // (The log closed: the hak's window, its Preview and Details at its
+    // right since M4's U21, stands over the main window's Bottom Dock, whose
+    // tools a walk would point at through it.)
+    app.settings.hide_log = true;
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
     mg_ui::hak_view::open_hak(h.state_mut());
     settle(&mut h);
     counts.push(("hak editor", walk(&mut h, "hak editor", &mut seen, &mut wrong)));
+    // (Its header's icons, the Hak board's: Add Files… and Add Folder…,
+    // the Preview's Close, each named.)
+    for name in ["Add Files…", "Add Folder…", mg_ui::hak_view::PREVIEW_CLOSE] {
+        assert!(seen.iter().any(|(n, _)| n == name), "{name} walked: {seen:?}");
+    }
     assert!(wrong.is_empty(), "{wrong:#?}");
     // (Each window had icon buttons to walk: the walk can fail.)
     for (window, n) in &counts {

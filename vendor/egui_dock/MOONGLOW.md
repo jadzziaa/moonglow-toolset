@@ -1,6 +1,6 @@
 # egui_dock, patched for Moonglow
 
-egui_dock 0.21.1 as published on crates.io, with four additions, in
+egui_dock 0.21.1 as published on crates.io, with five additions, in
 `src/widgets/dock_area/mod.rs`, `src/widgets/dock_area/show/leaf.rs`,
 `src/widgets/dock_area/show/window_surface.rs`,
 `src/dock_state/window_state.rs` and `src/widgets/tab_viewer.rs` (and
@@ -69,6 +69,19 @@ the tabs out to the close all, so in a narrow window the tabs ran under
 Maximize and the last tab's close lay on the close all (one click there
 closed the window), and a window narrower than its bar's buttons lost
 Maximize altogether.
+
+The fifth changes no API: in `show/leaf.rs` a window's collapse arrow is
+made (`tab_collapse`) before the tabs rather than after them. Where it is
+drawn and what it does are unchanged (its rect is the bar's left end);
+only the order egui gives keyboard focus follows the order widgets are
+made in, so Tab now reaches a floating window's bar left to right: the
+arrow, the tabs, the close all. Made last, as egui_dock makes it, the
+arrow came after the close all at the bar's other end. Moonglow's
+Maximize, made by the application after the `DockArea`, is not in this
+order: Tab goes from the close all to the window's body.
+
+Why: the dialog pattern (U27) asks Tab to follow the reading order of
+every bar; this is the smallest change that does it in a window's bar.
 
 The root `Cargo.toml` patches it in (`[patch.crates-io]`) and leaves it out
 of the workspace. Drop it, and the patch, once egui_dock offers a per-surface

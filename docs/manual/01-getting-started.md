@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T15:51:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:25:50Z }
 ---
 
 # Getting started
@@ -75,8 +75,35 @@ somewhere else (a folder of your own, say), choose
 (the folder with `data/` and `bin/` in it) and, if needed, the **NWN user
 folder**.
 
-The **Welcome** tab offers **New Module…** and **Open Module…**; later it
-also lists your recent modules.
+## The Welcome page
+
+With no module open, the **Welcome** tab shows Moonglow's version and,
+in three columns (two, then one, in a narrower window; the page
+scrolls where it does not fit):
+
+- **Recent Modules**: the modules you opened last, newest first, each
+  its name (a module folder or a nasher project with a `/` after it, a
+  `.mod` or `.nwm` without) over the folder it is in (`~` for your
+  home folder; the whole path in its tooltip). A click, or Enter or
+  Space on the row, opens it; Tab goes from row to row, those below
+  the window's edge too. The same list is **File › Recent Modules**, and a
+  module's `.mod`, `.nwm` or folder dropped on the window opens too.
+- **Start**: **New Module…**, **Open Module…** and **Open Folder…**, each
+  with its key as you bound it (Options › Keyboard).
+- **Without a module**: what opens with no module: **Open Hak…**,
+  **New Hak**, **Open Tileset…**, **New Tileset…**, **2DA File…**,
+  **Talk Table**, **Resource Browser** and **Appearance Gallery…** (also
+  in Tools).
+- **Status**: **Game data found** and the game's folder, or where none
+  was found what to do, with **Options…** (it opens on Folders). A newer
+  release is told here, with its buttons ([updates](02-main-window.md#menus)),
+  and "Checking for updates…" while Moonglow asks.
+- **Learn**: **User Manual**, and a link to each of its chapters, which
+  opens the manual on that chapter; under **Help**, **Command
+  Palette…**, **Check for Updates…** and **About Moonglow Toolset**.
+
+The Status Bar shows the page's keys: New module, Open module, and Go
+to resource or command (Quick Open).
 
 ## A first module
 

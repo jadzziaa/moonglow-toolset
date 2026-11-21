@@ -153,6 +153,10 @@ fn editing_a_huge_script() {
     // read for the side lists, and for the check as you type.)
     let install = GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (As Tabs, as the other cases: the script in the main window's
+    // editor area, as wide as the screen gives it, not a window left at
+    // the size the harness gave it.)
+    app.settings.open_editors = mg_ui::Settings::new_installation().open_editors;
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
     let mut h = Harness::builder()
@@ -236,6 +240,32 @@ fn editing_a_huge_script() {
         }),
     );
     let middle_of = egui::pos2(SCREEN.x * 0.3, SCREEN.y * 0.5);
+    // (The pointer over the script's text, so that the wheel scrolls it:
+    // it moves down a few turns of the wheel, else this measures another
+    // tab's frames.)
+    // (The view at rest first: the page keys before leave it gliding to
+    // the cursor for a few frames, which a wheel's turn would be measured
+    // against, M4's U13.)
+    for _ in 0..30 {
+        w.frame(Vec::new());
+    }
+    let before = w.app.script_scroll_for_test(script).unwrap_or(0.0);
+    for _ in 0..4 {
+        w.frame(vec![
+            Event::PointerMoved(middle_of),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -120.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Modifiers::NONE,
+            },
+        ]);
+    }
+    for _ in 0..30 {
+        w.frame(Vec::new());
+    }
+    let after = w.app.script_scroll_for_test(script).unwrap_or(0.0);
+    assert!(after > before + 200.0, "the wheel scrolled the script: {before} to {after}");
     held(
         "scrolling",
         w.frames("scrolling", count, |n| {
@@ -419,6 +449,108 @@ fn opening_select_texture() {
     println!("the click's frame, opened again (the list kept): {:?}", t.elapsed());
 }
 
+/// The Creature Wizard (M4's U27: its step list and page bar) over the
+/// boards' module at the development machine's screen, on each of its
+/// nine steps with what the step before asks for chosen: plain egui
+/// frames, idle and with the pointer moving over it, each step's medians
+/// printed and held to the 144 fps budget. Laid out alike in the tree
+/// before U27 (it sets the wizard's state, it clicks nothing by name).
+#[test]
+#[ignore]
+fn the_creature_wizard_at_each_step() {
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let dir = mg_testkit::scratch_dir("creature-wizard-perf");
+    let path = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    app.open_module(&path);
+    let count: usize =
+        std::env::var("EDITOR_FRAMES").ok().and_then(|n| n.parse().ok()).unwrap_or(200);
+    let mut w = Window { app, ctx: egui::Context::default(), clock: 0.0 };
+    w.frame(Vec::new());
+    let mut medians = Vec::new();
+    for page in 0..9 {
+        w.app.creature_wizard = Some(mg_ui::creature_wizard::CreatureWizard {
+            page,
+            race: Some(6),
+            classes: vec![(4, 4)],
+            chosen_class: Some(4),
+            portrait: Some(1),
+            first_name: "Perf".into(),
+            category: Some(0),
+            ..Default::default()
+        });
+        // (Its pictures read, its lists measured: a few seconds' frames.)
+        for _ in 0..300 {
+            w.frame(Vec::new());
+        }
+        let what = format!("the Creature Wizard, step {} of 9", page + 1);
+        let idle = w.frames(&format!("{what}, idle"), count, |_| Vec::new());
+        let hover = w.frames(&format!("{what}, the pointer moving"), count, |n| {
+            let x = 1100.0 + (n as f32 * 13.0) % 1200.0;
+            let y = 300.0 + (n as f32 * 7.0) % 800.0;
+            vec![Event::PointerMoved(egui::pos2(x, y))]
+        });
+        medians.push((what, idle, hover));
+    }
+    w.app.creature_wizard = None;
+    for (what, idle, hover) in medians {
+        for (how, median) in [("idle", idle), ("the pointer moving", hover)] {
+            assert!(
+                median.as_secs_f64() <= BUDGET.as_secs_f64() * MARGIN,
+                "{what}, {how}: median {:.2} ms past the budget",
+                ms(median)
+            );
+        }
+    }
+}
+
+/// The boards' creature's Properties docked across the development
+/// machine's screen (3440×1400, As Tabs): its fourteen pages side by side
+/// in columns, every one drawn each frame (M4's U10, the WideCreature
+/// board), held to the 144 fps budget idle and with the pointer moving
+/// over them.
+#[test]
+#[ignore]
+fn a_wide_creature_every_page_drawn() {
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The boards' creature, Faribeth of Chapter1: a copy of the game's
+    // module in a scratch folder.)
+    let key = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
+    let dir = mg_testkit::scratch_dir("wide-creature-perf");
+    let path = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    app.settings.open_editors = mg_ui::Settings::new_installation().open_editors;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let count: usize =
+        std::env::var("EDITOR_FRAMES").ok().and_then(|n| n.parse().ok()).unwrap_or(200);
+    let mut w = Window { app, ctx: egui::Context::default(), clock: 0.0 };
+    // (Its pictures read and its pages measured: a few seconds' frames.)
+    let t = Instant::now();
+    w.frame(Vec::new());
+    println!("the wide creature, first frame: {:.2} ms", ms(t.elapsed()));
+    for _ in 0..300 {
+        w.frame(Vec::new());
+    }
+    let idle = w.frames("the wide creature, idle, every page drawn", count, |_| Vec::new());
+    let hover = w.frames("the wide creature, the pointer moving over its pages", count, |n| {
+        let x = 600.0 + (n as f32 * 13.0) % 2600.0;
+        let y = 150.0 + (n as f32 * 7.0) % 1100.0;
+        vec![Event::PointerMoved(egui::pos2(x, y))]
+    });
+    for (what, median) in [("idle", idle), ("the pointer moving", hover)] {
+        assert!(
+            median.as_secs_f64() <= BUDGET.as_secs_f64() * MARGIN,
+            "{what}: median {:.2} ms past the budget",
+            ms(median)
+        );
+    }
+}
+
 /// The 2DA editor on a large table, as a persistent world's appearance.2da
 /// is (the game's, its rows repeated to 12,000), with a Find typed: plain
 /// egui frames (no accessibility tree), idle and with a cell set at each.
@@ -440,10 +572,25 @@ fn editing_a_large_table() {
     std::fs::write(&file, t.to_bytes(game.codepage()).unwrap()).unwrap();
     drop(game);
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    // (Docked, As Tabs, a cell of a talk-table string's column chosen, so
+    // that the docks' panels a table brings are drawn beside its grid each
+    // frame where it brings them: M4's U16's Cell, References and the
+    // Outliner's columns; and the Left Dock's Module panel over them.)
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    // (A module open, as the board's: the Left Dock's Module panel over
+    // the Outliner; without one the dock holds the Outliner alone.)
+    let module = dir.join("Chapter1.nwm");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &module).unwrap();
+    app.settings.no_last_area = true;
+    app.open_module(&module);
     let id = mg_ui::table_view::open_path(&mut app, &file).unwrap();
+    let strings = t.column("STRING_REF").unwrap();
+    app.tables.iter_mut().find(|d| d.id == id).unwrap().selected = Some((9, strings));
     let ctx = egui::Context::default();
     let input = || egui::RawInput {
-        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0))),
+        // (The Table board's 1600 by 900: from 1400 the Right Dock stands
+        // in its sections, Cell over References, beside the Outliner.)
+        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 900.0))),
         ..Default::default()
     };
     let frames = |app: &mut Moonglow, n: usize, edit: bool| {
@@ -462,6 +609,7 @@ fn editing_a_large_table() {
         (out[n / 2], *out.last().unwrap())
     };
     let _ = frames(&mut app, 5, false);
+    assert_eq!(app.active_editor(), Some(&Tab::Table(id)), "the table docked, in front");
     println!("{} rows: idle {:?}", t.len(), frames(&mut app, 20, false));
     app.tables.iter_mut().find(|d| d.id == id).unwrap().filter = "dragon".into();
     println!("Find typed, idle: {:?}", frames(&mut app, 20, false));

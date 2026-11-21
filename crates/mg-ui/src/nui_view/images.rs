@@ -162,7 +162,7 @@ pub(crate) fn pictures_left_behind(
         format!(
             "Not exported, as the module doesn't hold {}: {}. A client without {} shows the \
              game's gui_error picture in {} place: give players the hak, or add the picture to \
-             the module (Images › Add images from disk…)",
+             the module (Images › Add Images from Disk…)",
             if missed.len() == 1 { "it" } else { "them" },
             missed.join(", "),
             if missed.len() == 1 { "it" } else { "them" },
@@ -371,7 +371,7 @@ pub(super) fn page(
         );
         if names.is_empty() && unused.is_empty() {
             ui.weak(
-                "No pictures yet: an Image, an Image button or a draw layer's Image names one.",
+                "No pictures yet: an Image, an Image Button or a draw layer's Image names one.",
             );
         }
         let background_now = current_background(doc).map(str::to_owned);
@@ -443,6 +443,9 @@ pub(super) fn page(
         }
         let target =
             state.images_hak.as_ref().map_or("a new hak".to_owned(), |h| format!("{h}.hak"));
+        // (The buttons name it in title case.)
+        let named =
+            state.images_hak.as_ref().map_or("a New Hak".to_owned(), |h| format!("{h}.hak"));
         ui.horizontal_wrapped(|ui| {
             // Only a module with haks has a choice to make.
             if !haks.is_empty() {
@@ -456,7 +459,7 @@ pub(super) fn page(
                     })
                     .labelled_by(label.id);
             }
-            if ui.button(format!("Add images to {target}…")).clicked() {
+            if ui.button(format!("Add Images to {named}…")).clicked() {
                 let files = app.dialogs.open_files(FileKind::Images, None);
                 if !files.is_empty()
                     && let Some(path) = chosen_hak(app, name, &state.images_hak)
@@ -482,7 +485,7 @@ pub(super) fn page(
             if ui
                 .add_enabled(
                     !module_images.is_empty(),
-                    egui::Button::new(format!("Move module images into {target}")),
+                    egui::Button::new(format!("Move Module Images into {named}")),
                 )
                 .on_hover_text(
                     "Move this window's pictures from the module into the hak. Undo brings them \

@@ -164,6 +164,30 @@ fn stores(app: &Moonglow, custom: bool) -> Vec<(ResRef, String)> {
     out
 }
 
+/// The pages' titles (the step list's and the page bar's), in order.
+const PAGES: [&str; 3] = ["Conversation", "Choose Store", "Finish"];
+
+/// The icon of each page's bar.
+const PAGE_ICONS: [mg_uikit::Icon; 3] =
+    [mg_uikit::Icon::Conversation, mg_uikit::Icon::Store, mg_uikit::Icon::CheckCircle];
+
+/// The wizard's step list: the pages before the one shown done, it current,
+/// those after to come.
+fn steps(ui: &mut egui::Ui, page: Page) {
+    use mg_uikit::dialog::{StepList, StepState};
+    let at = page as usize;
+    let mut list = StepList::new(format!("Step {} of {}", at + 1, PAGES.len()));
+    for (i, name) in PAGES.iter().enumerate() {
+        let state = match i.cmp(&at) {
+            std::cmp::Ordering::Less => StepState::Done,
+            std::cmp::Ordering::Equal => StepState::Current,
+            std::cmp::Ordering::Greater => StepState::ToCome,
+        };
+        list = list.step(*name, state);
+    }
+    let _ = list.show(ui);
+}
+
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.store_wizard.take() else { return };
     // The project's rules as they are now (its file read again while the
@@ -193,10 +217,37 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         let note = format!("A {what} of that name is replaced.");
         ui.colored_label(ui.visuals().warn_fg_color, note);
     };
-    crate::widgets::modal(ctx, "Store Setup Wizard").show(ctx, |ui| {
+    let opens = w.rules.as_ref().is_some_and(|r| r.open_script.is_some());
+    let names_ok = ResRef::from_str(w.dialog.trim()).is_ok_and(|r| r != ResRef::EMPTY)
+        && (opens || ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY));
+    let next_ok = match w.page {
+        Page::Conversation => names_ok,
+        Page::Store => w.store.is_some(),
+        Page::Finish => false,
+    };
+    let footed = crate::widgets::modal(ctx, "Store Setup Wizard")
+        .resizable(true)
+        .default_size([640.0, 440.0])
+        .min_size([520.0, 380.0])
+        .flush()
+        .show_foot(ctx, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if crate::widgets::step_list_fits(ui) {
+                    steps(ui, w.page);
+                }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let at = w.page as usize;
+                    mg_uikit::dialog::page_bar(ui, Some(PAGE_ICONS[at]), PAGES[at]);
+                    let pad = mg_uikit::dialog::PAGE_PADDING;
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(pad.x as i8, pad.y as i8))
+                        .show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         match w.page {
             Page::Conversation => {
-                ui.heading("Conversation");
                 ui.label("Enter the conversation text for the shopkeeper.");
                 ui.label("What does the shopkeeper say when the conversation begins?");
                 let field = egui::TextEdit::multiline(&mut w.greeting).desired_rows(2);
@@ -236,7 +287,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             }
             Page::Store => {
-                ui.heading("Choose Store");
                 ui.label("Choose the store to use.");
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut w.custom, false, "Standard");
@@ -272,7 +322,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 w.scrolled = true;
             }
             Page::Finish => {
-                ui.heading("Finish");
                 ui.label("The Store Setup Wizard is now ready to create the store.");
                 ui.label("Click Finish to finish setting up the store.");
                 if let Some(tag) = &w.tag {
@@ -302,37 +351,30 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             }
         }
-        ui.separator();
-        let opens = w.rules.as_ref().is_some_and(|r| r.open_script.is_some());
-        let names_ok = ResRef::from_str(w.dialog.trim()).is_ok_and(|r| r != ResRef::EMPTY)
-            && (opens || ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY));
-        ui.horizontal(|ui| {
-            if ui.add_enabled(w.page != Page::Conversation, egui::Button::new("< Back")).clicked() {
-                w.page = if w.page == Page::Finish { Page::Store } else { Page::Conversation };
-            }
-            let next_ok = match w.page {
-                Page::Conversation => names_ok,
-                Page::Store => w.store.is_some(),
-                Page::Finish => false,
-            };
-            if ui.add_enabled(next_ok, egui::Button::new("Next >")).clicked()
-                || (next_ok && crate::widgets::enter(ui))
-            {
-                w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
-                if w.page == Page::Finish {
-                    go_to_finish = true;
-                }
-            }
-            if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked()
-                || (w.page == Page::Finish && crate::widgets::enter(ui))
-            {
-                finish = true;
-            }
-            if crate::widgets::cancel(ui) {
-                close = true;
-            }
+        crate::widgets::focus_in_sight(ui);
+});
+                        });
+                });
+            });
+            (
+                (),
+                crate::creature_wizard::wizard_foot(
+                    w.page != Page::Conversation,
+                    next_ok,
+                    w.page == Page::Finish,
+                ),
+            )
         });
-    });
+    if let Some(f) = footed {
+        finish = w.page == Page::Finish && f.pressed.main();
+        if f.pressed.clicked("< Back") {
+            w.page = if w.page == Page::Finish { Page::Store } else { Page::Conversation };
+        } else if f.pressed.main() && w.page != Page::Finish {
+            w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
+            go_to_finish = w.page == Page::Finish;
+        }
+        close = f.pressed.cancelled();
+    }
     // (Said on the last page where the project gives the tag; Aurora's
     // page says nothing of it.)
     if go_to_finish && w.rules.is_some() {
@@ -555,7 +597,8 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
     let exists = name.is_some_and(|r| {
         app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(r, ResType::DLG)))
     });
-    crate::widgets::modal(ctx, "Add Popup Text").show(ctx, |ui| {
+    let ready = name.is_some() && !p.text.trim().is_empty();
+    let footed = crate::widgets::modal(ctx, "Add Popup Text").show_foot(ctx, |ui| {
         crate::widgets::field_label(ui, "Popup Text");
         let field = egui::TextEdit::multiline(&mut p.text).desired_rows(4);
         let field =
@@ -569,17 +612,12 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
                 "A conversation of that name is replaced.",
             );
         }
-        ui.separator();
-        ui.horizontal(|ui| {
-            let ready = name.is_some() && !p.text.trim().is_empty();
-            ok = ui
-                .add_enabled(ready, egui::Button::new("OK"))
-                .on_hover_text("Accept changes")
-                .clicked()
-                || (ready && crate::widgets::enter(ui));
-            close = crate::widgets::cancel_discard(ui);
-        });
+        ((), crate::widgets::Foot::new().main("OK", ready).tip("Accept changes").cancel_discard())
     });
+    if let Some(f) = footed {
+        ok = f.pressed.main();
+        close = f.pressed.cancelled();
+    }
     if ok && let Some(name) = name {
         let git = ResKey::new(p.area, ResType::GIT);
         let text = crate::text::with_loc_line_ends(&p.text, "");

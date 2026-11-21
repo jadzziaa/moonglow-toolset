@@ -171,15 +171,14 @@ impl Moonglow {
 pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((mut name, clip)) = app.prefab_save.take() else { return };
     let mut open = true;
-    let (mut save, mut cancel) = (false, false);
     // (The prefabs kept, read from their folder as the window opens.)
     let names = crate::area_tools::kept_while_shown(ctx, egui::Id::new("prefab-names"), || {
         std::sync::Arc::new(list(app.prefab_dir.as_deref()))
     });
-    crate::widgets::dialog(ctx, "Save as Prefab", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Save as Prefab", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.label(format!(
                 "{} object(s), placed again from Edit › Prefabs in any area.",
                 clip.objects.len()
@@ -199,12 +198,10 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
             if names.iter().any(|n| n.eq_ignore_ascii_case(name.trim())) {
                 ui.weak("A prefab of that name will be replaced");
             }
-            ui.horizontal(|ui| {
-                save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
-                    || (ok && crate::widgets::enter(ui));
-                cancel = crate::widgets::cancel(ui);
-            });
+            ((), crate::widgets::Foot::new().main("Save", ok).cancel())
         });
+    let save = footed.as_ref().is_some_and(|f| f.pressed.main());
+    let cancel = footed.as_ref().is_some_and(|f| f.pressed.cancelled());
     if save {
         match app.save_prefab(&name, &clip) {
             Ok(path) => app.log.info(format!("Prefab saved: {}", path.display())),

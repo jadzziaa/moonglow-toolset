@@ -23,4 +23,4 @@ asks:
 - const int X = Foo(); is refused by nwn_script_comp (INVALID VALUE ASSIGNED TO CONSTANT); a global int X = Foo(); compiles: constants() leaves it out and says so.
 ## Watch out
 - Paths from mg_testkit::scratch_dir have ../ in them: compare a Beside's file and an open doc's Home::File by canonicalize.
-- The cell panel under the 2DA grid has a fixed 96 px; a chooser opened there needs room (choosing_under) or it runs over the window's bottom.
+- (Until M4's U16 the cell panel stood under the 2DA grid with a fixed 96 px; it is the Right Dock's Cell panel since: see the note "2DA editor's Cell, References and Outliner columns (M4 U16)".)

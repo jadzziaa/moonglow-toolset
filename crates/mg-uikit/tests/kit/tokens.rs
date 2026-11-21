@@ -65,13 +65,16 @@ fn the_tokens_are_the_mockups() {
 }
 
 /// The two themes differ where the mockups say they do, and the
-/// thumbnails' tokens keep one value.
+/// thumbnails' and the handles' tokens keep one value.
 #[test]
 fn the_themes_differ_but_for_the_thumbnails() {
     let (dark, light) = (Tokens::DARK.all(), Tokens::LIGHT.all());
     for ((name, d), (_, l)) in dark.iter().zip(&light) {
-        let same =
-            name.starts_with("thumb-") || matches!(*name, "on-fill" | "syn-error" | "on-select");
+        // (The area view's handles too: drawn over the 3D picture, which
+        // is the same in both themes.)
+        let same = name.starts_with("thumb-")
+            || name.starts_with("handle-")
+            || matches!(*name, "on-fill" | "syn-error" | "on-select" | "guide-on-fill");
         if same {
             assert_eq!(d, l, "{name} keeps one value");
         } else {

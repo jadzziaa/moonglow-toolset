@@ -326,10 +326,20 @@ fn find_and_replace_text_across_the_module() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 string(s), 2 time(s)");
-    // The second unticked: one replaced.
-    h.state_mut().text_replace.as_mut().unwrap().hits[1].1 = false;
+    h.get_by_label("2 strings, 2 times");
+    dock_high(&mut h, 360);
+    settle(&mut h);
+    // The second unticked (by its tick, M4's U28: a row of Search
+    // Results'): one replaced.
+    h.get_all_by(|n| {
+        n.role() == egui::accesskit::Role::CheckBox
+            && n.label().is_some_and(|l| l.starts_with("Replace in camp_b.utw"))
+    })
+    .next()
+    .expect("camp_b's tick")
+    .click();
     h.run();
+    assert!(!h.state().text_replace.as_ref().unwrap().hits[1].1, "camp_b's unticked");
     h.get_by_label("Replace in 1").click();
     h.run();
     let name = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {
@@ -341,7 +351,7 @@ fn find_and_replace_text_across_the_module() {
     assert_eq!(name(&mut h, &keys[0]), "Goblin camp");
     assert_eq!(name(&mut h, &keys[1]), "Orc camp");
     // Found again: what's left.
-    h.get_by_label("1 string(s), 1 time(s)");
+    h.get_by_label("1 string, 1 time");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(name(&mut h, &keys[0]), "Orc camp");
@@ -388,7 +398,7 @@ fn find_and_replace_in_tags_by_a_regular_expression() {
     h.run();
     h.get_by_label("Find").click();
     h.run();
-    h.get_by_label("2 string(s), 2 time(s)");
+    h.get_by_label("2 strings, 2 times");
     h.get_by_label("Replace in 2").click();
     h.run();
     let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
@@ -557,8 +567,9 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run_steps(2);
     h.get_by_label("Choose 1 Area(s)…").click();
     h.run_steps(2);
-    // (The chooser's button: one area ticked.)
-    h.get_by_label("Edit 1 Together");
+    // (Edit Areas Together's section, in front in the Right Dock: one area
+    // ticked.)
+    h.get_by_label("1 area ticked");
 }
 
 /// What Advanced Search found is a list of places (`start.git /Creature
@@ -1013,7 +1024,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
     let mut h = window_harness(app);
     settle(&mut h);
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     h.get_by_label("Advanced Search…").click();
     h.run_steps(2);

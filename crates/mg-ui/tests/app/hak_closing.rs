@@ -238,10 +238,43 @@ fn leaf_rects(h: &Harness<'_, Moonglow>, tab: &Tab) -> Option<(egui::Rect, egui:
         .map(|(_, l)| (l.rect, l.viewport))
 }
 
-/// Clicks the last button `label` inside the hak's leaf: whether one was.
+/// Clicks the last button `label` inside the hak's leaf (its header's
+/// since M4's U21: Add Files…, Save, OK, Cancel; a command in its More
+/// opened for it): whether one was. Undo and Redo are the Top Bar's since
+/// U21: the command's keys with the pointer over the editor.
 fn click_in_tab(h: &mut Harness<'_, Moonglow>, tab: &Tab, label: &str) -> bool {
     let Some((rect, _)) = leaf_rects(h, tab) else { return false };
-    let node = h.query_all_by_label(label).rfind(|n| rect.contains_rect(n.rect()));
+    if matches!(label, "Undo" | "Redo") {
+        h.hover_at(rect.center());
+        h.run_steps(1);
+        let shift = if label == "Redo" { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
+        h.key_press_modifiers(egui::Modifiers::COMMAND | shift, egui::Key::Z);
+        return true;
+    }
+    let in_leaf = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_label(label)
+            .filter(|n| n.accesskit_node().bounding_box().is_some())
+            .rfind(|n| rect.contains_rect(n.rect()))
+            .map(|n| n.rect())
+    };
+    if in_leaf(h).is_none() {
+        // (In the header's More at this width: opened for it.)
+        let more = h
+            .query_all_by_label(mg_uikit::header::MORE)
+            .filter(|n| n.accesskit_node().bounding_box().is_some())
+            .rfind(|n| rect.contains_rect(n.rect()));
+        let Some(more) = more else { return false };
+        more.click();
+        h.run_steps(2);
+    }
+    // (In the leaf, or in its header's More: never the Top Bar's.)
+    let more = h
+        .query_by_label(&mg_uikit::header::more_name(mg_ui::hak_view::HAK_HEADER))
+        .and_then(|m| m.query_all_by_label(label).next().map(|n| n.rect()));
+    let node = h
+        .query_all_by_label(label)
+        .filter(|n| n.accesskit_node().bounding_box().is_some())
+        .rfind(|n| rect.contains_rect(n.rect()) || Some(n.rect()) == more);
     match node {
         Some(n) => {
             n.click();

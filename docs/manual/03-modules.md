@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
 ---
 
 # Modules
@@ -38,8 +38,10 @@ a directory), nasher projects (see below) and the game's campaign files
   searched for again: press **Search**). A placed object's Properties are
   found again by the object (its tag, its blueprint and where it
   stands), so that an area changed outside Moonglow since gives the
-  same object's, or none; Tile Properties opens once its area's view
-  is drawn. A tab whose area, script, file or other resource is gone is
+  same object's, or none. (A record from before Tile Properties was the
+  Right Dock's panel kept its tab: its area opens in Select Tiles with
+  those tiles selected once the area's view is drawn, the panel showing
+  them.) A tab whose area, script, file or other resource is gone is
   passed over (said in the debug log). The tabs are kept in Moonglow's
   data folder (`open-tabs`, a file a module, by its path; a module
   folder's and a nasher project's by its folder), never in the module;
@@ -148,7 +150,7 @@ all of it, while the window goes on: the tab says it is reading; the
 next ones, for a resource or a tag, only what changed since). A number typed there that is no resource's name is a talk-table
 line's StrRef: the module's names, descriptions, conversation lines and
 2DAs that name that line are listed. It's in the right-click menus of the module
-tree and palettes, the script editor's toolbar and **Edit › Find
+tree and palettes, the script editor's header (**Used By**) and **Edit › Find
 References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
   `guard_talk › NPC line 3 “Halt!” › action`. Click one to go there: the
@@ -186,7 +188,9 @@ back:
 
 ## Find and Replace Text
 
-**Edit › Find and Replace Text…** (Ctrl+H) finds text players read: the
+**Edit › Find and Replace Text…** (Ctrl+H) opens the Bottom Dock on
+**Search Results**, with the form as the panel's header and what it finds
+listed under it. It finds text players read: the
 module's names, descriptions, conversation lines, the journal and the rest
 (map notes and such), in every language each string has. Ticked on the
 second row, it looks in the fields builders and scripts read too:
@@ -209,12 +213,21 @@ door's Linked To, a key's tag, comments).
   where it would be longer than 32, and said in the log; a tag made
   another object's is said as a paste's is ([Duplicate
   tags](04-areas.md#duplicate-tags)).
-- **What's found** is listed by place, as in Find References. Click one to
-  go there; untick any to leave alone. When something it was found in
-  is changed with the window open, the list is of the module as it was:
-  **Find** again before replacing.
+- **What's found** is listed by place, as in Find References. Click a
+  string to choose it (the arrow keys, Page Up, Page Down, Home and End
+  move the choice); Space ticks or unticks it, and untick any to leave
+  alone; Enter or a double click, or the place link, opens it. When
+  something it was found in is changed after the search, the panel says
+  the module changed since: **Find** again before replacing. Enter in a
+  field searches and gives the list the keys (Shift+Tab goes back to the
+  field); Escape in a field closes the Bottom Dock. The search
+  is a job, with progress and **Cancel**. Closing the module lets the
+  hits go; the form stays.
 - **Replace** changes the ticked strings as one step that **Undo** takes
-  back, then lists what's left.
+  back, then lists what's left. The panel says how many there are as
+  "N strings, M times" ("1 string, 1 time"), while the list is current,
+  and the form has **Find** (the main button) and **Replace in N**, N the
+  ticked hits (off at 0).
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
@@ -344,7 +357,7 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
 - **Edit the N ticked together** opens blueprints of one type in one
   window, and objects of one kind placed in one area in one window, as
   the palette's and the area's Edit Together do; **Choose Areas…** opens
-  Edit Areas Together with the areas of what is ticked (areas found, or
+  the Edit Areas Together section of the Right Dock with the areas of what is ticked (areas found, or
   those the objects found are placed in) ticked.
 
 What was found is a list of places as the module was then. Once the
@@ -433,8 +446,8 @@ unpacking or packing between the toolset and git.
   written again meanwhile is read again then.
 - **Where you have unsaved changes to a file that also changed
   elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
-  window asks: **Keep Moonglow's** (the next Save writes yours over the
-  file), **Take the Files'** (yours are lost) or **Later**. A field you
+  window asks: **Keep Moonglow's** (the main button; the next Save writes yours over the
+  file), **Take the Files'** (yours are lost) or **Later**, which leaves it for now. A field you
   are typing in when the files come in sets what you typed first, so
   that it is one of your changes, kept and asked about.
 - **Changes made elsewhere are never overwritten unasked.** Until you
@@ -856,7 +869,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
 | `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
-| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
+| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins tab's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 | `[palette.<id>]` | a [palette grouping](#palette-groupings): another way the palettes show their blueprints (Group by), any number of them | the palettes by category alone |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
@@ -1301,7 +1314,7 @@ theirs to release. Without a builder code, Claim is there and off.
 
 **Edit › Claims Table…** shows the table whole: every area of it and
 of the module, whose each is and since when, merged or protected, and
-those the module doesn't have. Beside each, what you may do: **Claim**
+those the module doesn't have. It is a tab of the Bottom Dock, **Claims Table**, in front when you open it. Click a column head (Area, Whose, Notes) to sort by it, and again to sort the other way; after a click in the table, the arrow keys move the choice and Ctrl+C copies the row. **Close Report**, at the end of the dock's tab bar (also in the command palette), closes it. Beside each, what you may do: **Claim**
 a free one, **Release** or **Hand To…** one of yours (another builder's
 code, typed: the claim is theirs then), and **Take Over…** another's,
 asked first (their changes to it not yet merged would be the conflict
@@ -1310,7 +1323,7 @@ the menus do; one taken over or handed on says to tell them.
 
 `mg claims PROJECT` lists every area of the table and the module and
 whose each is; `mg claims PROJECT claim AREA…`, `release AREA…` and
-`hand AREA… --to CODE` do what the menus and the window do (`--force`
+`hand AREA… --to CODE` do what the menus and the Claims Table tab do (`--force`
 takes, releases or hands on another's claim, for the one who keeps the
 table), and `merged AREA…` marks areas merged, with their Tags as the
 module has them ([Command-line tools](11-command-line.md)). Several
@@ -1325,7 +1338,8 @@ ResRef loses both for everyone who has been there. An area the claims
 table says is merged, or one `[claims] protected` names, is protected:
 before its Tag changes (Area Properties, or any other window), before it
 is renamed (**Rename…**) or deleted, Moonglow asks (**Protected Area**),
-and offers **Make a Copy Instead…**: a copy under a new ResRef and Tag is
+and offers, after the action's own button (**Change It Anyway**…, first,
+the main one), **Make a Copy Instead…** and **Cancel**: a copy under a new ResRef and Tag is
 a new area, and loses nothing. **Change It Anyway** (or Rename, or
 Delete) goes ahead, for that one change: **Rename It Anyway** opens the
 Rename window, and closed without renaming, the area's next rename or
@@ -1461,7 +1475,10 @@ has the same module open. As in Aurora, open conversations are also backed up as
 ## Module Properties
 
 **Edit › Module Properties** (or the top of the module tree), with
-Aurora's pages:
+Aurora's pages, listed at its left and standing one after another on
+one scroll as a blueprint's do ([the editors](05-blueprints.md#the-editors)):
+a page clicked in the list comes to the top. **OK** and **Cancel** are
+at the right end of its header, which shows the module's name.
 
 - **Basic**: name, tag (up to 32 characters, as every tag), and the
   start area and location (the start location marker in the area viewer
@@ -1587,11 +1604,16 @@ the same way.
 
 `mg haks MODULE --usage` says, hak by hak, which of its resources the
 module reaches and which nothing does: for cutting a release (or a
-player's download) to what is used. In the window, **Check for
-Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
-Conflict Analysis, and its **What the Module Uses** says the same above
-the conflicts (worked out as a job, on the module as it is, unsaved
-changes too). A line a hak, and one for them all:
+player's download) to what is used. In Moonglow, **Check for
+Conflicts…** (Module Properties › Custom Content) runs the Hak Pak
+Conflict Analysis as a job and shows it as a tab of the Bottom Dock. The
+tab has the views **Conflicts (n)**, **Overrides (n)**, **All (n)** and
+**Haks (n)**; its **What the Module Uses** button adds a view with the same
+(worked out as a job, on the module as it is, unsaved
+changes too), and **Copy Report** copies the whole report as text.
+Click a column head to sort; after a click in the table, the arrow keys
+move the choice and Ctrl+C copies the row. **Close Report** closes the
+tab. A line a hak, and one for them all:
 
 ```
 tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged
@@ -1702,48 +1724,69 @@ module and 143 haks (29.5 GB) it takes about 5 seconds.
 ### The talk table editor
 
 **Tools › Talk Table** (or **Edit…** beside Custom TLK) edits the
-module's talk table:
-- **The lines** are listed by the StrRef the game knows them by
-  (16777216 and up), with the feminine text beside them when there's a
-  feminine table. **Find** finds lines by words or by StrRef. **Go to**
-  takes a StrRef or a line's number: press Enter and the list goes to
-  that line, among all the others, and it is chosen. **Find References**
-  lists where the module names the chosen line (as does a number typed
-  in the References tab's field): its blueprints', areas',
-  conversations' and journal's strings, a palette's category, a
-  soundset's entries, its 2DAs' cells in the columns known to hold a
-  line, and a script's call with the number written in it
-  (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
-  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
-  argument, `SetTlkOverride`…; a number kept in a variable or a constant
-  isn't followed), which opens at its line. Under them, **In the haks'
-  2DAs** lists the cells of the module's haks' tables that name it, each
-  hak's own copy.
+module's talk table. Its header holds **Find** and **Go to**, then **Add
+Line**, **Remove Last Line** and **Save**, then **Find References**; at
+its right **Only lines with text**, **Export** (CSV and JSON) and **More**
+(**Import CSV…**, **Import JSON…**, **Open File…**, **New File…** and,
+where another table is shown, **Module's Table**); then **OK** and
+**Cancel**, or **Close** for a table only looked at. In a narrow editor
+the commands lose their words, then go into More, Find and Go to last.
+The chosen line's fields are the Right Dock's **String** panel, what
+names it its **References** panel and the table's own facts its **Talk
+Table** panel (in its window's right pane where the editor floats; in one
+tab bar of the three in a window under 1400 points):
+- **The lines** are listed under a header row (StrRef, Text, the
+  feminine text where there's a feminine table, Sound) by the StrRef the
+  game knows them by (16777216 and up), only the lines in sight laid out:
+  a table of a hundred thousand lines scrolls as one of ten. **Find**
+  finds lines by words or by StrRef (the table's own numbers: a custom
+  table's from 16777216, `dialog.tlk`'s from 0); in a long table it looks through
+  them a part at a time, the window going on, the lines found so far
+  listed, and what you type meanwhile begins it again. **Go to** takes a
+  StrRef or a line's number: press Enter and the list goes to that line,
+  among all the others, and it is chosen.
 - **Choosing a line:** click anywhere on its row. The keys are the
   list's from then: Up and Down (Page Up and Page Down, Home and End)
-  choose a line, and Enter, or a double click, goes to its text.
-- **A line**: choose it to edit its text, its feminine text, and the
-  sound spoken with it and its length. **Copy** copies its StrRef, to put
-  in a 2DA or a script. The text boxes take the room under the list; a
-  text longer than its box scrolls in it, and the sound's row stays in
-  sight. A larger window gives them more, and the line between the list
-  and them is dragged up and down to share the room otherwise: the boxes
-  keep three lines, and the list three tenths of the editor. Each table
-  keeps where its line was dragged to (with a feminine table, its own),
-  from one session to the next.
+  choose a line, Enter or a double click goes to its text in String, and
+  Escape leaves the list. The Status Bar says them, and how many lines the
+  table has.
+- **String** shows the chosen line's **Text** (**Text (masculine)** and
+  **Feminine** with a feminine table), its **Sound** and the sound's
+  **Length (s)**, each typed in and set as you type: each burst of typing
+  is one step of Undo, a burst ending where you leave the field, choose
+  another line, or Undo or Redo. A text longer than its box scrolls in it. The copy
+  button at the panel's header copies the line's StrRef, to put in a 2DA
+  or a script. What you type stays with its line: choose another line, add
+  one or remove the last, and the field you typed in goes with its own
+  line.
+- **References** (or **Find References** in the header) lists where the
+  module names the chosen line, as does a number typed in the References
+  tab's field: its blueprints', areas', conversations' and journal's
+  strings, a palette's category, a soundset's entries, its 2DAs' cells in
+  the columns known to hold a line, and a script's call with the number
+  written in it (`GetStringByStrRef(16777300)`, `SpeakStringByStrRef`,
+  `FloatingTextStrRefOnCreature`, `SendMessageToPCByStrRef`'s second
+  argument, `SetTlkOverride`…; a number kept in a variable or a constant
+  isn't followed), each a link that opens it, and the cells of the
+  module's haks' tables that name it. It looks on a thread of its own:
+  the window goes on, and choosing another line stops it.
+- **Talk Table** says how many lines the table has, its language (where
+  a nasher project keeps it in several languages, the box there chooses
+  the one edited, with no unsaved changes), whether it has a feminine
+  table and its file.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
-- **Undo** and **Redo** in its toolbar undo the table's changes, as do
-  Ctrl+Z and Ctrl+Y with the pointer over the editor, and the Top Bar's
-  and Edit › Undo after you last worked in it. (The table is a file of
-  its own: elsewhere, Undo is the module's: see Undo and redo in
+- **Undo** and **Redo** are the Top Bar's (and Ctrl+Z and Ctrl+Y) after you
+  last worked in the editor or its panels, with the pointer over them, or
+  with the list's keys. (The table is a file of its own: elsewhere, Undo
+  is the module's: see Undo and redo in
   [The main window](02-main-window.md#tabs-and-windows).)
-- **Export CSV…** writes the lines to a file for a spreadsheet or a
-  translator: each line's StrRef, text (and feminine text), sound and
-  sound length. **Import CSV…** reads such a file back: each row sets
-  the line of its StrRef, which keeps what the file has no column for;
-  rows past the table's end add lines. Nothing changes unless every row
-  can be read, and one Undo takes the import back.
+- **Export › Export CSV…** writes the lines to a file for a spreadsheet or
+  a translator: each line's StrRef, text (and feminine text), sound and
+  sound length. **More › Import CSV…** reads such a file back: each row
+  sets the line of its StrRef, which keeps what the file has no column
+  for; rows past the table's end add lines. Nothing changes unless every
+  row can be read, and one Undo takes the import back.
 - **Export JSON…** and **Import JSON…** do the same with the JSON that
   neverwinter.nim's `nwn_tlk` writes and a nasher repository keeps: the
   table's language and the lines that have text or a sound, each with
@@ -1763,10 +1806,13 @@ module's talk table:
   if a file named with an `f` after its name is beside it) and **New
   File…** makes an empty one: with or without a module open. **Module's
   Table** goes back to the table the module names.
-- **Saving**: **Save** saves the table, as does saving the module.
+- **Saving**: **Save** saves the table, as does saving the module; **OK**
+  saves it and closes the editor, **Cancel** closes it, asking first
+  about unsaved changes.
 
-With no talk table, the editor makes one in the user folder's `tlk` (with
-a feminine table if you ask) and names it in Module Properties. Its name,
+With no talk table, the editor says so and the Talk Table panel's
+**Module's Table** makes one in the user folder's `tlk` (with a feminine
+table if you ask) and names it in Module Properties. Its name,
 as every name Moonglow makes for a resource (a new tileset, a hak's file,
 a line's sound, here or from a plugin), is 1 to 16 letters, digits, `_`
 and `-`, kept in lower case: the game takes more (any 16 characters), but
@@ -1774,11 +1820,45 @@ the name is a file's too, on every system. A table
 kept in the module (a `.tlk` among its files) is edited there and saved
 into it: its Save puts it into the module, and the module's Save writes
 it. A table in a hak, or one the game ships (a premium campaign's, in
-`data/tlk`) or a Workshop item's, is shown read-only: change it where
-it is built.
-A nasher project's table kept as JSON is edited in its file, and where
-the project keeps it in several languages, the box beside its name
-chooses the one edited (with no unsaved changes).
+`data/tlk`) or a Workshop item's, is shown read-only (String says where it
+is): change it where it is built.
+A nasher project's table kept as JSON is edited in its file.
+
+**The game's own `dialog.tlk`** opens read-only in the Talk Table tab: its
+row in the Resources panel (`dialog.tlk`, in the layer `lang:en`, the
+language the game data is read in) or "dialog.tlk" in Quick Open. With the
+tab already open, it comes forward showing `dialog.tlk`; the module's table
+waits behind it as you left it (its unsaved lines, Undo steps, chosen line
+and what you typed), and **Module's Table** in the header's More brings it
+back (where a file opened with Open File… waits behind it with unsaved
+changes, it brings that file back instead, as its tip says). Every other
+way to the talk table, Tools › Talk Table, Module Properties' Edit… or
+New… and a 2DA cell's Talk Table, shows the module's table. While
+`dialog.tlk` is shown, Undo and Redo are the module's own, never the
+waiting table's; the module's Save (Ctrl+S) still writes the waiting
+table's unsaved lines, and closing the tab keeps them for that Save
+without asking: the dot on the tab's title is the sign that some are
+there. A Find References look under way in the module's table carries on,
+its result there on your return. The Talk Table panel names the table shown. It is
+the table the game data reads: the install's `lang/<language>/data/
+dialog.tlk` (the masculine one: Moonglow shows a line by the masculine
+table, as Aurora does), not a copy in the user folder or `override`. Its
+lines are numbered by their own StrRefs, from 0, as 2DAs and the game's
+files name them (line 18608 is StrRef 18608). Nothing changes it: Add
+Line, Remove Last Line, Save and the imports are off, String's fields
+are read-only (their text can be chosen and copied), the header's end
+has Close alone and the Status Bar says "112228 lines, read-only". Find,
+Go to, Only lines with text and the exports work as in the module's
+table, by its own numbers; References looks through the module and its
+haks, not the game's own 2DAs (the panel says so). Undo with it in front
+is the module's: the table has no steps of its own. One copy of its
+112,228 lines is made as it is shown, shared from then on, and let go
+of as the tab shows another table or closes; the tab does not remember
+`dialog.tlk` across a restart (as it does not remember a file opened with
+Open File…). A hak's own resource named `dialog.tlk` is listed
+in the Resources panel beside it and opens as the hak's resources do:
+the game reads its talk table from the install alone. Where the module has no talk table of its own, its
+Talk Table panel holds Module's Table too.
 
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its
@@ -1884,55 +1964,96 @@ first few and how many more.
 **Tools › Haks** opens a hak: **New Hak**, **Open Hak…** (a `.hak` or an
 `.erf`), or **Build Hak from Folder…**, which makes a new hak from a
 folder's files, subfolders included, to look over and save.
-- **The list:** every resource with its size, and for files just added,
-  where they come from. **Find** narrows it by name or type. Click to
-  select, Ctrl+click to add to the selection, Shift+click to select from
-  the one clicked last to this one; right-click for **View**,
-  **Rename…**, **Extract…** and **Remove**. The list is by name, by type
-  or by size (the largest first).
-- **Viewing:** **View**, or a double click, shows a resource under the
-  list: a picture (a TGA or DDS; a PLT in each layer's first color), a
-  sound with **Play** (a `.bmu` holding a WAVE is marked as one the game
-  does not play), a 2DA's rows and columns as the resource browser
-  shows them, a GFF's fields, a text file's text, else its first bytes.
-  A model is drawn in the model viewer: where the game reads this hak's
-  copy (the hak is one of the module's, saved as it is) as the game
-  reads it, with **Pop Out** to a tab of its own; otherwise (a hak the
-  module doesn't list, or changed and not saved) from the hak as it is
-  now, its supermodels and textures from the hak first, then from the
-  module's haks, the module and the game, as the game would read them
-  with this hak among the module's. A model that can't be read shows as
-  its text, or why.
+
+- **The header:** **Add Files…** and **Add Folder…** (their icons, at the
+  left), **Remove (N)** (the resources selected), **Extract…**,
+  **Extract All…**, **Find** (by name, or by type with a dot: `.mdl`;
+  Ctrl+F with the pointer over the editor), **Compile Models**, **Save**,
+  **Save As…**, **More** (Update from Folder, **Rename…** of the one
+  selected, **Edit Table** of a 2DA selected) and, at its end, **OK** and
+  **Cancel**. Where the editor is narrow, the buttons show their icons
+  alone (their names in their tips), then move into More; Find, Save and
+  Save As… last.
+- **The notice** under the header says what to know before saving: a hak
+  of the game's own (Save As… keeps your changes in a copy), and
+  resources that would start past 2 GiB, which the game can't read.
+- **The table:** every resource with its type's icon, its name, its type
+  ("Model", "Texture", "Table"…), its size and, for files just added,
+  the file it comes from. A click on a column's head sorts by it (its
+  arrow says which way; again, the other way; Size runs largest first).
+  Click to select, Ctrl+click to add to the selection, Shift+click to
+  select from the one clicked last to this one; right-click for
+  **View**, **Edit Table** (a 2DA), **Rename…**, **Extract…** and
+  **Remove**. With the table clicked (or reached with F6), Up, Down,
+  Page Up, Page Down, Home and End choose a resource and Enter views it;
+  the selection stays with its resources through a sort, Find, an add and
+  a remove. The Status Bar shows the hak's count and size, how many are
+  selected and, with the pointer over the editor, its clicks.
+- **Preview** (the Right Dock): the resource chosen: the one clicked (or
+  Ctrl+clicked) last where it is selected, the start of a Shift+click run,
+  else the first of those selected by name: a picture (a TGA or DDS; a PLT in each layer's
+  first color) with its size, a sound with **Play** and **Stop** (a
+  `.bmu` holding a WAVE is marked as one the game does not play; it
+  stops when another resource is chosen, or when the Preview is no longer
+  shown: closed, folded, another tab or module in front, the hak closed), a 2DA's rows and columns as the
+  resource browser shows them, a GFF's fields, a text file's text, else
+  its first bytes. A model is drawn in 3D, paused until its **Play**,
+  with its facts under it (compiled or text, size, nodes, faces,
+  vertices, textures, animations, supermodel): where the game reads this
+  hak's copy (the hak is one of the module's, saved as it is), as the
+  game reads it, and the header's **Open the Model in a Tab** shows it in
+  a tab of its own; otherwise (a hak the module doesn't list, or changed
+  and not saved) from the hak as it is now, its supermodels and textures
+  from the hak first, then from the module's haks, the module and the
+  game. A model that can't be read shows as its text, or why. The
+  header's **Close the Preview** puts the resource away until another is
+  chosen; **View** or a double click shows it again (the Right Dock
+  unfolded on the Preview).
+- **Details** (under the Preview): the hak's **File**, its **Contents**
+  ("2706 resources, 183.8 MB"), what it was **Built from** with **Update
+  from Folder**, and its **Description**, the hak's own note for people
+  (the game doesn't show it): set when you leave the field, save, close
+  the hak or bring another hak to the front, one step to undo. While it
+  is typed and not yet set, Undo sets it and takes it back, and there is
+  nothing to redo.
+- **The Outliner** (the Left Dock, also with no module open) lists the
+  hak's types with how many of each, the most first (as many: by the
+  type's number). A click on a type finds it (Find `.mdl`: the table
+  lists that type alone, its row marked); a click on it again puts back
+  what Find held before (also after choosing another type first). Typed
+  over meanwhile, Find is yours: nothing is put back over it. Its keys: Up, Down, Page Up, Page Down, Home and
+  End, Enter to find the type, letters to go to a type by its extension.
 - **Compile Models** compiles the hak's models kept as text (ASCII),
   each against its supermodel from this hak, the open module's haks or
   the game, as one step to undo (a hak of many models takes a while:
-  the window shows how far it is, and Cancel leaves the hak as it was). A model that doesn't compile, has
-  errors Verify Module would name, or whose supermodel isn't found stays
-  as text, and the log says why. (`mg pack --compile-models` does the
-  same for a folder.) The game reads models as text too: compiling
-  makes them smaller and quicker to load.
-- **Update from Folder:** a hak built with Build Hak from Folder
-  remembers the folder (from one session to the next, once saved):
-  **Update from Folder** takes the folder's files again in place of the
-  hak's, as they are now, as one step to undo. What the hak has and the
-  folder has no file of (a file added by hand, or from another folder)
-  is taken out, and the log names it: **Undo** puts it back.
+  the window shows how far it is, and Cancel leaves the hak as it was). A
+  model that doesn't compile, has errors Verify Module would name, or
+  whose supermodel isn't found stays as text, and the log says why.
+  (`mg pack --compile-models` does the same for a folder.) The game
+  reads models as text too: compiling makes them smaller and quicker to
+  load.
+- **Update from Folder** (More, and Details): a hak built with Build Hak
+  from Folder remembers the folder (from one session to the next, once
+  saved): Update from Folder takes the folder's files again in place of
+  the hak's, as they are now, as one step to undo. What the hak has and
+  the folder has no file of (a file added by hand, or from another
+  folder) is taken out, and the log names it: **Undo** puts it back.
 - **Adding:** **Add Files…** and **Add Folder…** add files. Where the hak
   already has some of them, it asks first, listing them, as Aurora's hak
   editor does: **Replace** them, **Skip Those** and add the rest, or
-  **Cancel**. A file the game couldn't read by its name
-  is left out, and the log says why: a name over 16 characters (other hak
-  tools silently cut it short), or a type the game doesn't know. Hidden
-  files, `Thumbs.db` and `desktop.ini` are skipped.
+  **Cancel**. A file the game couldn't read by its name is left out, and
+  the log says why: a name over 16 characters (other hak tools silently
+  cut it short), or a type the game doesn't know. Hidden files,
+  `Thumbs.db` and `desktop.ini` are skipped.
 - **Extracting:** **Extract…** and **Extract All…** write resources as
   files into a folder. Where the folder has some of the files already
   (the folder the hak was built from, its files edited since), it asks
   first, listing them: **Replace** them, **Skip Those** and write the
   rest, or **Cancel**. The files are written while a window shows how
   far it is, with **Cancel** (those written by then stay).
-- **Undo** and **Redo** in its toolbar, and Undo's and Redo's keys
-  with the pointer over the editor (the hak's steps, not the module's).
-  **Description** is the hak's own note, for people.
+- **Undo** and **Redo** are the Top Bar's (and their keys), with the
+  pointer over the editor, its Preview, Details or the Outliner, or the
+  table holding the keys: the hak's steps, not the module's.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. The hak
@@ -1945,15 +2066,17 @@ folder's files, subfolders included, to look over and save.
   asks: **Save** again once the cause is put right, **Don't Save**, or
   **Cancel** (Undo or **Remove** of what was added says no more of it
   either). Closing Moonglow's window, File › Exit and File › Close
-  ask of each changed hak by its name, and then go on. It warns when
-  resources would start past 2 GiB, which the game can't read. The hak
-  editor itself reads all of such a hak: extract the resources past the
+  ask of each changed hak by its name, and then go on. The hak editor
+  itself reads all of a hak past 2 GiB: extract the resources past the
   mark, or remove the others and use **Save As…**, to split it in two.
-  Saving the module saves open haks too.
+  Saving the module saves open haks too (Ctrl+S is the module's Save).
 - **Reloading:** saving a hak the module uses reads it again.
 - **The game's own haks** (in its `data/hk`, also when opened through a
   folder that is a link into the game's) aren't written: **Save As…**
   keeps your changes in a copy.
+- **In a window of its own**, the hak brings its Preview and Details at
+  the window's right and its types at its left (folded to a strip where
+  the window is narrow).
 
 Closing a hak with unsaved changes asks first: **Save**, **Don't
 Save** or **Cancel**.
@@ -1986,7 +2109,38 @@ changed:
   is asked for at once.
 
 The table is a grid: the column names stay at the top and the rows'
-numbers at the left as it scrolls.
+numbers at the left as it scrolls. Over it is the editor's header: at
+the left **Save**, **Add Row** with its count beside it, **Empty Row**,
+**Delete Row** and **Add Column…** as icons, then **Find** and **Go to**
+and, where some are, **N cells are wrong**; at the right **Values as
+names** (where a description names values) and **Strings as text** as
+icon toggles; then **More ▾**, which holds **Save As File…**, **Take
+Rows…**, **Compact**, **Show Hidden Columns** and **Reset All Widths**;
+and **OK** and **Cancel** at its right end. In a narrow window the
+header's buttons lose their words and then go into More, Find, Go to and
+Save last of all; OK and Cancel never do.
+
+The selected cell is the Right Dock's **Cell** panel, the row's users its
+**References** panel under it (one tab bar of the two in a window under
+1400 points wide), and the table's columns are the **Outliner**'s, under
+the Left Dock's tabs (with no module open, the Left Dock holds the
+Outliner alone, its fold button at the end of the Outliner's header). A
+table opened in a window of its own (Open
+editors: As Floating Windows) keeps them in its window: Cell and
+References at its right, the columns at its left where the window has
+the room beside the grid, else folded to a strip at the grid's left
+whose icon unfolds them over it. The Status Bar says how many cells are
+selected (where more than one), the table's rows and columns and where
+it is kept (in the module, in a hak, in a file), and the grid's keys
+while it has them: **Enter** Type, **Shift + Click** Select to,
+**Delete** Empty, **Ctrl + C** Copy, **Ctrl + V** Paste, **Tab** Next
+column, **Esc** Leave grid. The grid has its keys while its table is the
+editor in front of the window, the one pressed last: a press in another
+editor (of the main window, or a floating editor's window), in a dock's
+panel or in a dialog takes them away, and a click on a cell gives them
+back. The cell with the keys is filled in the accent color and ringed;
+cells chosen with it are tinted, and the column's name over it is in the
+accent color.
 
 - **A click** selects a cell; a double click, Enter or F2 types into it,
   and a letter or digit typed begins typing in its place, as in a
@@ -2034,20 +2188,33 @@ numbers at the left as it scrolls.
   widened as the others are.
 - **Hide Column**, on the same menu, takes a column out of sight while
   the table is open (its cells are kept and saved, and the arrow keys
-  pass over it); **Show Hidden Columns (n)**, over the table, brings
-  every one back.
+  pass over it); the column's **eye** in the Outliner does the same, and
+  shows it again. **Show Hidden Columns**, in the header's More (it says
+  how many: "Show Hidden Columns (2)") or the eye on the Outliner's
+  header, brings every one back.
 - **Add Column…** adds one at the end. A column is moved by dragging
   its name onto another column's (a line shows where it will go), or by
   **Move Left** and **Move Right** in the menu a right click on its name
   opens; its cells go with it. The same menu renames the column or
   removes it, with its cells (Undo puts it back where it was).
-- **Undo** and **Redo** in the editor's own row are the table's steps,
-  and so are Undo's and Redo's keys (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or
-  those set in Options › Keyboard) with the pointer over the editor or
-  the keys in its grid (after a click on a cell): there they take back a
-  paste or a typed cell, not the module's last change.
+- **Undo** and **Redo**, the Top Bar's and Edit's, and their keys
+  (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or those set in Options › Keyboard),
+  take the table's steps with the pointer over the editor or its Cell
+  and References panels, or the keys in its grid, its Cell panel or its
+  columns in the Outliner (after a click there): a paste, a typed cell
+  or a value set in the Cell panel, not the module's last change. The
+  editor has no Undo and Redo of its own.
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
-  goes to it, Escape clears it); **Go to** takes a row's number.
+  with the pointer over the table goes to it, Escape clears it); **Go
+  to** takes a row's number, Enter going there.
+- **The Outliner** lists the columns in their order, each with its
+  kind's icon and words ("any of 7 flags", "a talk-table string's
+  number") and its eye. A click on a column goes to its cell in the row
+  selected and gives the list the keys: Up, Down, Page Up, Page Down,
+  Home and End move along the columns, Enter goes to one, letters typed
+  go to a column by its name, Escape hands the keys back; F6 stops
+  there. The seam over it is kept apart from the one beside an area or a
+  conversation.
 
 **Cells are checked as you type**, as Verify Module checks a hak's
 tables: a cell that names a row of another table which isn't there or
@@ -2056,11 +2223,26 @@ class's requirement by its kind, and the like), a table which isn't
 there (a class's feat list; with the game's data), or a talk-table
 string that isn't, is outlined in red and says why under the pointer
 (a cell as the game's own copy has it, wrong there too, is the game's
-and is not: seven appearances name footstep 30 of 18); the count above the grid goes to each in turn. Under
-the grid, the selected cell is shown by what its column holds: a
-talk-table string as its text (**Strings as text** shows them so in the
-grid too), a row of another table as that row's name, with a list to
-choose another from, and a model (an appearance's `RACE`, a
+and is not: seven appearances name footstep 30 of 18); the count in the header goes to each in turn.
+
+**The Cell panel** shows the selected cell by what its column holds
+(where several cells are selected, the one with the keys, filled and
+ringed, as the board draws it; Delete, Ctrl+C and Ctrl+V in the grid act on all of
+them). Its **Value** is the cell's text, typed in: Enter, Tab or a click
+elsewhere sets it (one step), Escape lets it go; what is typed is kept
+by its cell, so a row taken away above it (an Undo, a change made
+elsewhere) carries it to the cell's new place, and where the cell itself
+is gone it is let go of, never put in the cell that took its number.
+Under it is the column's name and its kind in words, and its choosers:
+a list's values and a flags column's flags as one list of rows, each
+with its value, in a frame a few rows high that scrolls (a list of
+hundreds of values keeps the panel short). Tab stops on the list once;
+then Up, Down, Page Up, Page Down, Home and End move along it, letters
+typed go to a value by its name, and Space or Enter (or a click)
+chooses a value or ticks a flag; a talk-table string as its text (**Strings as
+text** shows them so in the grid too), a row of another table as that
+row's name, with a list to choose another from, and a model (an
+appearance's `RACE`, a
 placeable's `ModelName`, a door's) as whether the game has it and
 which layer it is read from, or that there is no model of the name in
 the game, its haks or the module; **Choose Model…** lists the models the
@@ -2090,6 +2272,12 @@ that do, by a constant of `nwscript` that stands for the row
 row (its number written, or a constant). A click on one of the module's
 goes there. That is who would be left pointing at nothing if the row
 were emptied; a script that works a row out as it runs is not found.
+It is the **References** panel's (its header names the row): it looks
+on a thread of its own, saying **Looking through the game's tables and
+the module…** meanwhile while the window goes on, and stops where
+another row is chosen or the table changes; it lists **In the game's
+tables** and **In the module**, each with its count, or says that
+nothing names the row.
 
 **Take Rows…** is for a table that hides another copy of itself (your
 hak's `appearance.2da` over another hak's, or over the game's). It lists
@@ -2124,11 +2312,12 @@ changed by another program) is read again, as it is now, where nothing
 in the editor is unsaved; with something unsaved, the editor says so
 over the table, and Save writes the editor's table over the other.
 
-Under the table are **OK** and **Cancel**: OK saves the table and closes
-its window; Cancel closes it without saving, asking first where there
-are unsaved changes (**Save**, **Don't Save** or **Cancel**), as the
-window's close button does (a table's changes are its own, and the module's Undo
-does not bring them back).
+At the header's right end are **OK** and **Cancel**: OK saves the table
+and closes its window; Cancel closes it without saving (what was set in
+its Cell panel too), asking first where there are unsaved changes
+(**Save**, **Don't Save** or **Cancel**), as the window's close button
+does (a table's changes are its own, and the module's Undo does not
+bring them back).
 
 ### A table's description
 
@@ -2458,7 +2647,11 @@ plugin reads a description with `mg.twoda.describe`
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
 size (2 to 32 tiles each way). It opens with the first tileset chosen
-(Aurora chooses none). Its ResRef is made from the name, after [your
+(Aurora chooses none). It is one page: its check boxes read **Launch Area
+Properties dialog** and **Open area in the Area Viewer**, and its footer
+has **Create** (the main button, which Enter presses once a name and a
+tileset are given) and **Cancel**. Its ResRef is made from the name, after [your
 builder code](#your-builder-code) where you have one (the wizard then
 shows it). **Edit › Resize Area…** and **Rotate Area…**
 change the area shown last, as in Aurora. See [Areas](04-areas.md).
+ area shown last, as in Aurora. See [Areas](04-areas.md).

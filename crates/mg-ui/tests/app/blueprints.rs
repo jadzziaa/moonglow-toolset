@@ -166,10 +166,10 @@ fn waypoint_editor_edits_and_renames() {
     h.key_press(egui::Key::Tab);
     h.run();
     assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"WP_RENAMED");
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     // A map note.
-    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.get_by_label("Waypoint contains a map note").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("HasMapNote"), Some(1));
     // Rename: the tab follows.
@@ -203,16 +203,16 @@ fn sound_editor_lists_positions_and_times() {
     let sounds = field(&mut h, &key).list("Sounds").unwrap().len();
     assert_eq!(sounds, before + 1);
     // Positioning: a random position sets both fields.
-    h.get_by_label("Positioning").click();
+    page(&mut h, "Positioning");
     h.run();
     h.get_by_label("Plays from a random position each time it is played").click();
     h.run();
     let s = field(&mut h, &key);
     assert_eq!((s.integer("Positional"), s.integer("RandomPosition")), (Some(1), Some(1)));
     // Specific hours.
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
-    h.get_by_label("Specific Hours").click();
+    h.get_by_label("Specific hours").click();
     h.run();
     h.get_by_label("3 PM").click();
     h.run();
@@ -329,14 +329,14 @@ fn a_creature_s_sound_set_and_faction_are_on_its_basic_page() {
     };
     h.run();
     let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
-    assert!(y(&h, "Gender") < y(&h, "Sound Set"), "after the gender");
+    assert!(y(&h, "Gender") < y(&h, "Sound set"), "after the gender");
     h.get_by_label("Play Sample");
     h.get_by_label("Faction");
     h.get_by_label("Edit Factions");
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
-    assert!(h.query_by_label("Sound Set").is_none() && h.query_by_label("Faction").is_none());
-    h.get_by_label("Treasure Model");
+    assert!(h.query_by_label("Sound set").is_none() && h.query_by_label("Faction").is_none());
+    h.get_by_label("Treasure model");
 }
 
 /// A creature of a phenotype with no parts of its own (the game's row 1,
@@ -409,7 +409,7 @@ fn an_item_property_s_spells_have_a_filter() {
         field(h, &key).list("PropertiesList").unwrap()[0].integer("Subtype")
     };
     h.run();
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     // The potion's Cast Spell, chosen: its parameters show under it.
     h.get_all_by_label_contains("Cure Light Wounds").last().unwrap().click();
@@ -464,7 +464,7 @@ fn a_skill_s_description_shows_on_hover() {
         return;
     };
     h.run();
-    h.get_by_label("Skills").click();
+    page(&mut h, "Skills");
     h.run();
     assert!(h.query_by_label_contains("opposed test").is_none());
     let hide = h.get_by_label("Hide").rect().center();
@@ -486,10 +486,10 @@ fn trigger_editor_sets_the_type_and_trap() {
     h.run();
     assert_eq!(field(&mut h, &key).integer("Type"), Some(0));
     // Area transition settings apply to transitions only.
-    h.get_by_label("Area Transition").click();
+    page(&mut h, "Area Transition");
     h.run();
     assert!(h.query_by_label_contains("apply to Area Transition triggers").is_some());
-    h.get_by_label("Basic").click();
+    page(&mut h, "Basic");
     h.run();
     // Trigger Type › Trap (the option in the combo's popup, after the tab).
     h.get_by_value("Generic").click();
@@ -497,10 +497,10 @@ fn trigger_editor_sets_the_type_and_trap() {
     h.get_all_by_label("Trap").last().unwrap().click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Type"), Some(2));
-    h.get_all_by_label("Trap").next().unwrap().click();
+    page(&mut h, "Trap");
     h.run();
     let trapped = field(&mut h, &key).integer("TrapFlag").unwrap_or(0);
-    h.get_by_label("Is Trapped").click();
+    h.get_by_label("Is trapped").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("TrapFlag"), Some(1 - trapped));
 }
@@ -556,7 +556,7 @@ fn encounter_editor_lists_creatures_and_respawns() {
     };
     h.run();
     let before = field(&mut h, &key).list("CreatureList").map_or(0, <[_]>::len);
-    h.get_by_label("Creature List").click();
+    page(&mut h, "Creature List");
     h.run();
     // Find a badger in the standard palette and add it.
     type_into_hint(&mut h, "Find", "nw_badger");
@@ -582,17 +582,17 @@ fn encounter_editor_lists_creatures_and_respawns() {
     // Infinite respawns. Showing the page changes nothing, though the
     // blueprint's Respawns (0) is outside the field's range.
     let respawns = field(&mut h, &key).integer("Respawns");
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     assert_eq!(field(&mut h, &key).integer("Respawns"), respawns);
     assert_ne!(h.state().ws.as_ref().unwrap().can_undo(), Some("Respawns"));
     if field(&mut h, &key).integer("Reset") != Some(1) {
-        h.get_by_label("Encounter Respawns").click();
+        h.get_by_label("Encounter respawns").click();
         h.run();
     }
     // Infinite is −1; turning it off leaves one respawn.
     let infinite = field(&mut h, &key).integer("Respawns") == Some(-1);
-    h.get_by_label("Infinite Respawn").click();
+    h.get_by_label("Infinite respawn").click();
     h.run();
     let expected = if infinite { 1 } else { -1 };
     assert_eq!(field(&mut h, &key).integer("Respawns"), Some(expected));
@@ -606,7 +606,7 @@ fn store_editor_stocks_prices_and_restricts() {
     h.run();
     // Limited gold (a store without the field has unlimited gold).
     assert!(matches!(field(&mut h, &key).integer("StoreGold"), None | Some(-1)));
-    h.get_by_label("Has Limited Gold").click();
+    h.get_by_label("Has limited gold").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("StoreGold"), Some(1000));
     // A longsword goes on the weapons page, at the first free place.
@@ -660,7 +660,7 @@ fn store_editor_stocks_prices_and_restricts() {
     let listed = format!("Longsword  ·  {sells} gp, buys at {buys} gp");
     assert!(h.query_all_by_label_contains(&listed).next().is_some(), "{listed}");
     // The store will not buy torches, then will only buy them.
-    h.get_by_label("Restrictions").click();
+    page(&mut h, "Restrictions");
     h.run();
     type_into_hint(&mut h, "Find", "Torch");
     h.get_by_label("Torch").click();
@@ -709,6 +709,10 @@ fn a_long_store_page_lays_out_the_rows_in_sight() {
     h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("stock", vec![set])).unwrap();
     h.get_by_label("Inventory…").click();
     h.run();
+    // (The page of the store's stock: the Inventory page was in view, and
+    // chose its first page, before the stock was set.)
+    h.get_by_label("Weapons (300)").click();
+    h.run();
     let rows = |h: &Harness<'_, Moonglow>| h.query_all_by_label("Remove").count();
     let shown = rows(&h);
     assert!((3..40).contains(&shown), "{shown} rows laid out of 300");
@@ -717,19 +721,23 @@ fn a_long_store_page_lays_out_the_rows_in_sight() {
             && n.label().is_some_and(|l| l.contains("  ·  ") && !l.starts_with("Longsword"))
     };
     assert!(h.query(egui_kittest::kittest::by().predicate(last)).is_none());
-    // The wheel over the list, to its end.
+    // The wheel over the list, to its end (the page's end: the pages
+    // after it follow on the window's one scroll).
     let at = h.get_all_by_label("Remove").next().unwrap().rect().center() - egui::vec2(200.0, 0.0);
     h.hover_at(at);
-    for _ in 0..20 {
+    for _ in 0..400 {
+        if h.query(egui_kittest::kittest::by().predicate(last)).is_some() {
+            break;
+        }
         h.event(egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Point,
-            delta: egui::vec2(0.0, -100_000.0),
+            delta: egui::vec2(0.0, -300.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
         });
-        h.run_steps(10);
+        h.run_steps(4);
+        assert!(rows(&h) < 40, "{} rows laid out", rows(&h));
     }
-    assert!(rows(&h) < 40, "{} rows laid out", rows(&h));
     h.get(egui_kittest::kittest::by().predicate(last)).click_secondary();
     h.run();
     h.get_all_by_label("Remove").last().unwrap().click();
@@ -802,21 +810,21 @@ fn door_editor_sets_appearance_lock_and_transition() {
     assert_eq!(s.integer("GenericType_New"), Some(generic[1].row as i64));
     assert_eq!(s.integer("GenericType"), Some(generic[1].row as i64));
     // Lock.
-    h.get_by_label("Lock").click();
+    page(&mut h, "Lock");
     h.run();
     h.get_by_label("Locked").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Locked"), Some(1));
     // Area transition to a waypoint.
-    h.get_by_label("Area Transition").click();
+    page(&mut h, "Area Transition");
     h.run();
     h.get_by_label("Waypoint").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("LinkedToFlags"), Some(2));
     // No Interrupt is Interruptable 0.
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
-    h.get_by_label("No Interrupt").click();
+    h.get_by_label("No interrupt").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Interruptable"), Some(0));
 }
@@ -917,8 +925,15 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
-    app.palette_dock = false;
-    let mut h = gpu_harness(app, rs, 1100.0, 700.0);
+    // (Wide enough for the window's page list, the fields and the Preview
+    // in the window's pane beside them, M4's U11.)
+    let mut h = gpu_harness(app, rs, 1700.0, 700.0);
+    h.run_steps(3);
+    let at = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+    let size = egui::vec2(1100.0 + mg_ui::RIGHT_DOCK_LEAST + 1.0, 620.0);
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(40.0, 40.0)).set_size(size);
+    }
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
     h.render().expect("render").save(shots.join("chest.png")).unwrap();
@@ -999,7 +1014,7 @@ fn a_placeable_s_illumination_is_written_only_when_changed() {
         return;
     };
     h.run();
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     let state =
         |h: &Harness<'_, Moonglow>| h.get_by_label("Illuminated").accesskit_node().toggled();
@@ -1024,7 +1039,7 @@ fn a_placeable_s_illumination_is_written_only_when_changed() {
         return;
     };
     h.run();
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     let node = h.get_by_label("Illuminated");
     assert!(!node.accesskit_node().is_disabled());
@@ -1095,7 +1110,7 @@ fn a_material_made_tintable_shows_the_tint_section_once_resources_are_read_again
         return;
     };
     h.run();
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     assert!(h.query_by_label("Whole object").is_none(), "nothing to tint yet");
     let mtr = "texture0 plc_rugdmtlbrk\nparameter float tdodTint 1.0 1.0 1.0 0.0\n";
@@ -1117,7 +1132,7 @@ fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
         return;
     };
     h.run();
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     assert!(h.query_by_label("Whole object").is_some(), "the Tint section");
     // (Its row, beside the texture replacements' list of the model's textures.)
@@ -1200,7 +1215,9 @@ fn a_tintable_placeable_s_colors_are_picked_on_its_visuals_page() {
         let swatches: Vec<_> = wells
             .iter()
             .map(|w| w.rect().center())
-            .filter(|c| window.max.x > c.x && c.y > window.min.y)
+            // (In the window's Value column: the Tint section's own lie
+            // behind the window's left part.)
+            .filter(|c| window.contains(*c) && c.x > window.center().x)
             .collect();
         // (Two of the Tint section's behind it, two of the window's: none
         // for a word.)
@@ -1255,7 +1272,7 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
         return;
     };
     h.run();
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     // A texture replacement, added from the empty row.
     type_into_hint(&mut h, "Texture", "plc_chest1");
@@ -1388,7 +1405,7 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     let first = own.first().expect("the chest's model has textures");
     assert!(!first.plt);
     put_replacement(&mut h, key, TEXTURES, 9, ("mg_absent", "mg_other"));
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     // The model's textures, and the entry for one it lacks.
     for t in own.iter().map(|t| t.name.as_str()).chain(["mg_absent"]) {
@@ -1432,10 +1449,13 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
     h.get_by_label("Select Texture");
-    h.get_by_label("Basic").click();
-    h.run();
+    // (The page out of sight: the window's first page at the top, asked
+    // for as Inventory… asks for its page, the picker over the list.)
+    h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Basic");
+    settle(&mut h);
+    assert!(h.query_by_label("Visuals page").is_none(), "the Visuals page out of sight");
     assert!(h.query_by_label("Select Texture").is_none());
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     assert!(h.query_by_label("Select Texture").is_none(), "left with its page");
     // Reset, the model's texture's (first), then the other's.
@@ -1514,7 +1534,7 @@ fn select_texture_leaves_the_interface_out() {
         return;
     };
     h.run();
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     h.get_all_by_label("Select Texture…").next().unwrap().click();
     settle(&mut h);
@@ -1561,7 +1581,7 @@ fn visuals_page_picks_an_animation_replacement_and_resets_it() {
     };
     assert!(anims.len() >= 2, "{anims:?}");
     put_replacement(&mut h, key, ANIMATIONS, 11, ("mg_gone", &anims[0]));
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     h.get_by_value("mg_gone (not in the model)");
     // A new one: the model's first animation played as its second.
@@ -1623,7 +1643,7 @@ fn visuals_page_lists_a_creature_s_plt_textures_with_a_gallery() {
         vec![mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }],
     )));
     h.run();
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run();
     let (textures, anims) = {
         let c = field(&mut h, &key);
@@ -1733,8 +1753,9 @@ fn a_tint_being_picked_is_drawn_and_set_once_as_the_picker_closes() {
     let white = vec![1.0, 1.0, 1.0, 1.0];
     assert_eq!(drawn_tint(&h, area), Some(white.clone()), "white, as set");
     let undo = depth(&h);
-    let well = h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
-    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    let well =
+        in_page(&h, "Variables").get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect();
+    in_page(&h, "Variables").get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
     h.run_steps(3);
     drag_picker(&mut h, well, 0.0, 80.0);
     assert_eq!(depth(&h), undo, "no command while picked");
@@ -1748,10 +1769,13 @@ fn a_tint_being_picked_is_drawn_and_set_once_as_the_picker_closes() {
     assert_ne!(set(&mut h), "#ffffff");
     assert_eq!(drawn_tint(&h, area), Some(picked.clone()), "drawn as set");
     // The Visuals page's Tint section: the same, its whole object's swatch.
-    h.get_by_label("Visuals").click();
+    page(&mut h, "Visuals");
     h.run_steps(3);
     let undo = depth(&h);
-    let well = h.get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell).next().unwrap();
+    let well = in_page(&h, "Visuals")
+        .get_all_by(|n| n.role() == egui::accesskit::Role::ColorWell)
+        .next()
+        .unwrap();
     let well_rect = well.rect();
     well.click();
     h.run_steps(3);
@@ -1834,7 +1858,7 @@ fn a_color_typed_into_the_picker_s_hex_field_is_taken() {
         w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(700.0, 500.0));
     }
     settle(&mut h);
-    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    in_page(&h, "Variables").get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
     h.run_steps(3);
     // (The row's own field shows it too: the picker's is the last.)
     let hex = |h: &Harness<'_, Moonglow>, v: &str| h.get_all_by_value(v).count();
@@ -1859,7 +1883,7 @@ fn classes_page_sets_domains_and_associates() {
         return;
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     let cleric = |h: &mut Harness<'_, Moonglow>| -> mg_gff::Struct {
         let root = field(h, &key);
@@ -1900,7 +1924,7 @@ fn a_cleric_s_domains_fit_a_narrow_window() {
         return;
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     let at = h.state().dock.find_tab(&Tab::Blueprint(key)).expect("its window");
     let window = h.state_mut().dock.get_window_state_mut(at.surface).expect("a window");
@@ -1927,7 +1951,7 @@ fn a_weapon_s_parts_are_pictured_alone() {
         return;
     };
     h.run();
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run_steps(4);
     for part in ["Top", "Middle", "Bottom"] {
         let size = h.get_by_label(&format!("{part} 12")).rect().size();
@@ -1968,7 +1992,7 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
         (s.integer("Cost"), Some(i64::from(game.item_cost(&value))))
     };
     h.run();
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     let before = field(&mut h, &key).list("PropertiesList").map_or(0, <[_]>::len);
     // Far down the list: scrolled to first.
@@ -1976,7 +2000,7 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.run();
     h.get_by_label("Enhancement Bonus").click();
     h.run();
-    h.get_by_label("Add").click();
+    in_page(&h, "Properties").get_by_label("Add").click();
     h.run();
     let props = field(&mut h, &key).list("PropertiesList").unwrap().to_vec();
     assert_eq!(props.len(), before + 1);
@@ -2036,7 +2060,7 @@ fn a_property_s_parameters_are_in_the_table_s_order() {
         return;
     };
     h.run();
-    apart(&h, "Properties").click();
+    page(&mut h, "Properties");
     h.run();
     let name = "Damage Bonus vs. Specific Alignment";
     h.get_by_label(name).scroll_to_me();
@@ -2051,7 +2075,7 @@ fn a_property_s_parameters_are_in_the_table_s_order() {
     assert!(chaotic.is_some() && chaotic < lawful, "by name: {chaotic:?} {lawful:?}");
     h.get_by_label("Chaotic Evil").click();
     h.run();
-    h.get_by_label("Add").click();
+    in_page(&h, "Properties").get_by_label("Add").click();
     h.run();
     // The new property selected: its parameter, the table's first row.
     h.get_by_value("Bludgeoning").scroll_to_me();
@@ -2124,7 +2148,7 @@ fn creature_editor_levels_and_aligns() {
         (s.integer("MaxHitPoints"), i64::from(game.creature_stats(&sheet).max_hit_points))
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     // A second class: one more level, so more hit points from Constitution,
     // stored with the class in one undo step.
@@ -2168,7 +2192,7 @@ fn creature_editor_lists() {
         |h: &mut Harness<'_, Moonglow>, list: &str| field(h, &key).list(list).map_or(0, <[_]>::len);
     h.run();
     // A feat.
-    h.get_by_label("Feats").click();
+    page(&mut h, "Feats");
     h.run();
     // Alertness is feat 0; the checkbox toggles it.
     let has_alertness = |h: &mut Harness<'_, Moonglow>| {
@@ -2185,7 +2209,7 @@ fn creature_editor_lists() {
     assert_eq!(h.query_all_by_label("Alertness").count(), 1 + usize::from(!had));
     h.get_by_label("Assigned");
     // A known spell for the sorcerer (level 1: Magic Missile).
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     let known = |h: &mut Harness<'_, Moonglow>| {
         let classes = field(h, &key).list("ClassList").unwrap().to_vec();
@@ -2198,12 +2222,12 @@ fn creature_editor_lists() {
     h.run();
     assert_eq!(known(&mut h), before + 1);
     // A special ability.
-    h.get_by_label("Special Abilities").click();
+    page(&mut h, "Special Abilities");
     h.run();
     let specials = count(&mut h, "SpecAbilityList");
     type_into_hint(&mut h, "Find", "Fireball");
     h.get_all_by_label("Fireball").next().unwrap().click();
-    h.run();
+    settle(&mut h);
     assert_eq!(count(&mut h, "SpecAbilityList"), specials + 1);
     // Ready as added (the game reads the flags as yes or no: the one
     // switch); switched off, its uses are spent.
@@ -2214,14 +2238,14 @@ fn creature_editor_lists() {
     assert_eq!(flags(&mut h), Some(1));
     assert!(h.query_by_label("Unlimited").is_none() && h.query_by_label("Spontaneous").is_none());
     let ready = egui_kittest::kittest::by().role(egui::accesskit::Role::CheckBox);
-    h.query_all(ready.clone()).last().unwrap().click();
+    in_page(&h, "Special Abilities").query_all(ready.clone()).last().unwrap().click();
     h.run();
     assert_eq!(flags(&mut h), Some(0));
-    h.query_all(ready).last().unwrap().click();
+    in_page(&h, "Special Abilities").query_all(ready).last().unwrap().click();
     h.run();
     assert_eq!(flags(&mut h), Some(1));
     // Armor, chosen in the palette, equipped in the armor slot (the second).
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run();
     type_into_hint(&mut h, "Find", "nw_aarcl001");
     h.get_by_label("Leather Armor").click();
@@ -2715,11 +2739,11 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     let marks = |h: &mut Harness<'_, Moonglow>, page: &'static str| {
         h.state_mut().blueprint_pages.insert((keys[0], mg_edit::GffPath::root()), page);
         h.run();
-        h.query_all_by_value("≠").count()
+        h.query_all_by_value("mixed").count()
     };
     assert_eq!(marks(&mut h, "Basic"), 3, "the name, the appearance, the hit points");
     // The mark says what it means.
-    h.get_all_by_value("≠").next().unwrap().hover();
+    h.get_all_by_value("mixed").next().unwrap().hover();
     h.run();
     assert!(h.query_by_label_contains("The objects differ here").is_some());
     assert_eq!(marks(&mut h, "Advanced"), 3, "the conversation, No Interrupt, the variables");
@@ -2775,11 +2799,10 @@ fn the_variables_page_edits_them_in_place() {
             .collect()
     };
     h.run();
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     h.get_by_label("Variables (0)…");
-    // (The page's tab, over the Advanced page's label beside its button.)
-    h.get_all_by_label("Variables").next().unwrap().click();
+    page(&mut h, "Variables");
     h.run();
     h.get_by_label("Add").click();
     h.run();
@@ -2815,7 +2838,8 @@ fn the_variables_page_edits_them_in_place() {
 /// A row added and not yet named (not set: it has no name) was kept
 /// after its page was left, and shown again, to be set, when the page
 /// was next opened (the review of November 2026, S12): a page not drawn
-/// is forgotten, and shows the list as stored.
+/// (out of sight on the window's one scroll) is forgotten, and shows the
+/// list as stored.
 #[test]
 fn the_variables_page_forgets_what_was_not_set_once_it_is_left() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "wp_vars_left", ResType::UTW)
@@ -2823,14 +2847,15 @@ fn the_variables_page_forgets_what_was_not_set_once_it_is_left() {
         return;
     };
     h.run();
-    h.get_all_by_label("Variables").next().unwrap().click();
-    h.run();
+    page(&mut h, "Variables");
     h.get_by_label("Add").click();
     h.run_steps(3);
     assert!(h.query_by_label("Delete").is_some(), "a row, not yet named");
-    h.get_by_label("Advanced").click();
+    // (Out of sight, the last page at the top: not drawn.)
+    page(&mut h, "Comments");
     h.run_steps(3);
-    h.get_all_by_label("Variables").next().unwrap().click();
+    assert!(h.query_by_label("Variables page").is_none(), "the Variables page out of sight");
+    page(&mut h, "Variables");
     h.run_steps(3);
     assert!(h.query_by_label("Delete").is_none(), "the list as stored: no row");
     assert!(field(&mut h, &key).list("VarTable").is_none_or(<[_]>::is_empty));
@@ -2845,7 +2870,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     let sets = mg_testkit::scratch_dir("ui-var-sets").join("sets");
     h.state_mut().var_set_dir = Some(sets.clone());
     h.run();
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     h.get_by_label("Variables (0)…").click();
     h.run();
@@ -2856,7 +2881,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
         edit.rows.push(mg_ui::widgets::VarRow::new("MG_SAY", 3, "Hail"));
     }
     h.run();
-    h.get_by_label("Save Set…").click();
+    h.get_all_by_label("Save Set…").last().unwrap().click();
     h.run();
     h.get_all_by_role(egui::accesskit::Role::TextInput)
         .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
@@ -2879,7 +2904,7 @@ fn variable_sets_are_saved_and_added_elsewhere() {
         .rows
         .push(mg_ui::widgets::VarRow::new("MG_LOOT", 1, "9"));
     h.run();
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").last().unwrap().click();
     h.run();
     h.get_by_label("Loot").click();
     h.run();
@@ -2913,12 +2938,12 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     std::fs::write(sets.join("Broken.vars.json"), "{ \"variables\": [").unwrap();
     h.state_mut().var_set_dir = Some(sets.clone());
     h.run();
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     h.get_by_label("Variables (0)…").click();
     h.run();
     // The menu: the sets, then what is done with sets.
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").last().unwrap().click();
     h.run();
     let items = menu_items(&h, "Open Sets Folder");
     for label in ["Doors", "Loot", "Add from File…", "Manage Sets…", "Open Sets Folder"] {
@@ -2930,7 +2955,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     h.get_by_label("Loot").hover();
     h.run();
     assert!(h.query_by_label("MG_LOOT (int) = 3").is_some(), "Loot's tip");
-    h.get_by_label("Manage Sets…").click();
+    h.get_all_by_label("Manage Sets…").last().unwrap().click();
     h.run();
     assert!(h.query_by_label("Add from File…").is_none(), "the menu closed");
     assert!(h.query_by_label_contains(&sets.display().to_string()).is_some(), "the folder");
@@ -2975,9 +3000,9 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     h.run();
     assert!(h.state().var_edit.as_ref().unwrap().sets.is_none(), "closed");
     // Escape closes the Variable Sets window alone, in front of Variables.
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").last().unwrap().click();
     h.run();
-    h.get_by_label("Manage Sets…").click();
+    h.get_all_by_label("Manage Sets…").last().unwrap().click();
     h.run();
     assert!(h.state().var_edit.as_ref().unwrap().sets.is_some());
     h.key_press(egui::Key::Escape);
@@ -2991,7 +3016,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     h.state_mut().dialogs =
         Box::new(mg_ui::NoDialogs { save: vec![file.clone()], ..Default::default() });
-    h.get_by_label("Save to File…").click();
+    h.get_all_by_label("Save to File…").last().unwrap().click();
     h.run();
     let saved = mg_ui::var_sets::load_file(&file).unwrap();
     assert_eq!(
@@ -3015,7 +3040,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     .unwrap();
     let many = vec![vec![file, other]];
     h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open_many: many, ..Default::default() });
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").last().unwrap().click();
     h.run();
     h.get_by_label("Add from File…").click();
     h.run();
@@ -3027,7 +3052,7 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     // Open Sets Folder makes the folder when it isn't there yet.
     let fresh = scratch.join("fresh");
     h.state_mut().var_set_dir = Some(fresh.clone());
-    h.get_by_label("Add Set").click();
+    h.get_all_by_label("Add Set").last().unwrap().click();
     h.run();
     h.get_by_label("Open Sets Folder").click();
     h.run();
@@ -3143,7 +3168,7 @@ fn script_sets_save_and_load() {
     let dir = mg_testkit::scratch_dir("ui-script-set");
     let path = dir.join("bandit.ini");
     h.run();
-    h.get_by_label("Scripts").click();
+    page(&mut h, "Scripts");
     h.run();
     // Saved in Aurora's layout: [ResRefs], Aurora's event names.
     let spawn = field(&mut h, &key).resref("ScriptSpawn").unwrap();
@@ -3214,7 +3239,7 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let edit = mg_edit::Edit::insert_item(key, path, "MemorizedList3", at, empowered);
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("meta", vec![edit])));
     h.run();
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     let level1 = spell_list(&mut h, &key, "MemorizedList1");
     let level3 = spell_list(&mut h, &key, "MemorizedList3");
@@ -3248,7 +3273,8 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
     let up = h
         .get_all_by_label("One More")
-        .find(|n| (n.rect().center().y - row.center().y).abs() < 4.0)
+        // (The upper of the two at the field's end: M4's U10.)
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 8.0)
         .expect("its arrow up")
         .rect()
         .center();
@@ -3290,7 +3316,7 @@ fn the_spells_page_prepares_with_the_metamagic_chosen() {
     let edit = mg_edit::Edit::insert_item(key, mg_edit::GffPath::root(), "FeatList", feats, feat);
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("feat", vec![edit])));
     h.run();
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     // The Meta-Magic list (showing None).
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -3329,7 +3355,7 @@ fn the_spells_page_ticks_known_spells() {
         list.iter().filter_map(|s| s.integer("Spell")).collect()
     };
     h.run();
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     let acid_splash = spell_row(&h, "Acid_Splash");
     let was = known(&mut h, 0);
@@ -3371,7 +3397,7 @@ fn class_spell_lists_save_clear_and_load() {
             .collect()
     };
     h.run();
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     let before = known(&mut h);
     assert!(before.iter().any(|l| !l.is_empty()), "the sorcerer knows spells");
@@ -3482,7 +3508,7 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
         return;
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     h.get_by_label("Levelup Wizard").click();
     h.run();
@@ -3524,7 +3550,7 @@ fn the_levelup_wizard_takes_a_class_past_level_sixty() {
         }],
     )));
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     h.get_by_label("Levelup Wizard").click();
     h.run();
@@ -3563,7 +3589,7 @@ fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
         return;
     };
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     h.get_by_label("Levelup Wizard").click();
     h.run();
@@ -3706,7 +3732,7 @@ fn the_spells_page_warns_about_invalid_assignments() {
     let edits = vec![set("ClassList", Value::List(vec![wizard])), set("Int", Value::Byte(18))];
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("wizard", edits)));
     h.run();
-    h.get_by_label("Spells").click();
+    page(&mut h, "Spells");
     h.run();
     let warning = "This creature has spells assigned to it that are too high for its current \
                    Wizard level.";
@@ -3805,7 +3831,12 @@ fn portraits_are_chosen_from_their_pictures() {
     let creatures = count(&h);
     // The first creature portrait is portraits.2da row 1, a dwarf woman:
     // its picture is loaded (its name is the picture's).
-    h.get_by_label("po_dw_f_01_").click();
+    // (The grid opens at the blueprint's own portrait and has the keys:
+    // Home brings the first in sight.)
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    // (Its cell, the first named so: the preview beside it is too.)
+    h.get_all_by_label("po_dw_f_01_").next().unwrap().click();
     h.run();
     // Placeables and doors have their own.
     h.get_by_label("Placeable Objects and Doors").click();
@@ -3842,7 +3873,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
         return;
     };
     h.run();
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run();
     h.get_by_label("Icon");
     // (Rendering opens a GPU device.)
@@ -3855,6 +3886,8 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     let other = h
         .get_all_by_label_contains("Appearance ")
         .filter_map(|n| n.accesskit_node().label())
+        // (Its number: the page's group is "Appearance page".)
+        .filter(|l| l.trim_start_matches("Appearance ").parse::<i64>().is_ok())
         .find(|l| l != &format!("Appearance {before}"))
         .expect("another appearance");
     h.get_by_label(&other).click();
@@ -3868,7 +3901,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
             return;
         };
         h.run();
-        h.get_by_label("Appearance").click();
+        page(&mut h, "Appearance");
         h.run();
         h.get_by_label("Icon");
         if let Ok(img) = h.render() {
@@ -3883,7 +3916,7 @@ fn colours_are_chosen_from_palette_swatches() {
         return;
     };
     h.run();
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run();
     let cloth = field(&mut h, &key).integer("Cloth1Color").unwrap();
     let combo = egui::accesskit::Role::ComboBox;
@@ -3910,7 +3943,7 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_wheel", ResType::UTI) else {
         return;
     };
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run();
     let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
     let before = torso(&mut h).expect("a torso");
@@ -3963,11 +3996,11 @@ fn an_armor_s_part_can_be_none() {
     let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_none", ResType::UTI) else {
         return;
     };
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run();
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
-    let label = (h.get_all_by_label("Left Bicep"))
+    let label = (h.get_all_by_label("Left bicep"))
         .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
         .unwrap()
         .rect();
@@ -3979,11 +4012,12 @@ fn an_armor_s_part_can_be_none() {
         .expect("the left bicep's list")
         .click();
     h.run();
-    // (The open list's row; Belt and Robe show it in their boxes.)
+    // (The open list's row, over or under the box as there is room; Belt
+    // and Robe show it in their boxes.)
     h.get_all_by_label("0 (none)")
         .find(|n| {
             n.accesskit_node().role() != egui::accesskit::Role::ComboBox
-                && n.rect().min.y > label.max.y
+                && n.rect().min.x > label.max.x
         })
         .expect("the row of none")
         .click();
@@ -4028,7 +4062,7 @@ fn an_armor_whose_torso_is_0_is_clothing() {
     };
     stat(&h, "Base Weight", "1.0 lbs");
     stat(&h, "Armor Class", "0");
-    stat(&h, "Total Cost", "1");
+    stat(&h, "Total cost", "1");
 }
 
 #[test]
@@ -4049,7 +4083,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
         }],
     )));
     h.run();
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     h.run();
     // (Rendering opens a GPU device.)
     mg_testkit::gpu::hold();
@@ -4065,7 +4099,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
         .click();
     h.run();
     h.get_by_label("Torso Cloth 1 33").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(field(&mut h, &key).get("APart_7_Col_2"), Some(&Value::Byte(33)));
 
     // Another edit, and a save: both parts' colors are in the saved file.
@@ -4087,7 +4121,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.run();
     let pick = if cloth == 5 { 6 } else { 5 };
     h.get_by_label(&format!("Cloth 1 {pick}")).click();
-    h.run();
+    settle(&mut h);
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     let path = mg_testkit::test_output().join("ui-bp-part_colors/sample.mod");
@@ -4112,7 +4146,7 @@ fn sound_play_styles_set_aurora_s_fields_and_priority() {
     };
     h.run();
     let int = |h: &mut Harness<'_, Moonglow>, l: &str| field(h, &key).integer(l);
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     // Four sounds: no seamless looping (Aurora greys it).
     assert!(h.get_by_label("Seamlessly looping").accesskit_node().is_disabled());
@@ -4120,7 +4154,7 @@ fn sound_play_styles_set_aurora_s_fields_and_priority() {
     h.run();
     assert_eq!((int(&mut h, "Looping"), int(&mut h, "Continuous")), (Some(0), Some(0)));
     assert_eq!(int(&mut h, "Priority"), Some(20), "a positional single shot");
-    h.get_by_label("Positioning").click();
+    page(&mut h, "Positioning");
     h.run();
     h.get_by_label("Plays everywhere in area").click();
     h.run();
@@ -4143,6 +4177,9 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
         ("nw_waypoint001", ResType::UTW),
     ];
     let mut found = Vec::new();
+    // (The wheel's turns down the pages: one at least for each page.)
+    let mut walked = 0;
+    let all: usize = editors.iter().map(|(_, t)| mg_ui::blueprint::pages(*t).len()).sum();
     for (name, t) in editors {
         let copy = format!("over_{}", t.extension().unwrap_or("x"));
         let Some((mut h, key)) = blueprint_harness(name, &copy, t) else { return };
@@ -4165,18 +4202,66 @@ fn blueprint_editor_pages_draw_nothing_over_anything_else() {
             egui::vec2(1000.0, 800.0),
             egui::vec2(800.0, 700.0),
             egui::vec2(600.0, 700.0),
+            egui::vec2(3440.0, 1440.0),
         ] {
             h.set_size(size);
-            for page in mg_ui::blueprint::pages(t) {
-                h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
-                h.run();
-                for o in overlapping(&h) {
-                    found.push(format!("{t:?} {page} at {}: {o}", size.x));
+            // (At 3440 the window as wide as the screen: its pages side
+            // by side in columns, M4's U10.)
+            if size.x > 3000.0 {
+                let at = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+                if let Some(state) = h.state_mut().dock.get_window_state_mut(at.surface) {
+                    state
+                        .set_position(egui::pos2(10.0, 40.0))
+                        .set_size(size - egui::vec2(20.0, 80.0));
                 }
+            }
+            // Each page brought to the top, then walked down its whole
+            // height by the wheel (the pages on one scroll, M4's U9), until
+            // the page after it is at the top.
+            let pages = mg_ui::blueprint::pages(t);
+            for page in pages.iter() {
+                let at = |h: &Harness<'_, Moonglow>| {
+                    h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied()
+                };
+                h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
+                settle(&mut h);
+                let mut steps = 0;
+                let mut prev = None;
+                loop {
+                    for o in overlapping(&h) {
+                        found.push(format!("{t:?} {page} at {}: {o}", size.x));
+                    }
+                    // (A page walked until the page after it is at the top,
+                    // or the scroll goes no further: the last page, or every
+                    // page where the pages stand in columns all in view.)
+                    let seen = (at(&h) == Some(page)).then(|| in_page(&h, page).rect());
+                    let stopped = steps > 0 && seen.is_some() && seen == prev;
+                    if seen.is_none() || stopped || steps > 40 {
+                        break;
+                    }
+                    prev = seen;
+                    let seen = seen.unwrap();
+                    // (In the page's left margin: a list on the page
+                    // takes the wheel over it.)
+                    // (Near its top: the part of it in sight may be a
+                    // sliver at the scroll's top edge.)
+                    h.hover_at(egui::pos2(seen.left() + 6.0, seen.top() + 12.0));
+                    h.event(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -(seen.height() * 0.8).max(40.0)),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                    h.run_steps(8);
+                    steps += 1;
+                }
+                assert!(steps <= 40, "{t:?} {page} at {}: walked to its end", size.x);
+                walked += steps;
             }
         }
     }
     assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
+    assert!(walked >= 5 * all, "every page walked at each size: {walked} turns, {all} pages");
 }
 
 /// The Creature Wizard offers the racial types that have a name (not
@@ -4286,8 +4371,10 @@ fn the_gallery_opens_at_a_far_appearance() {
         .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
         .unwrap()
         .rect();
+    // (Under the header's Find, the hint strip, 26 high, and the grid's
+    // top padding: its row the first in sight.)
     let below = chosen.top() - find.bottom();
-    assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
+    assert!((26.0..=48.0).contains(&below), "{below} points under Find: {chosen:?}");
 }
 
 /// The game's blueprint, viewed, takes no typing, and its fields' text is
@@ -4342,7 +4429,7 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
     assert_eq!(copied, std::slice::from_ref(&tag), "its text copied");
     h.run();
     // Its pages open.
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     assert_eq!(
         h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied(),
@@ -4366,10 +4453,13 @@ fn a_viewed_blueprint_s_fields_take_no_typing() {
     assert!(h.query_all_by_value("torch").next().is_some(), "the search takes it");
 }
 
-/// An item's Appearance page shows its model in the page, over the fields
-/// in a window too narrow to have it beside them.
+/// An item's model is its own Preview panel's (M4's U11; the Appearance
+/// page showed it in the page): the panel beside its tab draws it, with
+/// the model viewer's header (Pop Out in its More), and the Appearance
+/// page draws no viewer of its own; each of the sword's parts as
+/// pictures.
 #[test]
-fn an_item_s_appearance_page_shows_its_model() {
+fn an_item_s_model_is_its_preview_panel_s() {
     let Some((mut h, _area)) = area_harness("item-model") else { return };
     let key = ResKey::parse("nw_wswls001", ResType::UTI).unwrap();
     {
@@ -4377,20 +4467,28 @@ fn an_item_s_appearance_page_shows_its_model() {
         let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
         app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
         app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+        app.settings.window_places = vec![("item".to_string(), "middle".to_string())];
         app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     }
-    h.run_steps(10);
-    // (The viewer's own buttons: it is there, and has the game's data.)
-    assert!(h.query_by_label("Pop Out").is_some());
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(key);
+    assert!(h.state().model_views[&source].holds_targets(), "drawn");
+    let header = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+    assert_eq!(header.len(), 1, "one viewer");
+    assert!(right_dock_rect(&h).contains_rect(header[0].row), "in the Preview panel");
+    let places = mg_uikit::header::places(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+    assert!(places.iter().any(|(n, _)| n == "Pop Out"), "Pop Out in it: {places:?}");
     assert!(h.query_by_label_contains("No game data").is_none());
     // Each of the sword's parts as pictures.
     assert!(h.query_all_by_label_contains("Top ").count() > 1);
 }
 
-/// A placeable's and a door's Basic page show the model in the page, as
-/// Aurora's dialogs have a 3D preview.
+/// A placeable's and a door's model is their Preview panel's (M4's U11;
+/// their Basic page showed it beside the fields in a wide window): at 800
+/// and at 1900 the panel beside the tab draws it and the Basic page has
+/// its Preview button and no viewer; the tab closed, no viewer is drawn.
 #[test]
-fn a_placeable_s_and_a_door_s_page_show_the_model() {
+fn a_placeable_s_and_a_door_s_model_is_their_preview_panel_s() {
     let Some((mut h, _area)) = area_harness("situated-model") else { return };
     for (name, restype) in [("plc_chest1", ResType::UTP), ("nw_door_ttr_01", ResType::UTD)] {
         let key = ResKey::parse(name, restype).unwrap();
@@ -4404,23 +4502,23 @@ fn a_placeable_s_and_a_door_s_page_show_the_model() {
             app.settings.window_places = vec![(kind.to_string(), "middle".to_string())];
             app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
         }
-        // Too narrow for the fields and the model: a Preview button. (800
-        // wide: the Left Dock a strip and the Right Dock 280 there, M3
-        // T14, the editor area about 480 points, as 900 had it with both
-        // docks open before.)
-        h.set_size(egui::vec2(800.0, 800.0));
-        h.run_steps(10);
-        assert!(h.query_by_label("Pop Out").is_none(), "{key}: no room beside the fields");
-        assert!(apart_all(&h, "Preview").next().is_some(), "{key}");
-        // Wide enough: the viewer beside the fields.
-        h.set_size(egui::vec2(1900.0, 1000.0));
-        h.run_steps(10);
-        assert!(h.query_by_label("Pop Out").is_some(), "{key}: the viewer is in the page");
-        assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        let source = mg_ui::model_view::Source::Resource(key);
+        for width in [800.0, 1900.0] {
+            h.set_size(egui::vec2(width, 1000.0));
+            settle(&mut h);
+            let headers = h.query_all_by_label(mg_ui::model_view::MODEL_HEADER).count();
+            assert_eq!(headers, 1, "{key} at {width}: one viewer");
+            let header = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+            assert!(right_dock_rect(&h).contains_rect(header[0].row), "{key} at {width}: docked");
+            assert!(h.state().model_views[&source].holds_targets(), "{key} at {width}: drawn");
+            assert!(apart_all(&h, "Preview").next().is_some(), "{key} at {width}: its button");
+            assert!(h.query_by_label_contains("No game data").is_none(), "{key}");
+        }
         let tab = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
         h.state_mut().dock.remove_tab(tab);
-        h.run_steps(3);
-        assert!(h.query_by_label("Pop Out").is_none(), "{key}: closed again");
+        settle(&mut h);
+        let header = h.query_by_label(mg_ui::model_view::MODEL_HEADER);
+        assert!(header.is_none(), "{key}: closed again");
     }
 }
 
@@ -4675,7 +4773,7 @@ fn an_armor_s_part_is_chosen_by_its_picture() {
         }
         panic!("{what}: not seen");
     };
-    h.get_by_label("Appearance").click();
+    page(&mut h, "Appearance");
     until(&mut h, "the Thighs button", &|h| {
         h.query_by(|n| {
             n.role() == egui::accesskit::Role::Button && n.label().as_deref() == Some("Thighs")
@@ -4731,7 +4829,7 @@ fn a_creature_s_class_is_not_made_one_it_has_already() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("classes", vec![set])));
     h.run();
-    h.get_by_label("Classes").click();
+    page(&mut h, "Classes");
     h.run();
     let classes = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
         let s = field(h, &key);

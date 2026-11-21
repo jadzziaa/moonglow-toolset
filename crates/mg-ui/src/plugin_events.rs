@@ -358,13 +358,14 @@ pub(crate) fn queue_saved(app: &mut Moonglow, was: Option<&mg_module::Module>) {
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(held) = app.plugins.save.held.clone() else { return };
     let refused = held.heard.iter().any(|h| h.refused);
-    let (mut anyway, mut close, mut fixed) = (false, false, None);
+    let mut fixed = None;
     let modal = crate::widgets::modal_window(ctx, egui::Id::new("plugin-save")).show(ctx, |ui| {
-        crate::widgets::modal_titled(
+        crate::widgets::modal_titled_foot(
             ui,
             if refused { "Not Saved" } else { "Before Saving" },
             |ui| {
-                ui.set_width(540.0);
+                // (Never past the application's window: the modal holds it.)
+                ui.set_width(ui.available_width().min(540.0));
                 ui.label(if refused {
             "A plugin refuses what the save would write. Nothing was written; change it (or \
              make the fix offered), then save again."
@@ -404,19 +405,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             "Plugins check a save as their manifests declare (Plugins › Manage Plugins lists \
              what each does, and disables one).",
         );
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if !refused {
-                        anyway = ui
-                            .button("Save Anyway")
-                            .on_hover_text("Write the module as it is")
-                            .clicked();
-                    }
-                    close = ui.button(if refused { "Close" } else { "Cancel" }).clicked();
-                });
+                let foot = crate::widgets::Foot::new();
+                let foot = match refused {
+                    true => foot.leave("Close"),
+                    false => foot
+                        .main("Save Anyway", true)
+                        .tip("Write the module as it is")
+                        .no_enter()
+                        .cancel(),
+                };
+                ((), foot)
             },
-        );
+        )
+        .1
     });
+    let (stop, pressed) = (modal.should_close(), modal.inner);
+    let (anyway, close) = (pressed.main(), pressed.cancelled());
     if let Some(i) = fixed {
         let fix = held.heard[i].fix.clone().expect("a fix was clicked");
         app.plugins.save.held = None;
@@ -439,7 +443,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             app.claims.cleared = true;
         }
         app.actions.push(held.then);
-    } else if close || modal.should_close() {
+    } else if close || stop {
         app.plugins.save.held = None;
         app.log.said(
             if refused { Level::Warning } else { Level::Info },

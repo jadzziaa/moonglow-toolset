@@ -193,6 +193,12 @@ enum Want {
     References(Option<Query>),
     /// Tile Properties of these tiles (by index in the area's tile list).
     TileProperties(ResRef, Vec<usize>),
+    /// The Talk Table tab showing the game's `dialog.tlk`: a record of
+    /// U17's own tab for it (`game-talk-table`), which the owner's ruling
+    /// folded into the Talk Table tab. Nothing writes it now: the tab
+    /// remembers it showed `dialog.tlk` no more than a file it showed by
+    /// Open File….
+    GameTalk,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,15 +228,13 @@ struct Pending {
     views: BTreeMap<String, View>,
 }
 
-/// Tile Properties waiting for its area's view, to open where it was.
+/// An older record's Tile Properties tab, waiting for its area's view:
+/// its tiles (by index in the area's tile list) selected in Select Tiles
+/// then ([`Moonglow::tiles_again`]).
 #[derive(Debug, Clone)]
 struct TilesWaiting {
     area: ResRef,
     tiles: Vec<usize>,
-    place: Option<Place>,
-    rect: Option<egui::Rect>,
-    /// The tabs it was beside: it joins the first that is open.
-    beside: Vec<String>,
 }
 
 /// The open module's tabs as kept and as they are now.
@@ -290,6 +294,11 @@ impl View {
     /// A script's scroll and cursor kept.
     pub(crate) fn script(&self) -> (Option<egui::Vec2>, Option<(usize, usize)>) {
         (self.scroll.map(|[x, y]| egui::vec2(x, y)), self.cursor.map(|[a, b]| (a, b)))
+    }
+
+    /// The page kept (a NUI source group's switch: M4's U19).
+    pub(crate) fn page(&self) -> Option<&str> {
+        self.page.as_deref()
     }
 
     /// The talk table's line kept.
@@ -427,8 +436,10 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::AdvancedSearch => "advanced-search".into(),
         Tab::Options => "options".into(),
         Tab::PlaceableGallery => "placeable-gallery".into(),
+        Tab::Plugins => "plugins".into(),
         Tab::Script(k) => format!("script:{}", key_text(k)),
         Tab::Nui(k) => format!("nui:{}", key_text(k)),
+        Tab::NuiSource(k) => format!("nui-source:{}", key_text(k)),
         Tab::Gff(k) => format!("gff:{}", key_text(k)),
         Tab::Dialog(k) => format!("dialog:{}", key_text(k)),
         Tab::Resource(k) => format!("resource:{}", key_text(k)),
@@ -449,7 +460,6 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::PluginPanel { plugin, panel } => format!("plugin-panel:{plugin}/{panel}"),
         Tab::Welcome
         | Tab::NoArea
-        | Tab::TileProperties
         | Tab::References
         | Tab::Hak(_)
         | Tab::Table(_)
@@ -481,16 +491,21 @@ fn parse_tab(text: &str) -> Option<Want> {
         "factions" => Tab::Factions,
         "journal" => Tab::Journal,
         "talk-table" => Tab::TalkTable,
+        // (The game's dialog.tlk in a tab of its own, as U17 first kept it
+        // until the owner's ruling: the Talk Table tab, showing it.)
+        "game-talk-table" => return Some(Want::GameTalk),
         "manual" => Tab::Manual,
         "advanced-search" => Tab::AdvancedSearch,
         "options" => Tab::Options,
         "placeable-gallery" => Tab::PlaceableGallery,
+        "plugins" => Tab::Plugins,
         "plugin-panel" => {
             let (plugin, panel) = rest.split_once('/')?;
             Tab::PluginPanel { plugin: plugin.to_string(), panel: panel.to_string() }
         }
         "script" => Tab::Script(parse_key(rest)?),
         "nui" => Tab::Nui(parse_key(rest)?),
+        "nui-source" => Tab::NuiSource(parse_key(rest)?),
         "gff" => Tab::Gff(parse_key(rest)?),
         "dialog" => Tab::Dialog(parse_key(rest)?),
         "resource" => Tab::Resource(parse_key(rest)?),
@@ -719,10 +734,6 @@ impl Moonglow {
                 Some(Query::Tag(t)) => format!("references:tag:{t}"),
                 Some(Query::StrRef(n)) => format!("references:strref:{n}"),
             },
-            Tab::TileProperties => {
-                let p = self.tile_props.as_ref()?;
-                format!("tile-properties:{}:{}", p.area, list(&p.tiles, |t| t.to_string()))
-            }
             tab => plain_text(tab)?,
         })
     }
@@ -741,6 +752,7 @@ impl Moonglow {
             Want::Table(TableAt::File(path) | TableAt::Hak(path, _)) => return path.is_file(),
             Want::References(_) => return true,
             Want::TileProperties(a, _) => return area(a),
+            Want::GameTalk => return true,
             Want::Tab(tab) => tab,
         };
         match tab {
@@ -910,7 +922,7 @@ impl Moonglow {
             self.left_panel = crate::Panel::Resources;
         }
         if palette {
-            self.right_panel = crate::Panel::Palette;
+            self.right_panel = Some(crate::Panel::Palette);
         }
         if panes.is_empty() {
             return false;
@@ -940,6 +952,11 @@ impl Moonglow {
         let git = |a: &ResRef| ResKey::new(*a, ResType::GIT);
         let are = |a: &ResRef| ResKey::new(*a, ResType::ARE);
         match tab {
+            // (A NUI designer's source group: its switch, M4's U19.)
+            Tab::NuiSource(k) => {
+                let page = crate::nui_view::source::switch_name(self.nui_views.get(k)?);
+                Some(View { page: Some(page.to_string()), ..Default::default() })
+            }
             Tab::Area(r) => {
                 let view = self.area_views.get(r)?;
                 let o = view.orbit?;
@@ -974,7 +991,7 @@ impl Moonglow {
             Tab::Instance { area, path } => page(git(area), path.clone()),
             Tab::Instances { area, paths } => page(git(area), paths.first()?.clone()),
             Tab::AreaProperties(r) => page(are(r), GffPath::root()),
-            Tab::AreasProperties(rs) => page(are(rs.first()?), GffPath::root().field("several")),
+            Tab::AreasProperties(rs) => page(are(rs.first()?), crate::area_props::several_page(rs)),
             Tab::TalkTable => {
                 Some(View { line: Some(self.talk_view.selected?), ..Default::default() })
             }
@@ -1104,22 +1121,20 @@ impl Moonglow {
             middle.split = split_of(self, self.dock.main_surface(), NodeIndex::root())
                 .filter(|s| !s.parts.is_empty());
         }
-        // Tile Properties still waiting for its area's view (its tab not
-        // shown since the module opened): kept as it was read, beside the
-        // tabs it was kept with, else where it was.
-        if let Some(w) = &self.open_tabs.tiles {
+        // An older record's Tile Properties still waiting for its area's
+        // view (`tiles_again`): kept as it was read, in a pane of its own,
+        // until the area is drawn; not once the area has gone from the
+        // module (deleted since: written back for ever, else).
+        let area_kept = |a: ResRef| {
+            self.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(a, ResType::ARE)))
+        };
+        if let Some(w) = self.open_tabs.tiles.as_ref().filter(|w| area_kept(w.area)) {
             let text = format!("tile-properties:{}:{}", w.area, list(&w.tiles, |t| t.to_string()));
-            let beside =
-                |p: &&mut Pane| p.split.is_none() && w.beside.iter().any(|b| p.tabs.contains(b));
-            match panes.iter_mut().find(beside) {
-                Some(p) => p.tabs.push(text),
-                None => panes.push(Pane {
-                    place: w.place.unwrap_or(Place::Window).text(),
-                    tabs: vec![text],
-                    rect: w.rect.map(|r| [r.left(), r.top(), r.width(), r.height()]),
-                    ..Default::default()
-                }),
-            }
+            panes.push(Pane {
+                place: Place::Window.text(),
+                tabs: vec![text],
+                ..Default::default()
+            });
         }
         let pane = focused.or_else(|| self.tab_pane());
         let leaf = pane.and_then(|p| self.dock.leaf(p).ok());
@@ -1246,6 +1261,11 @@ impl Moonglow {
                 Some(Tab::References)
             }
             Want::TileProperties(..) => None,
+            Want::GameTalk => {
+                // (Without the game's data, the module's table alone.)
+                let _ = crate::talk_view::game_table(self);
+                Some(Tab::TalkTable)
+            }
         };
         self.actions.truncate(asked);
         tab
@@ -1356,13 +1376,8 @@ impl Moonglow {
         for pane in &panes {
             for (text, want) in &pane.tabs {
                 if let Want::TileProperties(area, tiles) = want {
-                    self.open_tabs.tiles = Some(TilesWaiting {
-                        area: *area,
-                        tiles: tiles.clone(),
-                        place: pane.place,
-                        rect: pane.rect,
-                        beside: pane.tabs.iter().map(|(t, _)| t.clone()).collect(),
-                    });
+                    let tiles = tiles.clone();
+                    self.open_tabs.tiles = Some(TilesWaiting { area: *area, tiles });
                     continue;
                 }
                 match self.open_kept(want.clone()) {
@@ -1407,6 +1422,21 @@ impl Moonglow {
             if self.dock.find_tab(&tab).is_none() {
                 self.dock.main_surface_mut().push_to_first_leaf(tab);
             }
+        }
+        // (A NUI designer's source kept without its design: opened as Split
+        // source opens it, the design first. M4's U19 review.)
+        let alone: Vec<ResKey> = (self.dock.iter_all_tabs())
+            .filter_map(|(_, t)| match t {
+                Tab::NuiSource(k) => Some(*k),
+                _ => None,
+            })
+            .filter(|k| self.dock.find_tab(&Tab::Nui(*k)).is_none())
+            .collect();
+        for key in alone {
+            if let Some(path) = self.dock.find_tab(&Tab::NuiSource(key)) {
+                self.dock.remove_tab(path);
+            }
+            self.actions.push(crate::Action::NuiSource(key, true));
         }
         // (A side editor's changed document whose tab was closed above, not
         // among those kept: its tab, rather than none to save it from.)
@@ -1496,39 +1526,34 @@ impl Moonglow {
         self.open_tabs.views.insert(Tab::Dialog(key), view.clone());
     }
 
-    /// Tile Properties opened again once its area's view has its tiles:
-    /// on the tiles it was of, where it was.
+    /// A record from before Tile Properties was a panel (M4's U5) that
+    /// kept its tab, once its area's view has its tiles: Select Tiles on
+    /// in the area, those of the tiles it was of that the area still has
+    /// selected, and the Right Dock's Tile Properties panel shown (its
+    /// header toggle turned on), as the tile menu's Tile Properties
+    /// does. Nothing else opens. (Records written since keep no such tab.)
     fn tiles_again(&mut self) {
         let Some(w) = &self.open_tabs.tiles else { return };
         let area = w.area;
-        let ready = self.area_views.get(&area).and_then(|v| v.model.as_ref().map(|m| m.width));
-        let (Some(width), true) =
-            (ready, self.area_views.get(&area).is_some_and(|v| v.terrain.is_some()))
-        else {
-            return;
-        };
+        let ready = (self.area_views.get(&area))
+            .filter(|v| v.terrain.is_some())
+            .and_then(|v| v.model.as_ref().map(|m| (m.width, m.height)));
+        let Some((width, height)) = ready else { return };
         let Some(w) = self.open_tabs.tiles.take() else { return };
-        let cells: Vec<(u32, u32)> =
-            w.tiles.iter().map(|&i| (i as u32 % width.max(1), i as u32 / width.max(1))).collect();
+        let width = width.max(1);
+        let cells: Vec<(u32, u32)> = (w.tiles.iter())
+            .filter_map(|&i| u32::try_from(i).ok())
+            .map(|i| (i % width, i / width))
+            .filter(|&(_, y)| y < height)
+            .collect();
+        if cells.is_empty() {
+            return;
+        }
+        // (As the tile menu's Tile Properties shows them: the panel shown
+        // whatever its header toggle said.)
         if let Some(mut view) = self.area_views.remove(&area) {
             crate::tile_select::properties_of(self, &mut view, &cells);
             self.area_views.insert(area, view);
-        }
-        if self.tile_props.is_none() || self.dock.find_tab(&Tab::TileProperties).is_some() {
-            return;
-        }
-        let beside = (w.beside.iter())
-            .filter_map(|t| {
-                (self.dock.iter_all_tabs()).find(|(_, tab)| self.tab_text(tab).as_ref() == Some(t))
-            })
-            .map(|(p, _)| NodePath { surface: p.surface, node: p.node })
-            .next();
-        match beside {
-            Some(at) => {
-                self.dock.set_focused_node_and_surface(at);
-                self.dock.push_to_focused_leaf(Tab::TileProperties);
-            }
-            None => self.place_pane(w.place, w.rect, vec![Tab::TileProperties], None, None),
         }
     }
 }
@@ -1547,6 +1572,7 @@ mod tests {
             Tab::ModuleProperties,
             Tab::Options,
             Tab::PlaceableGallery,
+            Tab::Plugins,
             Tab::Script(key("hello.nss")),
             Tab::Blueprint(key("nw_chest.utp")),
             Tab::Blueprints(vec![key("a.uti"), key("b.uti")]),

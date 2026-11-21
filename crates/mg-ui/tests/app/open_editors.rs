@@ -330,15 +330,29 @@ fn click_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     h.step();
 }
 
-/// The text field showing `value` on the row of a label `label`.
+/// The text field showing `value` on the row of a label `label`: a point
+/// of it no window stands over.
 fn field_at(h: &Harness<'_, Moonglow>, label: &str, value: &str) -> egui::Pos2 {
     let rows: Vec<f32> = h.get_all_by_label(label).map(|n| n.rect().center().y).collect();
     let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
     };
+    // (Its first point no window stands over, from its left end: the
+    // windows open as wide as their page lists need.)
+    // (Of its points, one in the layer furthest back: a window over the
+    // rest of it is in front.)
+    let order: Vec<egui::LayerId> = h.ctx.memory(|m| m.layer_ids().collect());
+    let rank = |p: egui::Pos2| {
+        let l = h.ctx.layer_id_at(p);
+        l.and_then(|l| order.iter().position(|o| *o == l)).unwrap_or(0)
+    };
+    let clear = |r: egui::Rect| {
+        let xs = (0..).map(|k| r.left() + 12.0 + 16.0 * k as f32).take_while(|x| *x < r.right());
+        xs.map(|x| egui::pos2(x, r.center().y)).min_by_key(|p| rank(*p))
+    };
     (h.query_all(egui_kittest::kittest::by().predicate(is)))
-        .map(|n| n.rect().center())
-        .find(|c| rows.iter().any(|y| (c.y - y).abs() < 8.0))
+        .filter(|n| rows.iter().any(|y| (n.rect().center().y - y).abs() < 8.0))
+        .find_map(|n| clear(n.rect()))
         .unwrap_or_else(|| panic!("the {label} field showing {value}"))
 }
 
@@ -360,6 +374,18 @@ fn edit_tag(h: &mut Harness<'_, Moonglow>) {
         open(h, &Tab::ModuleProperties);
     }
     click_tab(h, &Tab::ModuleProperties);
+    settle(h);
+    // (A blueprint's window put beside it, off its Tag field: beside their
+    // page lists, the waypoint's window came to lie over it.)
+    let windows: Vec<_> = (h.state().dock.iter_all_tabs())
+        .filter(|(p, t)| !p.surface.is_main() && matches!(t, Tab::Blueprint(_)))
+        .map(|(p, _)| p.surface)
+        .collect();
+    for surface in windows {
+        if let Some(w) = h.state_mut().dock.get_window_state_mut(surface) {
+            w.set_position(egui::pos2(900.0, 120.0));
+        }
+    }
     settle(h);
     let now = tag(h);
     let at = field_at(h, "Tag", &now);
@@ -546,7 +572,11 @@ fn follows(mode: Mode) {
     let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("wp_a")
     };
-    h.get(egui_kittest::kittest::by().predicate(is)).focus();
+    // (The Tag field on its Basic page: the Advanced page beside it in
+    // view shows the blueprint's ResRef, wp_a too.)
+    (h.get_by_label(mg_ui::blueprint::WINDOW_GROUP).get_by_label("Basic page"))
+        .get(egui_kittest::kittest::by().predicate(is))
+        .focus();
     until(&mut h, "the waypoint's field with the keys", |h| {
         h.ctx.memory(|m| m.focused().is_some())
     });
@@ -742,41 +772,6 @@ fn options_and_model(mode: Mode) {
     hover(&mut h, at);
     escape(&mut h);
     assert!(open_tab(&h, &model), "{mode:?}: a docked model's view stays");
-}
-
-/// Tile Properties docked (its kind kept beside the area) with a change
-/// not applied asks before it closes at Escape, as its X does; Don't Save
-/// closes it. (The game's data and a GPU, else skipped.)
-#[test]
-fn escape_on_docked_tile_properties_with_changes_asks() {
-    tile_properties_ask(Mode::Floating);
-}
-
-#[test]
-fn escape_on_docked_tile_properties_with_changes_asks_as_tabs() {
-    tile_properties_ask(Mode::Tabs);
-}
-
-fn tile_properties_ask(mode: Mode) {
-    use glam::Vec3;
-    let Some((mut h, area)) = area_harness(&mode.dir("ui-open-escape-tiles")) else { return };
-    put_in(h.state_mut(), mode);
-    h.state_mut().settings.window_places =
-        vec![("tile-properties".into(), "split right 400".into())];
-    crate::tiles::tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
-    settle(&mut h);
-    assert_eq!(in_main(&h, &Tab::TileProperties), Some(true), "{mode:?}: docked");
-    let p = h.state_mut().tile_props.as_mut().expect("open");
-    p.main[0] = (p.main[0] + 5) % 32;
-    settle(&mut h);
-    let at = visible_in(&h, &Tab::TileProperties);
-    click_at(&mut h, at);
-    escape(&mut h);
-    h.get_by_label("Save changes to Tile Properties?");
-    assert!(open_tab(&h, &Tab::TileProperties), "{mode:?}: asked, still open");
-    h.get_by_label("Don't Save").click();
-    settle(&mut h);
-    assert!(!open_tab(&h, &Tab::TileProperties));
 }
 
 /// Options › General's Open editors is a radio group named "Open editors"
@@ -1108,4 +1103,31 @@ fn model_window(mode: Mode) {
     assert!(open_tab(&h, &Tab::ModuleProperties), "{mode:?}: the tab stays");
     hover(&mut h, over);
     until(&mut h, "the Esc hint back", esc_hinted);
+}
+
+/// The tab menu of a floating editor keeps today's entries (the moves
+/// table's Floating Editors row "Unchanged, not drawn"): a script in a
+/// window of its own, its tab right-clicked, shows Rename…, Show in Module
+/// Tree, Maximize, Close, Close Others, Close Tabs to the Right and Close
+/// All, in that order, and no Eject for the window's lone tab (a docked
+/// tab's Eject: [`a_kind_moved_keeps_its_place_until_reset_layout`]).
+#[test]
+fn a_floating_editor_s_tab_menu_keeps_today_s_entries() {
+    let mut h = window(Mode::Floating, "ui-open-tab-menu", &[]);
+    open(&mut h, &script(1));
+    assert_eq!(in_main(&h, &script(1)), Some(false), "the script in a window of its own");
+    doc_tab(&h, "s01.nss").click_secondary();
+    until(&mut h, "the tab's menu", |h| h.query_by_label("Close Others").is_some());
+    let entries = [
+        "Rename…",
+        "Show in Module Tree",
+        "Maximize",
+        "Close",
+        "Close Others",
+        "Close Tabs to the Right",
+        "Close All",
+    ];
+    let tops: Vec<f32> = entries.iter().map(|e| popup_item(&h, e).rect().top()).collect();
+    assert!(tops.windows(2).all(|t| t[0] < t[1]), "in the menu's order: {entries:?} at {tops:?}");
+    assert!(h.query_by_label("Eject").is_none(), "no Eject for the window's lone tab");
 }

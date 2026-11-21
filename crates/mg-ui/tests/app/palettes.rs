@@ -359,7 +359,7 @@ fn palette_edit_copy_and_delete() {
     let tag = draft.tag.expect("a waypoint has a tag");
     h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
     h.get_by_label("Create Copy").click();
-    h.run();
+    settle(&mut h);
     // A copy in the module, shown in the Custom palette.
     let copy = ResKey::parse("wp_tavern001", ResType::UTW).unwrap();
     let gff = h.state_mut().ws.as_mut().unwrap().doc(&copy).unwrap().clone();
@@ -705,7 +705,7 @@ fn the_palette_s_header() {
     assert_eq!(count(&h), all);
     // The rarer commands are under "more".
     assert!(h.query_by_label("Categories…").is_none());
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…");
 }
@@ -773,7 +773,7 @@ fn a_module_gets_palette_categories_of_its_own() {
         app.palette.custom = true;
     }
     h.run();
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
@@ -929,7 +929,7 @@ fn a_module_gets_palette_categories_of_its_own() {
     // With a blueprint in it, Remove asks where the blueprint goes;
     // Keep It keeps it, Cancel moves nothing.
     let reopen = |h: &mut Harness<'_, Moonglow>| {
-        h.get_by_label("More").click();
+        palette_more(h).click();
         h.run();
         h.get_by_label("Categories…").click();
         h.run();
@@ -1001,7 +1001,7 @@ fn a_palette_category_is_named_by_a_talk_table_string() {
         app.palette.custom = true;
     }
     h.run();
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
@@ -1326,13 +1326,14 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     // Its outline and place are kept.
     assert_eq!(after[0].get("Geometry"), before[0].get("Geometry"));
     assert_eq!(after[0].float("XPosition"), Some(10.0));
-    // The whole category, from its menu.
+    // The whole category, from its menu. (Waited for: the pointer, where
+    // the menu was, rests on a blueprint's row, whose picture is made.)
     h.get_by_label(&title).click_secondary();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Update Instances").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Update 2").click();
-    h.run();
+    settle(&mut h);
     let after = triggers(&mut h);
     assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), "NEW_1".to_string()));
     // One undo step.
@@ -1643,8 +1644,8 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     // Two objects selected: the toolbar offers to save them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
     h.run_steps(2);
-    h.get_by_label("Save 2 as Prefab…").click();
-    h.run_steps(2);
+    // (In the area header's More.)
+    area_click(&mut h, "Save 2 as Prefab…");
     let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
     assert_eq!(clip.objects.len(), 2);
     h.state_mut().prefab_save = None;
@@ -1921,7 +1922,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
 
     // More › Refresh Palette: the one put in while the module was closed
     // is listed; Undo takes it out again.
-    h.get_by_label("More").click();
+    palette_more(&h).click();
     h.run_steps(2);
     h.get_by_label("Refresh Palette").click();
     h.run_steps(4);
@@ -2134,7 +2135,8 @@ fn a_gallery_s_pictures_are_read_apart_and_look_the_same() {
         // path (another for each harness, and cut where the checkout's
         // path makes it reach).
         let ppp = h.ctx.pixels_per_point();
-        let palette = h.get_all_by_label("Placeables").next().expect("the palette").rect();
+        // (The dock: its type is named by a dropdown in the narrow dock.)
+        let palette = right_dock_rect(&h);
         let log = h.get_all_by_label("Copy Log").next().expect("the log's Copy").rect();
         let image = h.render().expect("render");
         let x = ((palette.min.x * ppp) as u32).min(image.width());
@@ -2246,7 +2248,9 @@ fn the_placeable_gallery_places_gives_and_makes_an_appearance() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
     h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Flame".into();
     h.run_steps(40);
-    assert!(h.query_by_label_contains("right click to give the 1 placeable selected").is_some());
+    assert!(
+        h.query_by_label_contains("Right click gives it to the 1 placeable selected.").is_some()
+    );
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-placeable-gallery").join("gallery.png")).unwrap();
     let appearance = |h: &mut Harness<'_, Moonglow>| {
@@ -2882,10 +2886,19 @@ fn the_palette_groups_blueprints_by_the_project_s_groupings() {
     assert!(!open(&h).iter().any(|k| k.starts_with("utp/standard/0")), "no category's");
 
     // Each palette type its own: the doors have no grouping (no Group
-    // by); the waypoints are by Category until asked.
+    // by; in the narrow dock, Narrow's row with Category alone, grayed);
+    // the waypoints are by Category until asked.
     h.state_mut().palette.kind = BlueprintKind::Door;
     settle(&mut h);
-    assert!(h.query_by_label("Group by").is_none(), "no grouping among the doors");
+    // (Narrow, the row is there, its one choice grayed; wide, no row.)
+    let rows: Vec<bool> =
+        h.query_all_by_value("Category").map(|n| n.accesskit_node().is_disabled()).collect();
+    match palette_types(&h)
+        .is_some_and(|n| n.accesskit_node().role() == egui::accesskit::Role::ComboBox)
+    {
+        true => assert_eq!(rows, [true], "no grouping among the doors: Category alone, grayed"),
+        false => assert!(rows.is_empty(), "no grouping among the doors: no Group by"),
+    }
     h.state_mut().palette.kind = BlueprintKind::Waypoint;
     h.state_mut().palette.custom = true;
     settle(&mut h);

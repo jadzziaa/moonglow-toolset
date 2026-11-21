@@ -18,3 +18,7 @@ applies to it: its text is in `LICENSE-lucide.txt` beside this file.
 
 Added after the boards (M2 of the redesign): `restore` and `extract-all`,
 Lucide's `minimize` and `folder-output` shapes.
+
+Added in M4's U29 review: `custom-light` (Lucide's `lamp` shape) and
+`bake` (Moonglow's own: a walkmesh pressed down onto a tray), each the
+Right Dock's tab of its tool alone.

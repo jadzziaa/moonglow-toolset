@@ -49,9 +49,10 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/area_props.rs",
         '≠',
-        1,
+        2,
         Proportional,
-        "the mark of values that differ, named in a message",
+        "the mark of values that differ, named in a message (the window's and Edit Areas \
+         Together's)",
     ),
     (
         "crates/mg-ui/src/blueprint/creature_lists.rs",
@@ -78,9 +79,10 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/lib.rs",
         '→',
-        1,
+        2,
         Monospace,
-        "a verify finding's reference, from what to what: the log's alone",
+        "a verify finding's reference, from what to what: the log's alone; the other is the \
+         arrow Problems puts › for (its font has none)",
     ),
     (
         "crates/mg-ui/src/model_textures.rs",
@@ -99,9 +101,16 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/nui_view/preview/stage.rs",
         '×',
-        2,
+        1,
         Proportional,
-        "the screen's size (\"1920 × 1080\"), data",
+        "the window's size (\"420 × 300\"), data",
+    ),
+    (
+        "crates/mg-ui/src/nui_view.rs",
+        '×',
+        1,
+        Proportional,
+        "the screen's size in the View popover (\"1920 × 1080\"), data",
     ),
     (
         "crates/mg-ui/src/tile_select.rs",
@@ -111,6 +120,13 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
         "a turn's notation (\"↺90°\": counter-clockwise), data",
     ),
     ("crates/mg-ui/src/tileset_view.rs", '×', 1, Proportional, "a group's size (\"3×2\"), data"),
+    (
+        "crates/mg-ui/src/tileset_view/panels.rs",
+        '×',
+        1,
+        Proportional,
+        "a group's size in the Outliner (\"3×2\"), data",
+    ),
     (
         "crates/mg-ui/src/tileset_view.rs",
         '→',

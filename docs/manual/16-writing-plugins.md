@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # Writing plugins
@@ -1008,7 +1008,7 @@ does that.
 ### A fix for a finding
 
 A finding may carry a **fix**: edits that put it right, offered beside
-the finding in Verify Module's report as a button, and made only when
+the finding in Verify Module's report, and in Problems, as a button, and made only when
 the user clicks it (since API 0.4). `ctx.fix(label)` makes one: its
 `label` is what the button says, and it has `ctx.edit`'s methods
 (`set`, `remove`, `insert`, `remove_item`, `write`…), which record the
@@ -1113,7 +1113,7 @@ be a folder of plugins: each one's tests run, its lines under its id
 (since Moonglow 3.3.0). `mg plugin check` reads the test files too,
 without running them: a file that doesn't read, a test of a check,
 command or event the manifest lacks, a fixture that isn't there. In the
-window, Manage Plugins' **Run Tests** beside a plugin with tests runs
+Plugins tab (Plugins › Manage Plugins…), **Run Tests** beside a plugin with tests runs
 them, the log saying what each came to. The
 `tag-conventions` example has one file, `tests/tags.toml`:
 

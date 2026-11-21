@@ -5,8 +5,7 @@
 //! lines) took 14 ms a key, and 100 ms at a typist's pace: egui keeps the
 //! laid-out lines of a text only while they are asked for at every frame,
 //! and the editor's frames between keys did not ask. Here each line keeps
-//! its own galley while its text, its colors and its underline stay the
-//! same, and a change lays out again only the lines it touched; the
+//! its own galley while its text and its colors stay the same, and a change lays out again only the lines it touched; the
 //! editor's galley is the lines' put together (`Galley::concat`, as egui
 //! puts the lines of a text together itself). The line numbers beside
 //! them are kept the same way.
@@ -17,7 +16,7 @@ use egui::text::{LayoutJob, LayoutSection, TextFormat};
 use egui::{Color32, Galley, Ui};
 use mg_script::lex::{Token, TokenKind, tokenize};
 
-use crate::script_view::{Palette, element, underline_line};
+use crate::script_view::{Palette, element};
 
 /// The id of what [`watch_fonts`] keeps.
 fn fonts_id() -> egui::Id {
@@ -51,8 +50,6 @@ pub(crate) fn fonts_made(ctx: &egui::Context) -> u64 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MadeWith {
     palette: Palette,
-    /// The underline of the error's line.
-    error: Color32,
     /// The line numbers' color.
     weak: Color32,
     pixels_per_point: f32,
@@ -78,8 +75,7 @@ pub(crate) struct LaidOut {
     /// Each line, and its galley.
     lines: Vec<Line>,
     galleys: Vec<Arc<Galley>>,
-    /// The line underlined as an error, and the whole text's galley.
-    error_line: Option<usize>,
+    /// The whole text's galley.
     galley: Option<Arc<Galley>>,
     /// Each line number's mark and galley, the marked lines, and the
     /// numbers' galley (with the empty row after the last, as the text
@@ -93,10 +89,9 @@ impl LaidOut {
     /// Readies the editor's galleys for a frame drawn with `palette`: those
     /// laid out otherwise (other colors, another font size or scale, egui's
     /// fonts made again) are let go of.
-    pub(crate) fn begin(&mut self, ui: &Ui, palette: &Palette, error: Color32) {
+    pub(crate) fn begin(&mut self, ui: &Ui, palette: &Palette) {
         let made_with = MadeWith {
             palette: *palette,
-            error,
             weak: ui.visuals().weak_text_color(),
             pixels_per_point: ui.ctx().pixels_per_point(),
             fonts: fonts_made(ui.ctx()),
@@ -106,28 +101,22 @@ impl LaidOut {
         }
     }
 
-    /// The text laid out, colored by its tokens, `error_line` (0-based)
-    /// underlined. Of the text laid out before, the lines before the
-    /// change are kept, and those after it once the tokens there begin as
-    /// they did (a block comment opened colors the lines down to its
-    /// end); between them, those as they were somewhere there before (a
-    /// Replace All's lines between its replacements).
-    pub(crate) fn text(
-        &mut self,
-        ui: &Ui,
-        text: &str,
-        palette: &Palette,
-        error_line: Option<usize>,
-    ) -> Arc<Galley> {
+    /// The text laid out, colored by its tokens (the live error's wavy
+    /// underline is painted over it by the editor, M4's U13: no line is
+    /// laid out again as the error comes and goes). Of the text laid out
+    /// before, the lines before the change are kept, and those after it
+    /// once the tokens there begin as they did (a block comment opened
+    /// colors the lines down to its end); between them, those as they were
+    /// somewhere there before (a Replace All's lines between its
+    /// replacements).
+    pub(crate) fn text(&mut self, ui: &Ui, text: &str, palette: &Palette) -> Arc<Galley> {
         let before = self.galley.clone();
         if let Some(g) = &before
-            && self.error_line == error_line
             && g.text() == text
         {
             return g.clone();
         }
         let old = before.as_ref().map_or("", |g| g.text());
-        let error = self.made_with.map_or(mg_uikit::Tokens::DARK.syn_error, |m| m.error);
         // The change: from the first byte that differs to the last (as
         // the old text has them, and as the new one does).
         let p = common_prefix(old.as_bytes(), text.as_bytes());
@@ -137,9 +126,8 @@ impl LaidOut {
         let delta = text.len() as isize - old.len() as isize;
         let first = self.lines.partition_point(|l| l.start <= p).saturating_sub(1);
         let reached = self.lines.partition_point(|l| l.start <= old_end);
-        let was: std::collections::HashMap<(u64, bool), &Arc<Galley>> = (first..reached)
-            .map(|i| ((self.lines[i].print, self.lines[i].underlined), &self.galleys[i]))
-            .collect();
+        let was: std::collections::HashMap<u64, &Arc<Galley>> =
+            (first..reached).map(|i| (self.lines[i].print, &self.galleys[i])).collect();
         let (mut start, mut within) =
             self.lines.get(first).map_or((0, Within::Code), |l| (l.start, l.within));
         let (mut fresh, mut fresh_galleys) = (Vec::new(), Vec::new());
@@ -161,15 +149,11 @@ impl LaidOut {
                 let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
                 let next = lex_line(text, start, end, within, &mut tokens);
                 let print = fingerprint(text, start, end, &tokens);
-                let underlined = error_line == Some(first + fresh.len());
-                let galley = match was.get(&(print, underlined)) {
+                let galley = match was.get(&print) {
                     Some(g) => (*g).clone(),
-                    None => {
-                        let underline = underlined.then_some(error);
-                        f.layout_job(line_job(text, &tokens, palette, underline))
-                    }
+                    None => f.layout_job(line_job(text, &tokens, palette)),
                 };
-                fresh.push(Line { start, within, print, underlined });
+                fresh.push(Line { start, within, print });
                 fresh_galleys.push(galley);
                 if end == text.len() {
                     return;
@@ -184,20 +168,6 @@ impl LaidOut {
         for l in &mut self.lines[kept..] {
             l.start = (l.start as isize + delta) as usize;
         }
-        // The error's line underlined, and the one that was no longer.
-        let again: Vec<usize> = (self.lines.iter().enumerate())
-            .filter(|(i, l)| l.underlined != (error_line == Some(*i)))
-            .map(|(i, _)| i)
-            .collect();
-        for i in again {
-            let l = self.lines[i];
-            let end = self.lines.get(i + 1).map_or(text.len(), |n| n.start - 1);
-            lex_line(text, l.start, end, l.within, &mut tokens);
-            let underline = (error_line == Some(i)).then_some(error);
-            let job = line_job(text, &tokens, palette, underline);
-            self.galleys[i] = ui.fonts_mut(|f| f.layout_job(job));
-            self.lines[i].underlined = underline.is_some();
-        }
         let mut job = LayoutJob::single_section(
             text.to_owned(),
             TextFormat::simple(palette.font(), palette.colors[0]),
@@ -205,7 +175,6 @@ impl LaidOut {
         job.wrap.max_width = f32::INFINITY;
         let ppp = ui.ctx().pixels_per_point();
         let galley = Arc::new(Galley::concat(Arc::new(job), &self.galleys, ppp));
-        self.error_line = error_line;
         self.galley = Some(galley.clone());
         galley
     }
@@ -315,8 +284,6 @@ struct Line {
     /// Its text and its tokens' colors (each one's element and place in
     /// the line): two lines alike in these are laid out alike.
     print: u64,
-    /// Whether it is underlined as the error's line.
-    underlined: bool,
 }
 
 /// The tokens of the line `start..end` (its line end not in it), begun
@@ -418,14 +385,8 @@ fn common_suffix(a: &[u8], b: &[u8]) -> usize {
     i
 }
 
-/// A line's layout: its tokens' pieces in their colors, underlined from its
-/// first character that isn't a space to its last.
-fn line_job(
-    text: &str,
-    tokens: &[Token],
-    palette: &Palette,
-    underline: Option<Color32>,
-) -> LayoutJob {
+/// A line's layout: its tokens' pieces in their colors.
+fn line_job(text: &str, tokens: &[Token], palette: &Palette) -> LayoutJob {
     let font = palette.font();
     let mut job = LayoutJob::default();
     for t in tokens.iter().filter(|t| t.span.end > t.span.start) {
@@ -438,10 +399,6 @@ fn line_job(
         return empty_job(font, palette.colors[0]);
     }
     job.wrap.max_width = f32::INFINITY;
-    if let Some(color) = underline {
-        let own = job.text.clone();
-        underline_line(&mut job, &own, 0, color);
-    }
     job
 }
 
@@ -492,19 +449,16 @@ mod tests {
     /// job: egui splits it at its lines itself) and line by line, and
     /// compares the rows: where each is, its size, its line end, its
     /// characters and their colors.
-    fn same_as_whole(ctx: &egui::Context, text: &str, error_line: Option<usize>) {
+    fn same_as_whole(ctx: &egui::Context, text: &str) {
         let palette = Palette::new(&ScriptStyle::default(), true, Color32::WHITE);
         let mut laid = LaidOut::default();
         let mut whole = None;
         let mut lines = None;
         run(ctx, |ui| {
-            laid.begin(ui, &palette, Color32::RED);
-            lines = Some(laid.text(ui, text, &palette, error_line));
+            laid.begin(ui, &palette);
+            lines = Some(laid.text(ui, text, &palette));
             let mut job = highlight(text, &palette);
             job.wrap.max_width = f32::INFINITY;
-            if let Some(line) = error_line {
-                underline_line(&mut job, text, line, Color32::RED);
-            }
             whole = Some(ui.fonts_mut(|f| f.layout_job(job)));
         });
         let (whole, lines) = (whole.unwrap(), lines.unwrap());
@@ -545,8 +499,7 @@ mod tests {
             "/* r\"not a string\n*/ s = \"/* not a comment\";\n// */ r\"\nraw */\n\"",
             "\r\n\t\n  \n",
         ] {
-            same_as_whole(&ctx, text, None);
-            same_as_whole(&ctx, text, Some(1));
+            same_as_whole(&ctx, text);
         }
     }
 
@@ -605,7 +558,7 @@ mod tests {
             mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
         let data = game.resman.get_named("nwscript", mg_core::ResType::NSS).unwrap();
         let text = crate::text::to_editor(&String::from_utf8_lossy(&data)).0;
-        same_as_whole(&egui::Context::default(), &text, Some(200));
+        same_as_whole(&egui::Context::default(), &text);
     }
 
     /// Each edit lays out only the lines whose text or colors it changed,
@@ -616,42 +569,39 @@ mod tests {
         let palette = Palette::new(&ScriptStyle::default(), true, Color32::WHITE);
         let base: String = (0..200).map(|i| format!("int n{i} = {i}; // line {i}\n")).collect();
         let mut laid = LaidOut::default();
-        let mut frame = |text: &str, error_line: Option<usize>| {
+        let mut frame = |text: &str| {
             let mut out = None;
             run(&ctx, |ui| {
-                laid.begin(ui, &palette, Color32::RED);
+                laid.begin(ui, &palette);
                 let before = laid.galleys.clone();
-                let g = laid.text(ui, text, &palette, error_line);
+                let g = laid.text(ui, text, &palette);
                 let kept = laid.galleys.iter().filter(|g| before.iter().any(|b| Arc::ptr_eq(b, g)));
                 out = Some((g, laid.galleys.len() - kept.count()));
             });
             out.unwrap()
         };
-        let (_, made) = frame(&base, None);
+        let (_, made) = frame(&base);
         assert_eq!(made, 201, "every line at first, and the empty one after the last");
         // A character typed on a line: that line.
         let typed = base.replacen("int n50 ", "int n50x ", 1);
-        assert_eq!(frame(&typed, None).1, 1);
+        assert_eq!(frame(&typed).1, 1);
         // A line added: that line.
         let added = typed.replacen("int n60 ", "int n60_;\nint n60 ", 1);
-        assert_eq!(frame(&added, None).1, 1);
-        // The error's line: that line, and the line underlined before.
-        assert_eq!(frame(&added, Some(10)).1, 1);
-        assert_eq!(frame(&added, Some(12)).1, 2);
+        assert_eq!(frame(&added).1, 1);
         // A block comment opened: the lines it colors, up to where it ends.
         let opened = added.replacen("int n100 ", "/* int n100 ", 1).replacen(
             "int n104 = 104;",
             "int n104 = 104; */",
             1,
         );
-        assert_eq!(frame(&opened, Some(12)).1, 5);
+        assert_eq!(frame(&opened).1, 5);
         // Lines changed far apart (Replace All): those lines.
         let replaced = opened.replace("int n150 ", "int m150 ").replace("int n3 ", "int m3 ");
-        assert_eq!(frame(&replaced, Some(12)).1, 2);
+        assert_eq!(frame(&replaced).1, 2);
         // Each laid out as the whole text is.
-        let (g, _) = frame(&replaced, Some(12));
+        let (g, _) = frame(&replaced);
         assert_eq!(g.text(), replaced);
-        same_as_whole(&ctx, &replaced, Some(12));
+        same_as_whole(&ctx, &replaced);
     }
 
     /// The line numbers, laid out a number at a time, as the label of all
@@ -667,7 +617,7 @@ mod tests {
         let mut frame = |lines: usize, bookmarks: &std::collections::BTreeSet<usize>| {
             let mut out = None;
             run(&ctx, |ui| {
-                laid.begin(ui, &palette, Color32::RED);
+                laid.begin(ui, &palette);
                 let g = laid.numbers(ui, lines, bookmarks, &numbered, &palette);
                 let text: String = (1..=lines)
                     .map(|n| {
@@ -712,8 +662,8 @@ mod tests {
             let mut out = None;
             run(ctx, |ui| {
                 watch_fonts(ui.ctx());
-                laid.begin(ui, &palette, Color32::RED);
-                out = Some(laid.text(ui, "void main()\n{\n}\n", &palette, None));
+                laid.begin(ui, &palette);
+                out = Some(laid.text(ui, "void main()\n{\n}\n", &palette));
             });
             out.unwrap()
         };

@@ -96,9 +96,12 @@ impl Look {
 /// disabled, without the fade egui gives a disabled widget (the disabled
 /// colors are the tokens' own, not a fade of the enabled ones), but still
 /// with any opacity a parent gave (a fading window's).
-fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
+pub(crate) fn box_painter(ui: &Ui, enabled: bool) -> egui::Painter {
     let mut painter = ui.painter().clone();
-    if !enabled {
+    // (Only where egui faded it: a `Ui` disabled. A widget disabled in an
+    // enabled `Ui` was never faded, and dividing would lift a parent's
+    // opacity, a fading window's, to full.)
+    if !enabled && !ui.is_enabled() {
         // (egui multiplies the disabled fade into the parent's opacity:
         // taken out again, the parent's is left.)
         let fade = ui.visuals().disabled_alpha();
@@ -138,6 +141,53 @@ pub fn segmented<T: PartialEq + Copy>(
     name: &str,
     value: &mut T,
     choices: &[(T, &str, &str)],
+) -> Response {
+    segmented_in(ui, name, value, choices, None)
+}
+
+/// A [`segmented`] control that fills the width it is given (the mock's
+/// `.seg.fill`: the Script board's Functions, Variables, Constants and
+/// Templates over the Reference panel's list): its choices equal, each at
+/// least as wide as its words and some room; where the width is short of
+/// that, each its words and an equal share of the room left (at least 2
+/// points at each side), so that the words stay whole as long as they
+/// can.
+pub fn segmented_fill<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+) -> Response {
+    let words: Vec<f32> = choices.iter().map(|c| segment_words(ui, c.1).size().x).collect();
+    let seams = choices.len().saturating_sub(1) as f32 * 1.0;
+    let widths = fill_widths(ui.available_width() - seams, &words);
+    segmented_in(ui, name, value, choices, Some(&widths))
+}
+
+/// The widths of a filled segmented control's choices ([`segmented_fill`])
+/// in `room` (the seams left out), their words `words` wide: equal where
+/// each one's words and [`metrics::CONTROL_PADDING_X`] at each side fit in
+/// an equal share; else each its words and an equal share of what is left,
+/// at least 2 points at each side.
+pub(crate) fn fill_widths(room: f32, words: &[f32]) -> Vec<f32> {
+    let n = words.len().max(1) as f32;
+    let equal = (room / n).floor();
+    let pad = 2.0 * metrics::CONTROL_PADDING_X;
+    if words.iter().all(|w| w + pad <= equal) {
+        return vec![equal; words.len()];
+    }
+    let spare = ((room - words.iter().sum::<f32>()) / n).floor().max(4.0);
+    words.iter().map(|w| (w + spare).ceil()).collect()
+}
+
+/// [`segmented`]'s body: each choice `widths`' width where given (filled),
+/// else its words' and the padding.
+fn segmented_in<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    name: &str,
+    value: &mut T,
+    choices: &[(T, &str, &str)],
+    widths: Option<&[f32]>,
 ) -> Response {
     let theme = theme::applied(ui.ctx());
     let group = ui.make_persistent_id(("mg-segmented", name));
@@ -182,15 +232,16 @@ pub fn segmented<T: PartialEq + Copy>(
     let builder = egui::UiBuilder::new()
         .id_salt(("mg-segmented-group", name))
         .layout(egui::Layout::left_to_right(egui::Align::Center));
+    let enabled = ui.is_enabled();
     let mut inner = ui.scope_builder(builder, |ui| {
-        let enabled = ui.is_enabled();
-        ui.response().widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
         ui.spacing_mut().item_spacing.x = if theme.is_some() { 1.0 } else { 2.0 };
         for (i, (choice, words, tip)) in choices.iter().enumerate() {
             let on = *value == *choice;
             let ends = (i == 0, i + 1 == choices.len());
             let t = theme.map(|t| t.tokens());
-            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, i == chosen);
+            let width = widths.and_then(|w| w.get(i).copied());
+            let stop = i == chosen;
+            let mut response = segment(ui, ids[i], t.as_ref(), on, words, ends, stop, width);
             if !tip.is_empty() {
                 response = response.on_hover_text(*tip);
             }
@@ -200,16 +251,32 @@ pub fn segmented<T: PartialEq + Copy>(
             }
         }
     });
+    // (Named on the scope's response of this frame, not on `ui.response()`
+    // within it, which is the last frame's: a group in a window moved since
+    // was said to be where it was. M4's U18.)
+    inner.response.widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, enabled, name));
     if changed {
         inner.response.mark_changed();
     }
     inner.response
 }
 
+/// A segment's words laid out as [`segment`] draws them.
+fn segment_words(ui: &Ui, words: &str) -> std::sync::Arc<egui::Galley> {
+    egui::WidgetText::from(words).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    )
+}
+
 /// One choice of a [`segmented`] control, `id` its own; `ends` says
 /// whether it is the first and the last (their outer corners rounded);
-/// `stop` whether Tab stops at it (the choice chosen alone). Without the
-/// suite's tokens, in egui's selection and widget colors.
+/// `stop` whether Tab stops at it (the choice chosen alone); `width` its
+/// width where the control fills its room ([`segmented_fill`]). Without
+/// the suite's tokens, in egui's selection and widget colors.
+#[allow(clippy::too_many_arguments)]
 fn segment(
     ui: &mut Ui,
     id: Id,
@@ -218,15 +285,12 @@ fn segment(
     words: &str,
     ends: (bool, bool),
     stop: bool,
+    width: Option<f32>,
 ) -> Response {
-    let galley = egui::WidgetText::from(words).into_galley(
-        ui,
-        Some(egui::TextWrapMode::Extend),
-        f32::INFINITY,
-        egui::TextStyle::Button,
-    );
+    let galley = segment_words(ui, words);
     let height = metrics::CONTROL_HEIGHT.max(ui.spacing().interact_size.y);
-    let size = vec2(galley.size().x + 2.0 * metrics::CONTROL_PADDING_X, height);
+    let natural = galley.size().x + 2.0 * metrics::CONTROL_PADDING_X;
+    let size = vec2(width.unwrap_or(natural), height);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let sense = if stop { Sense::click() } else { Sense::CLICK };
     let response = ui.interact(rect, id, sense);
@@ -551,9 +615,9 @@ pub fn code_frame() -> egui::Frame {
 /// A slider in the theme (the mock's `.slider`): egui's [`egui::Slider`]
 /// (its drag, keys, value field and accessible value are egui's), drawn in
 /// a scope where its rail is an `inset` well, the part up to its thumb
-/// `accent-fill`, and its thumb ringed in `text-2`: at rest filled as the
-/// rail (egui fills the rail and the resting thumb alike), under the
-/// pointer or held `slider-thumb`; [read only](read_only), quiet in
+/// `accent-fill`, and its thumb ringed in `text-2` and filled
+/// `slider-thumb`, at rest, under the pointer or held (M4's U25: at rest it
+/// had been the rail's color, egui filling both alike); [read only](read_only), quiet in
 /// `text-3` and the same under the pointer. `slider(ui, Slider::new(&mut v, 0..=100))`
 /// for `ui.add(..)`; egui's own where no theme was applied.
 pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
@@ -576,18 +640,48 @@ pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
             }
             return ui.add(slider);
         }
-        // (The rail is the resting state's fill; the thumb each state's
-        // fill, ringed in its text stroke, which is the value's text too.)
-        w.inactive.bg_fill = t.inset;
+        // (The thumb each state's fill, `slider-thumb` at rest too, ringed in
+        // its text stroke, which is the value's text too. egui fills the
+        // rail with the resting state's fill as well: the rail, the first
+        // shape the slider paints, is filled again as the `inset` well
+        // once painted. M4's U25 settled the thumb at rest, which had
+        // been the rail's color.)
+        w.inactive.bg_fill = t.slider_thumb;
         w.hovered.bg_fill = t.slider_thumb;
         w.active.bg_fill = t.slider_thumb;
         for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
             state.fg_stroke = Stroke::new(1.0, t.text_2);
         }
         v.selection.bg_fill = t.accent_fill;
-        ui.add(slider)
+        let layer = ui.layer_id();
+        let first = ui.ctx().graphics_mut(|g| g.entry(layer).next_idx());
+        let r = ui.add(slider);
+        rail_as_well(ui.ctx(), layer, first, t.slider_thumb, t.inset);
+        r
     })
     .inner
+}
+
+/// The slider's rail, the first shape painted on `layer` from `first`, a
+/// rectangle filled `thumb` (egui fills the rail as the thumb at rest),
+/// filled `well` instead; nothing where the slider painted nothing (out
+/// of sight).
+fn rail_as_well(
+    ctx: &egui::Context,
+    layer: egui::LayerId,
+    first: egui::layers::ShapeIdx,
+    thumb: egui::Color32,
+    well: egui::Color32,
+) {
+    ctx.graphics_mut(|g| {
+        g.entry(layer).mutate_shape(first, |s| {
+            if let egui::Shape::Rect(rail) = &mut s.shape
+                && rail.fill == thumb
+            {
+                rail.fill = well;
+            }
+        });
+    });
 }
 
 /// Paints a chevron (the drawn set's `chevron-right`, 12 px, a stroke as
@@ -633,6 +727,24 @@ pub fn combo_icon(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _op
     };
     let t = theme.tokens();
     paint_chevron(ui.painter(), rect.center(), 1.0, t.text_2);
+}
+
+/// Gives `ui` the open combo box's look (`.combo.open`: `raised-hover`
+/// with its `accent` ring) for the combo boxes laid out in it. The
+/// theme's `widgets.open` fills with `bar`, as egui fills the title bar
+/// of the window on top from it (the dialogs' title row), so a combo box
+/// takes its open look from the `Ui` it is drawn in, not the theme; its
+/// list is a popup of the context's style and keeps the theme's. A `Ui`
+/// without the suite's look is left as it is.
+pub fn combo_style(ui: &mut Ui) {
+    if !themed(ui.style()) {
+        return;
+    }
+    let t = tokens_of(ui.style());
+    let open = &mut ui.visuals_mut().widgets.open;
+    open.weak_bg_fill = t.raised_hover;
+    open.bg_fill = t.raised_hover;
+    open.bg_stroke = Stroke::new(1.0, t.accent);
 }
 
 /// Whether `style` is one the theme made ([`crate::theme::style`], or
@@ -1022,6 +1134,31 @@ mod tests {
         assert_eq!(quiet(false).colors(&t).1, t.text_3);
     }
 
+    /// A filled segmented control's choices: equal where each one's
+    /// words and padding fit an equal share; else each its words and an
+    /// equal share of the rest, so that no word is cut while the room
+    /// holds the words; and it fills the room in a frame.
+    #[test]
+    fn a_filled_segmented_control_fills_its_room_and_keeps_its_words() {
+        assert_eq!(fill_widths(400.0, &[50.0, 60.0, 70.0, 80.0]), [100.0; 4]);
+        // (Short of room for equal shares with padding: words and a share.)
+        let w = fill_widths(264.0, &[58.0, 56.0, 64.0, 66.0]);
+        assert_eq!(w, [63.0, 61.0, 69.0, 71.0]);
+        assert!(w.iter().sum::<f32>() <= 264.0);
+        for (width, words) in w.iter().zip([58.0, 56.0, 64.0, 66.0]) {
+            assert!(*width >= words + 4.0);
+        }
+        let mut drawn = Vec::new();
+        frame(Some(crate::Theme::Dark), |ui| {
+            ui.set_width(330.0);
+            let mut v = 0;
+            let choices = [(0, "Functions", ""), (1, "Variables", ""), (2, "Constants", "")];
+            let r = segmented_fill(ui, "What to list", &mut v, &choices);
+            drawn.push(r.rect.width());
+        });
+        assert!((drawn[0] - 330.0).abs() <= 2.0, "{drawn:?}");
+    }
+
     /// One frame of `add` in a context with the theme (or none).
     fn frame(theme: Option<crate::Theme>, add: impl FnMut(&mut Ui)) -> egui::FullOutput {
         let ctx = egui::Context::default();
@@ -1034,6 +1171,36 @@ mod tests {
         // (Its textures are not taken by a renderer: let go of them.)
         out.textures_delta.clear();
         out
+    }
+
+    /// The slider's thumb at rest is `slider-thumb` (the mock's `text-2`;
+    /// white in light), not the rail's color, and the rail stays the
+    /// `inset` well, in both themes (M4's U25 settled it).
+    #[test]
+    fn a_slider_s_thumb_at_rest_is_not_the_rail_s_color() {
+        for theme in crate::Theme::ALL {
+            let t = theme.tokens();
+            let mut v = 40.0_f32;
+            let out = frame(Some(theme), |ui| {
+                slider(ui, egui::Slider::new(&mut v, 0.0..=100.0).show_value(false));
+            });
+            let rects: Vec<egui::epaint::RectShape> = (out.shapes.iter())
+                .filter_map(|c| match &c.shape {
+                    Shape::Rect(r) => Some(r.clone()),
+                    _ => None,
+                })
+                .collect();
+            let rail = rects.iter().max_by(|a, b| a.rect.width().total_cmp(&b.rect.width()));
+            let rail = rail.expect("the rail");
+            assert_eq!(rail.fill, t.inset, "{theme:?}: the rail");
+            // (The thumb: the shortest across, standing taller than the
+            // rail.)
+            let thumb = (rects.iter().filter(|r| r.rect.height() > rail.rect.height()))
+                .min_by(|a, b| a.rect.width().total_cmp(&b.rect.width()));
+            let thumb = thumb.expect("the thumb");
+            assert_eq!(thumb.fill, t.slider_thumb, "{theme:?}: the thumb at rest");
+            assert_ne!(thumb.fill, rail.fill, "{theme:?}");
+        }
     }
 
     /// Rows after `list_rows` are 22 apart with no gap, whatever is in
@@ -1286,6 +1453,10 @@ mod tests {
                 assert!((painter.opacity() - 0.5).abs() < 1e-4, "{}", painter.opacity());
             });
             assert!((box_painter(ui, true).opacity() - 0.5).abs() < 1e-4);
+            // (A widget disabled in an enabled `Ui`, never faded by egui:
+            // the parent's opacity as it is, not lifted.)
+            let painter = box_painter(ui, false);
+            assert!((painter.opacity() - 0.5).abs() < 1e-4, "{}", painter.opacity());
         });
     }
 }

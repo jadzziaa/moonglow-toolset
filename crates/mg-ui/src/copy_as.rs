@@ -10,7 +10,7 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 
 use crate::text::{decode, encode};
-use crate::widgets::{ResRefText, autofocus, enter};
+use crate::widgets::{ResRefText, autofocus};
 use crate::{Action, Moonglow, Tab};
 
 /// What the Copy window asks.
@@ -231,9 +231,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = format!("Copy {}", draft.from);
     let mut open = true;
     let (mut done, mut cancel) = (false, false);
-    crate::widgets::dialog(ctx, &title, &mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    let footed = crate::widgets::dialog(ctx, &title, &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show_foot(ctx, |ui| {
             egui::Grid::new("copy-as").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "ResRef");
                 let mut text = ResRefText(&mut draft.resref);
@@ -289,17 +290,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if draft.from.restype == ResType::ARE {
                 ui.weak("The area is copied with everything placed in it.");
             }
-            ui.horizontal(|ui| {
-                let ok = ui.add_enabled(!stops, egui::Button::new("Create Copy"));
-                if ok.clicked() || (!stops && enter(ui)) {
-                    done = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    cancel = true;
-                }
-            });
-        },
-    );
+            ((), crate::widgets::Foot::new().main("Create Copy", !stops).cancel())
+        });
+    if let Some(f) = footed {
+        done = f.pressed.main();
+        cancel = f.pressed.cancelled();
+    }
     if done {
         app.actions.push(Action::CopyResource(Box::new(draft)));
     } else if open && !cancel {

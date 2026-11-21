@@ -217,7 +217,14 @@ pub fn style(theme: Theme, old: &Style) -> Style {
         handle_min_length: 16.0,
         ..egui::style::ScrollStyle::solid()
     };
-    style.text_styles = [
+    style.text_styles = text_styles();
+    style
+}
+
+/// The kit's text styles (the body's 13 points, small 11, headings 15,
+/// Hack 13).
+fn text_styles() -> std::collections::BTreeMap<TextStyle, egui::FontId> {
+    [
         (TextStyle::Small, egui::FontId::proportional(metrics::SMALL_SIZE)),
         (TextStyle::Body, egui::FontId::proportional(metrics::BODY_SIZE)),
         (TextStyle::Button, egui::FontId::proportional(metrics::BODY_SIZE)),
@@ -227,8 +234,17 @@ pub fn style(theme: Theme, old: &Style) -> Style {
         (TextStyle::Heading, egui::FontId::proportional(metrics::HEADING_SIZE)),
         (TextStyle::Monospace, egui::FontId::monospace(metrics::MONO_SIZE)),
     ]
-    .into();
-    style
+    .into()
+}
+
+/// Sets back in `style` the kit's own text sizes and the sizes that
+/// follow them (a control's height, a check box's), whatever a window
+/// made larger (the conversation editor's own text size): the kit's
+/// chrome (an editor's header, its popovers) keeps the body's 13 points.
+pub(crate) fn kit_sizes(style: &mut Style) {
+    style.text_styles = text_styles();
+    style.spacing.interact_size.y = metrics::CONTROL_HEIGHT;
+    style.spacing.icon_width = 14.0;
 }
 
 /// The visuals of `theme`: egui's own of the same lightness (their text

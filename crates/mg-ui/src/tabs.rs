@@ -9,8 +9,8 @@ use mg_resman::ResKey;
 
 use crate::side_doc::SideDoc;
 use crate::{
-    Action, Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view,
-    model_view, module_props, script_view,
+    Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view, model_view,
+    module_props, script_view,
 };
 
 /// A tab in the central area.
@@ -27,6 +27,12 @@ pub enum Tab {
     Script(ResKey),
     /// A NUI window (a JUI), in the NUI Creator.
     Nui(ResKey),
+    /// A NUI window's source, the designer's second editor group (M4's
+    /// U19, the NUI board's `crier.jui` beside the design): its text as
+    /// JSON, the window's or its settings', by the group's switch. A part
+    /// of the designer of the same window: it brings the designer's
+    /// panels, and goes when the designer's tab closes.
+    NuiSource(ResKey),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
     /// The Faction Editor.
@@ -79,9 +85,10 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
-    /// Tile Properties of the tiles selected in an area: their lights,
-    /// loops and, of one tile, its variants.
-    TileProperties,
+    /// Plugins › Manage Plugins… (M4's U29; a window before): the plugins
+    /// installed, each one's state, Allow, Remove, Settings and Run Tests,
+    /// this project's plugins and the Console (`plugins::tab`).
+    Plugins,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
     /// A tile of a tileset (its index), to look at: its model and what
@@ -100,9 +107,9 @@ pub(crate) const FORMS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
 
 /// How much taller a window that is mostly rows (a tree, a list, a
 /// table, code) is: its rows are 22 points with none between, where they
-/// were 18 with 3 (a point more each), and only its toolbars and the
+/// were 18 with 3 (a point more each), and only its button rows and the
 /// few lines of form under its rows grew as a form's do (5 points each).
-/// Worked out for the conversation window (its toolbars and Data page
+/// Worked out for the conversation window (its button rows and Data page
 /// about 35 points more, its tree a point a row: some 7 hundredths), and
 /// looked at in the pictures of the conversation, script, journal, raw
 /// fields, resources and manual windows at the sizes they open at
@@ -128,11 +135,7 @@ impl Tab {
     pub(crate) fn floats(&self) -> bool {
         matches!(
             self,
-            Tab::TileProperties
-                | Tab::Model(_)
-                | Tab::InstanceModel { .. }
-                | Tab::ModelCopy { .. }
-                | Tab::Tile { .. }
+            Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } | Tab::Tile { .. }
         )
     }
 
@@ -152,7 +155,6 @@ impl Tab {
                 | Tab::AreasProperties(_)
                 | Tab::ModuleProperties
                 | Tab::Options
-                | Tab::TileProperties
         )
     }
 
@@ -179,6 +181,7 @@ impl Tab {
             Tab::ModuleProperties => "module-properties",
             Tab::Script(_) => "script",
             Tab::Nui(_) => "nui",
+            Tab::NuiSource(_) => "nui-source",
             Tab::Gff(_) => "gff",
             Tab::Factions => "factions",
             Tab::Journal => "journal",
@@ -201,7 +204,7 @@ impl Tab {
             Tab::AdvancedSearch => "advanced-search",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
-            Tab::TileProperties => "tile-properties",
+            Tab::Plugins => "plugins",
             Tab::Tile { .. } => "tile",
             Tab::PluginPanel { .. } => "plugin-panel",
         }
@@ -230,23 +233,41 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
-            Tab::Nui(_) => (1140.0, 792.0),
+            // (The canvas and the header whole: its Components, Properties
+            // and Bindings at its right and its Layers at its left are
+            // added where it opens in a window, M4's U18,
+            // `Moonglow::open_window`.)
+            Tab::Nui(_) => (760.0, 792.0),
+            // (Its source group alone in a window, dragged out of its
+            // design's: room for its header and a line of JSON.)
+            Tab::NuiSource(_) => (520.0, 792.0),
             Tab::Manual | Tab::Resource(_) | Tab::ResourceCopy { .. } => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
+            // (The Talk board's list, its header whole beside it: M4's U17.)
+            Tab::TalkTable => (980.0, 700.0),
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal => (780.0, 632.0),
             Tab::Gff(_) => (780.0, 600.0),
-            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 612.0),
+            // (Room for the page list's 150 points and a page's margins
+            // beside the form as wide as the 760 before it gave: the hak
+            // list's commands on one row; M4's U9.)
+            Tab::ModuleProperties | Tab::AreaProperties(_) | Tab::AreasProperties(_) => {
+                (930.0, 612.0)
+            }
             Tab::Options => crate::options::WINDOW_SIZE.into(),
-            Tab::TileProperties => (560.0, 640.0),
             Tab::PluginPanel { .. } => (380.0, 560.0),
-            // (Each with OK and Cancel under it: 32 points of its height.)
+            // (Its header with OK and Cancel over the pages, the page list
+            // at their left: wide enough beside the list for a creature's
+            // slots beside their palette, a store's palette beside its stock
+            // and an encounter's creatures whole; M4's U9.)
+            // (Its Preview's pane is added where one is drawn: M4's U11,
+            // `Moonglow::open_window`.)
             Tab::Blueprint(_)
             | Tab::Blueprints(_)
             | Tab::Instance { .. }
-            | Tab::Instances { .. } => (820.0, 672.0),
+            | Tab::Instances { .. } => (980.0, 672.0),
             _ => (820.0, 640.0),
         };
         // (The heights were found for controls of 18 points with 3
@@ -263,7 +284,6 @@ impl Tab {
             | Tab::AreaProperties(_)
             | Tab::AreasProperties(_)
             | Tab::Options
-            | Tab::TileProperties
             | Tab::Blueprint(_)
             | Tab::Blueprints(_)
             | Tab::Instance { .. }
@@ -292,9 +312,10 @@ impl Tab {
             "advanced-search",
             "plugin-panel",
         ];
-        const ROWS: [&str; 15] = [
+        const ROWS: [&str; 17] = [
             "script",
             "nui",
+            "nui-source",
             "gff",
             "journal",
             "talk-table",
@@ -307,6 +328,7 @@ impl Tab {
             "manual",
             "references",
             "placeable-gallery",
+            "plugins",
             "tile",
         ];
         let blueprint = mg_area::ObjectKind::ALL.iter().any(|k| k.name() == kind);
@@ -350,9 +372,12 @@ impl Tab {
             Tab::Instance { area: r, .. }
             | Tab::Instances { area: r, .. }
             | Tab::InstanceModel { area: r, .. } => area(r),
-            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
-                Some(*k)
-            }
+            Tab::Script(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k) => Some(*k),
             Tab::Journal => ResKey::parse("module", ResType::JRL),
             Tab::Factions => ResKey::parse("repute", ResType::FAC),
             _ => None,
@@ -399,7 +424,12 @@ impl Tab {
             | Tab::Instances { area: r, .. }
             | Tab::InstanceModel { area: r, .. } => area(r),
             Tab::AreasProperties(areas) => areas.iter_mut().for_each(area),
-            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
+            Tab::Script(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k) => {
                 *k = moved(*k).unwrap_or(*k);
             }
             Tab::Blueprints(keys) => {
@@ -416,9 +446,12 @@ impl Tab {
     /// has it.
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
-            Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {
-                Some(*k)
-            }
+            Tab::Script(k)
+            | Tab::Dialog(k)
+            | Tab::Blueprint(k)
+            | Tab::Gff(k)
+            | Tab::Nui(k)
+            | Tab::NuiSource(k) => Some(*k),
             Tab::Area(r) | Tab::AreaProperties(r) => Some(ResKey::new(*r, ResType::ARE)),
             _ => None,
         }
@@ -464,6 +497,7 @@ impl Viewer<'_> {
             && !list
             && !crate::widgets::dialog_open(ui.ctx())
             && !egui::Popup::is_any_open(ui.ctx())
+            && !mg_uikit::popover::Popover::any_open(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
         if !quiet || self.app.escape_hint_next.is_some() {
@@ -556,6 +590,20 @@ impl Viewer<'_> {
         if *tab == Tab::Options && ui.rect_contains_pointer(ui.max_rect()) {
             self.app.options_hovered_next = true;
         }
+        // (A floating window's tab, for the Status Bar: each the pointer is
+        // over, the top one taken once all are drawn; else the one the last
+        // press was in. Its rect, not `layer_id_at`, which reads the last
+        // frame's layers: a dialog closed this frame was still there.)
+        if floating {
+            // (Its rect as clipped to the window: a tab's body may reach
+            // past the window's frame.)
+            let rect = ui.max_rect().intersect(ui.clip_rect());
+            let over = ui.ctx().pointer_hover_pos().is_some_and(|p| rect.contains(p));
+            let pressed = self.app.last_press.is_some_and(|(_, l)| l == Some(layer));
+            if over || pressed {
+                self.app.window_tabs_next.push((tab.clone(), layer, over));
+            }
+        }
         if escape && !floating && !recording && !tool && tab.escape_cancels() {
             let pointer = ui.rect_contains_pointer(ui.max_rect());
             let at = self.app.keyboard_at;
@@ -574,13 +622,9 @@ impl Viewer<'_> {
                 self.app.escape_taken = true;
             }
             self.app.escape_docked = None;
-            // (Tile Properties with changes not applied asks first, as
-            // its X does: `may_close`.)
             // (Options' Cancel is its close, which drops what wasn't
             // applied.)
-            if *tab == Tab::TileProperties {
-                self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
-            } else if model || *tab == Tab::Options {
+            if model || *tab == Tab::Options {
                 // (Options with changes not applied says they are dropped.)
                 let draft = self.app.options.as_ref().filter(|_| *tab == Tab::Options);
                 if draft.is_some_and(|d| d.apply(&self.app.settings) != self.app.settings) {
@@ -606,11 +650,12 @@ impl Viewer<'_> {
             crate::side_doc::note_pointer(self.app, ui, tab);
         }
         match tab {
-            Tab::Welcome => welcome(self.app, ui),
-            Tab::NoArea => no_area(self.app, ui),
+            Tab::Welcome => crate::welcome::welcome(self.app, ui),
+            Tab::NoArea => crate::welcome::no_area(self.app, ui),
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
+            Tab::NuiSource(k) => crate::nui_view::source::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
@@ -663,8 +708,8 @@ impl Viewer<'_> {
             Tab::References => crate::references::ui(self.app, ui),
             Tab::AdvancedSearch => crate::search::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
+            Tab::Plugins => crate::plugins::tab(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
-            Tab::TileProperties => crate::tile_select::ui(self.app, ui),
             Tab::Tile { tileset, tile } => crate::tile_view::ui(self.app, ui, *tileset, *tile),
             Tab::PluginPanel { plugin, panel } => {
                 crate::plugin_kinds::panel_ui(self.app, ui, plugin, panel)
@@ -708,6 +753,13 @@ impl TabViewer for Viewer<'_> {
         // margin, `Moonglow::ui`, and takes its tabs' from that: without
         // this they sat flush against their pane's edge.)
         let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        // (A form window's header and page list stand flush with its
+        // pane's edges, as the Creature board draws them: M4's U9; its
+        // foot keeps the room the rest have over the Status Bar. Options
+        // too, its header and page list flush as the Options board's: M4's
+        // U23 fix, the board's room for Questions beside their dropdowns.)
+        let flush = egui::Margin { bottom: margin.bottom, ..egui::Margin::ZERO };
+        let margin = if form_window(tab) { flush } else { margin };
         // In a window of its own, a drag on what isn't a control is the
         // tab's, behind all it shows, not the window's (egui_dock's windows
         // have no title bar, so egui moves them by any part): the window
@@ -719,6 +771,12 @@ impl TabViewer for Viewer<'_> {
         {
             // (Not a stop of Tab: `Sense::DRAG` alone.)
             ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::DRAG);
+        }
+        // In a window of its own, the panels its editor brings there, at
+        // its right and under it (`shell::window_panes`; docked, they are
+        // the main window's docks').
+        if ui.layer_id().order != egui::Order::Background {
+            crate::shell::window_panes(self.app, ui, tab);
         }
         let framed = |viewer: &mut Self, ui: &mut Ui, tab: &mut Tab| {
             egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
@@ -859,7 +917,17 @@ impl TabViewer for Viewer<'_> {
         // it is cut short.
         if let Some(look) = self.app.doc_tabs.get(tab) {
             let front = self.app.fronts.contains(tab);
-            let name = look.name.clone();
+            // (A NUI designer's source named as its design on the strip, the
+            // board's; said, and in its tip, as its source: M4's U19 review.)
+            let source = matches!(tab, Tab::NuiSource(_));
+            let name = match source {
+                true => format!("{} source", look.name),
+                false => look.name.clone(),
+            };
+            if source {
+                let tip = format!("{}: its source, as JUI Source or Binding JSON", look.name);
+                let _ = response.clone().on_hover_text(tip);
+            }
             response.widget_info(|| {
                 egui::WidgetInfo::selected(egui::WidgetType::Button, true, front, &name)
             });
@@ -972,7 +1040,9 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
     match tab {
         Tab::Welcome => "Welcome".into(),
         Tab::NoArea => "No Area Open".into(),
-        Tab::Nui(k) => k.to_string(),
+        // (The source group's tab is named as the design's, the board's
+        // `crier.jui` twice.)
+        Tab::Nui(k) | Tab::NuiSource(k) => k.to_string(),
         Tab::ModuleProperties => "Module Properties".into(),
         Tab::Script(k) => k.to_string(),
         Tab::Gff(k) => k.to_string(),
@@ -1017,8 +1087,8 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         Tab::References => "References".into(),
         Tab::AdvancedSearch => "Advanced Search".into(),
         Tab::PlaceableGallery => "Appearance Gallery".into(),
+        Tab::Plugins => "Plugins".into(),
         Tab::Options => "Options".into(),
-        Tab::TileProperties => "Tile Properties".into(),
         Tab::Tile { tileset, tile } => {
             // (As an open area has the tileset: not read for a title.)
             let model = (app.open_tileset(*tileset))
@@ -1118,7 +1188,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::ModuleProperties => I::Module,
         Tab::NoArea | Tab::Area(_) => I::Area,
         Tab::Script(_) => I::Script,
-        Tab::Nui(_) => I::Nui,
+        Tab::Nui(_) | Tab::NuiSource(_) => I::Nui,
         Tab::Gff(k) | Tab::Blueprint(k) | Tab::Resource(k) => of(k.restype),
         Tab::ResourceCopy { key, .. } => of(key.restype),
         Tab::Model(k) | Tab::ModelCopy { key: k, .. } => {
@@ -1144,8 +1214,9 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::References => I::References,
         Tab::AdvancedSearch => I::Search,
         Tab::PlaceableGallery => I::Gallery,
+        Tab::Plugins => I::Plugin,
         Tab::Options => I::Settings,
-        Tab::TileProperties | Tab::Tile { .. } => I::Tile,
+        Tab::Tile { .. } => I::Tile,
         // (The plugin API names no icons: a panel is the plugins'.)
         Tab::PluginPanel { .. } => I::Plugin,
     }
@@ -1166,7 +1237,7 @@ fn resources_of(app: &Moonglow, tab: &Tab) -> Vec<ResKey> {
         Tab::AreasProperties(areas) => {
             areas.iter().flat_map(|r| area(*r, &[ResType::ARE, ResType::GIT])).collect()
         }
-        Tab::Blueprint(k) | Tab::Dialog(k) | Tab::Gff(k) | Tab::Nui(k) => {
+        Tab::Blueprint(k) | Tab::Dialog(k) | Tab::Gff(k) | Tab::Nui(k) | Tab::NuiSource(k) => {
             // (The game's blueprint, looked at: nothing of the module's.)
             if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) { Vec::new() } else { vec![*k] }
         }
@@ -1479,12 +1550,30 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// Whether a tab fits its pane, scrolling within itself, or scrolls in it
 /// when wider or taller ([`TabViewer::ui`]).
+/// Whether `tab` is a form window with its header and page list
+/// (`crate::form_pages`): a blueprint's or placed object's Properties,
+/// Module Properties, Area Properties.
+fn form_window(tab: &Tab) -> bool {
+    matches!(
+        tab,
+        Tab::ModuleProperties
+            | Tab::AreaProperties(_)
+            | Tab::AreasProperties(_)
+            | Tab::Blueprint(_)
+            | Tab::Blueprints(_)
+            | Tab::Instance { .. }
+            | Tab::Instances { .. }
+            | Tab::Options
+    )
+}
+
 fn fits(tab: &Tab) -> bool {
     {
         matches!(
             tab,
             Tab::Script(_)
                 | Tab::Nui(_)
+                | Tab::NuiSource(_)
                 | Tab::Manual
                 | Tab::Options
                 | Tab::ModuleProperties
@@ -1499,6 +1588,7 @@ fn fits(tab: &Tab) -> bool {
                 | Tab::Dialog(_)
                 | Tab::TalkTable
                 | Tab::Tileset(_)
+                | Tab::Hak(_)
                 | Tab::PluginPanel { .. }
         )
     }
@@ -1523,128 +1613,6 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
         .map(|t| String::from_utf8_lossy(t).into_owned())
         .unwrap_or_default();
     format!("{tag} ({area})")
-}
-
-/// The middle of the window while no area is open: how to open one, and
-/// the module's areas to open with a click.
-fn no_area(app: &mut Moonglow, ui: &mut Ui) {
-    let areas = app.ws.as_ref().map(|ws| mg_module::areas::every(&ws.module)).unwrap_or_default();
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.heading("No area open");
-        ui.label("Double-click an area in the module tree to open it here.");
-        ui.add_space(12.0);
-        if ui.button("Area Wizard…").on_hover_text("Make a new area").clicked() {
-            app.actions.push(Action::AreaWizard);
-        }
-        // Those opened lately first (those still in the module), then
-        // the module's first.
-        let by_name = app.settings.area_names;
-        let recent: Vec<mg_core::ResRef> = (app.module_path())
-            .map(|m| app.settings.recent_areas(&m).to_vec())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|a| std::str::FromStr::from_str(a).ok())
-            .filter(|a| areas.contains(a))
-            .collect();
-        let link = |app: &mut Moonglow, ui: &mut Ui, area: mg_core::ResRef| {
-            let label = match &app.ws {
-                Some(ws) => app.area_names.label(ws, app.game.as_deref(), area, by_name),
-                None => area.to_string(),
-            };
-            if ui.link(label).clicked() {
-                app.actions.push(Action::OpenTab(Tab::Area(area)));
-            }
-        };
-        if !recent.is_empty() {
-            ui.add_space(16.0);
-            ui.strong("Opened lately");
-            for area in &recent {
-                link(app, ui, *area);
-            }
-        }
-        if !areas.is_empty() {
-            ui.add_space(16.0);
-            ui.strong("Areas");
-            for area in areas.iter().take(12) {
-                link(app, ui, *area);
-            }
-            if areas.len() > 12 {
-                ui.weak(format!("and {} more in the module tree", areas.len() - 12));
-            }
-        }
-    });
-}
-
-/// A recent module as the welcome page lists it: its name, a folder's
-/// (a module folder, a nasher project) with a `/` after it, and, grayed
-/// after it, the folder it is in. A module folder
-/// beside its `.mod` (GitHub issue 30) was `castle` beside `castle.mod`.
-fn recent_entry(ui: &Ui, path: &std::path::Path) -> egui::text::LayoutJob {
-    use egui::text::{LayoutJob, TextFormat};
-    let mut name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    // (Told by its name, not the disk: recent modules are `.mod` files,
-    // and folders.)
-    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) {
-        name.push('/');
-    }
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let mut job = LayoutJob::default();
-    let own = TextFormat {
-        font_id: font.clone(),
-        color: egui::Color32::PLACEHOLDER,
-        ..Default::default()
-    };
-    job.append(&name, 0.0, own);
-    // (The folder's name alone, `in modules`: the whole path is on hover.)
-    if let Some(place) = path.parent().and_then(|p| p.file_name()) {
-        let weak = TextFormat {
-            font_id: font,
-            color: ui.visuals().weak_text_color(),
-            ..Default::default()
-        };
-        job.append(&format!("  in {}", place.to_string_lossy()), 0.0, weak);
-    }
-    job
-}
-
-fn welcome(app: &mut Moonglow, ui: &mut Ui) {
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.heading("Moonglow Toolset");
-        ui.label("A module toolset for Neverwinter Nights: Enhanced Edition.");
-        ui.add_space(20.0);
-        if ui.button("New Module…").clicked() {
-            app.actions.push(Action::NewModuleDialog);
-        }
-        if ui.button("Open Module…").clicked() {
-            app.actions.push(Action::OpenModuleDialog);
-        }
-        let folder =
-            ui.button("Open Folder…").on_hover_text("A module folder, or a nasher project");
-        if folder.clicked() {
-            app.actions.push(Action::OpenFolderDialog);
-        }
-        if !app.settings.recent.is_empty() {
-            ui.add_space(20.0);
-            ui.strong("Recent modules");
-            for p in app.settings.recent.clone() {
-                if ui.link(recent_entry(ui, &p)).on_hover_text(p.display().to_string()).clicked() {
-                    app.actions.push(Action::OpenModule(p));
-                }
-            }
-        }
-        if app.game.is_none() {
-            ui.add_space(10.0);
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "No game data: choose your Neverwinter Nights installation in Tools > Options.",
-            );
-            if ui.button("Options…").clicked() {
-                app.actions.push(Action::OptionsDialog);
-            }
-        }
-    });
 }
 
 #[cfg(test)]
@@ -1680,6 +1648,7 @@ mod tests {
             (Tab::NoArea, I::Area),
             (Tab::Script(k("s", ResType::NSS)), I::Script),
             (Tab::Nui(k("n", ResType::JUI)), I::Nui),
+            (Tab::NuiSource(k("n", ResType::JUI)), I::Nui),
             (Tab::Gff(k("g", ResType::FAC)), I::Faction),
             (Tab::Factions, I::Faction),
             (Tab::Journal, I::Journal),
@@ -1704,8 +1673,8 @@ mod tests {
             (Tab::References, I::References),
             (Tab::AdvancedSearch, I::Search),
             (Tab::PlaceableGallery, I::Gallery),
+            (Tab::Plugins, I::Plugin),
             (Tab::Options, I::Settings),
-            (Tab::TileProperties, I::Tile),
             (Tab::InstanceModel { area: r, path }, I::Model),
             (Tab::Tile { tileset: r, tile: 0 }, I::Tile),
             (Tab::PluginPanel { plugin: "p".into(), panel: "q".into() }, I::Plugin),
@@ -1719,6 +1688,7 @@ mod tests {
                 | Tab::NoArea
                 | Tab::Script(_)
                 | Tab::Nui(_)
+                | Tab::NuiSource(_)
                 | Tab::Gff(_)
                 | Tab::Factions
                 | Tab::Journal
@@ -1742,8 +1712,8 @@ mod tests {
                 | Tab::References
                 | Tab::AdvancedSearch
                 | Tab::PlaceableGallery
+                | Tab::Plugins
                 | Tab::Options
-                | Tab::TileProperties
                 | Tab::InstanceModel { .. }
                 | Tab::Tile { .. }
                 | Tab::PluginPanel { .. } => {}

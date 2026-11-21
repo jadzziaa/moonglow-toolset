@@ -697,7 +697,9 @@ fn area_viewer_lays_a_row_of_placeables() {
     }
     h.run_steps(2);
     h.get_by_label_contains("Laying a row of plc_statue1");
-    h.get_by_label("Gap");
+    // (Gap in the header's Brush popover, in Row.)
+    area_tool(&mut h, "Gap");
+    close_area_popover(&mut h);
     let from = screen(&h, area, Vec3::new(8.0, 15.0, 0.0));
     let to = screen(&h, area, Vec3::new(32.0, 15.0, 0.0));
     h.hover_at(from);
@@ -750,8 +752,8 @@ fn area_viewer_fills_a_rectangle_with_placeables() {
         app.paint = true;
     }
     h.run_steps(2);
-    // Fill, from the strip above the view.
-    h.get_by_label("Fill").click();
+    // Fill, from the header's left group (Paint's options).
+    area_click(&mut h, "Fill");
     h.run_steps(2);
     assert!(h.state().settings.paint.fill && !h.state().settings.paint.row);
     h.get_by_label_contains("Filling with plc_statue1");
@@ -821,8 +823,7 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
         flow: 100,
         ..Default::default()
     };
-    // (Where on the screen as the view is now: the strip above it is as
-    // tall as the brush's settings make it.)
+    // (Where on the screen as the view is now.)
     let spot = Vec3::new(20.0, 20.0, 0.0);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -839,7 +840,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
 
     // Shrubs, locked; then trees, not.
     choose(&mut h, shrub, mg_ui::settings::PaintSettings { lock: true, ..scatter });
-    h.get_by_label("Lock");
+    let lock = area_tool(&mut h, "Lock");
+    assert_eq!(lock.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True), "Lock");
+    close_area_popover(&mut h);
     click(&mut h, spot);
     let shrubs = placeables(&mut h);
     assert!(!shrubs.is_empty() && shrubs.iter().all(locked), "painted locked");
@@ -849,9 +852,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
     let trees = of(&both, tree);
     assert!(trees > 0 && both.iter().filter(|p| !locked(p)).count() == trees);
 
-    // Erase, from the strip: the trees in the circle go, as one step; the
-    // shrubs (locked, and of another blueprint) stay.
-    h.get_by_label("Erase").click();
+    // Erase, from the header: the trees in the circle go, as one step;
+    // the shrubs (locked, and of another blueprint) stay.
+    area_click(&mut h, "Erase");
     h.run_steps(2);
     assert!(h.state().settings.paint.erase);
     h.get_by_label_contains("Erasing plc_tree");
@@ -1105,13 +1108,16 @@ fn placed_objects_open_their_properties() {
         let w = &git.root.list("WaypointList").unwrap()[i];
         String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned()
     };
-    // A double click on the second waypoint opens its Properties.
+    // A double click on the second waypoint shows its Properties in the
+    // panel (ruling Q1), whose Open in Tab opens them in a tab.
     let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
     h.run_steps(40);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
         press(&h, at, false, egui::Modifiers::NONE);
     }
+    h.run_steps(3);
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
     h.run_steps(3);
     let path = mg_edit::GffPath::root().item("WaypointList", 1);
     let tab = Tab::Instance { area, path };
@@ -1262,15 +1268,21 @@ fn adjust_location_and_find_instance() {
     assert_eq!(found.len(), 2, "both waypoints share the blueprint's tag");
     assert!(found.iter().all(|f| f.kind == ObjectKind::Waypoint && f.area == area));
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
-    // (Where its row is once the window has taken the list's size.)
-    h.run_steps(40);
-    let second = h.get_all_by_label(&found[1].template).nth(1).expect("the second result").rect();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    // (M4's U28: its rows are Search Results', in the Bottom Dock, made
+    // high enough for both.)
+    let name = format!("Waypoint {}", found[1].tag);
+    let dock = h.state().bottom_dock_rect().expect("open");
+    let rows: Vec<egui::Rect> = h.get_all_by_label(&name).map(|n| n.rect()).collect();
+    assert!(rows.iter().all(|r| dock.contains_rect(*r)), "{rows:?} in {dock:?}");
+    let second = rows.get(1).copied().expect("the second result");
     h.hover_at(second.center());
     for _ in 0..2 {
         press(&h, second.center(), true, egui::Modifiers::NONE);
         press(&h, second.center(), false, egui::Modifiers::NONE);
     }
-    h.run_steps(4);
+    settle(&mut h);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
     // A tag in the game's codepage (é, one byte in Windows-1252) is found
     // as typed: it was read as UTF-8, and matched nothing.
@@ -1703,32 +1715,36 @@ fn several_objects_edited_together() {
     h.get_by_label_contains("what you change is set on each");
     h.get_by_label("Advanced").click();
     h.run_steps(2);
-    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.get_by_label("Waypoint contains a map note").click();
     h.run_steps(3);
     let ws = h.state_mut().ws.as_mut().unwrap();
     let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().root.clone();
     let notes: Vec<_> =
         git.list("WaypointList").unwrap().iter().map(|w| w.integer("HasMapNote")).collect();
     assert_eq!(notes, [Some(1), Some(1)], "both");
-    assert_eq!(ws.can_undo(), Some("Waypoint Contains a Map Note"));
+    assert_eq!(ws.can_undo(), Some("Waypoint contains a map note"));
 }
 
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };
-    area_tool(&h, "Walkmesh…").click();
+    area_click(&mut h, "Ground walkmesh");
     h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh);
     h.get_by_label("Build").click();
     h.run_steps(2);
     h.get_by_label("Area Statistics").click();
     h.run_steps(3);
-    h.get_by_label("Resources Used");
-    h.get_by_label("Triangles");
-    h.get_by_label("16 (4 by 4)");
-    h.get_by_label("Done").click();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    // (M4's U28: a Bottom Dock tab, Resources Used, its rows in it.)
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ResourcesUsed));
+    in_dock(&h, "Triangles");
+    assert_eq!(in_dock(&h, "Tiles").value().as_deref(), Some("16 (4 by 4)"));
+    in_dock(&h, "Close Report").click();
     h.run_steps(2);
     assert!(h.state().area_stats.is_none());
+    assert_ne!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ResourcesUsed));
     if std::env::var_os("MOONGLOW_SCREENS").is_some() {
         let image = h.render().expect("render");
         let out = mg_testkit::output_dir("screens");
@@ -2513,7 +2529,7 @@ fn the_start_location_shows_on_raised_ground() {
     assert_eq!(stored(&mut h), (area, 0.0));
     // (The button is at the end of a toolbar's row, which ends at the
     // tab's edge in a window this narrow too.)
-    area_tool(&h, "Go to Start Location").click();
+    area_click(&mut h, "Go to Start Location");
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
@@ -3134,35 +3150,16 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     assert_eq!(chest.integer("Static"), Some(1));
 }
 
-/// An area opens again with its camera where it was left; Tile
-/// Properties (of the tiles it was of), a tile's view and a load order
-/// layer's copy of a resource open again with it.
+/// An area opens again with its camera where it was left; a tile's view
+/// and a load order layer's copy of a resource open again with it.
+/// (Tile Properties is the Right Dock's panel since M4's U5, no tab to
+/// keep: `an_old_record_s_tile_properties_shows_the_panel`.)
 #[test]
 fn an_area_opens_again_with_its_camera_and_tile_tools() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("open-tabs-camera") else { return };
     let path = h.state().module_path().expect("saved");
     h.state_mut().open_tabs_dir = Some(mg_testkit::scratch_dir("ui-open-tabs-camera"));
-    // Tile Properties of the tile at column 1, row 1.
-    area_tool(&h, "Select Tiles").click();
-    h.run_steps(2);
-    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
-    h.hover_at(at);
-    press(&h, at, true, egui::Modifiers::NONE);
-    press(&h, at, false, egui::Modifiers::NONE);
-    h.run_steps(2);
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: at,
-            button: egui::PointerButton::Secondary,
-            pressed,
-            modifiers: Default::default(),
-        });
-    }
-    h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
-    h.run_steps(2);
-    assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5]));
     // The camera turned, tilted and nearer.
     let orbit = {
         let view = h.state_mut().area_views.get_mut(&area).unwrap();
@@ -3195,8 +3192,81 @@ fn an_area_opens_again_with_its_camera_and_tile_tools() {
     assert!((now.distance - orbit.distance).abs() < 1e-3, "{now:?} {orbit:?}");
     assert!(app.dock.find_tab(&tile).is_some(), "the tile's view");
     assert!(app.dock.find_tab(&copy).is_some(), "the layer's copy");
-    assert_eq!(app.tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5]));
-    assert!(app.dock.find_tab(&Tab::TileProperties).is_some());
+}
+
+/// A module's kept tabs written before Tile Properties was the Right
+/// Dock's panel (M4's U5) name its tab, `tile-properties:AREA:INDICES`:
+/// read without error, they open the area in Select Tiles with those
+/// tiles selected and show the Right Dock's Tile Properties panel (its
+/// header toggle off or on); one of an area the module no longer has is
+/// dropped; a record written now keeps neither.
+#[test]
+fn an_old_record_s_tile_properties_shows_the_panel() {
+    let Some((mut h, area)) = area_harness("open-tabs-old-tiles") else { return };
+    wide_window(&mut h);
+    let path = h.state().module_path().expect("saved");
+    let dir = mg_testkit::scratch_dir("ui-open-tabs-old-tiles");
+    h.state_mut().open_tabs_dir = Some(dir.clone());
+    // (The record written as the tabs are: the area's.)
+    let written = |h: &mut Harness<'_, Moonglow>| {
+        let mut found = None;
+        for _ in 0..40 {
+            h.run_steps(2);
+            let files = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path());
+            if let Some(f) = files.into_iter().next() {
+                found = Some(f);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        found.expect("the record written")
+    };
+    let file = written(&mut h);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("tile-properties"), "none kept now: {text}");
+    // An older record: Tile Properties of tiles 5 and 6 (columns 1 and 2
+    // of row 1) in a pane of its own, and one past the area's end.
+    let mut record: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let pane = serde_json::json!({
+        "place": "window",
+        "tabs": [format!("tile-properties:{area}:5,6,99")],
+        "rect": [900.0, 100.0, 316.0, 600.0],
+    });
+    record["panes"].as_array_mut().unwrap().push(pane);
+    // And one of an area the module no longer has: dropped (not kept and
+    // written back for ever, nor taking the other's place).
+    let gone = serde_json::json!({ "place": "window", "tabs": ["tile-properties:gone:5"] });
+    record["panes"].as_array_mut().unwrap().push(gone);
+    let old = serde_json::to_string_pretty(&record).unwrap();
+    std::fs::write(&file, old).unwrap();
+    // (The header's toggle off: the record shows the panel all the same,
+    // as the tile menu's Tile Properties does.)
+    h.state_mut().settings.hide_tile_properties = true;
+    let errors =
+        |app: &Moonglow| app.log.entries.iter().filter(|(l, _)| *l == mg_ui::Level::Error).count();
+    let errors_before = errors(h.state());
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while h.state().tile_props.is_none() && std::time::Instant::now() < deadline {
+        h.run_steps(2);
+    }
+    let app = h.state();
+    let view = &app.area_views[&area];
+    assert!(view.tile_mode, "Select Tiles on");
+    assert_eq!(view.tile_selection, [(1, 1), (2, 1)], "the tiles the area has");
+    assert_eq!(app.tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5, 6]));
+    assert!(!app.settings.hide_tile_properties, "the toggle turned on");
+    assert!(h.query_by_label("Tile Properties, 2 tiles").is_some(), "the panel's header");
+    assert_eq!(errors(app), errors_before, "read without error");
+    // Written again: neither old tab kept.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    while text.contains("tile-properties") && std::time::Instant::now() < deadline {
+        h.run_steps(5);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        text = std::fs::read_to_string(&file).unwrap();
+    }
+    assert!(!text.contains("tile-properties"), "the old tabs not written back: {text}");
 }
 
 /// Make Placeables Static: those that lose nothing by it, as one command;
@@ -3631,7 +3701,7 @@ fn adjust_location_shows_speed_lerps_and_other_scopes() {
     for note in &a.kept {
         assert!(h.query_by_label(note).is_some(), "the window says so: {note}");
     }
-    h.get_by_label("Animation Speed");
+    h.get_by_label("Animation speed");
     let dir = mg_testkit::output_dir("ui-adjust-kept");
     let _ = std::fs::remove_file(dir.join("noted.png"));
     h.render().expect("render").save(dir.join("noted.png")).unwrap();
@@ -3883,7 +3953,7 @@ fn rings_and_arrows_are_led_from_straight_above() {
 
     // Lighting, switched off, stays off for views opened later.
     assert!(!h.state().settings.unlit_areas);
-    area_tool(&h, "Lighting").click();
+    area_click(&mut h, "Use the area's lighting");
     h.run_steps(2);
     assert!(h.state().settings.unlit_areas);
 }
@@ -4289,7 +4359,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
         h.state().area_views[&area].show[kind.index()]
     };
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
-    area_tool(&h, "Show Triggers").click();
+    area_click(&mut h, "Show Triggers");
     h.run_steps(2);
     assert!(!shown(&h, second, ObjectKind::Trigger), "hidden where it was clicked");
     assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
@@ -4305,7 +4375,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     h.run_steps(3);
     assert!(!shown(&h, first, ObjectKind::Trigger));
     // Show All: everywhere, and nothing kept hidden.
-    area_tool(&h, "All").click();
+    area_click(&mut h, "All");
     h.run_steps(2);
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
     assert!(h.state().settings.hidden_in_areas.is_empty());
@@ -4416,7 +4486,8 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
         app.palette.tiles = false;
     }
     h.run_steps(3);
-    h.get_by_label("More").click();
+    // (The palette's More, not the area header's.)
+    h.get_all_by_label("More").find(|n| !in_group(n, AREA_HEADER)).unwrap().click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run_steps(3);
@@ -5201,8 +5272,9 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     assert!((x - x.round()).abs() < 1e-4 && (y - y.round()).abs() < 1e-4, "on the grid: {x}, {y}");
 }
 
-/// A drag begun in a Properties window lying over the area's view moves
-/// nothing in the area.
+/// A drag begun in a Properties window lying over the area's view (opened
+/// by the panel's Open in Tab) moves nothing in the area. (With the
+/// panel: `properties_panel::a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`.)
 #[test]
 fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
     use glam::Vec3;
@@ -5213,6 +5285,9 @@ fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
         press(&h, at, true, egui::Modifiers::NONE);
         press(&h, at, false, egui::Modifiers::NONE);
     }
+    h.run_steps(5);
+    // (The panel's Open in Tab: the window over the area.)
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
     h.run_steps(5);
     let before = (waypoint(&mut h, area, 0), waypoint(&mut h, area, 1));
     // Where the window covers a waypoint: a drag from there.
@@ -5794,7 +5869,7 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     h.run_steps(1);
     // Paint and Select Tiles are off.
     for tool in ["Paint", "Select Tiles"] {
-        let node = area_tool(&h, tool);
+        let node = area_tool(&mut h, tool);
         assert!(node.accesskit_node().is_disabled(), "{tool} is off");
     }
     // Its menu: what looks at it, nothing that changes it.
@@ -5854,7 +5929,7 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     h.run_steps(2);
     assert_eq!(h.state().area_views[&area].map_rect, None, "off at first");
-    area_tool(&h, "Minimap").click();
+    area_click(&mut h, "Minimap");
     h.run_steps(3);
     assert!(h.state().settings.area_minimap, "kept");
     let rect = h.state().area_views[&area].map_rect.expect("the map is shown");
@@ -5879,46 +5954,69 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
 }
 
-/// The area toolbar's buttons can be hidden (a builder's ask: a toolbar of
-/// what is used): Options › Area › Toolbar, kept in the settings, and the
-/// toolbar's right-click menu, where they are ticked back.
+/// The area header's controls can be hidden (a builder's ask: a toolbar of
+/// what is used): Options › Area › Header, kept in the settings, and the
+/// header's right-click menu, where they are ticked back. A hidden control
+/// is gone from the row, from its popover and from the wide row's
+/// unfolded popovers ("Walkmesh…", the name the toolbar kept, both
+/// walkmeshes).
 #[test]
-fn the_area_toolbar_s_buttons_can_be_hidden() {
+fn the_area_header_s_controls_can_be_hidden() {
     let Some((mut h, _)) = area_harness("toolbar-hidden") else { return };
     settle(&mut h);
-    assert!(h.query_all_by_label_contains("Night").count() > 0);
-    // (The module tree names creatures too.)
-    let creatures = h.query_all_by_label_contains("Creatures").count();
-    h.state_mut().settings.hidden_area_tools = vec!["Night".into(), "Show Creatures".into()];
-    h.run_steps(3);
-    assert_eq!(h.query_all_by_label("Night").count(), 0, "Night hidden");
-    assert_eq!(
-        h.query_all_by_label_contains("Creatures").count(),
-        creatures - 1,
-        "the creatures' filter hidden"
-    );
-    assert!(h.query_all_by_label_contains("Lighting").count() > 0, "the rest stays");
-    // Its right-click menu, between its buttons: Night ticked back.
-    let lighting = h.get_all_by_label_contains("Lighting").next().unwrap().rect();
-    let gap = egui::pos2(lighting.right() + 2.0, lighting.center().y);
-    h.hover_at(gap);
+    let in_header = |h: &Harness<'_, Moonglow>, name: &str| {
+        mg_uikit::header::places(&h.ctx, AREA_HEADER).iter().any(|(n, _)| n == name)
+    };
+    assert!(in_header(&h, "Night"));
+    area_tool(&mut h, "Show Creatures");
+    area_tool(&mut h, "Grid");
+    area_tool(&mut h, "Ground walkmesh");
+    close_area_popover(&mut h);
+    h.state_mut().settings.hidden_area_tools =
+        vec!["Night".into(), "Show Creatures".into(), "Grid".into(), "Walkmesh…".into()];
+    settle(&mut h);
+    assert!(!in_header(&h, "Night"), "Night hidden");
+    // (In their popovers: gone, the rest there.)
+    area_tool(&mut h, "Show Doors");
+    assert!(area_tool_shown(&h, "Show Creatures").is_none(), "the creatures' filter hidden");
+    close_area_popover(&mut h);
+    area_tool(&mut h, "Minimap");
+    for gone in ["Grid", "Ground walkmesh", "Object walkmeshes"] {
+        assert!(area_tool_shown(&h, gone).is_none(), "{gone} hidden in the popover");
+    }
+    close_area_popover(&mut h);
+    // (And from the wide row, where Overlays unfolds into it.)
+    h.set_size(egui::vec2(3000.0, 800.0));
+    settle(&mut h);
+    let places = mg_uikit::header::places(&h.ctx, AREA_HEADER);
+    let overlays = places.iter().find(|(n, _)| n == "Overlays").map(|(_, p)| *p);
+    assert_eq!(overlays, Some(mg_uikit::header::Place::Unfolded), "{places:?}");
+    for gone in ["Grid", "Walkmesh", "Night"] {
+        assert!(!places.iter().any(|(n, _)| n == gone), "{gone} unfolded: {places:?}");
+    }
+    assert!(places.iter().any(|(n, _)| n == "Minimap"), "the rest stays: {places:?}");
+    // Its right-click menu, anywhere on the row: Night ticked back.
+    let row = mg_uikit::header::records(&h.ctx, AREA_HEADER)[0].row;
+    let at = egui::pos2(row.center().x, row.center().y);
+    h.hover_at(at);
     h.run_steps(2);
     for pressed in [true, false] {
         h.event(egui::Event::PointerButton {
-            pos: gap,
+            pos: at,
             button: egui::PointerButton::Secondary,
             pressed,
             modifiers: egui::Modifiers::NONE,
         });
     }
     h.run_steps(3);
-    h.get_by_label("Show on the Toolbar");
+    h.get_by_label("Show in the Header");
     h.get_all_by_label("Night").last().unwrap().click();
     h.run_steps(3);
-    assert_eq!(h.state().settings.hidden_area_tools, ["Show Creatures"]);
+    let hidden = &h.state().settings.hidden_area_tools;
+    assert_eq!(hidden, &["Show Creatures", "Grid", "Walkmesh…"]);
     h.key_press(egui::Key::Escape);
-    h.run_steps(3);
-    assert!(h.query_all_by_label_contains("Night").count() > 0, "Night shown again");
+    settle(&mut h);
+    assert!(in_header(&h, "Night"), "Night shown again");
 }
 
 /// A list takes letters (a builder's report: a long one could only be
@@ -5930,6 +6028,8 @@ fn a_dropdown_goes_to_what_is_typed() {
     use mg_ui::area_view::Fade;
     let Some((mut h, area)) = area_harness("typed-dropdown") else { return };
     settle(&mut h);
+    // (In the header's Lighting popover, opened.)
+    area_tool(&mut h, "Fade Geometry");
     let fade = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].fade;
     assert_eq!(fade(&h), Fade::Never);
     // (Its box, by what it shows: an icon or "Fade Geometry:" before it.)
@@ -6563,11 +6663,11 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // A tile, in tile mode.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, tile);
-    let items = menu_items(&h, "Tile Properties…");
+    let items = menu_items(&h, "Tile Properties");
     assert_eq!(
         items,
         [
@@ -6575,7 +6675,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
             "Previous Tile Appearance",
             "Rotate Tile",
             "Delete",
-            "Tile Properties…"
+            "Tile Properties"
         ]
     );
 }
@@ -6719,8 +6819,8 @@ fn the_area_menus_group_related_commands_in_submenus() {
 
 /// Area Properties' shadow fields show in the view at once (the area read
 /// anew at the edit: the sun's shadows as opaque as its Shadow Opacity),
-/// and the toolbar's Shadows switch takes them away, kept for the views
-/// opened after.
+/// and the header's Lighting popover's Sun and moon shadows takes them
+/// away, kept for the views opened after.
 #[test]
 fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     let Some((mut h, area)) = area_harness("shadows") else { return };
@@ -6745,26 +6845,29 @@ fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     h.run_steps(3);
     let s = shadows(&h).expect("the sun's shadows");
     assert!((s.opacity - 0.4).abs() < 1e-6, "{s:?}");
-    area_tool(&h, "Shadows").click();
+    area_click(&mut h, "Sun and moon shadows");
+    area_click(&mut h, "Creature shadows");
     h.run_steps(2);
     assert_eq!(shadows(&h), None);
     assert!(h.state().settings.no_shadows);
 }
 
-/// The Shadows button's menu: held a moment it opens (its release no
-/// click), its checkboxes choose the kinds, kept in the settings for the
-/// views opened after; a click turns them all off and on again as they
-/// were.
+/// The wide header's Shadows toggle (the Lighting popover unfolded into
+/// the row, WideArea): held a moment it opens the kinds to choose (its
+/// release no click), its checkboxes choose them, kept in the settings
+/// for the views opened after; a click turns them all off and on again
+/// as they were.
 #[test]
-fn the_shadows_button_held_opens_the_kinds_to_choose() {
+fn the_shadows_toggle_held_opens_the_kinds_to_choose() {
     let Some((mut h, area)) = area_harness("shadow-kinds") else { return };
     let kinds = |h: &Harness<'_, Moonglow>| {
         let v = &h.state().area_views[&area];
         [v.shadows, v.creature_shadows, v.light_shadows]
     };
     assert_eq!(kinds(&h), [true; 3], "the defaults");
+    unfolded_header(&mut h);
     // Held half a second.
-    let at = area_tool(&h, "Shadows").rect().center();
+    let at = area_tool(&mut h, "Shadows").rect().center();
     let button = |pressed| egui::Event::PointerButton {
         pos: at,
         button: egui::PointerButton::Primary,
@@ -6777,35 +6880,46 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
         h.input_mut().predicted_dt = 1.0 / 60.0;
         h.step();
     }
-    assert!(h.query_by_label("Light Shadows").is_some(), "open while held");
+    assert!(h.query_by_label("Light shadows").is_some(), "open while held");
     h.input_mut().events.push(button(false));
     h.run_steps(2);
     // (Open still: the release, outside it, closed it until 2.11.0.)
-    assert!(h.query_by_label("Light Shadows").is_some(), "open after the release");
+    assert!(h.query_by_label("Light shadows").is_some(), "open after the release");
     assert_eq!(kinds(&h), [true; 3], "the release is no click");
-    h.get_by_label("Light Shadows").click();
-    h.run();
-    h.get_by_label("Creature Shadows").click();
-    h.run();
+    h.get_by_label("Light shadows").click();
+    h.run_steps(3);
+    h.get_by_label("Creature shadows").click();
+    h.run_steps(3);
     assert_eq!(kinds(&h), [true, false, false]);
     let s = &h.state().settings;
     assert!(!s.no_shadows && s.no_creature_shadows && s.no_light_shadows);
     // A click: none; another: as they were.
     h.key_press(egui::Key::Escape);
-    h.run();
-    area_tool(&h, "Shadows").click();
-    h.run();
+    h.run_steps(3);
+    area_click(&mut h, "Shadows");
+    h.run_steps(2);
     assert_eq!(kinds(&h), [false; 3]);
-    area_tool(&h, "Shadows").click();
-    h.run();
+    area_click(&mut h, "Shadows");
+    h.run_steps(2);
     assert_eq!(kinds(&h), [true, false, false]);
 }
 
-/// With Creature Shadows unticked, the Shadows menu's Light Shadows is
-/// grayed out, its tooltip saying why, and keeps its tick (in the view and
-/// the settings); ticking Creature Shadows again brings it back as it was
-/// (the review's R4, the owner's decision: the game's lights' shadows are
-/// the creatures'). Light Shadows alone leave the button up.
+/// The area harness's window made wide enough for the area header to
+/// unfold its popovers into its row (section 5.3), and settled.
+fn unfolded_header(h: &mut Harness<'_, Moonglow>) {
+    h.set_size(egui::vec2(3000.0, 800.0));
+    settle(h);
+    let places = mg_uikit::header::places(&h.ctx, AREA_HEADER);
+    let lighting = places.iter().find(|(n, _)| n == "Lighting").map(|(_, p)| *p);
+    assert_eq!(lighting, Some(mg_uikit::header::Place::Unfolded), "{places:?}");
+}
+
+/// With Creature shadows unticked, the Lighting popover's Light shadows
+/// is grayed out, its tooltip saying why, and keeps its tick (in the view
+/// and the settings); ticking Creature shadows again brings it back as it
+/// was (the review's R4, the owner's decision: the game's lights' shadows
+/// are the creatures'). Light shadows alone leave the wide header's
+/// Shadows toggle off.
 #[test]
 fn light_shadows_are_grayed_out_without_creature_shadows() {
     let Some((mut h, area)) = area_harness("light-shadows-gray") else { return };
@@ -6814,19 +6928,19 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
         [v.shadows, v.creature_shadows, v.light_shadows]
     };
     let disabled =
-        |h: &Harness<'_, Moonglow>| h.get_by_label("Light Shadows").accesskit_node().is_disabled();
+        |h: &Harness<'_, Moonglow>| h.get_by_label("Light shadows").accesskit_node().is_disabled();
     settle(&mut h);
-    area_tool(&h, "Shadows").click_secondary();
+    area_tool(&mut h, "Light shadows");
     settle(&mut h);
-    assert!(!disabled(&h), "with Creature Shadows");
-    h.get_by_label("Creature Shadows").click();
+    assert!(!disabled(&h), "with Creature shadows");
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
-    assert_eq!(kinds(&h), [true, false, true], "Light Shadows kept");
-    assert!(disabled(&h), "grayed out without Creature Shadows");
+    assert_eq!(kinds(&h), [true, false, true], "Light shadows kept");
+    assert!(disabled(&h), "grayed out without Creature shadows");
     assert!(!h.state().settings.no_light_shadows, "and kept in the settings");
-    h.get_by_label("Light Shadows").hover();
+    h.get_by_label("Light shadows").hover();
     settle(&mut h);
-    let why = "Tick Creature Shadows first: creatures cast these";
+    let why = "Tick Creature shadows first: creatures cast these";
     let started = std::time::Instant::now();
     while h.query_by_label(why).is_none() {
         assert!(started.elapsed() < std::time::Duration::from_secs(10), "the tooltip says why");
@@ -6834,34 +6948,35 @@ fn light_shadows_are_grayed_out_without_creature_shadows() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     // (A click on it changes nothing.)
-    h.get_by_label("Light Shadows").click();
+    h.get_by_label("Light shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [true, false, true]);
-    h.get_by_label("Creature Shadows").click();
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [true; 3], "back as it was");
     assert!(!disabled(&h));
-    // Light Shadows alone draw nothing: the button is up, and a click
-    // turns every kind on.
-    h.get_by_label("Sun and Moon Shadows").click();
+    // Light shadows alone draw nothing: the wide header's Shadows toggle
+    // is off, and a click turns every kind on.
+    h.get_by_label("Sun and moon shadows").click();
     settle(&mut h);
-    h.get_by_label("Creature Shadows").click();
+    h.get_by_label("Creature shadows").click();
     settle(&mut h);
     assert_eq!(kinds(&h), [false, false, true]);
-    h.key_press(egui::Key::Escape);
-    settle(&mut h);
-    assert!(!area_tool(&h, "Shadows").accesskit_node().is_selected().unwrap_or(false));
-    area_tool(&h, "Shadows").click();
+    close_area_popover(&mut h);
+    unfolded_header(&mut h);
+    let shadows = area_tool(&mut h, "Shadows").accesskit_node();
+    assert_eq!(shadows.toggled(), Some(egui::accesskit::Toggled::False));
+    area_click(&mut h, "Shadows");
     settle(&mut h);
     assert_eq!(kinds(&h), [true; 3]);
 }
 
 /// The shadows' quality: Fast (the shadow map) unless chosen; High in the
-/// Shadows button's menu (as in Options › Area) is kept in the settings,
-/// and the view is drawn again with the stencil volumes; Fast again, with
+/// Lighting popover (as in Options › Area) is kept in the settings, and
+/// the view is drawn again with the stencil volumes; Fast again, with
 /// the map.
 #[test]
-fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
+fn the_shadows_quality_is_chosen_in_the_lighting_popover() {
     use mg_ui::settings::ShadowQuality;
     let Some((mut h, _area)) = area_harness("shadow-quality") else { return };
     let volumes = |h: &Harness<'_, Moonglow>| {
@@ -6870,13 +6985,11 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
     h.run_steps(2);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
     assert_eq!(volumes(&h), Some(false), "the map by default");
-    area_tool(&h, "Shadows").click_secondary();
-    h.run();
-    h.get_by_label("High").click();
+    area_tool(&mut h, "High").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::High);
     assert_eq!(volumes(&h), Some(true), "drawn again with the volumes");
-    h.get_by_label("Fast").click();
+    area_tool(&mut h, "Fast").click();
     h.run_steps(3);
     assert_eq!(h.state().settings.shadow_quality, ShadowQuality::Fast);
     assert_eq!(volumes(&h), Some(false));
@@ -6891,6 +7004,10 @@ fn the_shadows_quality_is_chosen_in_the_shadows_menu() {
 fn what_follows_the_pointer_stops_under_a_window() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
+    // Select Tiles first (the shelf's, which the window below may cover:
+    // a window held to the screen's height is moved up over it).
+    area_click(&mut h, "Select Tiles");
+    assert!(h.state().area_views[&area].tile_mode, "Select Tiles");
     // A window of its own (the Faction Editor's: the palettes, the window
     // of before, are the Right Dock's panel and have none), out of the way
     // for now (the view as wide as it will be).
@@ -6900,8 +7017,6 @@ fn what_follows_the_pointer_stops_under_a_window() {
     own_window(&mut h, &Tab::Factions, egui::pos2(10.0, 400.0), size);
     h.run();
     // A tile copied and about to be pasted.
-    area_tool(&h, "Select Tiles").click();
-    h.run_steps(2);
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     click_pos(&h, at);
     h.run_steps(2);
@@ -7700,9 +7815,10 @@ fn results_found_before_the_module_changed_are_not_acted_on() {
     assert_eq!(waypoint_tags(&mut h, area), ["WP_X", "WP_C"]);
     // Find Instance: a double click on the last result (WP_C, third as
     // found) goes nowhere, and the results are found again.
-    let rows: Vec<egui::Rect> = h.get_all_by_label("WP_C").map(|n| n.rect()).collect();
+    dock_high(&mut h, 320);
+    settle(&mut h);
+    let rows: Vec<egui::Rect> = h.get_all_by_label("Waypoint WP_C").map(|n| n.rect()).collect();
     let at = rows.last().expect("its row").center();
-    h.run_steps(40);
     h.hover_at(at);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -7741,19 +7857,28 @@ fn find_instance_lays_out_the_results_in_sight() {
             template: "mg_tree".into(),
         })
         .collect();
+    find.searched = true;
     app.find_instance = Some(find);
     let mut h = harness(app, 1000.0, 700.0);
-    h.run_steps(4);
-    h.get_by_label("5000 found; double click one to go to it");
-    h.get_by_label("TREE_0");
-    let rows = h.query_all_by_label("mg_tree").count();
+    settle(&mut h);
+    // (M4's U28: in Search Results, opened by its command.)
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Find Instance…").click();
+    dock_high(&mut h, 340);
+    settle(&mut h);
+    in_dock(&h, "5000 objects found");
+    in_dock(&h, "Placeable TREE_0");
+    let rows = h.query_all_by_label_contains("Placeable TREE_").count();
     assert!((5..60).contains(&rows), "{rows} rows laid out");
+    let (from, end) = h.state().search_results.instance_rows_seen();
+    assert_eq!(end - from, rows, "the rows seen are those laid out");
 }
 
 /// The review's A16: the boxes of a large selection are drawn as one
 /// mesh (twelve shapes an object before), and a drag of it poses a copy
 /// of the model kept from frame to frame. A hundred and twenty chests
-/// selected show their yellow boxes; dragged a step at a time, each is
+/// selected show their amber boxes; dragged a step at a time, each is
 /// drawn where the drag has it, and let go, each has moved by as much.
 #[test]
 fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
@@ -7793,13 +7918,18 @@ fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
     h.state_mut().settings.no_turn_ring = true;
     settle(&mut h);
     let dir = mg_testkit::scratch_dir("ui-area-large-selection-shots");
-    let yellow = |h: &mut Harness<'_, Moonglow>, name: &str| {
+    let amber = |h: &mut Harness<'_, Moonglow>, name: &str| {
         let image = h.render().expect("render");
         image.save(dir.join(name)).unwrap();
-        image.pixels().filter(|p| p.0[0] > 200 && p.0[1] > 200 && p.0[2] < 90).count()
+        // (The selection's amber box, M4's U7: 1 point over a dark edge,
+        // the 2 point yellow box it was.)
+        image
+            .pixels()
+            .filter(|p| p.0[0] > 200 && (130..215).contains(&p.0[1]) && p.0[2] < 90)
+            .count()
     };
-    let boxed = yellow(&mut h, "selected.png");
-    assert!(boxed > 3000, "the boxes of 120 chests: {boxed} yellow pixels");
+    let boxed = amber(&mut h, "selected.png");
+    assert!(boxed > 3000, "the boxes of 120 chests: {boxed} amber pixels");
     // Dragged 5 m east by the first chest's foot, a step a frame.
     let on = screen(&h, area, at(0) + Vec3::Z * 0.02);
     let to = screen(&h, area, at(0) + Vec3::new(5.0, 0.0, 0.02));
@@ -7812,7 +7942,7 @@ fn a_large_selection_is_boxed_and_dragged_as_a_few_objects_are() {
         let posed = h.state().area_views[&area].dragged();
         assert_eq!(posed.len(), 120, "step {k}");
     }
-    assert!(yellow(&mut h, "dragged.png") > 3000);
+    assert!(amber(&mut h, "dragged.png") > 3000);
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
@@ -8136,7 +8266,7 @@ fn alt_and_a_drag_moves_the_view_in_every_mode() {
         app.palette.selected = None;
     }
     // Select Tiles.
-    area_tool(&h, "Select Tiles").click();
+    area_click(&mut h, "Select Tiles");
     h.run_steps(2);
     assert!(h.state().area_views[&area].tile_mode);
     let moved = drag(&mut h);
@@ -8517,4 +8647,523 @@ fn custom_music_that_is_not_a_sound_does_not_play_and_the_log_says_why() {
     assert!(music.is_none(), "{music:?}");
     let line = said.iter().find(|m| m.starts_with("Sound mg_track")).expect("a line about it");
     assert_eq!(line, "Sound mg_track: not a sound the game plays (neither WAVE nor MP3)");
+}
+
+/// The area's view keeps its keys beside a table whose grid had them (M4's
+/// U16 review): the table docked in another group, or in its window
+/// beside the view; the pointer over the view, its arrow moves the camera
+/// and Delete deletes the object selected, and the table's selection and
+/// cells are as they were.
+#[test]
+fn the_area_s_keys_beside_a_table_that_had_the_grid_s() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    for floating in [false, true] {
+        let Some((mut h, area)) = area_harness(&format!("grid-beside-{floating}")) else { return };
+        h.run_steps(3);
+        let dir = mg_testkit::scratch_dir(&format!("ui-grid-beside-area-{floating}"));
+        std::fs::write(dir.join("t.2da"), "2DA V2.0\n\n   A  B\n0  a  b\n1  c  d\n2  e  f\n")
+            .unwrap();
+        if !floating {
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        let id = mg_ui::table_view::open_path(h.state_mut(), &dir.join("t.2da")).unwrap();
+        settle(&mut h);
+        match floating {
+            // (Its window clear of the view.)
+            true => {
+                let (at, size) = (egui::pos2(10.0, 420.0), egui::vec2(300.0, 300.0));
+                own_window(&mut h, &Tab::Table(id), at, size);
+            }
+            false => h.state_mut().actions.push(mg_ui::Action::SplitEditor),
+        }
+        settle(&mut h);
+        h.get_all_by_label("c").next().unwrap().click();
+        settle(&mut h);
+        let doc = |h: &Harness<'_, Moonglow>| {
+            let d = h.state().tables.iter().find(|d| d.id == id).unwrap();
+            (d.selected, d.edit.table().cell(0, 0).map(str::to_string))
+        };
+        assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Table", "{floating}: the grid's");
+        let was = doc(&h);
+        assert_eq!(was.0, Some((1, 0)), "{floating}");
+        let waypoints = |h: &mut Harness<'_, Moonglow>| {
+            let ws = h.state_mut().ws.as_mut().unwrap();
+            let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+            git.root.list("WaypointList").unwrap().len()
+        };
+        let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            vec![(ObjectKind::Waypoint, 0)];
+        let over = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+        h.hover_at(over);
+        h.run_steps(2);
+        let (start, count) = (target(&h), waypoints(&mut h));
+        h.key_press(egui::Key::ArrowUp);
+        h.run_steps(3);
+        assert!((target(&h) - start).length() > 0.1, "{floating}: the arrow moves the camera");
+        h.key_press(egui::Key::Delete);
+        h.run_steps(3);
+        assert_eq!(waypoints(&mut h), count - 1, "{floating}: Delete deletes the waypoint");
+        assert_eq!(doc(&h), was, "{floating}: the table as it was");
+    }
+}
+
+/// Custom Light is a section of the Right Dock (M4's U29; a window
+/// before): Custom Light… shows the hidden dock with it in front and gives
+/// it the keys, held over the area's view under the pointer; Escape is its
+/// Cancel; Enter, not under a menu, is its main action, also from the new
+/// hak's name field; it closes with its area's tab, and with the option
+/// turned off.
+#[test]
+fn custom_light_is_a_right_dock_section_with_its_keys() {
+    use glam::Vec3;
+    let user = mg_testkit::scratch_dir("ui-custom-light-section-user");
+    let Some((mut h, area)) = area_harness_with(
+        "custom-light-section",
+        "ttr01",
+        None,
+        4,
+        Some(user.clone()),
+        &|_, _, _| {},
+    ) else {
+        return;
+    };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.state_mut().settings.generated_lights = true;
+    h.state_mut().settings.hide_palettes = true;
+    settle(&mut h);
+    assert!(h.state().right_dock_shows().is_none(), "hidden");
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        let at = screen(h, area, Vec3::new(15.0, 15.0, 0.0));
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        h.get_by_label_contains("Add Light Here").hover();
+        h.run_steps(3);
+        h.get_by_label("Custom Light…").click();
+        settle(h);
+        h.hover_at(screen(h, area, Vec3::new(20.0, 20.0, 0.0)));
+        settle(h);
+    };
+    // At the least window: at rest, and each control Tab reaches in sight.
+    h.set_size(mg_ui::LEAST_WINDOW_SIZE);
+    settle(&mut h);
+    open(&mut h);
+    h.try_run().unwrap_or_else(|e| panic!("the section at rest, a frame asks another: {e}"));
+    let dock = right_dock_rect(&h);
+    let reached = crate::tool_sections::tabbed_in_sight(&mut h, dock, 400);
+    assert!(reached >= 4, "Tab reached {reached} of the section's controls");
+    h.state_mut().light_draft = None;
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    settle(&mut h);
+    open(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker));
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "Escape: Cancel");
+    assert_ne!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker), "the section gone");
+    // The option turned off, and its area's tab closed: it closes.
+    open(&mut h);
+    h.state_mut().settings.generated_lights = false;
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "with the option off");
+    h.state_mut().settings.generated_lights = true;
+    open(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Area(area)]));
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "with its area");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    settle(&mut h);
+    // The new hak's name typed; Enter under a menu is the menu's.
+    open(&mut h);
+    // (Under the section's fields, scrolled to: in a dock of several
+    // sections it has the bottom of the column.)
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    settle(&mut h);
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("mg_lights");
+    settle(&mut h);
+    let hak = user.join("hak/mg_lights.hak");
+    menu(&h, "View").click();
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!hak.exists(), "nothing written under the menu");
+    assert!(h.state().light_draft.is_some(), "and the section stays");
+    // Enter in the name field: Write and Place.
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(6);
+    settle(&mut h);
+    assert!(hak.is_file(), "Enter: written");
+    assert!(h.state().light_draft.is_none());
+    let undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert!(undo.as_deref().is_some_and(|u| u.starts_with("Add Light")), "placed: {undo:?}");
+}
+
+/// Custom Light… from the area's menu, at a point of the ground.
+fn open_custom_light(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    use glam::Vec3;
+    let at = screen(h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    h.get_by_label("Custom Light…").click();
+    settle(h);
+    h.hover_at(screen(h, area, Vec3::new(20.0, 20.0, 0.0)));
+    settle(h);
+}
+
+/// A press on the Right Dock's section over the tool section whose main
+/// action is `main` (Properties, at 1600 by 900): 50 points over the
+/// action's row, past the tool's painted header.
+fn press_over_the_section(h: &mut Harness<'_, Moonglow>, main: &str) {
+    let dock = right_dock_rect(h);
+    let row = (h.get_all_by_label(main).map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .unwrap_or_else(|| panic!("no {main} in the dock"));
+    click_pos(h, egui::pos2(dock.center().x, row.top() - 50.0));
+    settle(h);
+}
+
+/// Custom Light's keys as the U29 review ruled (M4): Escape in its hak's
+/// name gives up the field alone, the section stays (a second Escape
+/// cancels); a press on Properties over it takes its keys, so neither Enter
+/// nor Escape is its after it (nothing written, the draft kept, its outline
+/// gone).
+#[test]
+fn custom_light_s_escape_in_a_field_and_a_press_on_properties() {
+    let user = mg_testkit::scratch_dir("ui-custom-light-keys-user");
+    let Some((mut h, area)) =
+        area_harness_with("custom-light-keys", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.generated_lights = true;
+    settle(&mut h);
+    open_custom_light(&mut h, area);
+    assert!(mg_ui::palette_view::arrow_keys_are(&h.ctx) == "LightMaker", "the section's keys");
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    settle(&mut h);
+    let name = |h: &Harness<'_, Moonglow>| {
+        let dock = right_dock_rect(h);
+        // (The section's, under the Palette's search field.)
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| dock.contains_rect(n.rect()))
+            .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+            .unwrap()
+            .rect()
+    };
+    let at = name(&h);
+    click_pos(&h, at.center());
+    settle(&mut h);
+    h.event(egui::Event::Text("mg_half".into()));
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape in the field: the section stays");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "Escape again: Cancel");
+    // A press on Properties over it: its keys gone.
+    open_custom_light(&mut h, area);
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    let at = name(&h);
+    click_pos(&h, at.center());
+    h.event(egui::Event::Text("mg_lights".into()));
+    settle(&mut h);
+    // (Enter now would write: the field given up first, by a press on a
+    // part of the section that is no field.)
+    h.get_by_label("Written Into").click();
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker");
+    press_over_the_section(&mut h, "Write and Place");
+    assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker", "Properties took them");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    settle(&mut h);
+    assert!(!user.join("hak/mg_lights.hak").exists(), "Enter: nothing written");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape: the draft kept");
+    // Held again by a press in it, then a press on the area's view (no
+    // pane's own): taken from it as well.
+    h.get_by_label("Written Into").click();
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker");
+    // (Mid-view, clear of the docks and the view's own buttons.)
+    click_pos(&h, egui::pos2(600.0, 450.0));
+    settle(&mut h);
+    assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker", "the view's press");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape after the view's press: the draft kept");
+}
+
+/// Custom Light's tab where the Right Dock's tabs are icons alone (1280
+/// by 720): named to the screen reader, its tip under the pointer (M4's
+/// U29 review).
+#[test]
+fn custom_light_s_tab_has_a_name_and_a_tip_where_tabs_are_icons() {
+    let Some((mut h, area)) =
+        area_harness_with("custom-light-tab", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1280.0, 720.0));
+    h.state_mut().settings.generated_lights = true;
+    settle(&mut h);
+    open_custom_light(&mut h, area);
+    crate::tool_sections::tab_named_with_tip(&mut h, "Custom Light");
+}
+
+/// Custom Light whole in sight (M4's U29 review): at 1600 by 900 stacked
+/// under the Palette and Properties, and at 1280 by 720 in the one tab
+/// bar, every control of its section inside it, none cut; why Write and
+/// Place is disabled said under its actions; outlined whole while it holds
+/// the keys.
+#[test]
+fn custom_light_is_whole_in_sight_and_says_why_it_is_disabled() {
+    for size in [egui::vec2(1600.0, 900.0), egui::vec2(1280.0, 720.0)] {
+        let user = mg_testkit::scratch_dir("ui-custom-light-whole-user");
+        let Some((mut h, area)) =
+            area_harness_with("custom-light-whole", "ttr01", None, 4, Some(user), &|_, _, _| {})
+        else {
+            return;
+        };
+        h.set_size(size);
+        h.state_mut().settings.generated_lights = true;
+        settle(&mut h);
+        open_custom_light(&mut h, area);
+        let dock = right_dock_rect(&h);
+        let section = h.state().right_section_rect(mg_ui::Panel::LightMaker).unwrap_or(dock);
+        let roles = [
+            egui::accesskit::Role::Button,
+            egui::accesskit::Role::CheckBox,
+            egui::accesskit::Role::RadioButton,
+            egui::accesskit::Role::TextInput,
+            egui::accesskit::Role::SpinButton,
+            egui::accesskit::Role::ColorWell,
+        ];
+        let body = section.with_min_y(section.top() + mg_uikit::metrics::DOCK_TABS);
+        let mut seen = 0;
+        for n in h.query_all_by(|n| roles.contains(&n.role())) {
+            let r = n.rect();
+            // (Its own: a palette's control over it, clipped at its own
+            // section's foot, is reported whole.)
+            if !body.contains(r.center()) || n.accesskit_node().bounding_box().is_none() {
+                continue;
+            }
+            seen += 1;
+            assert!(
+                body.expand(0.5).contains_rect(r),
+                "{size:?}: {:?} cut at {r:?} in {body:?}",
+                n.accesskit_node().label()
+            );
+        }
+        assert!(seen >= 8, "{size:?}: {seen} controls");
+        // Properties' grid: its label column at least the stylesheet's,
+        // the check boxes in the fields' column.
+        let label = h.get_by_label("Multiplier").rect();
+        let shadows = h.get_by_label("Creatures' shadows are cast from it").rect();
+        let gap = shadows.left() - label.left();
+        assert!(gap >= mg_uikit::metrics::LABEL_WIDTH, "{size:?}: the label column {gap}");
+        for whole in ["Written Into", "A new hak:", "Lights creatures and placeables too"] {
+            let r = h.get_by_label(whole).rect();
+            assert!(body.contains_rect(r), "{size:?}: {whole} at {r:?} in {body:?}");
+        }
+        let main = (h.get_all_by_label("Write and Place").map(|n| n.rect()))
+            .find(|r| body.contains_rect(*r))
+            .expect("Write and Place");
+        let why = h.get_by_label("Choose the hak the light goes into").rect();
+        assert!(
+            why.top() >= main.bottom() && why.top() <= main.bottom() + 30.0,
+            "{size:?}: why under the row: {why:?}"
+        );
+        crate::tool_sections::outlined_whole(&mut h, body.with_min_y(main.top() - 6.0));
+    }
+}
+
+/// Edit Areas Together's keys hold over the area's view under the pointer
+/// (an area open, the pointer over its view: Down and Space tick in the
+/// section's list, the view's selection kept), until a press elsewhere: a
+/// press on Properties over it takes them.
+#[test]
+fn edit_areas_together_s_keys_hold_over_the_area_s_view() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("together-held") else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    menu_command(&mut h, "Edit", "Edit Areas Together…");
+    settle(&mut h);
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
+    settle(&mut h);
+    let selection = h.state().area_views[&area].selection.clone();
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    h.key_press(egui::Key::Space);
+    settle(&mut h);
+    let (ticked, _) = h.state().areas_together_ticked().expect("open");
+    assert_eq!(ticked, vec![area], "Down and Space: the section's, over the view");
+    assert_eq!(h.state().area_views[&area].selection, selection, "the view's selection kept");
+    press_over_the_section(&mut h, "Open in Tab");
+    h.key_press(egui::Key::Space);
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    let (ticked, _) = h.state().areas_together_ticked().expect("Escape not its: still open");
+    assert_eq!(ticked, vec![area], "Space not its after the press");
+}
+
+/// Custom Light pictured (M4's U29): its section as opened, with a new
+/// hak's name typed, and the frame after Write and Place; since the
+/// review, Custom Light again with the hak written chosen among the
+/// module's (Place: the same light, its row used again), and Change Light
+/// on the light placed, its settings as they are (Change) and another
+/// color (Write and Change); in both themes at the boards' sizes and the
+/// least window. By hand:
+/// `MG_U29_PICS=<folder> cargo test -p mg-ui --test app u29_pictures -- --ignored`.
+#[test]
+#[ignore]
+fn u29_pictures_custom_light() {
+    use glam::Vec3;
+    mg_testkit::gpu::hold();
+    for light in [false, true] {
+        for size in crate::tool_sections::PICTURE_SIZES {
+            let user = mg_testkit::scratch_dir("ui-u29-pics-light-user");
+            let Some((mut h, area)) =
+                area_harness_with("u29-pics-light", "ttr01", None, 4, Some(user), &|_, _, _| {})
+            else {
+                return;
+            };
+            h.set_size(size);
+            h.state_mut().settings.generated_lights = true;
+            h.state_mut().settings.light_theme = light;
+            settle(&mut h);
+            let menu_at = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+                let at = screen(h, area, at);
+                h.hover_at(at);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Secondary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+                h.run_steps(3);
+            };
+            let custom_light = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+                menu_at(h, at);
+                h.get_by_label_contains("Add Light Here").hover();
+                h.run_steps(3);
+                h.get_by_label("Custom Light…").click();
+                settle(h);
+                h.hover_at(egui::pos2(2.0, 2.0));
+            };
+            // (The main action in the section, enabled or not.)
+            let action = |h: &Harness<'_, Moonglow>, words: &str, enabled: bool| {
+                let dock = right_dock_rect(h);
+                h.get_all_by_label(words).any(|n| {
+                    dock.contains_rect(n.rect()) && n.accesskit_node().is_disabled() != enabled
+                })
+            };
+            custom_light(&mut h, Vec3::new(15.0, 15.0, 0.0));
+            crate::tool_sections::picture_of(&mut h, "light-new", "why it is disabled", |h| {
+                action(h, "Write and Place", false)
+                    && crate::tool_sections::label_in(
+                        h,
+                        right_dock_rect(h),
+                        "Choose the hak the light goes into",
+                    )
+            });
+            h.get_by_label("A new hak:").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("A new hak:").click();
+            settle(&mut h);
+            h.get_all_by_role(egui::accesskit::Role::TextInput)
+                .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+                .unwrap()
+                .type_text("mg_lights");
+            crate::tool_sections::picture_of(&mut h, "light-hak-named", "what it writes", |h| {
+                action(h, "Write and Place", true)
+                    && crate::tool_sections::shown_in(h, right_dock_rect(h), |n| {
+                        crate::tool_sections::words(n).is_some_and(|l| l.contains("Writes into"))
+                    })
+            });
+            h.key_press(egui::Key::Enter);
+            h.run_steps(1);
+            crate::tool_sections::picture_of(&mut h, "light-placed", "the section closed", |h| {
+                h.state().light_draft.is_none()
+            });
+            settle(&mut h);
+            // Custom Light again: the hak written is among the module's.
+            custom_light(&mut h, Vec3::new(25.0, 25.0, 0.0));
+            h.get_by_label("mg_lights.hak").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("mg_lights.hak").click();
+            settle(&mut h);
+            crate::tool_sections::picture_of(&mut h, "light-existing-hak", "Place", |h| {
+                action(h, "Place", true)
+                    && crate::tool_sections::label_in(h, right_dock_rect(h), "mg_lights.hak")
+            });
+            h.key_press(egui::Key::Escape);
+            settle(&mut h);
+            // Change Light on the light placed.
+            h.state_mut().area_views.get_mut(&area).unwrap().selection =
+                vec![(mg_area::ObjectKind::Placeable, 0)];
+            h.run_steps(2);
+            menu_at(&mut h, Vec3::new(15.0, 15.0, 1.5));
+            h.get_by_label("Change Light…").click();
+            settle(&mut h);
+            h.hover_at(egui::pos2(2.0, 2.0));
+            h.get_by_label("mg_lights.hak").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("mg_lights.hak").click();
+            settle(&mut h);
+            crate::tool_sections::picture_of(&mut h, "light-change", "Change", |h| {
+                action(h, "Change", true)
+            });
+            h.state_mut().light_draft.as_mut().unwrap().spec.color = [40, 80, 255];
+            settle(&mut h);
+            crate::tool_sections::picture_of(
+                &mut h,
+                "light-change-new-row",
+                "Write and Change",
+                |h| action(h, "Write and Change", true),
+            );
+        }
+    }
 }

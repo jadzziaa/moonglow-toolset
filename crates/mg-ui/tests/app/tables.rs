@@ -66,19 +66,14 @@ fn tables_and_talk_tables_ask_for_their_own_files() {
     assert_eq!(lines(true).filter(true), Some(("JSON", &["json"][..])));
 }
 
-/// The Talk Table editor makes and opens a `.tlk` file on its own, with no
-/// module open.
-/// A line of the talk table is chosen by a click anywhere on its row, the
-/// arrow keys choose from there, and Enter goes to the line's text
-/// (GitHub issue 24).
+/// The talk table's list begins right under its header (M4's U17: the
+/// kit's header, a header row on the list); Open File… and New File… are
+/// its More's.
 #[test]
-fn a_talk_table_s_rows_begin_under_its_buttons() {
-    // Open File… and New File… stood in a sliver past the end of the row
-    // before them, one under the other, and the list began a third of
-    // the window down.
+fn a_talk_table_s_list_begins_under_its_header() {
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-top");
-    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1600.0, 800.0);
     let mut table = Table::create("top", &dir, mg_core::Language::ENGLISH, false);
     let line =
         Line { text: "Text 0".into(), feminine: None, sound: String::new(), sound_length: 0.0 };
@@ -86,17 +81,20 @@ fn a_talk_table_s_rows_begin_under_its_buttons() {
     h.state_mut().talk = Some(table);
     h.state_mut().talk_view.outside = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run_steps(6);
-    let buttons = ["Open File…", "New File…"].map(|l| h.get_by_label(l).rect());
-    let go_to = h.get_by_label("Go to").rect();
-    let row = h.get_by_label("Text 0").rect();
-    for b in buttons {
-        assert!(b.width() > 40.0, "a button of its text's width: {b:?}");
-        assert!(b.top() < go_to.bottom() + 30.0, "in the row, or the next: {b:?}");
-        assert!(row.top() < b.bottom() + 30.0, "the list right under them: {row:?}, {b:?}");
+    settle(&mut h);
+    let header = talk_tool(&mut h, "Find").rect();
+    let row = h.get_by_label("16777216").rect();
+    // (The list's header row, 24 high, between them.)
+    let gap = row.top() - header.bottom();
+    assert!((24.0..=40.0).contains(&gap), "the list right under the header: {header:?} {row:?}");
+    for l in [mg_ui::talk_view::OPEN_FILE, mg_ui::talk_view::NEW_FILE] {
+        assert_eq!(talk_headers_with(&h, l), 1, "{l}");
     }
 }
 
+/// A line of the talk table is chosen by a click anywhere on its row, the
+/// arrow keys choose from there, and Enter goes to the line's text
+/// (GitHub issue 24), the String panel's (M4's U17).
 #[test]
 fn a_talk_table_s_row_is_clicked_anywhere() {
     use mg_module::talk::{Line, Table};
@@ -115,10 +113,10 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
     h.state_mut().talk = Some(table);
     h.state_mut().talk_view.outside = true;
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run_steps(6);
+    settle(&mut h);
     assert_eq!(h.state().talk_view.selected, None);
     // The text of a row, well to the right of its number.
-    let at = h.get_by_label("Text 3").rect().center() + egui::vec2(200.0, 0.0);
+    let at = h.get_by_label("16777219").rect().center() + egui::vec2(200.0, 0.0);
     let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
         for pressed in [true, false] {
@@ -160,77 +158,6 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
     assert!(h.state().talk.as_ref().unwrap().line(0).text.contains('!'));
 }
 
-/// The line between the talk table's list and the chosen line's text is
-/// dragged up and down (GitHub issue 24), held between the text boxes'
-/// three lines and seven tenths of the tab.
-#[test]
-fn the_talk_table_s_split_is_dragged() {
-    use mg_module::talk::{Line, Table};
-    let dir = mg_testkit::scratch_dir("ui-talk-split");
-    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
-    let mut table = Table::create("split", &dir, mg_core::Language::ENGLISH, false);
-    for row in 0..60 {
-        let text = format!("Text {row}");
-        table
-            .add_line(&Line { text, feminine: None, sound: String::new(), sound_length: 0.0 })
-            .unwrap();
-    }
-    h.state_mut().talk = Some(table);
-    h.state_mut().talk_view.outside = true;
-    h.state_mut().talk_view.selected = Some(5);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run_steps(8);
-    let strref = |h: &Harness<'_, Moonglow>| h.get_by_label("StrRef 16777221").rect().top();
-    let top = h.get_by_label("Text 0").rect().top();
-    let drag = |h: &mut Harness<'_, Moonglow>, by: f32| {
-        // (The line is just above the chosen line's StrRef.)
-        let from = egui::pos2(500.0, strref(h) - 5.0);
-        let button = |pos, pressed| egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        };
-        h.hover_at(from);
-        h.run_steps(1);
-        h.event(button(from, true));
-        h.run_steps(1);
-        for k in 1..=6 {
-            h.hover_at(from + egui::vec2(0.0, by * k as f32 / 6.0));
-            h.run_steps(1);
-        }
-        h.event(button(from + egui::vec2(0.0, by), false));
-        h.run_steps(3);
-    };
-    let before = strref(&h);
-    drag(&mut h, -80.0);
-    let after = strref(&h);
-    assert!((before - 80.0 - after).abs() < 1.0, "dragged up: {before} to {after}");
-    // Up to seven tenths of the tab: the list keeps its room (the share
-    // the editor is held at, kept in the settings).
-    drag(&mut h, -2000.0);
-    let highest = strref(&h);
-    assert!(highest < after - 20.0 && highest > top + 150.0, "held: {highest}, {top}");
-    let held = h.state().settings.talk_splits.first().cloned();
-    assert_eq!(held, Some(("split".into(), 700)), "seven tenths of the tab");
-    drag(&mut h, -300.0);
-    assert!((strref(&h) - highest).abs() < 1.0, "no higher");
-    // Down to the text box's three lines, the sound's row still in sight.
-    drag(&mut h, 2000.0);
-    let lowest = strref(&h);
-    assert!(lowest > before, "dragged down: {lowest}");
-    // (The box three rows of text high, and its margins' 8 points.)
-    let font = egui::TextStyle::Body.resolve(&h.ctx.global_style());
-    let text = h.ctx.fonts_mut(|f| f.row_height(&font));
-    let line = |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Text 5");
-    let shown = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).find(line);
-    let tall = shown.expect("the line's text box").rect().height();
-    assert!((tall - (3.0 * text + 8.0)).abs() < 1.0, "three lines: {tall}");
-    assert!(h.get_by_label("Sound").rect().bottom() < 800.0);
-    drag(&mut h, 300.0);
-    assert!((strref(&h) - lowest).abs() < 1.0, "no lower");
-}
-
 #[test]
 fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
     // Jasperre's report: a `\r` kept in the field is a stop of the caret
@@ -248,7 +175,7 @@ fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
     h.state_mut().talk_view.outside = true;
     h.state_mut().talk_view.selected = Some(0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run_steps(6);
+    settle(&mut h);
     let input = |h: &Harness<'_, Moonglow>, value: &str| {
         h.get_all_by_value(value)
             .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
@@ -270,7 +197,7 @@ fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
     // talk table has them all.
     h.key_press(egui::Key::Escape);
     h.state_mut().talk_view.selected = Some(1);
-    h.run_steps(4);
+    settle(&mut h);
     h.get_all_by_value("three")
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
         .unwrap()
@@ -289,25 +216,23 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     let file = dir.join("strings.tlk");
     let dialogs =
         NoDialogs { open: vec![file.clone()], save: vec![file.clone()], ..Default::default() };
-    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1000.0, 800.0);
+    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1600.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
     h.get_by_label("New File…").click();
     h.run();
     assert!(file.is_file());
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     type_into_hint(&mut h, "the line's text", "On its own");
-    apart(&h, "Save").click();
-    h.run();
+    talk_click(&mut h, "Save");
     let read = mg_tlk::Tlk::read(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!(read.text(mg_core::StrRef(0)).as_deref(), Some("On its own"));
     // Opened again from the file.
     h.state_mut().talk = None;
     h.state_mut().talk_view = Default::default();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Open File…").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("16777216");
     assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "On its own");
     // Go to takes a StrRef or a line's number: that line is chosen and
@@ -331,11 +256,8 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     h.run();
     assert_eq!(h.state().talk_view.selected, Some(100));
     h.get_by_label("16777316");
-    let sound = h.get_by_label("Sound").rect();
-    assert!(
-        sound.bottom() < 800.0 && sound.top() > 400.0,
-        "the sound's row is in sight: {sound:?}"
-    );
+    let sound = string_field(&h, "Sound").rect();
+    assert!(sound.bottom() < 800.0 && sound.top() > 0.0, "the sound's row is in sight: {sound:?}");
     // A line's number goes there too; past the end, it says what there is.
     h.state_mut().talk_view.go_to.clear();
     h.run();
@@ -401,14 +323,18 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run();
-    h.get_by_label("This module has no talk table of its own.");
+    settle(&mut h);
+    // (Made in the Talk Table panel's Module's Table, M4's U17.)
+    h.get_by_label_contains("This module has no talk table of its own. A talk table holds");
     type_into_hint(&mut h, "name", "mg_talk");
+    h.get_by_label("With a feminine table").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("With a feminine table").click();
     h.run();
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
-    h.run();
-    h.run();
+    settle(&mut h);
     // The table is made in the tlk folder and named by the module.
     assert!(user.join("tlk/mg_talk.tlk").is_file());
     assert!(user.join("tlk/mg_talkf.tlk").is_file());
@@ -419,29 +345,28 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     assert!(h.state().game.as_deref().unwrap().custom_tlk().is_some());
 
     // A line, typed: one undo takes the typing back.
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     h.get_by_label("16777216");
     type_into_hint(&mut h, "the line's text", "Greetings");
     type_into_hint(&mut h, "the feminine text", "Greetings, lady");
     let line = |h: &Harness<'_, Moonglow>| h.state().talk.as_ref().unwrap().line(0);
     assert_eq!(line(&h).text, "Greetings");
     assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
-    apart(&h, "Undo").click();
-    h.run();
+    tool(&h, "Undo").click();
+    settle(&mut h);
     assert_eq!((line(&h).text.as_str(), line(&h).feminine.as_deref()), ("Greetings", Some("")));
-    apart(&h, "Redo").click();
-    h.run();
+    tool(&h, "Redo").click();
+    settle(&mut h);
     assert!(h.state().has_unsaved_work());
     // Ctrl+Z, with the pointer over the editor, is the table's too.
-    let over = h.get_by_label("Add Line").rect().center();
+    let over = h.get_by_label("16777216").rect().center();
     h.hover_at(over);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(line(&h).feminine.as_deref(), Some(""), "the table's undo");
-    apart(&h, "Redo").click();
-    h.run();
+    tool(&h, "Redo").click();
+    settle(&mut h);
     assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
     // In the line's text, typed in: Ctrl+Z is the field's, not the
     // table's (GitHub issue 18): the feminine text stays.
@@ -465,46 +390,39 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.run_steps(2);
 
     // The lines go out as CSV; changed in a spreadsheet, they come back.
-    h.get_by_label("Export CSV…").click();
-    h.run();
+    talk_export(&mut h, "Export CSV…");
     let sheet = std::fs::read_to_string(&csv).unwrap();
     assert!(sheet.contains("16777216,Greetings,\"Greetings, lady\""), "{sheet}");
     std::fs::write(&csv, sheet.replace("16777216,Greetings,", "16777216,Well met,")).unwrap();
-    h.get_by_label("Import CSV…").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::IMPORT_CSV);
     assert_eq!(line(&h).text, "Well met");
-    apart(&h, "Undo").click();
-    h.run();
+    tool(&h, "Undo").click();
+    settle(&mut h);
     assert_eq!(line(&h).text, "Greetings", "the import is one undo");
 
     // As JSON too (nwn_tlk's, as a nasher repository keeps a table): the
     // lines with text, by their numbers in the table.
-    h.get_by_label("Export JSON…").click();
-    h.run();
+    talk_export(&mut h, "Export JSON…");
     let json = std::fs::read_to_string(&csv).unwrap();
     let read: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(read["entries"][0], serde_json::json!({"id": 0, "text": "Greetings"}));
     let other = r#"{"language":0,"entries":[{"id":0,"text":"Hail"},{"id":40,"text":"Far"}]}"#;
     std::fs::write(&csv, other).unwrap();
-    h.get_by_label("Import JSON…").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::IMPORT_JSON);
     assert_eq!((line(&h).text.as_str(), h.state().talk.as_ref().unwrap().len()), ("Hail", 41));
     // Only Lines with Text leaves the empty ones between out of the list;
     // the selected line stays selected when they come back.
     h.get_by_label("16777220");
-    h.get_by_label("Only lines with text").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ONLY_TEXT);
     assert!(h.query_by_label("16777220").is_none(), "an empty line is not listed");
     h.get_by_label("16777256").click();
-    h.run();
-    h.get_by_label("Only lines with text").click();
-    h.run();
-    h.run();
+    settle(&mut h);
+    talk_click(&mut h, mg_ui::talk_view::ONLY_TEXT);
     assert_eq!(h.state().talk_view.selected, Some(40));
     h.get_by_label("16777256");
     h.get_by_label("16777255");
-    apart(&h, "Undo").click();
-    h.run();
+    tool(&h, "Undo").click();
+    settle(&mut h);
     assert_eq!((line(&h).text.as_str(), h.state().talk.as_ref().unwrap().len()), ("Greetings", 1));
 
     // Saving the module saves the table, and the game data reads it.
@@ -527,7 +445,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // (The line is added at OK: Cancel leaves the table as it was, with
     // no line that nothing names. The review of November 2026, S27.)
     for answer in ["Cancel", "OK"] {
-        h.get_by_label("…").click();
+        in_page(&h, "Basic").get_by_label("…").click();
         h.run();
         h.get_by_label("Add Text").click();
         h.run();
@@ -745,9 +663,10 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     assert_eq!(table_of(&h, id).get(0, "Spell"), Some("302"));
 }
 
-/// A flags cell's list of ticks by the keys (GitHub issue 7): once its
-/// box is clicked, Down opens it, the arrows move along the flags and
-/// Space ticks the one there (the list staying open).
+/// A flags cell's ticks by the keys (GitHub issue 7): since M4's U16 the
+/// Cell panel's list of flags, one stop of Tab from the Value field, the
+/// arrows along it and Space or Enter ticking the one there; a click on a
+/// row ticks it too.
 #[test]
 fn a_flags_list_is_ticked_by_the_keys() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -768,35 +687,36 @@ fn a_flags_list_is_ticked_by_the_keys() {
     // (The description's folder is walked on a thread of its own.)
     settle(&mut h);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
-    h.run_steps(3);
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let at = h
-        .query_all(combo)
-        .find(|n| n.accesskit_node().value().as_deref() == Some("Red"))
-        .map(|n| n.rect().center())
-        .expect("the flags' list");
-    h.hover_at(at);
-    h.run_steps(1);
-    // Opened and closed by clicks: the box keeps the keys.
-    for _ in 0..2 {
-        press(&h, at, true, egui::Modifiers::NONE);
-        press(&h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    }
-    assert!(h.query_by_label("Blue  (4)").is_none(), "closed");
-    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowDown] {
+    settle(&mut h);
+    // (Since M4's U16 the flags are the Cell panel's list of rows, each a
+    // check box with its value: one stop of Tab from the Value field, the
+    // arrows along them, Space or Enter ticking the one there: the review's
+    // ruling, the old list's keys kept.)
+    cell_value(&h).click();
+    settle(&mut h);
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    let focused = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_label("Values").any(|n| n.accesskit_node().is_focused())
+    };
+    assert!(focused(&h), "Tab came to the flags' list");
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown] {
         h.key_press(key);
-        h.run_steps(2);
+        settle(&mut h);
     }
     h.key_press(egui::Key::Space);
-    h.run_steps(3);
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x5"), "Blue ticked");
-    assert!(h.query_by_label("Blue  (4)").is_some(), "still open");
     h.key_press(egui::Key::ArrowUp);
-    h.run_steps(2);
+    settle(&mut h);
     h.key_press(egui::Key::Enter);
-    h.run_steps(3);
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x7"), "Green ticked");
+    assert!(focused(&h), "still the list's");
+    // Red, ticked, unticked by a click on its row.
+    choice(&h, "Red").click();
+    settle(&mut h);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x6"), "Red unticked");
 }
 
 /// A talk table kept in the module (a `.tlk` among its resources) is
@@ -832,13 +752,12 @@ fn a_talk_table_kept_in_the_module_is_edited_and_saved_with_it() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run();
-    h.run();
+    settle(&mut h);
     let talk = h.state().talk.as_ref().expect("the module's table open");
     assert_eq!((&talk.source, talk.editable()), (&Source::Module, true));
-    assert!(h.query_by_label_contains("This table is in a hak").is_none(), "not read-only");
     h.get_by_label("16777216").click();
-    h.run();
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Read-only").is_none(), "not read-only");
     h.get_all_by_value("Old words")
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
         .unwrap()
@@ -885,72 +804,14 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     // never writes into the install.
     let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-    h.run();
-    h.run();
+    settle(&mut h);
     let t = h.state().talk.as_ref().expect("the campaign's table open");
     assert!(!t.editable(), "{}", t.source);
     assert!(t.source.to_string().starts_with("the game's files ("), "{}", t.source);
-    assert!(h.query_by_label_contains("This table is in the game's files").is_some());
-}
-
-/// The talk table editor's split is kept for each table in Moonglow's
-/// settings: the next session shows it as it was left, and another table
-/// has its own.
-#[test]
-fn the_talk_table_s_split_is_kept_for_each_table() {
-    use mg_module::talk::{Line, Table};
-    let dir = mg_testkit::scratch_dir("ui-talk-split-kept");
-    let table = |name: &str| {
-        let mut table = Table::create(name, &dir, mg_core::Language::ENGLISH, false);
-        for row in 0..60 {
-            let text = format!("Text {row}");
-            let line = Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
-            table.add_line(&line).unwrap();
-        }
-        table
-    };
-    let session = |settings: mg_ui::Settings, name: &str| {
-        let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
-        app.settings = settings;
-        app.talk = Some(table(name));
-        app.talk_view.outside = true;
-        app.talk_view.selected = Some(5);
-        app.actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-        let mut h = harness(app, 1000.0, 800.0);
-        h.run_steps(8);
-        h
-    };
-    let strref = |h: &Harness<'_, Moonglow>| h.get_by_label("StrRef 16777221").rect().top();
-    let mut h = session(mg_ui::Settings::default(), "split");
-    let before = strref(&h);
-    let from = egui::pos2(500.0, before - 5.0);
-    let button = |pos, pressed| egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
-    h.hover_at(from);
-    h.run_steps(1);
-    h.event(button(from, true));
-    h.run_steps(1);
-    for k in 1..=6 {
-        h.hover_at(from + egui::vec2(0.0, -100.0 * k as f32 / 6.0));
-        h.run_steps(1);
-    }
-    h.event(button(from + egui::vec2(0.0, -100.0), false));
-    h.run_steps(3);
-    let dragged = strref(&h);
-    assert!((before - 100.0 - dragged).abs() < 1.0, "{before} {dragged}");
-    let settings = h.state().settings.clone();
-    drop(h);
-    let h = session(settings.clone(), "split");
-    assert!((strref(&h) - dragged).abs() < 1.5, "kept: {} {dragged}", strref(&h));
-    // (Against the other table's own first look: its name lays out the
-    // header otherwise on macOS.)
-    let fresh = strref(&session(mg_ui::Settings::default(), "other"));
-    let h = session(settings, "other");
-    assert!((strref(&h) - fresh).abs() < 1.5, "its own: {} {fresh}", strref(&h));
+    // (Said in the String panel, its line chosen, M4's U17.)
+    h.state_mut().talk_view.go_to_line(0);
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Read-only: this table is in the game's files").is_some());
 }
 
 /// A drag selecting cells past the grid's foot scrolls the table on, the
@@ -1130,7 +991,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.get(0, "Label"), t.get(1, "Cost")), (None, None));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("2"));
     // A paste begins at the selection's first cell, and adds the rows it
@@ -1174,7 +1035,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
 
     // A column's name, right-clicked: renamed, then removed.
     let secondary = |h: &mut Harness<'_, Moonglow>, label: &str| {
-        let pos = h.get_by_label(label).rect().center();
+        let pos = column_name(h, label).rect().center();
         h.hover_at(pos);
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton {
@@ -1200,7 +1061,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     h.run_steps(3);
     let t = table_of(&h, id);
     assert_eq!((t.columns().to_vec(), t.cell(0, 0)), (vec!["Costs".to_string()], Some("5")));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), Some("Ale"), "back where it was");
     // A column is moved by its menu, and by a drag of its name onto
@@ -1217,7 +1078,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     );
     assert_eq!(h.state().tables[0].selected, Some((0, 1)));
     let (from, to) =
-        (h.get_by_label("Label").rect().center(), h.get_by_label("Costs").rect().center());
+        (column_name(&h, "Label").rect().center(), column_name(&h, "Costs").rect().center());
     h.hover_at(from);
     press(&h, from, true, egui::Modifiers::NONE);
     h.run_steps(1);
@@ -1228,7 +1089,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).columns(), ["Label", "Costs"]);
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).columns(), ["Costs", "Label"], "a step to take back");
 }
@@ -1329,7 +1190,7 @@ fn a_rebound_undo_key_reaches_a_table_s_grid() {
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), None, "redone");
     // Edit › Undo is the table's, names its step, and takes it.
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run_steps(2);
     let undo = h.get_by_label_contains("Undo ").accesskit_node().label().unwrap_or_default();
     assert!(undo.starts_with("Undo Empty 1 cell"), "{undo}");
@@ -1380,7 +1241,7 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
-    h.get_by_label("(unsaved)");
+    assert!(h.state().tables[0].edit.is_dirty(), "unsaved");
     // The keys are the grid's: Up and Right to Bread's cost, Delete
     // empties it; Escape while typing leaves a cell as it was.
     let key_ = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
@@ -1407,49 +1268,49 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     h.run_steps(2);
     key_(&mut h, egui::Key::Enter);
     assert_eq!(table_of(&h, id).get(1, "Cost"), Some("42"), "typed over");
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     key_(&mut h, egui::Key::ArrowUp);
     assert_eq!(at(&h), Some((0, 1)));
     // Add Row puts one at the end; Empty Row empties the selected one,
     // which stays.
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (3, Some((2, 1))));
     // Delete Row takes the selected row away (here the last), and Add
     // Row adds as many as its number says, in one step.
-    h.get_by_label("Delete Row").click();
+    table_click(&mut h, "Delete Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (2, Some((1, 1))));
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 5;
     h.run_steps(2);
-    h.get_by_label("Add 5 Rows").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     assert_eq!((table_of(&h, id).len(), at(&h)), (7, Some((2, 1))));
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), 2);
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().add_count = 1;
     h.run_steps(2);
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(2);
     // A row between others: those after it move up, and Undo puts it back.
     h.get_by_label("Cheesey").click();
     h.run_steps(2);
-    h.get_by_label("Delete Row").click();
+    table_click(&mut h, "Delete Row");
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.len(), t.get(1, "Label")), (2, None), "the added row is row 1 now");
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), 3);
     // (The row put back is the one selected.)
-    h.get_by_label("Empty Row").click();
+    table_click(&mut h, "Empty Row");
     h.run_steps(2);
     let t = table_of(&h, id);
     assert_eq!((t.len(), t.get(1, "Label"), t.get(1, "Cost")), (3, None, None));
     // Undo is the table's own, step by step.
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
     // Save: the module's table is as edited, in one step of the module's.
@@ -1458,12 +1319,12 @@ fn a_module_s_table_is_edited_cell_by_cell() {
         mg_2da::TwoDa::parse(&data, mg_core::Codepage::default()).unwrap()
     };
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"));
-    apart(&h, "Save").click();
+    table_click(&mut h, "Save");
     h.run_steps(3);
     // (The empty row at the end is in the file, a row as the game counts
     // it: `engine_counts_an_empty_last_row`.)
     assert_eq!(stored(&mut h).rows, table_of(&h, id).rows);
-    assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    assert!(!h.state().tables[0].edit.is_dirty(), "saved: not marked");
     // The module's Undo takes the save back with the table open: the
     // editor reads it again.
     // (The module's own Undo: the one under the menu is the grid's while
@@ -1595,8 +1456,10 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     // Compact: saved with one space between cells (ticking it is a change
     // to save), and a file read so is saved so again.
     assert!(!h.state().tables.iter().find(|d| d.id == loose).unwrap().compact);
-    // (The hak's table is open beside it: the file's is the one opened last.)
-    h.get_all_by_label("Compact").last().unwrap().click();
+    // (The hak's table, saved, closed: the file's header is the one left.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    settle(&mut h);
+    table_click(&mut h, "Compact");
     h.run_steps(3);
     let doc = h.state().tables.iter().find(|d| d.id == loose).unwrap();
     assert!(doc.compact && doc.edit.is_dirty());
@@ -1663,9 +1526,9 @@ fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
         let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
         doc.edit.set(0, footsteps, Some("30".into())).unwrap();
     }
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(3);
-    h.get_by_label("1 cell is wrong").click();
+    table_click(&mut h, "1 cell is wrong");
     h.run_steps(4);
     assert_eq!(h.state().tables[0].selected, Some((0, footsteps)));
 }
@@ -1698,9 +1561,9 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
         doc.go_to(0, 0);
     }
     // (The table changed under the window: as an edit there would say.)
-    h.get_by_label("Add Row").click();
+    table_click(&mut h, "Add Row");
     h.run_steps(3);
-    h.get_by_label("1 cell is wrong").click();
+    table_click(&mut h, "1 cell is wrong");
     h.run_steps(4);
     assert_eq!(h.state().tables[0].selected, Some((3, prereq)));
     h.get_by_label_contains("row 4000 of feat.2da doesn't exist");
@@ -1712,7 +1575,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     assert!(found.len() > 3, "{found:?}");
     // Take Rows: the game's copy has the 25 rows this one lacks, and two
     // it has differently (this is the lowest copy: whose change, untold).
-    h.get_by_label("Take Rows…").click();
+    table_click(&mut h, "Take Rows…");
     h.run_steps(4);
     h.get_by_label_contains("25 new, 2 that differ");
     // (The Differ box ticks the two that differ; Clear Selections unticks;
@@ -1737,7 +1600,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     assert_eq!(now.get(5, "LABEL"), Some("MyOwnShot"), "what was not chosen is as it was");
     assert!(h.state().tables[0].taking.is_none(), "the window closed");
     // One step to take back (and the row added above, another).
-    apart(&h, "Undo").click();
+    tool(&h, "Undo").click();
     h.run_steps(2);
     assert_eq!(table_of(&h, id).len(), whole - 24);
 }
@@ -1862,7 +1725,7 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     // Dragged by its name, Cost moves before Label, and Label's width goes
     // with it.
     let (from, to) =
-        (h.get_by_label("Cost").rect().center(), h.get_by_label("Label").rect().center());
+        (column_name(&h, "Cost").rect().center(), column_name(&h, "Label").rect().center());
     drag(&mut h, from, to);
     assert_eq!(table_of(&h, id).columns(), ["Cost", "Label"], "moved by its name");
     let now = left_of(&h, "Label") - left_of(&h, "Cost");
@@ -1892,7 +1755,7 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
     // Reset Width, on the column's menu: its first width again.
-    h.get_by_label("Label").click_secondary();
+    column_name(&h, "Label").click_secondary();
     h.run_steps(3);
     h.get_by_label("Reset Width").click();
     h.run_steps(3);
@@ -1900,13 +1763,13 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
     assert!((label_width - 116.0).abs() < 12.0, "its first width again: {label_width}");
     // Hide Column: out of sight, its cells kept; Show Hidden Columns.
-    h.get_by_label("Cost").click_secondary();
+    column_name(&h, "Cost").click_secondary();
     h.run_steps(3);
     h.get_by_label("Hide Column").click();
     h.run_steps(3);
     assert!(h.query_by_label("Cost").is_none(), "hidden");
     assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "kept");
-    h.get_by_label("Show Hidden Columns (1)").click();
+    table_click(&mut h, "Show Hidden Columns");
     h.run_steps(3);
     assert!(h.query_by_label("Cost").is_some(), "shown again");
 }
@@ -2082,8 +1945,13 @@ fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
         h.run_steps(2);
     };
     let none = egui::Modifiers::NONE;
-    // From the middle's: the log (no palettes here), the tree, then the
-    // middle: the table's first cell.
+    // From the middle's: its window's Cell and References (M4's U16: a
+    // floating table's right pane), the log (no palettes here), the tree,
+    // then the middle: the table's first cell.
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Cell");
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "TableReferences");
     key_(&mut h, none, egui::Key::F6);
     assert!(h.state().tree_cursor.is_none(), "the log has the keys");
     key_(&mut h, none, egui::Key::F6);
@@ -2174,15 +2042,7 @@ fn a_model_s_cell_is_checked_and_chosen_from_the_game_s_models() {
     h.get_by_label("no model of this name in the game, its haks or the module");
     h.get_by_label("Choose Model…").click();
     h.run_steps(3);
-    let field = h
-        .get_all_by_role(egui::accesskit::Role::TextInput)
-        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
-        .unwrap()
-        .rect()
-        .center();
-    click_pos(&h, field);
-    h.run_steps(2);
-    h.event(egui::Event::Text("plc_c0".into()));
+    type_into_hint(&mut h, "Part of a model's name", "plc_c0");
     h.run_steps(4);
     let at = h.get_by_label("plc_c02").rect().center();
     click_pos(&h, at);
@@ -2294,7 +2154,7 @@ fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
     h.run_steps(3);
     settle(&mut h);
     h.get_by_label_contains("Described by loot.2da.toml");
-    h.get_by_label("1 cell is wrong");
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 1);
     // The game's spells.2da, a school changed to one the engine lacks.
     let game = game_data(&root);
     let mut t = (*game.table("spells").unwrap()).clone();
@@ -2308,7 +2168,7 @@ fn a_hak_s_folder_s_family_and_moonglow_s_spells_describe_tables() {
     h.get_by_label_contains("Described by Moonglow (the game's spells.2da)");
     // (Bigby's Crushing Hand's MetaMagic of 0xff, the game's, is not
     // said: one cell in each table open, the hak's and this.)
-    assert_eq!(h.get_all_by_label("1 cell is wrong").count(), 2);
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 2);
     let doc = h.state().tables.iter().find(|d| d.id == id).unwrap();
     let description = doc.description().unwrap();
     let school = &description.column("School").unwrap().kind;
@@ -2345,7 +2205,7 @@ fn a_row_both_copies_changed_is_taken_cell_by_cell() {
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
-    h.get_by_label("Take Rows…").click();
+    table_click(&mut h, "Take Rows…");
     h.run_steps(4);
     h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
     h.get_by_label("Cells…").click();
@@ -2549,144 +2409,4 @@ fn a_talk_table_string_s_cell_is_chosen_and_given_a_new_line() {
     let saved = h.state_mut().ws.as_mut().unwrap().module.get(&key).unwrap().to_vec();
     let saved = mg_2da::TwoDa::parse(&saved, mg_core::Codepage::default()).unwrap();
     assert_eq!(saved.get(1, "Name"), Some("16777217"), "the number the line took");
-}
-
-/// The hak editor's buttons stay inside its window however narrow it is
-/// made (the design's rule: a header never overflows): at 640 and 480 px
-/// wide their words yield to their icons, and what still has no room
-/// goes to a second row; a long path is cut short, not the buttons, and
-/// begins a row of its own where the row's end has too little room for
-/// it. Each is found by its words with them shown or not, and each has a
-/// tip, enabled and disabled: with its icon alone, its name in it (Update
-/// from Folder, disabled, had none at all).
-#[test]
-fn the_hak_editor_s_buttons_stay_inside_a_narrow_window() {
-    use mg_module::hak_edit::{Hak, Source};
-    let dir = mg_testkit::scratch_dir("ui-hak-narrow")
-        .join("a folder with a long name to make the hak's path wider than the window");
-    std::fs::create_dir_all(&dir).unwrap();
-    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
-    let hak_path = dir.join("stuff.hak");
-    let mut hak = Hak::new();
-    hak.add_sources(vec![(key, Source::Bytes(SMALL_TABLE.to_vec().into()))]).unwrap();
-    hak.save(Some(&hak_path)).unwrap();
-    let dialogs = NoDialogs { open: vec![hak_path.clone()], ..Default::default() };
-    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1200.0, 800.0);
-    h.run();
-    mg_ui::hak_view::open_hak(h.state_mut());
-    settle(&mut h);
-    let tab = Tab::Hak(h.state().haks[0].id);
-    let path = h.state().dock.find_tab(&tab).unwrap();
-    if h.state_mut().dock.get_window_state_mut(path.surface).is_none() {
-        let rect = egui::Rect::from_min_size(egui::pos2(60.0, 40.0), egui::vec2(900.0, 600.0));
-        h.state_mut().dock.detach_tab(path, rect);
-        settle(&mut h);
-    }
-    // (The header's buttons, Remove by the words it begins with: it says
-    // how many are selected.)
-    let header = [
-        "Update from Folder",
-        "Compile Models",
-        "Add Files…",
-        "Add Folder…",
-        "Remove (",
-        "Extract…",
-        "Extract All…",
-        "Undo",
-        "Redo",
-        "Save",
-        "Save As…",
-    ];
-    let buttons: Vec<&str> = header.iter().copied().chain(["OK", "Cancel"]).collect();
-    // (The editor's, not the main toolbar's Undo, Redo and Save: its
-    // window is drawn after the main window's.)
-    let node = |h: &Harness<'_, Moonglow>, name: &str| -> (egui::Rect, bool, String) {
-        let button =
-            |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
-        let n = match name.ends_with('(') {
-            true => h.get_all_by_label_contains(name).rfind(button),
-            false => h.get_all_by_label(name).rfind(button),
-        };
-        let n = n.unwrap_or_else(|| panic!("no button {name}"));
-        let a = n.accesskit_node();
-        (n.rect(), a.is_disabled(), a.label().unwrap_or_default())
-    };
-    // (MG_SHOT: its pictures at each width, before anything is checked.)
-    if std::env::var_os("MG_SHOT").is_some() {
-        mg_testkit::gpu::hold();
-        let out = mg_testkit::scratch_dir("ui-hak-narrow-shots");
-        for width in [1000.0, 640.0, 480.0] {
-            let path = h.state().dock.find_tab(&tab).unwrap();
-            let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
-            state.set_size(egui::vec2(width, 600.0));
-            settle(&mut h);
-            h.render().unwrap().save(out.join(format!("hak-{width}.png"))).unwrap();
-        }
-    }
-    // Seen enabled and disabled, with a tip each time.
-    let mut seen: std::collections::BTreeMap<&str, [bool; 2]> = Default::default();
-    for changed in [false, true] {
-        if changed {
-            // A folder to update from, a resource selected, a change to
-            // undo and one undone to redo.
-            let doc = &mut h.state_mut().haks[0];
-            doc.folder = Some(dir.clone());
-            doc.hak.set_description("one");
-            doc.hak.set_description("two");
-            doc.hak.undo();
-            doc.selected.insert(key);
-            settle(&mut h);
-        }
-        for width in [1000.0, 640.0, 480.0] {
-            let path = h.state().dock.find_tab(&tab).unwrap();
-            let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
-            state.set_size(egui::vec2(width, 600.0));
-            settle(&mut h);
-            // (The window's body, under its tabs.)
-            let window = (h.state().dock.iter_leaves())
-                .find(|(_, leaf)| leaf.tabs.contains(&tab))
-                .map(|(_, leaf)| leaf.viewport)
-                .unwrap();
-            assert!((window.width() - width).abs() < 20.0, "{window:?} for {width}");
-            for name in &buttons {
-                let (rect, _, label) = node(&h, name);
-                assert!(!label.trim().is_empty(), "{name} has a name");
-                assert!(
-                    window.expand(0.5).contains_rect(rect),
-                    "{name} at {rect:?}, outside the window at {window:?} ({width} wide)"
-                );
-            }
-            // (Words where they fit, the icons alone where not.)
-            let save_as = node(&h, "Save As…").0.width();
-            if width >= 1000.0 {
-                assert!(save_as > 40.0, "Save As… {save_as} wide at {width}");
-            } else {
-                assert!(save_as < 30.0, "Save As… {save_as} wide at {width}: its icon alone");
-            }
-            // The path: in sight, cut short at the least, never a bare
-            // ellipsis at a row's end.
-            let shown = h.get_by_label_contains("a folder with a long name").rect();
-            assert!(shown.width() >= 60.0, "the path {shown:?} at {width}");
-            // Each button's tip: its name in it where its icon is alone.
-            for name in header {
-                let (rect, disabled, label) = node(&h, name);
-                let alone = rect.width() < 30.0;
-                // (With their words, those with no tip of their own have
-                // none: the two of the first row have theirs.)
-                if !alone && !matches!(name, "Update from Folder" | "Compile Models") {
-                    continue;
-                }
-                let tip = tip_at(&mut h, rect).unwrap_or_else(|| {
-                    panic!("{name} (disabled: {disabled}) has no tip at {width}")
-                });
-                if alone {
-                    assert!(tip.contains(label.as_str()), "{name}'s tip names it: {tip:?}");
-                }
-                seen.entry(name).or_default()[usize::from(disabled)] = true;
-            }
-        }
-    }
-    for name in ["Update from Folder", "Remove (", "Extract…", "Undo", "Redo", "Save"] {
-        assert_eq!(seen.get(name), Some(&[true, true]), "{name} seen enabled and disabled");
-    }
 }

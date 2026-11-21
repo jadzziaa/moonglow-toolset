@@ -53,7 +53,7 @@ fn check_for_updates_says_what_is_newest() {
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 0, "not asked by itself");
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
     h.get_by_label_contains("Check for Updates").click();
     h.run();
@@ -131,7 +131,7 @@ fn a_newer_release_found_at_start_opens_the_window_asking() {
     assert!(!h.state().updates.window, "not opened again in this run");
     h.get_by_label(&told);
     // What's New… opens it; Always install updates gets this release too.
-    h.get_by_label("What's New…").click();
+    click_in_sight(&mut h, "What's New…");
     h.run_steps(2);
     assert!(h.state().updates.getting.is_none());
     h.get_by_label("Always install updates").click();
@@ -172,10 +172,13 @@ fn the_update_notice_appears_and_is_dismissed() {
     assert_eq!(app.settings.update_checked, None);
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
-    // (The window opens on it; closed, the notice under the toolbar.)
+    // (The window opens on it; closed, the strip under the Top Bar tells
+    // it, over any other tab and over the Welcome page where its Status is
+    // out of sight, as here with the log open: M4's U24.)
     h.get_by_label(&told);
     close_window(&mut h);
     h.get_by_label(&told);
+    h.get_by_label("Close Update Notice");
     // A strip under the Top Bar, over the docks (the M3 shell, T7).
     let notice = h.get_by_label(&told).rect();
     let menus = h.get_by_label("Top Bar").get_by_label("File").rect();
@@ -223,6 +226,10 @@ fn the_update_notice_appears_and_is_dismissed() {
     h.run();
     close_window(&mut h);
     h.get_by_label(&format!("Moonglow 99.1.0 is out (you have {current})."));
+    // (Over another tab than the Welcome page: the strip, and its Close.)
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Manual));
+    settle(&mut h);
     h.get_by_label("Close Update Notice").click();
     h.run();
     assert!(h.state().updates.notice.is_none());
@@ -435,7 +442,7 @@ fn an_update_is_installed_from_the_notice_and_a_restart_asked() {
     h.run();
     close_window(&mut h);
     h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
-    h.get_by_label("What's New…").click();
+    click_in_sight(&mut h, "What's New…");
     h.run_steps(2);
     // The notes, in the window.
     h.get_by_label_contains("Updates install from the app, verified first.");
@@ -493,7 +500,7 @@ fn install_now_that_fails_to_replace_the_image_asks_for_no_restart() {
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
     close_window(&mut h);
-    h.get_by_label("Install Now").click();
+    click_in_sight(&mut h, "Install Now");
     h.run_steps(2);
     let said = |h: &Harness<'_, Moonglow>, what: &str| {
         h.state().log.entries.iter().any(|(_, m)| m.contains(what))
@@ -527,9 +534,9 @@ fn restart_now_asks_about_unsaved_work_first() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
     h.run();
-    h.get_by_label("Install Now").click();
+    click_in_sight(&mut h, "Install Now");
     h.run_steps(2);
-    h.get_by_label("Restart Now").click();
+    click_in_sight(&mut h, "Restart Now");
     h.run_steps(2);
     assert!(!h.state().quit_requested, "asked first");
     assert!(matches!(h.state().confirm_discard, Some(mg_ui::Action::RestartToUpdate)));
@@ -548,7 +555,7 @@ fn an_update_with_a_bad_signature_is_refused() {
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
     close_window(&mut h);
-    h.get_by_label("Install Now").click();
+    click_in_sight(&mut h, "Install Now");
     h.run_steps(2);
     h.get_by_label(
         "Moonglow 99.0.0 isn't installed: the release is signed with another key than this copy \
@@ -569,7 +576,7 @@ fn an_update_with_a_bad_signature_is_refused() {
         files: mg_update::serve::signed(&ours, "v99.0.0", &[(name.as_str(), b"ours")]),
     };
     fixed.put_files(&server);
-    h.get_by_label("Try Again").click();
+    click_in_sight(&mut h, "Try Again");
     h.run_steps(2);
     assert_eq!(std::fs::read(&image).unwrap(), b"ours");
     h.get_by_label("Moonglow 99.0.0 is installed: it runs from the next start.");
@@ -581,7 +588,7 @@ fn an_update_with_a_bad_signature_is_refused() {
     close_window(&mut h);
     assert!(h.query_by_label("Install Now").is_none());
     h.get_by_label("Release Page");
-    h.get_by_label("What's New…").click();
+    click_in_sight(&mut h, "What's New…");
     h.run_steps(2);
     h.get_by_label_contains("has no key to check a download against");
 }
@@ -603,7 +610,7 @@ fn an_update_is_not_downloaded_without_a_cache_folder() {
     close_window(&mut h);
     assert!(h.query_by_label("Install Now").is_none());
     h.get_by_label("Release Page");
-    h.get_by_label("What's New…").click();
+    click_in_sight(&mut h, "What's New…");
     h.run_steps(2);
     h.get_by_label_contains("found no cache folder of yours to download an update into");
     let asked = server.asked();
@@ -623,7 +630,7 @@ fn later_installs_the_update_as_moonglow_closes() {
     let (app, image) = app_updating(&dir, &server, Some(key.public()));
     let mut h = harness(app, 1280.0, 800.0);
     h.run();
-    h.get_by_label("Later").click();
+    click_in_sight(&mut h, "Later");
     h.run_steps(2);
     h.get_by_label(
         "Moonglow 99.0.0 is downloaded and verified: it is installed when Moonglow closes.",
@@ -674,7 +681,7 @@ fn the_download_runs_on_its_own_thread() {
         h.run_steps(1);
     }
     h.run_steps(2);
-    h.get_by_label("Install Now").click();
+    click_in_sight(&mut h, "Install Now");
     h.run_steps(1);
     while h.state().updates.getting.as_ref().is_some_and(|g| g.ready().is_none()) {
         assert!(std::time::Instant::now() < deadline, "not downloaded");

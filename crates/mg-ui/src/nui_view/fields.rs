@@ -14,98 +14,244 @@ use super::*;
 struct Typed(std::collections::HashMap<egui::Id, String>);
 
 /// The values shown this frame that are not set yet: what the module holds,
-/// and what the field shows in its place.
+/// what the field shows in its place, and the field's id.
 #[derive(Clone, Default)]
-struct Unset(Vec<(Value, Value)>);
+struct Unset(Vec<(Value, Value, egui::Id)>);
 
-fn unset_id() -> egui::Id {
-    egui::Id::new("nui-fields-unset")
+/// The fields drawn this frame, by their ids.
+#[derive(Clone, Default)]
+struct Drawn(std::collections::HashSet<egui::Id>);
+
+/// A value a field showed and [`put_back`] took out again, where it was:
+/// set after all where its field is not drawn the next frame (its panel
+/// folded, another tab of it chosen, its page left while it was typed in),
+/// so that what was typed is never lost ([`recover`]).
+#[derive(Clone, Debug)]
+pub(super) struct Reverted {
+    field: egui::Id,
+    /// Whose value it is ([`Place`]) and its JSON pointer there.
+    at: (Place, String),
+    set: Value,
+    shown: Value,
 }
 
-fn shows_unset(ui: &Ui, set: Value, shown: Value) {
-    ui.data_mut(|d| d.get_temp_mut_or_default::<Unset>(unset_id()).0.push((set, shown)));
+/// What a [`Reverted`]'s pointer is into.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Place {
+    Window,
+    Bind(String),
+    Variant(String),
+    WindowId,
 }
 
-fn of_id() -> egui::Id {
-    egui::Id::new("nui-fields-of")
+/// The designer whose fields are drawn now ([`enter`]): each NUI window's
+/// fields keep their own stores, so that one drawn between another's
+/// panels and its editor never clears what the other shows.
+fn designer(ctx: &egui::Context) -> egui::Id {
+    ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new("nui-fields-designer")))
+        .unwrap_or(egui::Id::NULL)
 }
 
-/// Once a frame, before the form is drawn.
-pub(super) fn begin(ctx: &egui::Context) {
+fn unset_id(ctx: &egui::Context) -> egui::Id {
+    egui::Id::new("nui-fields-unset").with(designer(ctx))
+}
+
+fn drawn_id(ctx: &egui::Context) -> egui::Id {
+    egui::Id::new("nui-fields-drawn").with(designer(ctx))
+}
+
+fn shows_unset(ui: &Ui, field: egui::Id, set: Value, shown: Value) {
+    let id = unset_id(ui.ctx());
+    ui.data_mut(|d| d.get_temp_mut_or_default::<Unset>(id).0.push((set, shown, field)));
+}
+
+/// Notes the field `field` as drawn this frame.
+fn drawn(ui: &Ui, field: egui::Id) {
+    let id = drawn_id(ui.ctx());
+    ui.data_mut(|d| d.get_temp_mut_or_default::<Drawn>(id).0.insert(field));
+}
+
+fn of_id(ctx: &egui::Context) -> egui::Id {
+    egui::Id::new("nui-fields-of").with(designer(ctx))
+}
+
+/// The fields drawn from here on are designer `key`'s (each part of it
+/// that draws fields enters it: its panels, its editor).
+pub(super) fn enter(ctx: &egui::Context, key: ResKey) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("nui-fields-designer"), egui::Id::new(key)));
+}
+
+/// Once a frame for designer `key`, before the first of its parts draws.
+pub(super) fn begin(ctx: &egui::Context, key: ResKey) {
+    enter(ctx, key);
+    let (unset, drawn, of) = (unset_id(ctx), drawn_id(ctx), of_id(ctx));
     ctx.data_mut(|d| {
-        d.remove::<Unset>(unset_id());
-        d.remove::<egui::Id>(of_id());
+        d.remove::<Unset>(unset);
+        d.remove::<Drawn>(drawn);
+        d.remove::<egui::Id>(of);
     });
 }
 
 /// Says whose fields follow (the selected control's): a field being typed
 /// in is another control's field of the same name when the selection
 /// changes, not the same field showing another value, which would take what
-/// was typed.
-pub(super) fn of(ctx: &egui::Context, whose: egui::Id) {
-    ctx.data_mut(|d| d.insert_temp(of_id(), whose));
+/// was typed. `None`: no one's (after Properties, for the pages' fields).
+pub(super) fn of(ctx: &egui::Context, whose: Option<egui::Id>) {
+    let id = of_id(ctx);
+    ctx.data_mut(|d| match whose {
+        Some(whose) => _ = d.insert_temp(id, whose),
+        None => {
+            d.remove::<egui::Id>(id);
+        }
+    });
 }
 
 /// `add` with ids of their own for the fields of what [`of`] named.
 fn scoped<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    match ui.data(|d| d.get_temp::<egui::Id>(of_id())) {
+    match ui.data(|d| d.get_temp::<egui::Id>(of_id(ui.ctx()))) {
         Some(whose) => ui.push_id(whose, add).inner,
         None => add(ui),
     }
 }
 
 /// `now` (what the form left of `was`) without the values it only shows:
-/// those are not written. A change made in the same frame stays.
-pub(super) fn put_back(ctx: &egui::Context, was: &Value, now: &mut Value) {
-    fn walk(unset: &[(Value, Value)], was: &Value, now: &mut Value) {
+/// those are not written. A change made in the same frame stays. What was
+/// taken out, and where (`place`), is added to `out`.
+pub(super) fn put_back(
+    ctx: &egui::Context,
+    was: &Value,
+    now: &mut Value,
+    place: &Place,
+    out: &mut Vec<Reverted>,
+) {
+    fn walk(
+        unset: &[(Value, Value, egui::Id)],
+        was: &Value,
+        now: &mut Value,
+        at: &mut String,
+        place: &Place,
+        out: &mut Vec<Reverted>,
+    ) {
         if was == now {
             return;
         }
-        if unset.iter().any(|(set, shown)| set == was && shown == now) {
+        if let Some((set, shown, field)) =
+            unset.iter().find(|(set, shown, _)| set == was && shown == now)
+        {
+            out.push(Reverted {
+                field: *field,
+                at: (place.clone(), at.clone()),
+                set: set.clone(),
+                shown: shown.clone(),
+            });
             now.clone_from(was);
             return;
         }
+        let here = at.len();
         match (was, now) {
             (Value::Object(was), Value::Object(now)) => {
                 for (key, now) in now.iter_mut() {
                     if let Some(was) = was.get(key) {
-                        walk(unset, was, now);
+                        at.push('/');
+                        at.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                        walk(unset, was, now, at, place, out);
+                        at.truncate(here);
                     }
                 }
             }
             (Value::Array(was), Value::Array(now)) if was.len() == now.len() => {
-                for (was, now) in was.iter().zip(now) {
-                    walk(unset, was, now);
+                for (i, (was, now)) in was.iter().zip(now).enumerate() {
+                    use std::fmt::Write;
+                    let _ = write!(at, "/{i}");
+                    walk(unset, was, now, at, place, out);
+                    at.truncate(here);
                 }
             }
             _ => {}
         }
     }
-    let Some(unset) = ctx.data(|d| d.get_temp::<Unset>(unset_id())) else { return };
-    walk(&unset.0, was, now);
+    let Some(unset) = ctx.data(|d| d.get_temp::<Unset>(unset_id(ctx))) else { return };
+    walk(&unset.0, was, now, &mut String::new(), place, out);
 }
 
 /// [`put_back`] for the settings: the binds' values, the variants and the
 /// window's ID.
-pub(super) fn put_back_settings(ctx: &egui::Context, was: &Settings, now: &mut Settings) {
-    if ctx.data(|d| d.get_temp::<Unset>(unset_id())).is_none() {
+pub(super) fn put_back_settings(
+    ctx: &egui::Context,
+    was: &Settings,
+    now: &mut Settings,
+    out: &mut Vec<Reverted>,
+) {
+    if ctx.data(|d| d.get_temp::<Unset>(unset_id(ctx))).is_none() {
         return;
     }
     for (name, binding) in &mut now.bindings {
         if let Some(was) = was.bindings.get(name) {
-            put_back(ctx, &was.value, &mut binding.value);
+            put_back(ctx, &was.value, &mut binding.value, &Place::Bind(name.clone()), out);
         }
     }
     for (name, view) in &mut now.variants {
         if let Some(was) = was.variants.get(name) {
-            put_back(ctx, was, view);
+            put_back(ctx, was, view, &Place::Variant(name.clone()), out);
         }
     }
-    if let (Some(was), Some(now)) = (&was.window_id, &mut now.window_id) {
-        let (was, mut id) = (Value::from(was.as_str()), Value::from(now.as_str()));
-        put_back(ctx, &was, &mut id);
+    // (None set, its field shows "" put back as none: M4's U19 review.)
+    if let Some(id_now) = &mut now.window_id {
+        let was_id = was.window_id.as_deref().unwrap_or_default();
+        let (was_v, mut id) = (Value::from(was_id), Value::from(id_now.as_str()));
+        put_back(ctx, &was_v, &mut id, &Place::WindowId, out);
         if let Value::String(id) = id {
-            *now = id;
+            *id_now = id;
+        }
+        if was.window_id.is_none() && id_now.is_empty() {
+            now.window_id = None;
+        }
+    }
+}
+
+/// What fields showed last frame and [`put_back`] took out (`last`), set
+/// in `v` and `s` where the field is not drawn this frame and its place
+/// still holds what was set: its panel was folded, another tab of its
+/// section chosen or its page left while it was typed in, and egui lets go
+/// of a field not drawn without its leaving. (The same frame's own fields
+/// put theirs back as before.)
+pub(super) fn recover(ctx: &egui::Context, last: &[Reverted], v: &mut Value, s: &mut Settings) {
+    let drawn = ctx.data(|d| d.get_temp::<Drawn>(drawn_id(ctx))).unwrap_or_default();
+    set_typed(last.iter().filter(|r| !drawn.0.contains(&r.field)), v, s);
+}
+
+/// What the fields in `typed` showed set where they found it, only where
+/// that place still holds what was set ([`recover`]'s, and Save's for
+/// fields still typed in).
+pub(super) fn set_typed<'a>(
+    typed: impl Iterator<Item = &'a Reverted>,
+    v: &mut Value,
+    s: &mut Settings,
+) {
+    for r in typed {
+        let (place, pointer) = &r.at;
+        let target = match place {
+            Place::Window => v.pointer_mut(pointer),
+            Place::Bind(name) => {
+                s.bindings.get_mut(name).and_then(|b| b.value.pointer_mut(pointer))
+            }
+            Place::Variant(name) => s.variants.get_mut(name).and_then(|w| w.pointer_mut(pointer)),
+            Place::WindowId => {
+                match (&mut s.window_id, &r.shown) {
+                    (Some(id), Value::String(shown)) if r.set == id.as_str() => {
+                        id.clone_from(shown);
+                    }
+                    // (Typed with none set: given it.)
+                    (None, Value::String(shown)) if r.set == "" && !shown.is_empty() => {
+                        s.window_id = Some(shown.clone());
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+        };
+        if let Some(target) = target.filter(|t| **t == r.set) {
+            target.clone_from(&r.shown);
         }
     }
 }
@@ -134,11 +280,12 @@ fn text_field(ui: &mut Ui, text: &mut String, width: f32, hint: &str) -> Option<
     let set =
         crate::widgets::commit_text_hinted(&mut typed.0, ui, id, text, None, width, None, hint);
     let has_keys = ui.memory(|m| m.has_focus(id));
+    drawn(ui, id);
     match set {
         Some(set) => *text = set,
         None => {
             if has_keys && let Some(shown) = typed.0.get(&id).filter(|shown| *shown != text) {
-                shows_unset(ui, Value::from(text.as_str()), Value::from(shown.as_str()));
+                shows_unset(ui, id, Value::from(text.as_str()), Value::from(shown.as_str()));
                 text.clone_from(shown);
             }
         }
@@ -168,11 +315,12 @@ where
     let (set, shown, r) = scoped(ui, |ui| {
         crate::widgets::drag_number_shown(ui, current, |d| make(d).update_while_editing(false))
     });
+    drawn(ui, r.id);
     if let Some(set) = set {
         *v = Value::from(set);
     } else if shown != current {
         let shown = Value::from(shown);
-        shows_unset(ui, v.clone(), shown.clone());
+        shows_unset(ui, r.id, v.clone(), shown.clone());
         *v = shown;
     }
     r
@@ -184,7 +332,7 @@ where
 pub(super) fn color(ui: &mut Ui, o: &mut serde_json::Map<String, Value>) {
     const CHANNELS: [&str; 4] = ["r", "g", "b", "a"];
     let current = CHANNELS.map(|k| o.get(k).and_then(Value::as_u64).unwrap_or(255).min(255) as u8);
-    let whose = ui.data(|d| d.get_temp::<egui::Id>(of_id()));
+    let whose = ui.data(|d| d.get_temp::<egui::Id>(of_id(ui.ctx())));
     let pending_id = ui.next_auto_id().with(whose).with("nui-color");
     let pending: Option<[u8; 4]> = ui.data(|d| d.get_temp(pending_id));
     let mut rgba = pending.unwrap_or(current);
@@ -195,6 +343,7 @@ pub(super) fn color(ui: &mut Ui, o: &mut serde_json::Map<String, Value>) {
             (changed, egui::Popup::is_id_open(ui.ctx(), popup))
         })
         .inner;
+    drawn(ui, pending_id);
     let Some(picked) = changed.then_some(rgba).or(pending) else { return };
     let was = Value::Object(o.clone());
     if picked != current {
@@ -205,7 +354,7 @@ pub(super) fn color(ui: &mut Ui, o: &mut serde_json::Map<String, Value>) {
     if open {
         ui.data_mut(|d| d.insert_temp(pending_id, picked));
         if picked != current {
-            shows_unset(ui, was, Value::Object(o.clone()));
+            shows_unset(ui, pending_id, was, Value::Object(o.clone()));
         }
     } else {
         ui.data_mut(|d| d.remove::<[u8; 4]>(pending_id));
@@ -246,8 +395,7 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
         elements.remove(i);
     }
     let next = next_option_value(elements);
-    if ui.add_enabled(!combo || next.is_some(), egui::Button::new("+ Add Option").small()).clicked()
-    {
+    if ui.add_enabled(!combo || next.is_some(), form::plus("Add Option")).clicked() {
         if combo {
             if let Some(next) = next {
                 elements.push(json!(["Option", next]));
@@ -295,7 +443,7 @@ fn more(ui: &mut Ui, all: usize, what: &str) {
 
 pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
     if depth > 12 {
-        ui.weak("Nested value: use JUI source");
+        ui.weak("Nested value: use JUI Source");
         return;
     }
     match v {
@@ -319,7 +467,7 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
             if let Some(i) = remove {
                 values.remove(i);
             }
-            if ui.small_button("+ Add Item").clicked() {
+            if ui.add(form::plus("Add Item")).clicked() {
                 values.push(values.last().cloned().unwrap_or(json!("")));
             }
         }
@@ -386,7 +534,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 // (A series is an object; one written as something else
                 // in the source is shown, and set there.)
                 if !slot.is_object() {
-                    ui.weak("Not a series: see Advanced › JUI source.");
+                    ui.weak("Not a series: see Advanced › JUI Source.");
                     if ui.button("Remove Series").clicked() {
                         remove = Some(i);
                     }
@@ -423,7 +571,7 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         if let Some(i) = remove {
             slots.remove(i);
         }
-        if ui.button("+ Add Series").clicked() {
+        if ui.add(form::plus("Add Series")).clicked() {
             slots.push(json!({
                 "type":0,"legend":"Series","color":{"r":80,"g":180,"b":240,"a":255},
                 "data":[0.0,1.0]
@@ -436,113 +584,105 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
     if let Some((parent, i, true)) = array_position(selected)
         && let Some(cell) = doc.pointer_mut(&parent).and_then(|v| v.get_mut(i))
     {
-        egui::CollapsingHeader::new("List cell")
-            .icon(mg_uikit::collapsing_icon)
-            .default_open(true)
-            .show(ui, |ui| {
-                if let Some(width) = cell.get_mut(1) {
-                    widgets::field_label(ui, "Cell width");
-                    scalar(ui, width);
-                }
-                if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
-                    let mut variable = variable;
-                    if ui.check_box(&mut variable, "Variable width").changed() {
-                        cell[2] = variable.into();
-                    }
-                }
-            });
-    }
-    let Some(node) = doc.pointer_mut(selected).filter(|n| n["type"] == "list") else { return };
-    egui::CollapsingHeader::new("Row data")
-        .icon(mg_uikit::collapsing_icon)
-        .default_open(true)
-        .show(ui, |ui| {
-            let names = row_binds(&node["row_template"]);
-            if names.is_empty() {
-                ui.weak("Bind a cell's value to edit its rows here.");
-                return;
+        form::section(ui, "nui-list-cell", "List Cell", true, None, None, |ui| {
+            if let Some(width) = cell.get_mut(1) {
+                form::row(ui, "Cell width", None, |ui, _| scalar(ui, width));
             }
-            // Never reinterpret a scalar shared bind as a row array without an explicit choice.
-            let mut arrays = Vec::new();
-            for name in &names {
-                if s.bindings.get(name).is_some_and(|b| b.value.is_array()) {
-                    arrays.push(name.clone());
-                } else {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.add(egui::Label::new(name).wrap());
-                        if ui.small_button("Use Row Array").clicked() {
-                            let b = s.bindings.entry(name.clone()).or_default();
-                            b.value = json!([b.value.clone()]);
-                        }
-                    });
-                }
-            }
-            let count = arrays
-                .iter()
-                .filter_map(|n| s.bindings.get(n)?.value.as_array().map(Vec::len))
-                .max()
-                .unwrap_or(0);
-            let mut remove = None;
-            let mut duplicate = None;
-            for row in 0..count.min(MOST_ITEMS) {
-                egui::CollapsingHeader::new(format!("Row {}", row + 1))
-                    .icon(mg_uikit::collapsing_icon)
-                    .id_salt((selected, row))
-                    .show(ui, |ui| {
-                        for name in &arrays {
-                            ui.push_id(name, |ui| {
-                                widgets::field_label(ui, name);
-                                let Some(a) =
-                                    s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
-                                else {
-                                    return;
-                                };
-                                if let Some(v) = a.get_mut(row) {
-                                    value(ui, v, 0);
-                                } else if ui.small_button("Fill Missing Cell").clicked() {
-                                    a.resize(row + 1, Value::Null);
-                                }
-                            });
-                        }
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.small_button("Duplicate Row").clicked() {
-                                duplicate = Some(row);
-                            }
-                            if ui.small_button("Delete Row").clicked() {
-                                remove = Some(row);
-                            }
-                        });
-                    });
-            }
-            more(ui, count, "rows");
-            let add = ui.add_enabled(!arrays.is_empty(), egui::Button::new("+ Add Row")).clicked();
-            if add || remove.is_some() || duplicate.is_some() {
-                for name in arrays {
-                    let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut())
-                    else {
-                        continue;
-                    };
-                    a.resize(count, Value::Null);
-                    if let Some(row) = remove {
-                        a.remove(row);
-                    } else if let Some(row) = duplicate {
-                        a.insert(row + 1, a[row].clone());
-                    } else {
-                        a.push(a.last().cloned().unwrap_or(Value::Null));
-                    }
-                }
-                let rows =
-                    count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some());
-                if node["row_count"].is_number() {
-                    node["row_count"] = json!(rows);
-                } else if let Some(bind) = node["row_count"]["bind"].as_str()
-                    && let Some(b) = s.bindings.get_mut(bind).filter(|b| b.value.is_u64())
-                {
-                    // A row count bound to a number follows the rows too.
-                    b.value = json!(rows);
+            if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
+                let mut variable = variable;
+                if ui.check_box(&mut variable, "Variable width").changed() {
+                    cell[2] = variable.into();
                 }
             }
         });
+    }
+    let Some(node) = doc.pointer_mut(selected).filter(|n| n["type"] == "list") else { return };
+    form::section(ui, "nui-row-data", "Row Data", true, None, None, |ui| {
+        let names = row_binds(&node["row_template"]);
+        if names.is_empty() {
+            ui.weak("Bind a cell's value to edit its rows here.");
+            return;
+        }
+        // Never reinterpret a scalar shared bind as a row array without an explicit choice.
+        let mut arrays = Vec::new();
+        for name in &names {
+            if s.bindings.get(name).is_some_and(|b| b.value.is_array()) {
+                arrays.push(name.clone());
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add(egui::Label::new(name).wrap());
+                    if ui.small_button("Use Row Array").clicked() {
+                        let b = s.bindings.entry(name.clone()).or_default();
+                        b.value = json!([b.value.clone()]);
+                    }
+                });
+            }
+        }
+        let count = arrays
+            .iter()
+            .filter_map(|n| s.bindings.get(n)?.value.as_array().map(Vec::len))
+            .max()
+            .unwrap_or(0);
+        let mut remove = None;
+        let mut duplicate = None;
+        for row in 0..count.min(MOST_ITEMS) {
+            egui::CollapsingHeader::new(format!("Row {}", row + 1))
+                .icon(mg_uikit::collapsing_icon)
+                .id_salt((selected, row))
+                .show(ui, |ui| {
+                    for name in &arrays {
+                        ui.push_id(name, |ui| {
+                            widgets::field_label(ui, name);
+                            let Some(a) =
+                                s.bindings.get_mut(name).and_then(|b| b.value.as_array_mut())
+                            else {
+                                return;
+                            };
+                            if let Some(v) = a.get_mut(row) {
+                                value(ui, v, 0);
+                            } else if ui.small_button("Fill Missing Cell").clicked() {
+                                a.resize(row + 1, Value::Null);
+                            }
+                        });
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.small_button("Duplicate Row").clicked() {
+                            duplicate = Some(row);
+                        }
+                        if ui.small_button("Delete Row").clicked() {
+                            remove = Some(row);
+                        }
+                    });
+                });
+        }
+        more(ui, count, "rows");
+        let add = ui.add_enabled(!arrays.is_empty(), form::plus("Add Row")).clicked();
+        if add || remove.is_some() || duplicate.is_some() {
+            for name in arrays {
+                let Some(a) = s.bindings.get_mut(&name).and_then(|b| b.value.as_array_mut()) else {
+                    continue;
+                };
+                a.resize(count, Value::Null);
+                if let Some(row) = remove {
+                    a.remove(row);
+                } else if let Some(row) = duplicate {
+                    a.insert(row + 1, a[row].clone());
+                } else {
+                    a.push(a.last().cloned().unwrap_or(Value::Null));
+                }
+            }
+            let rows =
+                count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some());
+            if node["row_count"].is_number() {
+                node["row_count"] = json!(rows);
+            } else if let Some(bind) = node["row_count"]["bind"].as_str()
+                && let Some(b) = s.bindings.get_mut(bind).filter(|b| b.value.is_u64())
+            {
+                // A row count bound to a number follows the rows too.
+                b.value = json!(rows);
+            }
+        }
+    });
 }
 
 /// The binds a list's rows give values to: those of its cells, and of draw
@@ -580,7 +720,7 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
     if v.get("bind").is_none() {
         return;
     }
-    egui::CollapsingHeader::new("Bind formatting").icon(mg_uikit::collapsing_icon).show(ui, |ui| {
+    form::section(ui, "nui-bind-formatting", "Bind Formatting", false, None, None, |ui| {
         // The NUI_NUMBER_FLAG_* and NUI_TEXT_FLAG_* bits of nw_inc_nui.
         for (key, bit, label) in [
             ("number_flags", 1, "Numbers in hexadecimal"),

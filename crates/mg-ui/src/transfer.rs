@@ -350,7 +350,7 @@ impl Moonglow {
             Dropped::Files => self.import_files(paths),
             Dropped::NoModule => self.log.warn(format!(
                 "Nothing imported from {}: dropped files are imported into the open module, and \
-                 none is open (a module's .mod dropped alone opens it)",
+                 none is open (a module's .mod or folder dropped alone opens it)",
                 named(&paths)
             )),
         }
@@ -895,35 +895,46 @@ impl Moonglow {
 fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = &mut app.export_ask else { return };
     let mut answer = None;
-    crate::widgets::modal(ctx, "Export").id(egui::Id::new("export-ask")).show(ctx, |ui| {
-        ui.set_max_width(460.0);
-        let name = ask
-            .path
-            .file_name()
-            .map_or_else(|| ask.path.display().to_string(), |n| n.to_string_lossy().into_owned());
-        ui.label(format!("{name} is there already.")).on_hover_text(ask.path.display().to_string());
-        ui.add_space(6.0);
-        ui.label(
-            "Append adds the resources to it: those it has of the same names are \
+    let always = ask.always;
+    let footed =
+        crate::widgets::modal(ctx, "Export").id(egui::Id::new("export-ask")).show_foot(ctx, |ui| {
+            crate::widgets::fit_width(ui, 460.0);
+            let name = ask.path.file_name().map_or_else(
+                || ask.path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            ui.label(format!("{name} is there already."))
+                .on_hover_text(ask.path.display().to_string());
+            ui.add_space(6.0);
+            ui.label(
+                "Append adds the resources to it: those it has of the same names are \
              replaced, the rest it holds stay.",
-        );
-        ui.label("Overwrite replaces it with an archive of these resources alone.");
-        ui.add_space(6.0);
-        ui.check_box(&mut ask.always, "Always do this")
-            .on_hover_text("Tools › Options › General › Exporting to an archive there changes it");
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Append").clicked() {
-                answer = Some(ExportAnswer::Append);
-            }
-            if ui.button("Overwrite").clicked() {
-                answer = Some(ExportAnswer::Overwrite);
-            }
-            if crate::widgets::cancel(ui) {
-                answer = Some(ExportAnswer::Cancel);
-            }
+            );
+            ui.label("Overwrite replaces it with an archive of these resources alone.");
+            let foot = crate::widgets::Foot::new()
+                .check(
+                    "Always do this",
+                    always,
+                    Some(
+                        "Tools › Options › General › Exporting to an archive there changes it"
+                            .into(),
+                    ),
+                )
+                .main("Append", true)
+                .button("Overwrite", true)
+                .cancel();
+            ((), foot)
         });
-    });
+    if let Some(f) = footed {
+        ask.always = f.pressed.checked.unwrap_or(ask.always);
+        if f.pressed.main() {
+            answer = Some(ExportAnswer::Append);
+        } else if f.pressed.clicked("Overwrite") {
+            answer = Some(ExportAnswer::Overwrite);
+        } else if f.pressed.cancelled() {
+            answer = Some(ExportAnswer::Cancel);
+        }
+    }
     if let Some(a) = answer {
         app.answer_export(a);
     }
@@ -1001,7 +1012,37 @@ pub(crate) fn dropped_to(paths: &[PathBuf], module_open: bool) -> Dropped {
             _ => {}
         }
     }
+    // (A module folder or a nasher project alone, with no module open:
+    // opened, as File › Open Folder… opens it, the Welcome page's note.
+    // With one open it is imported, as before.)
+    if let [one] = paths
+        && !module_open
+        && holds_module(one)
+    {
+        return Dropped::Module(one.clone());
+    }
     if module_open { Dropped::Files } else { Dropped::NoModule }
+}
+
+/// Whether `dir` is a module folder or a nasher project, as the module
+/// reader takes them (`Module::open`): a nasher project's `nasher.cfg` by
+/// that very name (`nasher::Package::is_package`), a folder's `module.ifo`
+/// by its resource, so in any case (`MODULE.IFO`, as a folder's files are
+/// read).
+fn holds_module(dir: &std::path::Path) -> bool {
+    crate::welcome::count(crate::welcome::Counted::FolderRead);
+    if !dir.is_dir() {
+        return false;
+    }
+    if mg_module::nasher::Package::is_package(dir) {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    let ifo = mg_module::Module::info_key();
+    entries.flatten().any(|e| {
+        e.file_type().is_ok_and(|t| t.is_file())
+            && ResKey::from_filename(&e.file_name().to_string_lossy()) == Some(ifo)
+    })
 }
 
 /// Files dragged over the window: what dropping them does, said over it;
@@ -1021,6 +1062,7 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     if hovered.is_empty() {
+        app.welcome.drag = None;
         return;
     }
     // (Where the system doesn't say which files they are yet: as files.)
@@ -1030,7 +1072,18 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         path.and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "the module".to_string())
     });
-    let said = match dropped_to(&paths, module.is_some()) {
+    // (What they become, found once for the drag, not each frame: a
+    // folder is read for a module.)
+    let open = module.is_some();
+    let to = match &app.welcome.drag {
+        Some((p, o, to)) if *p == paths && *o == open => to.clone(),
+        _ => {
+            let to = dropped_to(&paths, open);
+            app.welcome.drag = Some((paths.clone(), open, to.clone()));
+            to
+        }
+    };
+    let said = match to {
         Dropped::Module(p) => format!("Drop to open the module {}", named(&[p])),
         Dropped::Hak(p) => format!("Drop to open {} in the hak editor", named(&[p])),
         Dropped::Archive(p) => {
@@ -1095,7 +1148,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if draft.kind.is_some_and(|t| kinds.iter().all(|(k, _)| *k != t)) {
             draft.kind = None;
         }
-        crate::widgets::modal(&ctx, "Export Resources").show(&ctx, |ui| {
+        let footed = crate::widgets::modal(&ctx, "Export Resources").show_foot(&ctx, |ui| {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Kind");
                 let shown = match draft.kind {
@@ -1213,32 +1266,31 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                      them)",
                 );
             });
-            ui.horizontal(|ui| {
-                let label = format!("Export {}…", draft.selected.len());
-                if ui.add_enabled(!draft.selected.is_empty(), egui::Button::new(label)).clicked() {
-                    app.actions.push(Action::Export(draft.clone()));
-                    close = true;
-                }
-                let files = format!("Export {} as Files…", draft.selected.len());
-                if ui
-                    .add_enabled(!draft.selected.is_empty(), egui::Button::new(files))
-                    .on_hover_text(
-                        "Write them into a folder as loose files, as they are in the module",
-                    )
-                    .clicked()
-                {
-                    app.actions.push(Action::ExportFiles {
-                        keys: draft.selected.iter().copied().collect(),
-                        dependencies: draft.dependencies,
-                        scratch: false,
-                    });
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
+            let n = draft.selected.len();
+            let foot = crate::widgets::Foot::new()
+                .main(format!("Export {n}…"), n > 0)
+                .button(format!("Export {n} as Files…"), n > 0)
+                .tip("Write them into a folder as loose files, as they are in the module")
+                .cancel();
+            ((), foot)
         });
+        if let Some(f) = footed {
+            if f.pressed.main() {
+                app.actions.push(Action::Export(draft.clone()));
+                close = true;
+            }
+            if f.pressed.nth(1) {
+                app.actions.push(Action::ExportFiles {
+                    keys: draft.selected.iter().copied().collect(),
+                    dependencies: draft.dependencies,
+                    scratch: false,
+                });
+                close = true;
+            }
+            if f.pressed.cancelled() {
+                close = true;
+            }
+        }
         if close {
             app.export = None;
         }
@@ -1254,7 +1306,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let window = crate::widgets::modal(&ctx, "Import Resources");
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(440.0, 480.0))
             .min_size([320.0, 200.0]);
-        window.show(&ctx, |ui| {
+        let footed = window.show_foot(&ctx, |ui| {
             let new = draft.resources.len() - draft.overwrites.len();
             ui.label(format!("{name}: {} resources, {new} new", draft.resources.len()));
             match &draft.stamp {
@@ -1292,7 +1344,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                 });
-                under_from = Some(ui.min_rect().bottom());
+                under_from = Some(ui.cursor().top());
                 // Every one at once, as Aurora's Overwrite page has them.
                 ui.horizontal(|ui| {
                     let all = draft.overwrites.iter().all(|(_, on)| *on);
@@ -1365,27 +1417,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                let any = !draft.resources.is_empty();
-                if ui.add_enabled(any, egui::Button::new("Import")).clicked()
-                    || (any && crate::widgets::enter(ui))
-                {
-                    import = true;
-                    close = true;
-                }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
-            });
             if let Some(from) = under_from {
-                let under = ui.min_rect().bottom() - from + ui.spacing().item_spacing.y;
+                // (The cursor, not the ui's rect: the body is held at
+                // the room above the footer, and that rect is as tall.)
+                let under = ui.cursor().top() - from + ui.spacing().item_spacing.y;
                 if under_was.is_none_or(|was| (was - under).abs() > 0.5) {
                     ui.data_mut(|d| d.insert_temp(under_id, under));
                     ui.ctx().request_repaint();
                 }
             }
+            let foot =
+                crate::widgets::Foot::new().main("Import", !draft.resources.is_empty()).cancel();
+            ((), foot)
         });
+        if let Some(f) = footed {
+            if f.pressed.main() {
+                import = true;
+                close = true;
+            }
+            if f.pressed.cancelled() {
+                close = true;
+            }
+        }
         // (The import itself, not a copy of it: every incoming resource's
         // bytes were copied once to run it.)
         if import && let Some(draft) = app.import.take() {

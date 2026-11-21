@@ -575,6 +575,12 @@ pub(crate) enum Asked {
     /// on the Outliner's row: its area is the one in front).
     Select,
     Properties,
+    /// Gone to (from the module tree) or selected (from the Outliner) and
+    /// shown in the Properties panel in front, the Right Dock unfolded (a
+    /// double click on its row, as on the object in the view: ruling Q1
+    /// and the coordinator's of U6's review); its menu's Properties opens
+    /// the window.
+    ShowProperties,
     /// Its variables, in the Variables window (as Aurora's list offers).
     Variables,
     /// In the model viewer, as it is placed.
@@ -817,7 +823,7 @@ pub(crate) fn contents_ui(
                         // out: `tree_rows`).
                         *picked = Some((TreeAt::Object(area, *kind, index), command, shift));
                     } else if r.double_clicked() {
-                        *go = Some((area, *kind, index, Asked::Properties));
+                        *go = Some((area, *kind, index, Asked::ShowProperties));
                     } else if r.clicked() {
                         // (The Outliner's area is the one in front: its
                         // click selects there, the camera where it is.)
@@ -952,11 +958,11 @@ pub(crate) fn kind_count(kind: mg_area::ObjectKind, n: usize) -> String {
 }
 
 /// An Outliner's eye's name and tip for `kind`: named as the area
-/// toolbar's toggle of the same state is, "Show Creatures" (title case: a
+/// header's toggle of the same state is, "Show Creatures" (title case: a
 /// toggle names what it does when on, and is said pressed or not; a name
 /// that changed with its state, as the board's "Hide creatures", would
 /// leave a toggle that no longer answers to its name), the Outliner's
-/// group apart from the toolbar's.
+/// group apart from the header's.
 pub(crate) fn eye_words(kind: mg_area::ObjectKind) -> (String, String) {
     let name = format!("Show {}", kind.label());
     let tip = format!("Show or hide the {} in the area's view", kind.label().to_lowercase());
@@ -1369,7 +1375,9 @@ fn follow_selection(app: &mut Moonglow) {
     // dock's fold read as it is drawn, not as the builder's setting: in a
     // narrow window it is folded by its width with `hide_tree` false, and
     // unfolded by hand there with `hide_tree` true.)
-    let outliner = crate::shell::Panel::OUTLINER.available(app) && !crate::shell::left_folded(app);
+    // (The Outliner listing an area's objects: beside a conversation it
+    // lists bookmarks, and the tree follows as without it, M4's U15.)
+    let outliner = crate::outliner::area(app).is_some() && !crate::shell::left_folded(app);
     let seen = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
         Some((area, view.selection.clone()))
@@ -2260,7 +2268,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 .clicked()
                             {
                                 app.area_chooser =
-                                    Some(crate::area_props::AreaChooser::with(k.resref));
+                                    Some(crate::area_props::AreaChooser::of([k.resref]));
+                                // (Shown with its keys, open or not: M4's U29.)
+                                app.tools.bring = Some(crate::shell::Panel::AreasTogether);
                             }
                             if ui.button("View Area").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::Area(k.resref)));
@@ -2674,13 +2684,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
 /// The row the letters typed this frame go to, as a type-ahead (the module
 /// tree's and the Outliner's, while they have the keys), from `cursor`:
 /// `seek` finds it from a row by what was typed in quick succession,
-/// which is kept under `typed_id` between frames.
-pub(crate) fn typed_row(
+/// which is kept under `typed_id` between frames. (Whatever a row is: a
+/// conversation's bookmarks in the Outliner are by their place, M4's U15.)
+pub(crate) fn typed_row<T: Copy>(
     ui: &Ui,
     typed_id: egui::Id,
-    cursor: Option<TreeAt>,
-    seek: &dyn Fn(Option<TreeAt>, &str) -> Option<TreeAt>,
-) -> Option<TreeAt> {
+    cursor: Option<T>,
+    seek: &dyn Fn(Option<T>, &str) -> Option<T>,
+) -> Option<T> {
     // Letters typed while the tree has the keys, wherever the pointer
     // is, go to the row whose name begins with them, as in Aurora's
     // (Windows') tree: a pause starts over. (The pointer in an area's
@@ -2796,6 +2807,11 @@ pub(crate) fn act_on_object(
         Asked::Properties => {
             let path = path((kind, index));
             app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+        }
+        Asked::ShowProperties => {
+            let then = if in_tree { Asked::Go } else { Asked::Select };
+            act_on_object(app, ui, (area, kind, index, then), together, menu_commands, in_tree);
+            app.actions.push(Action::ShowProperties(area));
         }
         Asked::Variables => crate::widgets::open_variables(app, git, path((kind, index))),
         Asked::Preview => {

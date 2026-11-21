@@ -11,7 +11,17 @@ use crate::common::*;
 /// The window named `title` (a dialog: its accessible name is its
 /// title), where it is now.
 fn window_rect(h: &Harness<'_, Moonglow>, title: &str) -> egui::Rect {
-    h.get_by_label(title).rect()
+    dialog_node(h, title).rect()
+}
+
+/// The dialog named `title`: the window of that name where another node
+/// shares it (Tools › Plugins' window, and the Plugins switch).
+fn dialog_node<'t>(h: &'t Harness<'_, Moonglow>, title: &'t str) -> egui_kittest::Node<'t> {
+    let mut all = h.get_all_by_label(title);
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let first = all.next().unwrap_or_else(|| panic!("no {title}"));
+    if window(&first) { first } else { all.find(window).unwrap_or(first) }
 }
 
 /// A press at `from`, the pointer moved to `to` a step a frame (each
@@ -520,7 +530,12 @@ fn a_picker_s_close_is_its_cancel() {
     h.get_by_label("Portraits…").click();
     h.run();
     // (A portrait chosen, not taken: the Close drops it.)
-    h.get_by_label("po_dw_f_01_").click();
+    // (The grid opens at the blueprint's own portrait and has the keys:
+    // Home brings the first in sight.)
+    h.key_press(egui::Key::Home);
+    settle(&mut h);
+    // (Its cell, the first named so: the preview beside it is too.)
+    h.get_all_by_label("po_dw_f_01_").next().unwrap().click();
     settle(&mut h);
     // (Where the picker is once it rests: its first frame is egui's
     // sizing pass, laid out at a default place, and it grows about its
@@ -536,21 +551,17 @@ fn a_picker_s_close_is_its_cancel() {
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its Properties stay");
 }
 
-/// A dialog resized by its edges (Find and Replace Text) is made
-/// narrower by its edge as well as wider: its title row does not hold it
-/// at the width it had.
+/// A dialog resized by its edges (File › Project › Command Output; Tools
+/// › Plugins was, before M4's U29 made it a tab, and Find and Replace Text
+/// before U28 made it Search Results') is made narrower by its edge as
+/// well as wider: its title row does not hold it at the width it had.
 #[test]
 fn a_resizable_dialog_is_made_narrower_by_its_edge() {
-    let dir = mg_testkit::scratch_dir("ui-dialogs-narrower");
-    let mut app = app_with(Vec::new());
-    app.open_module(&sample_module(&dir));
-    let mut h = harness(app, 1100.0, 800.0);
+    use crate::dialog_pattern::openers_shared::{command_output, project_with_a_command_in};
+    let Some(mut h) = project_with_a_command_in("ui-dialogs-narrower") else { return };
     h.run();
-    // (Ctrl+H: Edit › Find and Replace Text…)
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
-    settle(&mut h);
-    assert!(h.state().text_replace.is_some(), "open");
-    const TITLE: &str = "Find and Replace Text";
+    command_output(&mut h);
+    const TITLE: &str = "Command Output";
     let was = resting(&mut h, TITLE);
     let edge = egui::pos2(was.right() - 1.0, was.center().y);
     press_drag(&mut h, edge, edge - egui::vec2(120.0, 0.0));
@@ -595,31 +606,30 @@ fn every_stop_of_tab_in_a_dialog_is_a_named_control() {
     }
 }
 
-/// A dialog that folds (Find and Replace Text, which egui's own arrow
-/// folded) has the arrow at its title row's left, "Collapse": clicked, the
+/// A dialog that folds (File › Project › Command Output; Tools › Plugins
+/// until M4's U29 made it a tab; Find and Replace Text, which egui's own
+/// arrow folded, until U28) has the arrow at its title row's left,
+/// "Collapse": clicked, the
 /// dialog is its row alone and the arrow is "Expand"; clicked again, the
 /// dialog is as it was, its size kept; and so by the keyboard (the arrow
 /// focused, Enter). A dialog its buttons answer (New Module) has none.
 #[test]
 fn a_dialog_folds_to_its_title_row_and_back() {
-    let dir = mg_testkit::scratch_dir("ui-dialogs-fold");
-    let mut app = app_with(Vec::new());
-    app.open_module(&sample_module(&dir));
-    let mut h = harness(app, 1100.0, 800.0);
+    use crate::dialog_pattern::openers_shared::{command_output, project_with_a_command_in};
+    let Some(mut h) = project_with_a_command_in("ui-dialogs-fold") else { return };
     h.run();
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
-    settle(&mut h);
-    const TITLE: &str = "Find and Replace Text";
+    command_output(&mut h);
+    const TITLE: &str = "Command Output";
     let open = resting(&mut h, TITLE);
     let arrow = |h: &Harness<'_, Moonglow>, name: &str| -> Option<egui::Rect> {
-        h.get_by_label(TITLE).query_all_by_label(name).map(|n| n.rect()).next()
+        dialog_node(h, TITLE).query_all_by_label(name).map(|n| n.rect()).next()
     };
     let at = arrow(&h, "Collapse").expect("the arrow at its row's left");
     assert!(at.left() - open.left() < 6.0 && at.top() - open.top() < 6.0, "{at:?} {open:?}");
     tip_at(&mut h, at.center(), "Collapse the dialog to its title row");
     for keyboard in [false, true] {
         let press = |h: &mut Harness<'_, Moonglow>, name: &str| {
-            let node = h.get_by_label(TITLE).query_all_by_label(name).next().unwrap();
+            let node = dialog_node(h, TITLE).query_all_by_label(name).next().unwrap();
             if keyboard {
                 node.focus();
                 h.run();
@@ -633,7 +643,10 @@ fn a_dialog_folds_to_its_title_row_and_back() {
         let folded = resting(&mut h, TITLE);
         assert!(folded.height() < 32.0, "its row alone (keyboard {keyboard}): {folded:?}");
         assert!(arrow(&h, "Collapse").is_none() && arrow(&h, "Expand").is_some());
-        assert!(h.query_by_label("Find what").is_none(), "no body while folded");
+        assert!(
+            dialog_node(&h, TITLE).query_all_by_label("Copy").next().is_none(),
+            "no body while folded"
+        );
         press(&mut h, "Expand");
         let back = resting(&mut h, TITLE);
         assert!((back.size() - open.size()).length() < 1.0, "{back:?} as {open:?}");

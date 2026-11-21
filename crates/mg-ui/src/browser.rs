@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use egui::Ui;
 use mg_core::ResType;
 use mg_edit::{Command, Edit};
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{Gff, Value};
 use mg_resman::ResKey;
 
 use crate::text::decode;
@@ -100,6 +100,10 @@ pub(crate) struct TableView {
     /// The layer whose rows alone it shows (Rows from), as last set.
     rows_from: Option<usize>,
     pub(crate) doc: crate::table_view::TableDoc,
+    /// The tab that drew it last (a resource tab, a layer's copy's, a hak
+    /// editor's): its grid's keys are that tab's while it is the active
+    /// editor (`table_view::grid_has_keys`).
+    tab: Option<Tab>,
 }
 
 /// How many 2DA views are kept: more are made anew.
@@ -110,10 +114,11 @@ impl Browser {
         Browser { stale: true, show_copies: true, ..Default::default() }
     }
 
-    fn refresh(&mut self, app_resman: Option<&mg_resman::ResMan>) {
+    fn refresh(&mut self, game: Option<&mg_rules::GameData>) {
         if !self.stale {
             return;
         }
+        let app_resman = game.map(|g| &g.resman);
         self.stale = false;
         self.query = None;
         self.entries = match app_resman {
@@ -133,6 +138,14 @@ impl Browser {
             }
             None => Vec::new(),
         };
+        // (The game's own dialog.tlk, which is no resource of the load
+        // order: read-only in its tab, M4's U17.)
+        // (Whatever the load order holds: a hak's own `dialog.tlk` is a
+        // resource of its own, listed and opened as every other.)
+        if let Some(g) = game {
+            let key = crate::talk_view::dialog_key();
+            self.entries.push(Row { key, layer: game_talk_layer(g.language), over: None });
+        }
         self.resources = self.entries.iter().filter(|r| r.over.is_none()).count();
         let mut types: Vec<ResType> = self.entries.iter().map(|r| r.key.restype).collect();
         types.sort_by_key(|t| t.extension().unwrap_or_default());
@@ -195,7 +208,7 @@ pub(crate) struct Asked {
 /// [`Header`].
 pub(crate) fn header(app: &mut Moonglow) -> Header {
     let Moonglow { browser, game, .. } = app;
-    browser.refresh(game.as_ref().map(|g| &g.resman));
+    browser.refresh(game.as_deref());
     let count = browser.filtered().len();
     let found = count - browser.shown_copies;
     Header { found, narrowed: found > 0 && found < browser.resources, game: game.is_some() }
@@ -234,7 +247,10 @@ pub(crate) fn run_tools(app: &mut Moonglow, asked: Asked) {
         browser.stale = true;
     }
     if asked.export {
+        // (Not the game's dialog.tlk, no resource of the load order: its
+        // tab's Export writes it.)
         let keys = (browser.shown.iter().map(|&i| &browser.entries[i]))
+            .filter(|r| !is_game_talk(r))
             .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.clone())))
             .collect();
         app.actions.push(Action::SaveResources(keys));
@@ -497,7 +513,7 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     use crate::palette_view::{Keys, give_keys, keys_are};
     let Moonglow { browser, game, ws, actions, resources_here, .. } = app;
-    browser.refresh(game.as_ref().map(|g| &g.resman));
+    browser.refresh(game.as_deref());
     let t = mg_uikit::tokens(ui.ctx());
     if game.is_none() {
         egui::Frame::new().inner_margin(8).show(ui, |ui| {
@@ -554,12 +570,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         // (The resources, the copies the game reads; and the copies they
         // override, listed under them. Cut short at the dock's width, the
         // whole in its tip. How to open one is the Status Bar's hints'.)
-        let copies = match browser.shown_copies {
-            0 => String::new(),
-            1 => ", 1 overridden copy".into(),
-            n => format!(", {n} overridden copies"),
-        };
-        let said = format!("{found} of {} resources{copies}", browser.resources);
+        debug_assert_eq!(found + browser.shown_copies, browser.shown.len());
+        let said = browser.count_text();
         let body = egui::TextStyle::Body.resolve(ui.style());
         let galley = cut_in(ui, &said, body, ui.available_width(), t.text_3);
         let elided = galley.elided;
@@ -632,16 +644,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                 // layer's (opened as that layer has it).
                 let r = list_row(ui, row, at_cursor, &fonts);
                 let copy = over.as_ref().map(|_| layer.clone());
-                let tab = || tab_of(*k, copy.clone(), in_module(k));
+                let game_talk = is_game_talk(row);
+                // (The game's dialog.tlk: shown in the Talk Table tab.)
+                let open = || match game_talk {
+                    true => Action::ShowGameTalk,
+                    false => Action::OpenTab(tab_of(*k, copy.clone(), in_module(k))),
+                };
                 if r.clicked() {
                     clicked = Some(at);
                 }
                 if r.double_clicked() || (entered && cursor == Some(at)) {
-                    actions.push(Action::OpenTab(tab()));
+                    actions.push(open());
                 }
                 mg_uikit::context_menu(&r, |ui| {
                     if ui.button("Open").clicked() {
-                        actions.push(Action::OpenTab(tab()));
+                        actions.push(open());
                     }
                     // (A copy's as its layer has it: a model, a blueprint.)
                     let previewable = crate::model_view::previewable(k.restype)
@@ -655,7 +672,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
                         };
                         actions.push(Action::OpenTab(tab));
                     }
-                    if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
+                    if !game_talk
+                        && ui.button("Save As…").on_hover_text("As a file, as it is").clicked()
+                    {
                         actions.push(Action::SaveResource(*k, copy.clone()));
                     }
                     if k.restype == ResType::MDL
@@ -675,6 +694,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
         give_keys(ui.ctx(), Keys::Browser);
     }
     crate::palette_view::keys_outline(ui, out.inner_rect, Keys::Browser);
+}
+
+/// The layer the game's `dialog.tlk` is listed in (`lang:en`): the
+/// install's language's folder, no layer of the load order.
+pub(crate) fn game_talk_layer(language: mg_core::Language) -> String {
+    format!("lang:{}", language.short_code().unwrap_or("en"))
+}
+
+/// Whether a row of the list is the game's `dialog.tlk`.
+fn is_game_talk(row: &Row) -> bool {
+    row.key == crate::talk_view::dialog_key() && row.layer.starts_with("lang:")
 }
 
 /// The tab a resource of the load order opens in from the Resources
@@ -724,20 +754,8 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
         .collect()
 }
 
-/// A 2DA's Edit menu: the module's own table as it is, or a copy of the
-/// one the game reads, in the module, in a hak open in the hak editor,
-/// or in a file. (The game's own tables are never changed.)
-fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
-    mg_uikit::menu_button(ui, "Edit…", |ui| {
-        mg_uikit::menu_rows(ui);
-        table_homes(app, ui, key)
-    })
-    .inner
-    .flatten()
-}
-
-/// The places a table can be edited in, as buttons ([`table_menu`]'s):
-/// the one clicked.
+/// The places a table can be edited in, as buttons (the read-only tab's
+/// Edit… menu, and Area Properties' table buttons): the one clicked.
 pub(crate) fn table_homes(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
     use crate::table_view::Home;
     let mut out = None;
@@ -803,16 +821,6 @@ pub(crate) fn open_table(app: &mut Moonglow, key: ResKey, home: EditTable) -> Op
             crate::table_view::open_in_hak(app, hak, key)
         }
     }
-}
-
-/// A copy of a table that a hak of the module has (`layer`, `hak:name`),
-/// where the hak is the builder's own: a button to edit it in the hak.
-fn hak_table_button(app: &Moonglow, ui: &mut Ui, key: ResKey, layer: &str) -> Option<EditTable> {
-    let name = layer.strip_prefix("hak:")?;
-    let (_, path) = haks_with(app, key).into_iter().find(|(n, _)| n == name)?;
-    let tip = "Opens the hak in the hak editor if needed, and saves the table into it";
-    let edit = ui.button(format!("Edit in {name}.hak")).on_hover_text(tip).clicked();
-    edit.then_some(EditTable::InHak(path))
 }
 
 /// Save As on a resource of the load order (the copy the game reads, or
@@ -1028,7 +1036,7 @@ pub(crate) fn made() -> u64 {
 
 #[derive(Debug)]
 enum Content {
-    Gff(Gff),
+    Gff(crate::ro_gff::ReadGff),
     TwoDa(mg_module::table_layers::Layered),
     Script(LongText),
     Text(LongText),
@@ -1147,6 +1155,41 @@ impl LongText {
     }
 }
 
+/// The read-only tab's count at the Status Bar's right (the Resources
+/// board's "nw_chicken.utc from key:nwn_base, 3078 bytes"): the resource,
+/// the layer it is read from and its size. `None` before it is read.
+pub(crate) fn resource_count(app: &Moonglow, key: ResKey, layer: Option<&str>) -> Option<String> {
+    let v = app.viewed.get(&(key, layer.map(str::to_string)))?;
+    let bytes = match v.data.len() {
+        1 => "1 byte".to_string(),
+        n => format!("{n} bytes"),
+    };
+    Some(format!("{key} from {}, {bytes}", v.origin))
+}
+
+/// The read-only GFF views' counts, wherever they are drawn (the tab, the
+/// hak editor's Preview: `ro_gff::counts`, one counter for all since
+/// M4's U23 fix): how many times their shown rows were listed, all told,
+/// and the most rows one drew in the last pass that drew one.
+pub(crate) fn read_only_counts() -> (usize, usize) {
+    crate::ro_gff::counts()
+}
+
+impl Browser {
+    /// The panel's count (the Resources board's "627 of 113538
+    /// resources"), as its list was last filtered: also the Status Bar's
+    /// while the panel is in use.
+    pub(crate) fn count_text(&self) -> String {
+        let copies = match self.shown_copies {
+            0 => String::new(),
+            1 => ", 1 overridden copy".into(),
+            n => format!(", {n} overridden copies"),
+        };
+        let found = self.shown.len().saturating_sub(self.shown_copies);
+        format!("{found} of {} resources{copies}", self.resources)
+    }
+}
+
 impl Viewed {
     /// The copy the game reads, or (`layer`, by its label) the one that
     /// layer has.
@@ -1160,7 +1203,8 @@ impl Viewed {
         let origin = rm.layers()[at].label.clone();
         let codepage = game.codepage();
         let content = if key.restype.is_gff() {
-            Gff::read(&data).map_or_else(|e| Content::Error(e.to_string()), Content::Gff)
+            Gff::read(&data)
+                .map_or_else(|e| Content::Error(e.to_string()), |g| Content::Gff(g.into()))
         } else if key.restype == ResType::TWODA {
             // (A copy that another overrides: as it stands on those below.)
             match mg_module::table_layers::layered_from(rm, &key, codepage, at) {
@@ -1189,7 +1233,7 @@ impl Viewed {
 /// first bytes in hexadecimal.
 #[derive(Debug)]
 pub(crate) enum Plain {
-    Gff(Box<Gff>),
+    Gff(Box<crate::ro_gff::ReadGff>),
     Text(LongText),
     Error(String),
 }
@@ -1199,7 +1243,7 @@ pub(crate) enum Plain {
 pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) -> Plain {
     if key.restype.is_gff() {
         match Gff::read(data) {
-            Ok(g) => Plain::Gff(Box::new(g)),
+            Ok(g) => Plain::Gff(Box::new(g.into())),
             Err(e) => Plain::Error(e.to_string()),
         }
     } else if is_text(key.restype, data) {
@@ -1225,21 +1269,17 @@ pub(crate) fn model_text(
     (key.restype == ResType::MDL).then(|| mg_mdl::decompile_with(data, &skeleton).ok()).flatten()
 }
 
-/// Draws a [`Plain`] view, scrolling.
-pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain) {
-    // (A text by its lines in sight: a compiled model's is megabytes.)
-    if let Plain::Text(text) = view {
-        return text.ui(ui, ("plain", key), None);
-    }
-    egui::ScrollArea::both().id_salt(("plain", key)).auto_shrink([false, false]).show(ui, |ui| {
-        match view {
-            Plain::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-            Plain::Text(_) => {}
-            Plain::Error(e) => {
-                ui.colored_label(ui.visuals().error_fg_color, e);
-            }
+/// Draws a [`Plain`] view, scrolling, its rows or lines in sight alone
+/// (a GFF's: the read-only view's three columns, `ro_gff`).
+pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain, names: crate::ro_gff::Names<'_>) {
+    match view {
+        // (A text by its lines in sight: a compiled model's is megabytes.)
+        Plain::Text(text) => text.ui(ui, ("plain", key), None),
+        Plain::Gff(g) => crate::ro_gff::ui(ui, g, names, ("plain", key)),
+        Plain::Error(e) => {
+            ui.colored_label(ui.visuals().error_fg_color, e);
         }
-    });
+    }
 }
 
 /// Read-only view of a resource from the load order: the copy the game
@@ -1267,27 +1307,12 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
     };
     // (A copy's: what overrides it, which the game reads.)
     let over = layer.and_then(|_| game.resman.origin(&key)).map(str::to_string);
-    let mut copy = false;
-    let mut save = false;
-    let mut edit_table = None;
-    ui.horizontal(|ui| {
-        ui.strong(key.to_string());
-        ui.weak(format!("from {}, {} bytes", viewed.origin, viewed.data.len()));
-        let can_copy = app.ws.as_ref().is_some_and(|w| !w.module.contains(&key));
-        copy = ui.add_enabled(can_copy, egui::Button::new("Copy to Module")).clicked();
-        save = ui.button("Save As…").clicked();
-        if key.restype == ResType::TWODA {
-            edit_table = match layer {
-                None => table_menu(app, ui, key),
-                // A copy a hak of the module has: edited in that hak.
-                Some(layer) => hak_table_button(app, ui, key, layer),
-            };
-        }
-    });
+    let (copy, save, edit_table) = resource_header(app, ui, key, layer, &viewed.origin);
     if let Some(over) = &over {
-        ui.weak(format!("Overridden by {over}, whose copy the game reads."));
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 4)).show(ui, |ui| {
+            ui.weak(format!("Overridden by {over}, whose copy the game reads."));
+        });
     }
-    ui.separator();
     if let Some(home) = edit_table {
         open_table(app, key, home);
     }
@@ -1310,7 +1335,11 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, key, layer, (l, viewed.made));
+        let tab = match layer {
+            None => Tab::Resource(key),
+            Some(layer) => Tab::ResourceCopy { key, layer: layer.to_string() },
+        };
+        two_da(app, ui, key, layer, (l, viewed.made), &tab);
         return;
     }
     // A text by its lines in sight, a script's in the editor's colors.
@@ -1323,13 +1352,151 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
         Content::Text(text) | Content::Binary(text) => return text.ui(ui, salt, None),
         _ => {}
     }
-    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| match &viewed.content {
-        Content::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
+    match &viewed.content {
+        Content::Gff(g) => {
+            let names = crate::ro_gff::Names { game: app.game.as_deref(), factions: &[] };
+            crate::ro_gff::ui(ui, g, names, ("resource", key, layer));
+        }
         Content::Error(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e);
+            egui::Frame::new().inner_margin(10).show(ui, |ui| {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            });
         }
         _ => {}
+    }
+}
+
+/// The read-only tab's header's name (its record in `mg_uikit::header`).
+pub const RESOURCE_HEADER: &str = "Resource header";
+
+/// Where a resource of the load order is from, as the read-only tab's
+/// note says it (the Resources board's "Read-only: from the game's data"):
+/// by its layer's label.
+pub(crate) fn from_words(label: &str) -> String {
+    if label.starts_with("key:") {
+        return "the game's data".into();
+    }
+    if let Some(hak) = label.strip_prefix("hak:") {
+        return format!("{hak}.hak");
+    }
+    match label {
+        "override" | "development" => format!("the {label} folder"),
+        "module" => "the module".into(),
+        l if l.starts_with("lang:") => "the game's language data".into(),
+        l => format!("the game's {l}"),
+    }
+}
+
+/// The read-only tab's header (the Resources board's): a lock and where
+/// the resource is from, its kind, and at the right Copy to Module and
+/// Save As… (a table's Edit… menu, or a hak's copy's Edit in its hak,
+/// before them). What was pressed: Copy to Module, Save As…, a table's
+/// home to edit it in.
+fn resource_header(
+    app: &Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    layer: Option<&str>,
+    origin: &str,
+) -> (bool, bool, Option<EditTable>) {
+    use mg_uikit::header::{EditorHeader, Item};
+    let t = mg_uikit::theme::tokens(ui.ctx());
+    let from = format!("Read-only: from {}", from_words(origin));
+    let kind = format!("{} file", key.restype.extension().unwrap_or("?").to_uppercase());
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let wide = |s: &str| {
+        ui.painter().layout_no_wrap(s.to_string(), body.clone(), t.text).size().x.ceil() + 2.0
+    };
+    let (from_w, kind_w) = (wide(&from) + 22.0, wide(&kind));
+    // (Which it is, where it is read from and its size, as the Status Bar
+    // says them: also here, for a window whose bar shows another's.)
+    // (One sentence, the style guide's: Copy to Module's tip says the rest.)
+    let from_tip = resource_count(app, key, layer).map_or_else(
+        || "Shown as the game reads it".to_string(),
+        |said| format!("{said}, shown as the game reads it"),
+    );
+    let note = |ui: &mut Ui, whole: bool| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let (rect, r) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+        mg_uikit::Icon::Lock.paint(ui.painter(), rect, t.text_3);
+        if whole {
+            ui.add(egui::Label::new(egui::RichText::new(&from).color(t.text_2)).selectable(false));
+        } else {
+            // (The lock alone: named by the words it stands for.)
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &from));
+        }
+        // (Its tip over the lock and the words: the kit's custom items
+        // leave their tips to their callers.)
+        let all = ui.min_rect();
+        ui.interact(all, ui.id().with("read-only-from"), egui::Sense::hover())
+            .on_hover_text(&from_tip);
+    };
+    let (in_module, has_module) = match &app.ws {
+        Some(w) => (w.module.contains(&key), true),
+        None => (false, false),
+    };
+    // (A module kept as files names each by its kind's extension: a kind
+    // with none would be written as no file it reads back, lost.)
+    let loose = app.ws.as_ref().is_some_and(|w| {
+        use mg_module::ModuleLocation as L;
+        matches!(w.module.location, Some(L::Folder(_) | L::Project { .. }))
     });
+    let no_file = loose && key.restype.extension().is_none();
+    let copy_tip = match (has_module, in_module) {
+        (false, _) => format!("Open a module to copy {key} into it"),
+        (true, true) => format!("The module has its own {key}"),
+        (true, false) if no_file => {
+            "A module kept as files cannot hold this kind, which has no file extension".to_string()
+        }
+        (true, false) => "Put a copy in the module, where it can be edited".to_string(),
+    };
+    let can_copy = has_module && !in_module && !no_file;
+    let table = std::cell::RefCell::new(None);
+    let mut h = EditorHeader::new(RESOURCE_HEADER)
+        .left(
+            Item::custom(from.clone(), from_w, |ui| note(ui, true))
+                .compact(18.0, |ui| note(ui, false)),
+        )
+        .left(Item::separator())
+        .left(Item::custom(kind.clone(), kind_w, |ui| {
+            ui.add(egui::Label::new(egui::RichText::new(&kind).color(t.text_3)).selectable(false));
+        }));
+    if key.restype == ResType::TWODA {
+        match layer {
+            None => {
+                h = h.right(Item::menu(None, "Edit…", |ui| {
+                    mg_uikit::menu_rows(ui);
+                    *table.borrow_mut() = table_homes(app, ui, key);
+                }));
+            }
+            // A copy a hak of the module has: edited in that hak.
+            Some(layer) => {
+                if let Some(name) = layer.strip_prefix("hak:")
+                    && let Some((_, path)) =
+                        haks_with(app, key).into_iter().find(|(n, _)| n == name)
+                {
+                    let words = format!("Edit in {name}.hak");
+                    let tip =
+                        "Opens the hak in the hak editor if needed, and saves the table into it";
+                    *table.borrow_mut() = None;
+                    h = h.right(Item::words(words.clone()).tip(tip));
+                    let out_name = words;
+                    let out = h
+                        .right(Item::words("Copy to Module").enabled(can_copy).tip(copy_tip))
+                        .right(Item::words("Save As…").tip("Save the resource to a file, as it is"))
+                        .show(ui);
+                    let edit = out.clicked(&out_name).then_some(EditTable::InHak(path));
+                    return (out.clicked("Copy to Module"), out.clicked("Save As…"), edit);
+                }
+            }
+        }
+    }
+    let out = h
+        .right(Item::words("Copy to Module").enabled(can_copy).tip(copy_tip))
+        .right(Item::words("Save As…").tip("Save the resource to a file, as it is"))
+        .show(ui);
+    let table = table.into_inner();
+    (out.clicked("Copy to Module"), out.clicked("Save As…"), table)
 }
 
 /// The types shown as text whatever they hold (others are where their
@@ -1365,7 +1532,7 @@ fn hex(data: &[u8]) -> String {
         .join("\n")
 }
 
-fn value_text(v: &Value) -> String {
+pub(crate) fn value_text(v: &Value) -> String {
     if let Some(number) = v.number_text() {
         return number;
     }
@@ -1384,46 +1551,41 @@ fn value_text(v: &Value) -> String {
     }
 }
 
-/// A GFF struct as a read-only tree.
-fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
-    mg_uikit::list_rows(ui); // (Rows 22 apart, as the trees' are.)
-    for (i, f) in s.fields.iter().enumerate() {
-        let label = f.label.to_string_lossy();
-        let child_id = format!("{id}/{i}");
-        match &f.value {
-            Value::Struct(child) => {
-                egui::CollapsingHeader::new(format!("{label} (struct {})", child.id))
-                    .icon(mg_uikit::collapsing_icon)
-                    .id_salt(&child_id)
-                    .show(ui, |ui| gff_tree(ui, child, &child_id));
-            }
-            Value::List(items) => {
-                egui::CollapsingHeader::new(format!("{label} (list, {} items)", items.len()))
-                    .icon(mg_uikit::collapsing_icon)
-                    .id_salt(&child_id)
-                    .show(ui, |ui| {
-                        for (j, item) in items.iter().enumerate() {
-                            let item_id = format!("{child_id}/{j}");
-                            // (Closed and out of sight: its header's room.)
-                            if crate::gff_view::closed_out_of_sight(ui, &item_id) {
-                                continue;
-                            }
-                            egui::CollapsingHeader::new(format!("[{j}] struct {}", item.id))
-                                .icon(mg_uikit::collapsing_icon)
-                                .id_salt(&item_id)
-                                .show(ui, |ui| gff_tree(ui, item, &item_id));
-                        }
-                    });
-            }
-            v => {
-                ui.horizontal(|ui| {
-                    ui.label(&label);
-                    ui.weak(v.field_type().json_name());
-                    ui.monospace(value_text(v));
-                });
-            }
-        }
-    }
+/// The tab that drew the read-only view of a table whose grid's id is
+/// `id` last: its resource tab, a layer's copy's, or a hak editor's.
+pub(crate) fn view_tab(app: &Moonglow, id: u32) -> Option<Tab> {
+    app.browser.table_views.values().find(|v| v.doc.id == id)?.tab.clone()
+}
+
+/// What the Status Bar shows beside a table only looked at, the resource
+/// tab's view of `key` (or of a layer's `copy` of it, which a higher layer
+/// overrides; M4's U16): its rows and columns, whose copy it is
+/// (the layer the game reads it from: the game's, a hak's, the module's)
+/// and that it is read-only, and the keys it has
+/// (`table_view::panels::shown_read_only`). `None` before it is drawn.
+pub(crate) fn table_shown(
+    app: &Moonglow,
+    k: &crate::shell::HintKeys<'_>,
+    ctx: &egui::Context,
+    key: ResKey,
+    copy: Option<&str>,
+) -> Option<crate::shell::Shown> {
+    let view = app.browser.table_views.get(&(key, copy.map(str::to_string)))?;
+    // (A layer's copy, a hak's under a higher one: that layer's.)
+    let layer = copy.map(str::to_string).or_else(|| {
+        let g = app.game.as_deref()?;
+        let at = *g.resman.copies(&key).first()?;
+        Some(g.resman.layers()[at].label.clone())
+    });
+    let whose = match layer {
+        Some(layer) => format!("from {layer}, read-only"),
+        None => "read-only".to_string(),
+    };
+    let has = view
+        .tab
+        .as_ref()
+        .is_some_and(|tab| crate::table_view::grid_has_keys(app, ctx, view.doc.id, tab));
+    Some(crate::table_view::panels::shown_read_only(k, ctx, (&view.doc, has), &whose))
 }
 
 /// A 2DA as a table; only the rows in view are laid out. With copies of
@@ -1441,11 +1603,12 @@ pub(crate) fn two_da(
     key: ResKey,
     layer: Option<&str>,
     (l, of): (&mg_module::table_layers::Layered, u64),
+    tab: &Tab,
 ) {
     use crate::table_view::{GridOf, TableDoc, grid_in, keys_in, view_header};
     let name = key.resref.to_string();
     let kinds = crate::table_view::kinds(app, &name);
-    let Moonglow { browser, game, settings, talk, talk_view, .. } = app;
+    let Moonglow { browser, .. } = app;
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
@@ -1494,7 +1657,7 @@ pub(crate) fn two_da(
         browser.made_views += 1;
         let id = u32::MAX - browser.made_views;
         let doc = TableDoc::read_only(id, key, t.clone());
-        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc });
+        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc, tab: None });
     }
     let rows_from = browser.rows_from.filter(|_| layered);
     let strrefs = !browser.raw_strrefs;
@@ -1504,13 +1667,19 @@ pub(crate) fn two_da(
         view.doc.within = rows_from
             .map(|o| std::sync::Arc::new((0..t.len()).filter(|&r| l.row_origin(r) == o).collect()));
     }
+    view.tab = Some(tab.clone());
+    let id = view.doc.id;
+    let has = crate::table_view::grid_has_keys(app, ui.ctx(), id, tab);
+    let Moonglow { browser, game, settings, talk, talk_view, .. } = app;
+    let view = browser.table_views.get_mut(&at).expect("made above");
     let doc = &mut view.doc;
     doc.strref_text = strrefs;
     view_header(ui, doc);
-    keys_in(doc, ui, true);
+    keys_in(doc, ui, true, has);
     let talk = talk.as_ref().filter(|_| !talk_view.outside);
-    let of = GridOf { settings, table_name: &name, talk, game: game.as_deref() };
+    let of = GridOf { settings, table_name: &name, talk, game: game.as_deref(), has_keys: has };
     grid_in(ui, doc, of, &kinds, &[], Some(l));
+    crate::table_view::focus_asked(app, ui.ctx(), id, tab);
 }
 
 #[cfg(test)]

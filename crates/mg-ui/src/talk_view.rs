@@ -7,15 +7,179 @@
 //! `.tlk` among its resources) is saved into it, with it. A table found
 //! in a hak is shown read-only. Open File and New File edit a `.tlk` anywhere
 //! instead, with or without a module open.
+//!
+//! The game's own `dialog.tlk` (ruling 7 of the redesign) is shown
+//! read-only in the same Talk Table tab, as the Talk board draws it (the
+//! owner's ruling of 2026-11-17), its lines numbered by their own StrRefs
+//! (from 0): the table the game's data read, the install's language's, one
+//! copy made as it is shown and let go of as the tab shows another table or
+//! closes ([`GameTalk`]). The module's table stays as it was meanwhile, its
+//! unsaved lines, its steps, its chosen line and its list's place with it.
+//!
+//! M4's U17 (the Talk board): the editor is the kit's header over the list
+//! (a header row, the rows in sight alone laid out); the chosen line's
+//! fields are the Right Dock's String panel, what names it References, and
+//! the table's facts (and, for a module with none, the page that makes one)
+//! the Talk Table panel ([`panels`]). Find looks through a long table a
+//! slice a frame ([`Sweep`]).
 
+pub mod panels;
+
+use std::sync::Arc;
+
+use crate::{Action, Moonglow, Tab};
 use egui::Ui;
 use mg_core::StrRef;
 use mg_module::talk::{self, Line, Table};
-use mg_schema::{ExoString, GffValue, ifo};
-use mg_uikit::Controls as _;
+use mg_resman::ResKey;
 
-use crate::text::encode;
-use crate::{Action, Moonglow};
+/// Which talk table the Talk Table tab, its panels and its keys show: the
+/// module's (or a file's opened on its own: [`TalkView::outside`]), or the
+/// game's `dialog.tlk` ([`Which::shown`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Which {
+    #[default]
+    Module,
+    Game,
+}
+
+impl Which {
+    /// Its editor's tab: the one Talk Table tab, whichever it shows.
+    pub fn tab(self) -> Tab {
+        Tab::TalkTable
+    }
+
+    /// The talk table a tab shows now, if it is the Talk Table tab.
+    pub fn of(app: &Moonglow, tab: &Tab) -> Option<Which> {
+        (*tab == Tab::TalkTable).then(|| Which::shown(app))
+    }
+
+    /// The talk table the Talk Table tab shows now: the game's while its
+    /// copy is made ([`show_game`]), else the module's.
+    pub fn shown(app: &Moonglow) -> Which {
+        match app.game_talk {
+            Some(_) => Which::Game,
+            None => Which::Module,
+        }
+    }
+
+    /// The StrRef the game knows a line of this table by: the module's
+    /// lines from 16777216, `dialog.tlk`'s by their own numbers.
+    pub fn strref(self, row: usize) -> u32 {
+        match self {
+            Which::Module => Table::strref(row).0,
+            Which::Game => row as u32,
+        }
+    }
+}
+
+/// The game's `dialog.tlk` as the Resources panel and Quick Open name it
+/// (no resource of the load order: the install's `lang/<code>/data`).
+pub(crate) fn dialog_key() -> ResKey {
+    ResKey::parse("dialog", mg_core::ResType::TLK).expect("a name")
+}
+
+/// The game's `dialog.tlk`, shown read-only (M4's U17): its lines, made
+/// once from the game data's table (a copy at its opening, shared from then
+/// on: no frame, scroll or Find copies it), and the view of them.
+#[derive(Debug)]
+pub struct GameTalk {
+    pub table: Arc<Table>,
+    pub view: TalkView,
+    /// The game data's table it was made from (its place and length): a
+    /// game data read again, or a plugin's table put in its place, makes
+    /// it again. (Not the game data itself, nor a weak pointer to it: the
+    /// window changes the game data in place where nothing else holds it.)
+    of: (usize, usize, usize),
+    /// Where the game data read it from.
+    pub path: Option<std::path::PathBuf>,
+}
+
+/// The game's `dialog.tlk`, made where it is not yet or the game data read
+/// another (the language changed, a plugin put its own in place): `None`
+/// without the game data.
+pub(crate) fn game_table(app: &mut Moonglow) -> Option<Arc<Table>> {
+    let game = app.game.as_ref()?;
+    let tlk = game.tlk();
+    let of = (Arc::as_ptr(game) as usize, tlk.entries.as_ptr() as usize, tlk.entries.len());
+    if let Some(g) = &app.game_talk
+        && g.of == of
+    {
+        return Some(g.table.clone());
+    }
+    let path = app.install.as_ref().map(|i| i.talk_table());
+    let label = match &path {
+        Some(p) => format!("the game's files ({})", p.display()),
+        None => "the game's files".to_string(),
+    };
+    let table = Arc::new(Table::of_game("dialog", talk::Source::Layer(label), tlk.clone()));
+    // (Its view kept where it was, the line chosen while it is there.)
+    let mut view = app.game_talk.take().map(|g| g.view).unwrap_or_default();
+    view.changed_outside();
+    view.selected = view.selected.filter(|s| *s < table.len());
+    app.game_talk = Some(GameTalk { table: table.clone(), view, of, path });
+    Some(table)
+}
+
+/// The game's copy shown made again where the game data read another
+/// (each frame, before the docks and the Status Bar read it).
+pub(crate) fn refresh(app: &mut Moonglow) {
+    if app.game_talk.is_some() {
+        let _ = game_table(app);
+    }
+}
+
+/// Shows the game's `dialog.tlk` in the Talk Table tab (the Resources
+/// panel's row, Quick Open), the tab brought forward or opened; a second
+/// time, nothing more. The module's table stays as it is behind it: a
+/// burst of typing open in it ends (what is typed next is a step of its
+/// own), and nothing typed while the game's is shown reaches it (String is
+/// read-only then).
+pub(crate) fn show_game(app: &mut Moonglow) {
+    if game_table(app).is_none() {
+        app.log.error("dialog.tlk is the game data's: set the game's folder in Tools › Options");
+        return;
+    }
+    if let Some(t) = app.talk.as_mut() {
+        t.end_typing();
+    }
+    app.actions.push(Action::OpenTab(Tab::TalkTable));
+}
+
+/// The Talk Table tab back on the module's table (More › Module's Table,
+/// Open File…, New File…): the game's copy let go of.
+pub(crate) fn hide_game(app: &mut Moonglow) {
+    app.game_talk = None;
+}
+
+/// The table `which` and its view, where it is open.
+pub(crate) fn parts(app: &mut Moonglow, which: Which) -> Option<(&Table, &mut TalkView)> {
+    match which {
+        Which::Module => {
+            let Moonglow { talk, talk_view, .. } = app;
+            Some((talk.as_ref()?, talk_view))
+        }
+        Which::Game => {
+            let g = app.game_talk.as_mut()?;
+            Some((&*g.table, &mut g.view))
+        }
+    }
+}
+
+/// [`parts`] to look at.
+pub(crate) fn parts_of(app: &Moonglow, which: Which) -> Option<(&Table, &TalkView)> {
+    match which {
+        Which::Module => Some((app.talk.as_ref()?, &app.talk_view)),
+        Which::Game => app.game_talk.as_ref().map(|g| (&*g.table, &g.view)),
+    }
+}
+
+/// Whether the table `which` shown is the one its editor edits: the
+/// module's table, or a file's, that can be saved (not a hak's, not the
+/// game's).
+pub(crate) fn editable(app: &Moonglow, which: Which) -> bool {
+    which == Which::Module && app.talk.as_ref().is_some_and(Table::editable)
+}
 
 #[derive(Debug, Default)]
 pub struct TalkView {
@@ -24,6 +188,8 @@ pub struct TalkView {
     /// Bumped on every change to the table, for the cached search.
     revision: u64,
     found: Option<(String, u64, Vec<usize>)>,
+    /// Find under way, a slice of the lines a frame.
+    sweep: Option<Sweep>,
     /// The selected line as edited (with plain line ends:
     /// [`shown_line`]), and as the table had it when last applied (an undo
     /// changes the table under it).
@@ -40,7 +206,7 @@ pub struct TalkView {
     /// table's length, what is looked for, and with Only Lines with Text
     /// the line selected).
     #[allow(clippy::type_complexity)]
-    shown: Option<((u64, usize, String, Option<Option<usize>>), std::sync::Arc<Vec<usize>>)>,
+    shown: Option<((u64, usize, String, Option<Option<usize>>), Arc<Vec<usize>>)>,
     /// The list is to scroll to the selected line (the list changed under
     /// it).
     reveal: bool,
@@ -63,12 +229,49 @@ pub struct TalkView {
     /// The open table's files and their times when last looked at, to
     /// read it again when they change outside Moonglow ([`read_again`]).
     stamps: Option<Vec<(std::path::PathBuf, Option<std::time::SystemTime>)>>,
+    /// Find References for a line, on a thread of its own (the References
+    /// panel), and what it found for which line.
+    pub(crate) looking: Option<panels::Looking>,
+    pub(crate) references: Option<panels::Found>,
+    /// The chosen line's Text is to take the keyboard (Enter in the list, a
+    /// line clicked twice): taken as the String panel draws it, String
+    /// brought to the front for it; let go of a few frames on where it is
+    /// not drawn (the pass it was asked at).
+    pub(crate) to_text: Option<u64>,
+    /// The line chosen as the frame before saw it: another chosen ends a
+    /// burst of typing ([`Table::end_typing`]), so that what is typed after
+    /// coming back is a step of Undo of its own.
+    seen_line: Option<usize>,
 }
 
-/// Whether a line has text or a sound (Only Lines with Text lists it).
+/// Find looking through a table a slice a frame: what is looked for, the
+/// table's revision and whether Only lines with text was on, the next line
+/// to look at, the lines found so far, and those of them listed (with Only
+/// lines with text, those with text), shared with the list: a slice
+/// appends to it, never a copy of it made a frame.
+#[derive(Debug, Clone)]
+struct Sweep {
+    query: String,
+    revision: u64,
+    only_text: bool,
+    next: usize,
+    found: Vec<usize>,
+    listed: Arc<Vec<usize>>,
+}
+
+/// How long Find looks a frame: a long table (`dialog.tlk`'s 112,228
+/// lines, each read and lowered) is looked through over several, the
+/// window going on.
+const SWEEP_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
+
+/// How many lines Find looks through between two looks at the clock: few
+/// enough that a slow machine does not run far past [`SWEEP_BUDGET`].
+const SWEEP_SLICE: usize = 64;
+
+/// Whether a line has text or a sound (Only Lines with Text lists it): not
+/// blank, as its entry's flags and bytes say (no line read as text).
 fn has_text(t: &Table, row: usize) -> bool {
-    let l = t.line(row);
-    !l.text.is_empty() || !l.sound.is_empty() || l.feminine.is_some_and(|f| !f.is_empty())
+    !t.is_blank(row)
 }
 
 /// Puts `row` in a list of rows in order, or takes it out.
@@ -81,8 +284,31 @@ fn keep_row(rows: &mut Vec<usize>, row: usize, listed: bool) {
 }
 
 impl TalkView {
+    /// Chooses line `row` and brings it into the list's sight (Go to's,
+    /// the kept tabs', a test's).
+    pub fn go_to_line(&mut self, row: usize) {
+        self.selected = Some(row);
+        self.reveal = true;
+    }
+
     fn changed(&mut self) {
         self.revision += 1;
+    }
+
+    /// Whether Find is looking through the lines (over several frames).
+    pub fn sweeping(&self) -> bool {
+        self.sweep.is_some()
+    }
+
+    /// Whether Find References is looking for a line's users.
+    pub fn looking(&self) -> bool {
+        self.looking.is_some()
+    }
+
+    /// Whether anything of the view is under way: Find a slice a frame, or
+    /// Find References on its thread.
+    pub(crate) fn under_way(&self) -> bool {
+        self.sweeping() || self.looking.is_some()
     }
 
     /// Line `row` of the table was set in the editor (a letter typed into
@@ -122,6 +348,12 @@ impl TalkView {
     pub(crate) fn changed_outside(&mut self) {
         self.revision += 1;
         self.edit = None;
+    }
+
+    /// How far Find has looked, in hundredths, while it looks.
+    pub(crate) fn sweep_done(&self, len: usize) -> Option<usize> {
+        let s = self.sweep.as_ref()?;
+        Some(s.next * 100 / len.max(1))
     }
 }
 
@@ -243,7 +475,7 @@ fn project_feminine(
 
 /// The project's table in another of its languages (its file `path`), in
 /// place of the one open (which has no unsaved changes).
-fn open_language(app: &mut Moonglow, path: &std::path::Path) {
+pub(crate) fn open_language(app: &mut Moonglow, path: &std::path::Path) {
     let Some(t) = &app.talk else { return };
     let (name, languages) = (t.name.clone(), std::mem::take(&mut app.talk_view.languages));
     let Some(p) = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref()) else { return };
@@ -466,7 +698,15 @@ pub(crate) fn can_add(app: &mut Moonglow) -> Option<(mg_core::Language, bool)> {
     (Some(&t.name) == name.as_ref()).then(|| (t.tlk.language, t.feminine.is_some()))
 }
 
+/// The module's talk table's tab (or a file's opened on its own): its
+/// header over its list; with no table, what makes one is the Talk Table
+/// panel's (Module's Table) and the tab says so.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
+    // (The game's dialog.tlk shown in it: its own.)
+    if app.game_talk.is_some() {
+        game_ui(app, ui);
+        return;
+    }
     let outside = app.talk_view.outside && app.talk.is_some();
     if app.ws.is_none() && !outside {
         ui.label("Open a module to edit its talk table, or a talk table file on its own.");
@@ -475,30 +715,891 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     let name = load(app);
     let open = app.talk.as_ref().is_some_and(|t| outside || Some(&t.name) == name.as_ref());
-    // OK and Cancel, as the other editors have: the table is saved when
-    // asked (its × keeps what is unsaved for the module's Save; Cancel
-    // asks first and drops it). Close alone for one found in a hak.
-    let read_only = !open || app.talk.as_ref().is_some_and(|t| !t.editable());
-    if crate::side_doc::ok_cancel(app, ui, &crate::Tab::TalkTable, read_only, |_| {}) {
-        return;
-    }
     if !open {
-        no_table(app, ui, name);
-        ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| files(&mut app.actions, ui));
+        no_table_here(app, ui, name.as_deref());
         return;
     }
     // The line chosen when the module's tabs were kept, chosen again and
     // brought into view (once the table is open).
     let len = app.talk.as_ref().map_or(0, |t| t.len());
-    let kept = app.open_tabs.take_view(&crate::Tab::TalkTable).and_then(|v| v.talk_line());
+    let kept = app.open_tabs.take_view(&Tab::TalkTable).and_then(|v| v.talk_line());
     if let Some(line) = kept.filter(|l| *l < len) {
         app.talk_view.selected = Some(line);
         app.talk_view.reveal = true;
     }
     // (The pointer over the editor: Undo and Redo are the table's there.)
-    crate::side_doc::note_pointer(app, ui, &crate::Tab::TalkTable);
-    table(app, ui);
+    crate::side_doc::note_pointer(app, ui, &Tab::TalkTable);
+    editor(app, ui, Which::Module);
+}
+
+/// The Talk Table tab showing the game's `dialog.tlk`: read-only, its
+/// lines by their own StrRefs.
+fn game_ui(app: &mut Moonglow, ui: &mut Ui) {
+    if game_table(app).is_none() {
+        ui.label("dialog.tlk is the game data's: set the game's folder in Tools › Options.");
+        // (Module's Table and the files, from More, to leave it.)
+        let state =
+            HeaderState { back: Some(true), back_to_file: back_to_file(app), ..Default::default() };
+        let asked = header(app, ui, Which::Game, &state);
+        run_asked(app, Which::Game, &asked);
+        return;
+    }
+    editor(app, ui, Which::Game);
+}
+
+/// The module's tab with no table of its own (or one the game can't
+/// find): the header, its Open File… and New File… in More, and what to do
+/// over the empty list. Making one is the Talk Table panel's.
+fn no_table_here(app: &mut Moonglow, ui: &mut Ui, name: Option<&str>) {
+    let asked = header(app, ui, Which::Module, &HeaderState::default());
+    if let Some(pressed) = asked.pressed
+        && crate::side_doc::pressed_ok_cancel(app, &Tab::TalkTable, true, pressed, |_| {})
+    {
+        return;
+    }
+    run_asked(app, Which::Module, &asked);
+    let t = mg_uikit::tokens(ui.ctx());
+    egui::Frame::new().inner_margin(egui::Margin::same(12)).show(ui, |ui| {
+        let text = match name {
+            None => "This module has no talk table of its own: make one in the Talk Table \
+                     panel (Module's Table), or open a .tlk file from More."
+                .to_string(),
+            Some(n) => format!(
+                "The module names the talk table {n}, which isn't in its haks, the module or the \
+                 tlk folder: the game won't load the module. Make it in the Talk Table panel."
+            ),
+        };
+        let color = if name.is_some() { ui.visuals().error_fg_color } else { t.text_2 };
+        ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
+    });
+}
+
+/// What the header knows of the table shown.
+#[derive(Default)]
+struct HeaderState {
+    open: bool,
+    editable: bool,
+    dirty: bool,
+    empty: bool,
+    selected: Option<usize>,
+    /// Module's Table can be gone back to (a file opened on its own, the
+    /// game's table, with a module open) and nothing unsaved holds it.
+    back: Option<bool>,
+    /// Module's Table from the game's table lands on a file's table with
+    /// unsaved changes behind it, not the module's (its tip says so).
+    back_to_file: bool,
+}
+
+/// Whether Module's Table from the game's table goes back to a file's
+/// table opened on its own with unsaved changes (kept, nothing lost),
+/// rather than to the module's.
+fn back_to_file(app: &Moonglow) -> bool {
+    app.talk_view.outside && app.talk.as_ref().is_some_and(Table::is_dirty)
+}
+
+/// What the header asked for, done after it ([`run_asked`]).
+#[derive(Default)]
+struct Asked {
+    add: bool,
+    remove: bool,
+    save: bool,
+    references: bool,
+    export: Option<bool>,
+    import: Option<bool>,
+    open_file: bool,
+    new_file: bool,
+    module_s: bool,
+    gone_to: bool,
+    pressed: Option<crate::blueprint::Pressed>,
+}
+
+/// The name of a talk table's header (the kit's group, the tests'), the
+/// board's.
+pub const TALK_HEADER: &str = "Talk table header";
+
+/// Find's field's id.
+fn find_id(which: Which) -> egui::Id {
+    egui::Id::new(("talk-find", which))
+}
+
+/// The talk table's header (M4's U17, the Talk board's): Find and Go to;
+/// a line; Add Line with its word, Remove Last Line and Save as icons; a
+/// line; Find References; at the right Only lines with text (a toggle),
+/// Export (CSV, JSON) and More (Import CSV…, Import JSON…, Open File…,
+/// New File…, Module's Table); then Close where the table is only looked
+/// at, else OK and Cancel, in the end slot (ruling 10). Its own Undo and
+/// Redo are gone (the Top Bar's: `Moonglow::local_undo`). What has no room
+/// loses its words, then goes into More (Find and Go to last).
+fn header(app: &mut Moonglow, ui: &mut Ui, which: Which, s: &HeaderState) -> Asked {
+    use mg_uikit::Icon;
+    use mg_uikit::header::{EditorHeader, Item};
+    use std::cell::{Cell, RefCell};
+    let over = ui.rect_contains_pointer(ui.max_rect());
+    let (filter, go_to, mut only) = match parts(app, which) {
+        Some((_, v)) => (std::mem::take(&mut v.filter), std::mem::take(&mut v.go_to), v.only_text),
+        None => (String::new(), String::new(), false),
+    };
+    let filter = RefCell::new(filter);
+    let go_to = RefCell::new(go_to);
+    let gone = Cell::new(false);
+    let typed = Cell::new(false);
+    const FIND: f32 = 190.0;
+    const GO_TO: f32 = 112.0;
+    let find = |ui: &mut Ui| {
+        let mut text = filter.borrow_mut();
+        crate::widgets::SearchField::new(find_id(which), &mut text)
+            .name("Find")
+            .hint("words or a StrRef")
+            .width(FIND)
+            .find_when(over)
+            .show(ui);
+    };
+    let go = |ui: &mut Ui| {
+        let mut text = go_to.borrow_mut();
+        let field =
+            mg_uikit::text_field(&mut *text).desired_width(GO_TO).hint_text("StrRef or line");
+        let r = ui
+            .add_enabled(s.open, field)
+            .on_hover_text("A StrRef or a line's number, then Enter, to go to it");
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Go to"));
+        if r.changed() {
+            typed.set(true);
+        }
+        // (Its Enter taken: the list, given the keys, would go to the line's
+        // text with it.)
+        if r.lost_focus()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+        {
+            gone.set(true);
+        }
+    };
+    let export = Cell::new(None::<bool>);
+    let formats = |ui: &mut Ui| {
+        mg_uikit::menu_rows(ui);
+        let csv = ui
+            .add_enabled(s.open, egui::Button::new("Export CSV…"))
+            .on_hover_text("The lines as a CSV file, for a spreadsheet or a translator");
+        if csv.clicked() {
+            export.set(Some(false));
+            ui.close();
+        }
+        let json = ui
+            .add_enabled(s.open, egui::Button::new("Export JSON…"))
+            .on_hover_text("The lines with text as JSON, as nwn_tlk writes a talk table");
+        if json.clicked() {
+            export.set(Some(true));
+            ui.close();
+        }
+    };
+    let buttons: Vec<mg_uikit::KitButton> = match s.editable {
+        false => vec![mg_uikit::KitButton::new(None, "Close").tip("Close the window")],
+        true => {
+            let tips = crate::side_doc::OK_CANCEL_TIPS;
+            vec![
+                mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
+                mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
+            ]
+        }
+    };
+    let gap = mg_uikit::header::HEADER_GAP;
+    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len().saturating_sub(1)) as f32;
+    let mut h = EditorHeader::new(TALK_HEADER)
+        .more_words(true)
+        .left(
+            Item::custom("Find", FIND, find)
+                .more(FIND, |ui| {
+                    let mut text = filter.borrow_mut();
+                    crate::widgets::SearchField::new(find_id(which), &mut text)
+                        .name("Find")
+                        .hint("words or a StrRef")
+                        .width(FIND)
+                        .show(ui);
+                })
+                .primary(),
+        )
+        .left(Item::custom("Go to", GO_TO, go).more(GO_TO, go).primary())
+        .left(Item::separator())
+        .left(
+            Item::button(Icon::Plus, ADD_LINE)
+                .enabled(s.editable)
+                .tip("Add an empty line at the end, and choose it"),
+        )
+        .left(
+            Item::icon(Icon::Minus, REMOVE_LAST_LINE)
+                .enabled(s.editable && !s.empty)
+                .tip("Remove Last Line: only the last, removing another would renumber those after it"),
+        )
+        .left(Item::icon(Icon::Save, "Save").enabled(s.editable && s.dirty).tip("Save the talk table"))
+        .left(Item::separator())
+        .left(
+            Item::button(Icon::References, FIND_REFERENCES)
+                .enabled(s.selected.is_some() && app.ws.is_some())
+                .tip("Where the module's blueprints, areas, conversations and 2DAs name the selected line"),
+        )
+        .right(
+            Item::toggle(Some(Icon::Filter), ONLY_TEXT, &mut only)
+                .icon_only()
+                .enabled(s.open)
+                .tip("Only lines with text: leave empty lines out of the list (reserved ranges)"),
+        )
+        .right(
+            Item::menu(Some(Icon::Export), "Export", formats)
+                .words_icon(true)
+                .tip("The lines as CSV, for a spreadsheet, or as JSON, as nwn_tlk writes them"),
+        )
+        .right(
+            Item::button(Icon::Import, IMPORT_CSV)
+                .in_more()
+                .enabled(s.editable)
+                .tip("Read lines from a CSV, as Export CSV writes it. Rows past the end add lines."),
+        )
+        .right(
+            Item::button(Icon::Import, IMPORT_JSON)
+                .in_more()
+                .enabled(s.editable)
+                .tip("Read lines from nwn_tlk's JSON, as a nasher repository keeps it"),
+        )
+        .right(
+            Item::button(Icon::Open, OPEN_FILE)
+                .in_more()
+                .tip("Edit a .tlk file anywhere, with its feminine table if one is beside it"),
+        )
+        .right(Item::button(Icon::New, NEW_FILE).in_more().tip("Make an empty .tlk file and edit it"));
+    if let Some(back) = s.back {
+        h = h.right(Item::button(Icon::TalkTable, MODULE_S_TABLE).in_more().enabled(back).tip(
+            if s.back_to_file {
+                "Back to the file's table, which has unsaved changes"
+            } else {
+                "Back to the talk table the module names"
+            },
+        ));
+    }
+    let out = h.show_with_end(ui, end_width, |ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let mut pressed = None;
+        for b in buttons {
+            let words = b.accessible_name().to_string();
+            if ui.add(b).clicked() {
+                pressed = Some(match words.as_str() {
+                    "Cancel" => crate::blueprint::Pressed::Cancel,
+                    _ => crate::blueprint::Pressed::Ok,
+                });
+            }
+        }
+        pressed
+    });
+    if let Some((_, v)) = parts(app, which) {
+        v.filter = filter.into_inner();
+        v.go_to = go_to.into_inner();
+        if typed.get() {
+            v.go_to_problem = None;
+        }
+        if only != v.only_text {
+            v.only_text = only;
+            v.reveal = true;
+        }
+    }
+    Asked {
+        add: out.clicked(ADD_LINE),
+        remove: out.clicked(REMOVE_LAST_LINE),
+        save: out.clicked("Save"),
+        references: out.clicked(FIND_REFERENCES),
+        export: export.get(),
+        import: if out.clicked(IMPORT_CSV) {
+            Some(false)
+        } else if out.clicked(IMPORT_JSON) {
+            Some(true)
+        } else {
+            None
+        },
+        open_file: out.clicked(OPEN_FILE),
+        new_file: out.clicked(NEW_FILE),
+        module_s: out.clicked(MODULE_S_TABLE),
+        gone_to: gone.get(),
+        pressed: out.end,
+    }
+}
+
+/// The header's commands' names (its record's, the tests').
+pub const ADD_LINE: &str = "Add Line";
+pub const REMOVE_LAST_LINE: &str = "Remove Last Line";
+pub const FIND_REFERENCES: &str = "Find References";
+pub const ONLY_TEXT: &str = "Only lines with text";
+pub const IMPORT_CSV: &str = "Import CSV…";
+pub const IMPORT_JSON: &str = "Import JSON…";
+pub const OPEN_FILE: &str = "Open File…";
+pub const NEW_FILE: &str = "New File…";
+pub const MODULE_S_TABLE: &str = "Module's Table";
+
+/// What the header asked that needs no table open, or that leaves it:
+/// Open File…, New File…, the exports and imports, Module's Table.
+fn run_asked(app: &mut Moonglow, which: Which, asked: &Asked) {
+    if asked.open_file {
+        app.actions.push(Action::TalkFile(false));
+    }
+    if asked.new_file {
+        app.actions.push(Action::TalkFile(true));
+    }
+    if let Some(json) = asked.export {
+        app.actions.push(match (which, json) {
+            (Which::Game, json) => Action::GameTalkExport(json),
+            (Which::Module, false) => Action::TalkCsv(false),
+            (Which::Module, true) => Action::TalkJson(false),
+        });
+    }
+    if let Some(json) = asked.import
+        && which == Which::Module
+    {
+        app.actions.push(if json { Action::TalkJson(true) } else { Action::TalkCsv(true) });
+    }
+    if asked.module_s {
+        match which {
+            Which::Module => {
+                if app.talk.as_ref().is_some_and(|t| !t.is_dirty()) {
+                    app.talk = None;
+                    app.talk_view = TalkView::default();
+                }
+            }
+            // (The tab back on the module's table, as it was left; a
+            // file's opened on its own behind it goes as the file's own
+            // Module's Table would have it go: where it has no unsaved
+            // changes.)
+            Which::Game => {
+                hide_game(app);
+                if app.talk_view.outside && app.talk.as_ref().is_some_and(|t| !t.is_dirty()) {
+                    app.talk = None;
+                    app.talk_view = TalkView::default();
+                }
+            }
+        }
+    }
+}
+
+/// A talk table's editor (M4's U17): its header, a note where Go to went
+/// nowhere or a line could not be set, and the list of its lines under a
+/// header row. The chosen line's fields, what names it and the table's
+/// facts are its panels'.
+fn editor(app: &mut Moonglow, ui: &mut Ui, which: Which) {
+    let Some((t, v)) = parts_of(app, which) else { return };
+    let state = HeaderState {
+        open: true,
+        editable: which == Which::Module && t.editable(),
+        dirty: t.is_dirty(),
+        empty: t.is_empty(),
+        selected: v.selected,
+        back: match which {
+            Which::Module => (v.outside && app.ws.is_some()).then(|| !t.is_dirty()),
+            // (Back to the module's table, or what the tab showed before.)
+            Which::Game => Some(true),
+        },
+        back_to_file: which == Which::Game && back_to_file(app),
+    };
+    let asked = header(app, ui, which, &state);
+    // OK and Cancel, as the other editors have: the table is saved when
+    // asked (its × keeps what is unsaved for the module's Save; Cancel
+    // asks first and drops it). Close alone for one only looked at.
+    if let Some(pressed) = asked.pressed
+        && crate::side_doc::pressed_ok_cancel(app, &which.tab(), !state.editable, pressed, |_| {})
+    {
+        return;
+    }
+    crate::side_doc::failed_foot(app, ui, &which.tab());
+    run_asked(app, which, &asked);
+    // (What the header did to the table is the table's to undo, More's
+    // popover pressed outside the tab: the Top Bar's Undo after it.)
+    if which == Which::Module && (asked.add || asked.remove || asked.import.is_some()) {
+        app.undo_worked = Some(Tab::TalkTable);
+    }
+    if asked.module_s && which == Which::Module && app.talk.is_none() {
+        return;
+    }
+    if which == Which::Module {
+        let Moonglow { talk: Some(t), talk_view: v, .. } = app else { return };
+        let mut changed = false;
+        if asked.add && t.editable() {
+            let empty = Line {
+                text: String::new(),
+                feminine: t.feminine.as_ref().map(|_| String::new()),
+                sound: String::new(),
+                sound_length: 0.0,
+            };
+            if let Ok(row) = t.add_line(&empty) {
+                v.selected = Some(row);
+                v.filter.clear();
+                // (An empty line: it would not be listed.)
+                v.only_text = false;
+                v.reveal = true;
+                changed = true;
+            }
+        }
+        if asked.remove && t.editable() && !t.is_empty() {
+            t.remove_last();
+            changed = true;
+        }
+        if changed {
+            v.changed();
+        }
+        if asked.save {
+            // Saved through the app, which reloads the game's copy.
+            app.actions.push(Action::SaveTalkTable);
+        }
+    }
+    if asked.references
+        && let Some(row) = parts_of(app, which).and_then(|(_, v)| v.selected)
+    {
+        panels::find_references(app, which, row);
+    }
+    if asked.gone_to {
+        go_to(app, which, ui.ctx());
+    }
+    notes(app, ui, which);
+    list(app, ui, which);
+}
+
+/// Each frame, for each talk table: Find References taken in where it has
+/// ended (stopped where its line is no longer chosen), and Find looking on
+/// through the lines, whether its tab and panels are drawn or not (a tab
+/// behind another, a panel folded): the window's work comes to an end.
+pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    // (The game's table let go of with its tab, its look stopped.)
+    // (Not while its tab is on its way: `show_game` asks for it.)
+    let opening = app.actions.iter().any(|a| matches!(a, Action::OpenTab(Tab::TalkTable)));
+    if app.game_talk.is_some() && app.dock.find_tab(&Tab::TalkTable).is_none() && !opening {
+        app.game_talk = None;
+    }
+    // (Another line chosen: the burst of typing ends, M4's U17 review.)
+    if app.talk_view.seen_line != app.talk_view.selected {
+        app.talk_view.seen_line = app.talk_view.selected;
+        if let Some(t) = app.talk.as_mut() {
+            t.end_typing();
+        }
+    }
+    // (The module's view where its table is gone, or its tab closed: its
+    // look stopped and Find let go of, not left under way.)
+    if app.talk.is_none() || app.dock.find_tab(&Tab::TalkTable).is_none() {
+        app.talk_view.looking = None;
+        app.talk_view.sweep = None;
+    }
+    for which in [Which::Module, Which::Game] {
+        let Some((_, v)) = parts(app, which) else { continue };
+        panels::follow_looking(v, ctx);
+        // (Find looks on as the list is drawn, `rows`; where its tab is
+        // not, or shows the other table, the look is let go of: begun
+        // again as it is drawn.)
+        if v.sweeping()
+            && (!in_front(app, &which.tab()) || Which::shown(app) != which)
+            && let Some((_, v)) = parts(app, which)
+        {
+            v.sweep = None;
+        }
+        // (The text not drawn to take the keyboard: let go of.)
+        if let Some((_, v)) = parts(app, which)
+            && v.to_text.is_some_and(|at| pass > at + 3)
+        {
+            v.to_text = None;
+        }
+    }
+}
+
+/// Whether `tab` is open and in front of its pane (its body drawn).
+fn in_front(app: &Moonglow, tab: &Tab) -> bool {
+    let Some(at) = app.dock.find_tab(tab) else { return false };
+    let leaf = app.dock.leaf(egui_dock::NodePath { surface: at.surface, node: at.node });
+    leaf.is_ok_and(|leaf| leaf.active == at.tab)
+}
+
+/// Go to: the line of the StrRef or number typed, among all the lines,
+/// the list given the keys; or why it went nowhere.
+fn go_to(app: &mut Moonglow, which: Which, ctx: &egui::Context) {
+    let Some((t, v)) = parts(app, which) else { return };
+    let typed = v.go_to.trim();
+    let base = which.strref(0);
+    let row = typed.parse::<u32>().ok().map(|n| n.checked_sub(base).unwrap_or(n) as usize);
+    match row {
+        Some(row) if row < t.len() => {
+            v.selected = Some(row);
+            // (Among all the lines: one found alone is nowhere to go to.)
+            v.filter.clear();
+            v.reveal = true;
+            v.go_to_problem = None;
+            take_keys(ctx, which);
+        }
+        Some(_) if t.is_empty() => v.go_to_problem = Some("The table has no lines yet.".into()),
+        Some(_) => {
+            let last = which.strref(t.len() - 1);
+            v.go_to_problem =
+                Some(format!("The table has {} lines: StrRefs {base} to {last}.", t.len()));
+        }
+        None if typed.is_empty() => v.go_to_problem = None,
+        None => v.go_to_problem = Some("A StrRef or a line's number.".into()),
+    }
+}
+
+/// What is said under the header: where Go to went nowhere.
+fn notes(app: &mut Moonglow, ui: &mut Ui, which: Which) {
+    let Some((_, v)) = parts_of(app, which) else { return };
+    let Some(problem) = v.go_to_problem.clone() else { return };
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+        let color = ui.visuals().warn_fg_color;
+        ui.add(egui::Label::new(egui::RichText::new(problem).color(color)).wrap());
+    });
+}
+
+/// The list's keys given to the table `which` (a click on a line, Go to,
+/// F6, a test): its editor made the active one as its tab is next drawn.
+pub fn take_keys(ctx: &egui::Context, which: Which) {
+    crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Talk);
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new("talk-keys-of"), which);
+        d.insert_temp(egui::Id::new("talk-keys-focus"), which);
+    });
+}
+
+/// The list's keys given to the table `which` without its editor made the
+/// active one (for the tests: the keys left with a list whose editor is
+/// not in front, as a press elsewhere leaves them).
+#[doc(hidden)]
+pub fn keys_left_with(ctx: &egui::Context, which: Which) {
+    crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Talk);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("talk-keys-of"), which));
+}
+
+/// The talk table whose list was given the keys last.
+pub(crate) fn keys_of(ctx: &egui::Context) -> Option<Which> {
+    ctx.data(|d| d.get_temp(egui::Id::new("talk-keys-of")))
+}
+
+/// Whether the list of `which` has the keys: they are a talk table's, its,
+/// its editor is the active one, and nothing modal or a popover is in
+/// front (as a 2DA's grid's, `table_view::grid_has_keys`).
+pub(crate) fn list_has_keys(app: &Moonglow, ctx: &egui::Context, which: Which) -> bool {
+    crate::palette_view::keys_are(ctx, crate::palette_view::Keys::Talk)
+        && keys_of(ctx) == Some(which)
+        && crate::table_view::active_tab(app).as_ref() == Some(&which.tab())
+        && !crate::shell::keys_blocked(ctx)
+        && !mg_uikit::popover::Popover::any_open(ctx)
+}
+
+/// Where the list was given the keys, its tab's pane is given the focus
+/// (its editor the active one).
+fn focus_asked(app: &mut Moonglow, ctx: &egui::Context, which: Which) {
+    let key = egui::Id::new("talk-keys-focus");
+    if ctx.data(|d| d.get_temp::<Which>(key)) != Some(which) {
+        return;
+    }
+    ctx.data_mut(|d| d.remove_temp::<Which>(key));
+    app.focus_asked_tab = Some(which.tab());
+}
+
+/// The lines listed: all, or those Find found; with Only Lines with Text,
+/// those of them with text or a sound (and the line chosen). Kept while
+/// what they were made by is the same: every line's number was listed anew
+/// each frame, a million for a table that reaches into a range up there.
+/// While Find looks through a long table, those found so far.
+fn rows(t: &Table, v: &mut TalkView) -> Arc<Vec<usize>> {
+    let query = v.filter.trim().to_string();
+    if v.only_text && v.texted.as_ref().is_none_or(|(r, _)| *r != v.revision) {
+        v.texted = Some((v.revision, (0..t.len()).filter(|row| has_text(t, *row)).collect()));
+    }
+    // (The line chosen counts only where it is listed for being chosen: a
+    // line with text is listed anyway, and choosing it makes no new list.)
+    let texted = v.texted.as_ref().map(|(_, rows)| rows);
+    let kept = v.selected.filter(|s| texted.is_some_and(|t| t.binary_search(s).is_err()));
+    let mark = (v.revision, t.len(), query.clone(), v.only_text.then_some(kept));
+    if let Some((of, rows)) = &v.shown
+        && *of == mark
+    {
+        return rows.clone();
+    }
+    let rows: Vec<usize> = if query.is_empty() {
+        v.sweep = None;
+        (0..t.len()).collect()
+    } else {
+        let done = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
+        if !done {
+            // (Looking on: what is listed meanwhile, appended to, shared.)
+            if let Some(listed) = sweep(t, v, &query) {
+                return listed;
+            }
+        }
+        v.sweep = None;
+        v.found.as_ref().map(|f| f.2.clone()).unwrap_or_default()
+    };
+    let rows: Vec<usize> = match v.texted.as_ref().filter(|_| v.only_text) {
+        // (The selected line stays listed while it is being written.)
+        Some((_, texted)) => rows
+            .into_iter()
+            .filter(|r| texted.binary_search(r).is_ok() || v.selected == Some(*r))
+            .collect(),
+        None => rows,
+    };
+    let rows = Arc::new(rows);
+    v.shown = Some((mark, rows.clone()));
+    rows
+}
+
+/// Find looks on through `t` for `query` from where it was, for at most
+/// [`SWEEP_BUDGET`] (the clock asked every [`SWEEP_SLICE`] lines): the
+/// lines listed so far where it has not looked through them all (`None`
+/// once it has, what it found kept in `found`). A query, the table or Only
+/// lines with text changed begins it again.
+fn sweep(t: &Table, v: &mut TalkView, query: &str) -> Option<Arc<Vec<usize>>> {
+    let TalkView { sweep, found, texted, revision, only_text, .. } = v;
+    let fresh = sweep
+        .as_ref()
+        .is_some_and(|s| s.query == query && s.revision == *revision && s.only_text == *only_text);
+    if !fresh {
+        *sweep = Some(Sweep {
+            query: query.into(),
+            revision: *revision,
+            only_text: *only_text,
+            next: 0,
+            found: Vec::new(),
+            listed: Arc::new(Vec::new()),
+        });
+    }
+    let s = sweep.as_mut().expect("set");
+    let texted = texted.as_ref().map(|(_, rows)| rows).filter(|_| s.only_text);
+    let began = std::time::Instant::now();
+    while s.next < t.len() {
+        let end = (s.next + SWEEP_SLICE).min(t.len());
+        let new = t.find_in(s.next..end, query);
+        let listed = Arc::make_mut(&mut s.listed);
+        match texted {
+            Some(texted) => {
+                listed.extend(new.iter().copied().filter(|r| texted.binary_search(r).is_ok()))
+            }
+            None => listed.extend_from_slice(&new),
+        }
+        s.found.extend(new);
+        s.next = end;
+        if began.elapsed() >= SWEEP_BUDGET {
+            break;
+        }
+    }
+    if s.next < t.len() {
+        return Some(s.listed.clone());
+    }
+    let done = sweep.take().expect("set");
+    *found = Some((done.query, done.revision, done.found));
+    None
+}
+
+/// The list's columns' widths (the board's `.tl-row`): the StrRef's 96, the
+/// sound's 150, the text the rest (two halves with a feminine table).
+const STRREF_WIDTH: f32 = 96.0;
+const SOUND_WIDTH: f32 = 150.0;
+
+/// The list (M4's U17, the Talk board's `.tl`): a header row (StrRef, Text,
+/// Feminine where the table has one, Sound) over the lines, each 22 high,
+/// only those in sight laid out; the StrRef monospace at its right, the
+/// text's first line cut short, the sound monospace and quiet; the chosen
+/// line filled. A click chooses a line and gives the list the keys (Up,
+/// Down, Page Up, Page Down, Home, End; Enter to its text, as a double
+/// click; Escape leaves the list).
+fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
+    use crate::palette_view::{Keys, give_keys};
+    let has = list_has_keys(app, ui.ctx(), which);
+    // Undo and Redo are the table's while the keys are in its list (the
+    // keymap's, through `Moonglow::local_undo`).
+    if has && which == Which::Module {
+        app.undo_keys = Some(Tab::TalkTable);
+    }
+    focus_asked(app, ui.ctx(), which);
+    let Some((t, v)) = parts(app, which) else { return };
+    let rows = rows(t, v);
+    let feminine = t.feminine.is_some();
+    v.selected = v.selected.filter(|&s| s < t.len());
+    let tokens = mg_uikit::tokens(ui.ctx());
+    let pitch = mg_uikit::row_metrics(ui).1;
+    let seen_id = egui::Id::new(("talk-rows-seen", which));
+    let mut to_text = false;
+    if has && !ui.ctx().egui_wants_keyboard_input() && !rows.is_empty() {
+        use egui::Key;
+        let last = rows.len() as isize - 1;
+        let steps = [
+            (Key::ArrowDown, 1),
+            (Key::ArrowUp, -1),
+            (Key::PageDown, 10),
+            (Key::PageUp, -10),
+            (Key::End, isize::MAX / 2),
+            (Key::Home, isize::MIN / 2),
+        ];
+        let pressed = ui.input_mut(|i| {
+            steps.into_iter().find(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
+        });
+        if let Some((_, by)) = pressed {
+            // (Looked for only as a key is pressed: a hundred thousand
+            // rows each frame.)
+            let at = v.selected.and_then(|s| rows.iter().position(|r| *r == s));
+            let to = at.map_or(0, |at| (at as isize).saturating_add(by).clamp(0, last)) as usize;
+            v.selected = Some(rows[to]);
+            // (Into view, if it is not among the lines drawn.)
+            let seen: Option<(usize, usize)> = ui.data(|d| d.get_temp(seen_id));
+            v.reveal = seen.is_none_or(|(from, end)| to <= from || to + 2 >= end);
+        }
+        to_text = v.selected.is_some()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            give_keys(ui.ctx(), Keys::Area);
+        }
+    }
+    // The header row.
+    let width = ui.available_width();
+    let (head, _) = ui.allocate_exact_size(
+        egui::vec2(width, crate::table_view::look::HEADER_HIGH),
+        egui::Sense::hover(),
+    );
+    let text_width = (width - STRREF_WIDTH - SOUND_WIDTH).max(80.0);
+    let text_width = if feminine { text_width / 2.0 } else { text_width };
+    let columns = |left: f32| {
+        let mut x = left;
+        let mut out = Vec::new();
+        let mut push = |w: f32| {
+            out.push(x..=x + w);
+            x += w;
+        };
+        push(STRREF_WIDTH);
+        push(text_width);
+        if feminine {
+            push(text_width);
+        }
+        push(SOUND_WIDTH);
+        out
+    };
+    crate::table_view::look::header_cell(ui, head);
+    let words = match feminine {
+        true => vec!["StrRef", "Text (masculine)", "Feminine", "Sound"],
+        false => vec!["StrRef", "Text", "Sound"],
+    };
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    for (i, (x, words)) in columns(head.left()).into_iter().zip(words).enumerate() {
+        let cell = egui::Rect::from_x_y_ranges(x, head.y_range()).shrink2(egui::vec2(8.0, 0.0));
+        let galley =
+            ui.painter().layout(words.to_string(), font.clone(), tokens.text, cell.width());
+        // (The StrRef's heading at its right, over the numbers.)
+        let at = match i {
+            0 => egui::pos2(
+                cell.right() - 4.0 - galley.size().x,
+                cell.center().y - galley.size().y / 2.0,
+            ),
+            _ => egui::pos2(cell.left(), cell.center().y - galley.size().y / 2.0),
+        };
+        ui.painter().with_clip_rect(cell).galley(at, galley, tokens.text);
+    }
+    let mut scroll =
+        egui::ScrollArea::vertical().id_salt(("talk-rows", which)).auto_shrink([false, false]);
+    // The list changed under the selected line: it comes back into view.
+    if std::mem::take(&mut v.reveal)
+        && let Some(at) = v.selected.and_then(|s| rows.iter().position(|r| *r == s))
+    {
+        let height = ui.available_height();
+        scroll = scroll.vertical_scroll_offset((at as f32 * pitch - height / 2.0).max(0.0));
+    }
+    let mono = egui::FontId::monospace(12.0);
+    let shown = mg_uikit::show_rows(scroll, ui, rows.len(), |ui, range| {
+        ui.data_mut(|d| d.insert_temp(seen_id, (range.start, range.end)));
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let mut clicked = None;
+        // (Painted as the 2DA editor's grid is, `table_view::look`: a row
+        // a cell of it, the chosen one filled and, while the list has the
+        // keys, ringed; the lines under each, as few shapes.)
+        let mut lines = crate::table_view::look::Lines::default();
+        for &row in &rows[range] {
+            let (rect, r) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), pitch), egui::Sense::click());
+            let strref = which.strref(row);
+            let line = t.line(row);
+            let first = |s: &str| s.lines().next().unwrap_or_default().to_string();
+            // (Named by its StrRef, its text its value: a screen reader
+            // says both.)
+            r.widget_info(|| {
+                let mut info = egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    true,
+                    v.selected == Some(row),
+                    strref.to_string(),
+                );
+                info.current_text_value = Some(first(&line.text));
+                info
+            });
+            let selected = v.selected == Some(row);
+            use crate::table_view::look::Cell;
+            let state = match (selected, r.hovered()) {
+                (true, _) => Cell::Current { ringed: has },
+                (false, true) => Cell::Hovered,
+                (false, false) => Cell::Plain,
+            };
+            crate::table_view::look::cell(ui.painter(), &tokens, rect, state);
+            lines.cell(rect, state);
+            lines.row(rect.left(), rect.right(), rect.bottom());
+            let (number, text, quiet) = match selected {
+                true => (tokens.on_fill, tokens.on_fill, tokens.on_fill),
+                false => (tokens.text_2, tokens.text, tokens.text_3),
+            };
+            let xs = columns(rect.left());
+            let cut = |s: String,
+                       f: egui::FontId,
+                       c: egui::Color32,
+                       x: &std::ops::RangeInclusive<f32>,
+                       right: bool| {
+                let cell = egui::Rect::from_x_y_ranges(x.clone(), rect.y_range());
+                let inner = match right {
+                    true => cell.with_max_x(cell.right() - 12.0).with_min_x(cell.left() + 8.0),
+                    false => cell.shrink2(egui::vec2(8.0, 0.0)),
+                };
+                let mut job = egui::text::LayoutJob::simple_singleline(s, f, c);
+                job.wrap = egui::text::TextWrapping::truncate_at_width(inner.width().max(1.0));
+                let galley = ui.painter().layout_job(job);
+                let y = cell.center().y - galley.size().y / 2.0;
+                let x = if right { inner.right() - galley.size().x } else { inner.left() };
+                ui.painter().galley(egui::pos2(x, y), galley, c);
+            };
+            cut(strref.to_string(), mono.clone(), number, &xs[0], true);
+            cut(first(&line.text), font.clone(), text, &xs[1], false);
+            if let Some(f) = &line.feminine {
+                cut(first(f), font.clone(), text, &xs[2], false);
+            }
+            cut(line.sound.clone(), mono.clone(), quiet, xs.last().expect("columns"), false);
+            let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
+            if r.clicked() || r.double_clicked() {
+                clicked = Some((row, r.double_clicked()));
+            }
+        }
+        lines.paint(ui.painter(), &tokens);
+        clicked
+    });
+    if let Some((row, twice)) = shown.inner {
+        v.selected = Some(row);
+        to_text |= twice;
+        take_keys(ui.ctx(), which);
+    }
+    if rows.is_empty() && !v.filter.trim().is_empty() && !v.sweeping() {
+        ui.weak("No line has that.");
+    }
+    if let Some(done) = v.sweep_done(t.len()) {
+        // (Looking on at the next frame: the window goes on meanwhile.)
+        ui.ctx().request_repaint();
+        let _ = done;
+    }
+    if to_text {
+        v.to_text = Some(ui.ctx().cumulative_pass_nr());
+        bring_string(app, which);
+    }
+}
+
+/// String brought to the front where its line's text is to take the
+/// keyboard: the Right Dock's (unfolded on it), or a floating table's
+/// window's right pane's.
+fn bring_string(app: &mut Moonglow, which: Which) {
+    let tab = which.tab();
+    let floating = app.dock.find_tab(&tab).is_some_and(|at| !at.surface.is_main());
+    match floating {
+        true => _ = app.window_rights.insert(tab, crate::Panel::String),
+        false => app.actions.push(Action::ShowPanel(crate::Panel::String)),
+    }
 }
 
 /// Undo (or redo) in the talk table, the pointer over its editor
@@ -516,6 +1617,21 @@ pub(crate) fn undo(app: &mut Moonglow, redo: bool) -> bool {
     }
     app.talk_view.changed();
     true
+}
+
+/// Export of the game's `dialog.tlk` (its lines by their own numbers):
+/// CSV, or nwn_tlk's JSON.
+pub(crate) fn export_game(app: &mut Moonglow, json: bool) {
+    let Some(t) = game_table(app) else { return };
+    let kind = crate::dialogs::FileKind::TalkLines { json };
+    let ext = if json { "json" } else { "csv" };
+    let start = std::path::PathBuf::from(format!("dialog.{ext}"));
+    let Some(path) = app.dialogs.save_file(kind, Some(&start)) else { return };
+    let data = if json { t.to_json() } else { t.to_csv_as(false).into_bytes() };
+    match std::fs::write(&path, data) {
+        Ok(()) => app.log.info(format!("Wrote {} lines to {}", t.len(), path.display())),
+        Err(e) => app.log.error(format!("{}: {e}", path.display())),
+    }
 }
 
 /// Open File… and New File…: a talk table that is a file anywhere. (Put
@@ -577,6 +1693,9 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
             app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));
             app.talk = Some(t);
             app.talk_view = TalkView { outside: true, ..Default::default() };
+            // (Shown in the tab in place of the game's dialog.tlk too.)
+            hide_game(app);
+            app.actions.push(Action::OpenTab(Tab::TalkTable));
         }
         Err(e) => app.log.error(format!("Talk table: {e}")),
     }
@@ -619,121 +1738,10 @@ pub(crate) fn transfer(app: &mut Moonglow, import: bool, json: bool) {
     }
 }
 
-/// The module has no talk table, or one the game can't find: make one.
-fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
-    match &name {
-        None => {
-            ui.label("This module has no talk table of its own.");
-            ui.weak(
-                "A talk table holds text that 2DAs, conversations and scripts name by \
-                 StrRef: needed for new classes, feats, spells or items in haks.",
-            );
-        }
-        Some(n) => {
-            ui.colored_label(
-                ui.visuals().error_fg_color,
-                format!(
-                    "The module names the talk table {n}, which isn't in its haks, the module \
-                     or the tlk folder: the game won't load the module."
-                ),
-            );
-            if talk::name_hint(n).is_none() && app.talk_view.new_name.is_empty() {
-                app.talk_view.new_name = n.clone();
-            }
-        }
-    }
-    ui.add_space(8.0);
-    // (A nasher project keeps its table in it, as nasher does: its file
-    // where the rules put it, and a target of its own.)
-    let project = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref());
-    let in_project = project.filter(|p| mg_module::nasher::kept_as(&p.settings).is_some());
-    let user_dir = app.install.as_ref().and_then(|i| i.user_folder("tlk"));
-    let Some(dir) = user_dir.or_else(|| in_project.map(|p| p.root().join("tlk"))) else {
-        ui.label("Making a talk table needs the game's user folder (Tools › Options).");
-        return;
-    };
-    let file_of = |n: &str| match in_project {
-        Some(p) => p.talk_table_file(n),
-        None => Some(dir.join(format!("{n}.tlk"))),
-    };
-    // (A name by the rule of the names Moonglow makes, in lower case: the
-    // file's on every system.)
-    let typed = app.talk_view.new_name.trim();
-    let valid = mg_core::ResRef::new_name(typed);
-    let new = valid.as_ref().map_or_else(|_| typed.to_string(), |r| r.to_string_lossy());
-    let made_in = file_of(&new);
-    // (In the project, as its nasher.cfg names it: `src/mytlk.tlk.json`.)
-    let shown = |f: &std::path::Path| match in_project {
-        Some(p) => f.strip_prefix(p.root()).unwrap_or(f).display().to_string().replace('\\', "/"),
-        None => f.display().to_string(),
-    };
-    let made_shown = made_in.as_deref().map(shown);
-    let in_project = in_project.is_some();
-    let v = &mut app.talk_view;
-    ui.horizontal(|ui| {
-        ui.label("New talk table");
-        ui.add(mg_uikit::text_field(&mut v.new_name).desired_width(140.0).hint_text("name"));
-        ui.check_box(&mut v.new_feminine, "With a feminine table")
-            .on_hover_text("For languages whose text differs for female characters");
-    });
-    let problem = if new.is_empty() {
-        Some(format!("Name it: {}.", mg_core::NewName::RULE))
-    } else if let Err(e) = &valid {
-        Some(format!("Not a name: {e}."))
-    } else if made_in.is_none() {
-        Some("The project's rules discard talk tables: nowhere to make one.".to_string())
-    } else if made_in.as_ref().is_some_and(|f| f.exists()) {
-        let f = made_shown.as_deref().unwrap_or_default();
-        Some(format!("{f} is there already: choose it in Module Properties."))
-    } else {
-        None
-    };
-    if let Some(p) = &problem {
-        ui.weak(p);
-    } else if let Some(f) = &made_shown {
-        match in_project {
-            true => ui.weak(format!("Made in the project as {f}, with a target of its own")),
-            false => ui.weak(format!("Made in {}", dir.display())),
-        };
-    }
-    if ui.add_enabled(problem.is_none(), egui::Button::new("Create")).clicked() {
-        let language = app.game.as_deref().map_or(mg_core::Language::ENGLISH, |g| g.language);
-        let feminine = v.new_feminine;
-        let made = match in_project {
-            true => in_project_table(app, &new, language, feminine),
-            false => {
-                let mut t = Table::create(&new, &dir, language, feminine);
-                t.save().map(|()| t)
-            }
-        };
-        match made {
-            Ok(t) => {
-                app.log.info(format!("Made talk table {}", t.source));
-                app.talk = Some(t);
-                app.talk_view = TalkView::default();
-                if name.as_deref() != Some(new.as_str()) {
-                    app.actions.push(Action::Apply(mg_edit::Command::new(
-                        "Set the talk table",
-                        vec![mg_edit::Edit::SetField {
-                            key: crate::module_props::info_key(),
-                            path: mg_edit::GffPath::root(),
-                            label: ifo::MOD_CUSTOM_TLK.label.to_string(),
-                            value: Some(ExoString(encode(&new)).into_value()),
-                        }],
-                    )));
-                } else {
-                    app.reload_custom_tlk();
-                }
-            }
-            Err(e) => app.log.error(format!("Talk table: {e}")),
-        }
-    }
-}
-
 /// Makes the talk table `name` in the module's nasher project
 /// ([`mg_module::nasher::Project::add_talk_table`]: its file, a target of
 /// its own) and opens it from there.
-fn in_project_table(
+pub(crate) fn in_project_table(
     app: &mut Moonglow,
     name: &str,
     language: mg_core::Language,
@@ -760,7 +1768,7 @@ fn in_project_table(
 
 /// A line as its fields show it: with plain line ends
 /// ([`crate::text::to_editor`]).
-fn shown_line(line: &Line) -> Line {
+pub(crate) fn shown_line(line: &Line) -> Line {
     let plain = |s: &str| crate::text::to_editor(s).0;
     Line { text: plain(&line.text), feminine: line.feminine.as_deref().map(plain), ..line.clone() }
 }
@@ -768,532 +1776,11 @@ fn shown_line(line: &Line) -> Line {
 /// A line as typed in its fields, to set where the table has `stored`:
 /// with the line ends of the stored text, those of its lines kept, plain
 /// for a text that had none (the game's own talk table has no CRLF).
-fn stored_line(typed: &Line, stored: &Line) -> Line {
+pub(crate) fn stored_line(typed: &Line, stored: &Line) -> Line {
     let ends = |typed: &str, stored: &str| crate::text::with_line_ends_or(typed, stored, false);
     let feminine = (typed.feminine.as_deref())
         .map(|f| ends(f, stored.feminine.as_deref().unwrap_or_default()));
     Line { text: ends(&typed.text, &stored.text), feminine, ..typed.clone() }
-}
-
-fn table(app: &mut Moonglow, ui: &mut Ui) {
-    let Moonglow { talk, talk_view: v, actions, ws, settings, .. } = app;
-    let t = talk.as_mut().expect("open");
-    let editable = t.editable();
-    let mut leave = false;
-    let mut language = None;
-    ui.horizontal(|ui| {
-        ui.strong(format!("{}.tlk", t.name));
-        let lang = t.tlk.language.name().unwrap_or("?");
-        let fem = if t.feminine.is_some() { ", with a feminine table" } else { "" };
-        // The nasher project's other languages of it, a file each.
-        if !v.languages.is_empty() {
-            let open = t.source.file().map(std::path::Path::to_path_buf).unwrap_or_default();
-            let mut chosen = open.clone();
-            let paths: Vec<std::path::PathBuf> =
-                v.languages.iter().map(|(_, p)| p.clone()).collect();
-            let named = |p: &std::path::PathBuf| {
-                let l = v.languages.iter().find(|(_, q)| q == p).map(|(l, _)| *l);
-                l.and_then(mg_core::Language::name).unwrap_or("?").to_string()
-            };
-            ui.add_enabled_ui(!t.is_dirty(), |ui| {
-                crate::widgets::dropdown("talk-language")
-                    .selected_text(named(&open))
-                    .show(ui, &mut chosen, &paths, named)
-                    .on_hover_text(
-                        "The project keeps this table in several languages. Save or undo changes \
-                         to switch.",
-                    );
-            });
-            language = (chosen != open).then_some(chosen);
-        }
-        if t.is_dirty() {
-            ui.weak("(unsaved)");
-        }
-        if v.outside
-            && ws.is_some()
-            && ui
-                .add_enabled(!t.is_dirty(), egui::Button::new("Module's Table"))
-                .on_hover_text("Back to the talk table the module names")
-                .clicked()
-        {
-            leave = true;
-        }
-        // (Where it is, cut short where the tab is narrow: the whole of
-        // it under the pointer.)
-        let about = format!("{} lines, {lang}{fem}; {}", t.len(), t.source);
-        ui.add(egui::Label::new(egui::RichText::new(&about).weak()).truncate())
-            .on_hover_text(about);
-    });
-    if leave {
-        *talk = None;
-        *v = TalkView::default();
-        return;
-    }
-    if let Some(path) = language {
-        open_language(app, &path);
-        return;
-    }
-    if !editable {
-        let source = t.feminine.iter().map(|(s, _)| s).find(|s| !s.writable());
-        let source = source.filter(|_| t.source.writable()).unwrap_or(&t.source);
-        ui.colored_label(
-            ui.visuals().warn_fg_color,
-            format!(
-                "This table is in {source}: change it where that is built (Moonglow edits \
-                 tables in the user folder's tlk and in the module)."
-            ),
-        );
-    }
-    let mut changed = false;
-    // (Wrapped in a narrow window, as the rows under it are: a row past
-    // the window's edge would widen theirs.)
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Find");
-        ui.add(
-            mg_uikit::text_field(&mut v.filter).desired_width(180.0).hint_text("words or a StrRef"),
-        );
-
-        ui.add_enabled_ui(editable, |ui| {
-            if ui.button("Add Line").clicked() {
-                let empty = Line {
-                    text: String::new(),
-                    feminine: t.feminine.as_ref().map(|_| String::new()),
-                    sound: String::new(),
-                    sound_length: 0.0,
-                };
-                if let Ok(row) = t.add_line(&empty) {
-                    v.selected = Some(row);
-                    v.filter.clear();
-                    // (An empty line: it would not be listed.)
-                    v.only_text = false;
-                    v.reveal = true;
-                    changed = true;
-                }
-            }
-            if ui
-                .add_enabled(!t.is_empty(), egui::Button::new("Remove Last Line"))
-                .on_hover_text("Only the last: removing another would renumber those after it")
-                .clicked()
-            {
-                t.remove_last();
-                changed = true;
-            }
-            // The table's own (the toolbar's Undo is the module's).
-            let hint = "In the talk table (Ctrl+Z, with the pointer over it)";
-            if ui.add_enabled(t.can_undo(), egui::Button::new("Undo")).on_hover_text(hint).clicked()
-            {
-                t.undo();
-                changed = true;
-            }
-            if ui.add_enabled(t.can_redo(), egui::Button::new("Redo")).on_hover_text(hint).clicked()
-            {
-                t.redo();
-                changed = true;
-            }
-            if ui.add_enabled(t.is_dirty(), egui::Button::new("Save")).clicked() {
-                // Saved through the app, which reloads the game's copy.
-                actions.push(Action::SaveTalkTable);
-            }
-        });
-    });
-    // Go to a line; to and from a spreadsheet or a repository; and what
-    // the list shows.
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Go to");
-        let field = ui
-            .add(
-                mg_uikit::text_field(&mut v.go_to).desired_width(110.0).hint_text("StrRef or line"),
-            )
-            .on_hover_text(
-                "A StrRef (16777216 and up) or a line's number, then Enter, to go to it",
-            );
-        if field.changed() {
-            v.go_to_problem = None;
-        }
-        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let typed = v.go_to.trim();
-            let row = typed
-                .parse::<u32>()
-                .ok()
-                .map(|n| n.checked_sub(talk::CUSTOM).unwrap_or(n) as usize);
-            match row {
-                Some(row) if row < t.len() => {
-                    v.selected = Some(row);
-                    // (Among all the lines: one found alone is nowhere
-                    // to go to.)
-                    v.filter.clear();
-                    v.reveal = true;
-                    v.go_to_problem = None;
-                }
-                Some(_) if t.is_empty() => {
-                    v.go_to_problem = Some("The table has no lines yet.".into());
-                }
-                Some(_) => {
-                    let last = Table::strref(t.len() - 1).0;
-                    v.go_to_problem = Some(format!(
-                        "The table has {} lines: StrRefs {} to {last}.",
-                        t.len(),
-                        talk::CUSTOM
-                    ));
-                }
-                None if typed.is_empty() => v.go_to_problem = None,
-                None => v.go_to_problem = Some("A StrRef or a line's number.".into()),
-            }
-        }
-        if let Some(problem) = &v.go_to_problem {
-            ui.colored_label(ui.visuals().warn_fg_color, problem);
-        }
-        // Where the module names the selected line.
-        let line = v.selected.filter(|_| ws.is_some());
-        if ui
-            .add_enabled(line.is_some(), egui::Button::new("Find References"))
-            .on_hover_text(
-                "Where the module's blueprints, areas, conversations and 2DAs name the \
-                 selected line",
-            )
-            .clicked()
-            && let Some(row) = line
-        {
-            actions.push(Action::FindStrRef(Table::strref(row).0));
-        }
-        if ui
-            .check_box(&mut v.only_text, "Only lines with text")
-            .on_hover_text("Leave empty lines out of the list (reserved ranges)")
-            .changed()
-        {
-            v.reveal = true;
-        }
-        let import = ui.add_enabled(editable, egui::Button::new("Import CSV…")).on_hover_text(
-            "Read lines from a CSV, as Export CSV writes it. Rows past the end add lines.",
-        );
-        if import.clicked() {
-            actions.push(Action::TalkCsv(true));
-        }
-        if ui
-            .button("Export CSV…")
-            .on_hover_text("The lines as a CSV file, for a spreadsheet or a translator")
-            .clicked()
-        {
-            actions.push(Action::TalkCsv(false));
-        }
-        let import = ui
-            .add_enabled(editable, egui::Button::new("Import JSON…"))
-            .on_hover_text("Read lines from nwn_tlk's JSON, as a nasher repository keeps it");
-        if import.clicked() {
-            actions.push(Action::TalkJson(true));
-        }
-        if ui
-            .button("Export JSON…")
-            .on_hover_text("The lines with text as JSON, as nwn_tlk writes a talk table")
-            .clicked()
-        {
-            actions.push(Action::TalkJson(false));
-        }
-        files(actions, ui);
-    });
-    if changed {
-        v.changed();
-    }
-    // The rows shown: all, or those found; with Only Lines with Text,
-    // those of them that have text or a sound.
-    let query = v.filter.trim().to_string();
-    if v.only_text && v.texted.as_ref().is_none_or(|(r, _)| *r != v.revision) {
-        v.texted = Some((v.revision, (0..t.len()).filter(|row| has_text(t, *row)).collect()));
-    }
-    // (Kept while the table, what is looked for and the choices are what
-    // they were made by: every line's number was listed anew each frame,
-    // a million for a table that reaches into a range up there.)
-    let mark = (v.revision, t.len(), query.clone(), v.only_text.then_some(v.selected));
-    let kept = v.shown.as_ref().filter(|(of, _)| *of == mark).map(|(_, rows)| rows.clone());
-    let rows: std::sync::Arc<Vec<usize>> = kept.unwrap_or_else(|| {
-        let rows: Vec<usize> = if query.is_empty() {
-            (0..t.len()).collect()
-        } else {
-            let fresh = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
-            if !fresh {
-                v.found = Some((query.clone(), v.revision, t.find(&query)));
-            }
-            v.found.as_ref().map(|f| f.2.clone()).unwrap_or_default()
-        };
-        let rows: Vec<usize> = match v.texted.as_ref().filter(|_| v.only_text) {
-            // (The selected line stays listed while it is being written.)
-            Some((_, texted)) => rows
-                .into_iter()
-                .filter(|r| texted.binary_search(r).is_ok() || v.selected == Some(*r))
-                .collect(),
-            None => rows,
-        };
-        let rows = std::sync::Arc::new(rows);
-        v.shown = Some((mark, rows.clone()));
-        rows
-    });
-    v.selected = v.selected.filter(|&s| s < t.len());
-    let (row_height, pitch) = mg_uikit::row_metrics(ui); // (rows of controls, none between)
-    let feminine = t.feminine.is_some();
-    // The list and the chosen line's editor share the tab's height, and
-    // the editor's text boxes what is left of its part: a long text
-    // scrolls in its box, and the sound's row stays in sight under it.
-    let boxes = if feminine { 2.0 } else { 1.0 };
-    let (text, gap) = (ui.text_style_height(&egui::TextStyle::Body), ui.spacing().item_spacing.y);
-    let field = ui.spacing().interact_size.y + gap;
-    // (The separator, the StrRef's row, a label for each box, the sound's
-    // row and a line for what is wrong.)
-    let fixed = 2.0 * gap + 6.0 + 2.0 * field + (boxes + 1.0) * (text + gap);
-    let least = 3.0 * text + 8.0;
-    let available = ui.available_height();
-    // The split between them is dragged (its share of the tab is kept,
-    // each table's in Moonglow's settings); at first, with two boxes, a
-    // little more than half; with one, a little less. The boxes keep
-    // three lines, and the editor at most seven tenths of the tab: the
-    // list keeps its room, as the conversation editor's lines do.
-    let split_key = format!("{}{}", t.name.to_lowercase(), if feminine { "+f" } else { "" });
-    let share = (settings.talk_splits.iter().find(|(k, _)| *k == split_key))
-        .map(|(_, s)| f32::from(*s) / 1000.0);
-    let share = share.unwrap_or(if feminine { 0.55 } else { 0.45 });
-    let (fewest, most) = split_limits(available, fixed + boxes * (least + gap));
-    let editor = (available * share).clamp(fewest, most);
-    let list_height = (available - editor).max(120.0);
-    let box_height = ((available - list_height - fixed) / boxes - gap).max(least);
-    // (Sideways too, its rows wider than a narrow window: the window fits
-    // its pane, `TabViewer::scroll_bars`.)
-    let mut list = egui::ScrollArea::both()
-        .id_salt("talk-rows")
-        .max_height(list_height)
-        .auto_shrink([false, true]);
-    // The keys are the list's from a click on a line (GitHub issues 12
-    // and 24): Up and Down (Page Up and Down, Home and End) choose a
-    // line, Enter goes to its text.
-    use crate::palette_view::{Keys, give_keys, keys_are};
-    let seen_id = egui::Id::new("talk-rows-seen");
-    let mut to_text = false;
-    if keys_are(ui.ctx(), Keys::Talk) && !ui.ctx().egui_wants_keyboard_input() && !rows.is_empty() {
-        use egui::Key;
-        let at = v.selected.and_then(|s| rows.iter().position(|r| *r == s));
-        let last = rows.len() as isize - 1;
-        let steps = [
-            (Key::ArrowDown, 1),
-            (Key::ArrowUp, -1),
-            (Key::PageDown, 10),
-            (Key::PageUp, -10),
-            (Key::End, isize::MAX / 2),
-            (Key::Home, isize::MIN / 2),
-        ];
-        let pressed = ui.input_mut(|i| {
-            steps.into_iter().find(|(k, _)| i.consume_key(egui::Modifiers::NONE, *k))
-        });
-        if let Some((_, by)) = pressed {
-            let to = at.map_or(0, |at| (at as isize).saturating_add(by).clamp(0, last)) as usize;
-            v.selected = Some(rows[to]);
-            // (Into view, if it is not among the lines drawn.)
-            let seen: Option<(usize, usize)> = ui.data(|d| d.get_temp(seen_id));
-            v.reveal = seen.is_none_or(|(from, end)| to <= from || to + 2 >= end);
-        }
-        to_text = v.selected.is_some()
-            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
-            give_keys(ui.ctx(), Keys::Area);
-        }
-    }
-    // The list changed under the selected line: it comes back into view.
-    if std::mem::take(&mut v.reveal)
-        && let Some(at) = v.selected.and_then(|s| rows.iter().position(|r| *r == s))
-    {
-        list = list.vertical_scroll_offset((at as f32 * pitch - list_height / 2.0).max(0.0));
-    }
-    let shown = mg_uikit::show_rows(list, ui, rows.len(), |ui, range| {
-        ui.data_mut(|d| d.insert_temp(seen_id, (range.start, range.end)));
-        for &row in &rows[range] {
-            let line = t.line(row);
-            // The whole row chooses its line (not its number alone), and
-            // shows the pointer over it; twice, to go to its text.
-            let behind = ui.painter().add(egui::Shape::Noop);
-            let selected = v.selected == Some(row);
-            let drawn = ui.horizontal(|ui| {
-                let strref = Table::strref(row).0.to_string();
-                let number = egui::RichText::new(strref).monospace();
-                let number = match selected {
-                    true => number.color(ui.visuals().selection.stroke.color),
-                    false => number,
-                };
-                ui.allocate_ui_with_layout(
-                    egui::vec2(90.0, row_height),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.set_min_width(90.0);
-                        ui.add(egui::Label::new(number).selectable(false));
-                    },
-                );
-                let w = if feminine { 300.0 } else { 600.0 };
-                // The first line of a text, left-aligned in its column.
-                let text = |ui: &mut Ui, s: &str| {
-                    let first = s.lines().next().unwrap_or_default();
-                    let layout = egui::Layout::left_to_right(egui::Align::Center);
-                    ui.allocate_ui_with_layout(egui::vec2(w, row_height), layout, |ui| {
-                        ui.set_min_width(w);
-                        ui.add(egui::Label::new(first).truncate().selectable(false));
-                    });
-                };
-                text(ui, &line.text);
-                if let Some(f) = &line.feminine {
-                    text(ui, f);
-                }
-                if !line.sound.is_empty() {
-                    ui.add(
-                        egui::Label::new(egui::RichText::new(&line.sound).weak()).selectable(false),
-                    );
-                }
-            });
-            let mut rect = drawn.response.rect;
-            rect.max.x = rect.max.x.max(ui.max_rect().right());
-            let r = ui
-                .interact(rect, ui.id().with(("talk-row", row)), egui::Sense::click())
-                .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if r.clicked() || r.double_clicked() {
-                v.selected = Some(row);
-                give_keys(ui.ctx(), Keys::Talk);
-                to_text |= r.double_clicked();
-            }
-            let fill = match (selected, r.hovered()) {
-                (true, _) => Some(ui.visuals().selection.bg_fill),
-                (false, true) => Some(ui.visuals().widgets.hovered.weak_bg_fill),
-                _ => None,
-            };
-            if let Some(fill) = fill {
-                ui.painter().set(
-                    behind,
-                    egui::Shape::rect_filled(rect.expand2([2.0, 1.0].into()), 2.0, fill),
-                );
-            }
-        }
-    });
-    crate::palette_view::keys_outline(ui, shown.inner_rect, Keys::Talk);
-    if rows.is_empty() && !query.is_empty() {
-        ui.weak("No line has that.");
-    }
-    if let Some(to) = split(ui, editor) {
-        let to = to.clamp(fewest, most) / available.max(1.0);
-        let to = (to * 1000.0).round().clamp(0.0, 1000.0) as u16;
-        settings.talk_splits.retain(|(k, _)| *k != split_key);
-        settings.talk_splits.insert(0, (split_key, to));
-        settings.talk_splits.truncate(50);
-    }
-    let Some(row) = v.selected else {
-        ui.weak("Choose a line to edit it.");
-        return;
-    };
-    let current = t.line(row);
-    if v.edit.as_ref().is_none_or(|(r, _, applied)| *r != row || *applied != current) {
-        v.edit = Some((row, shown_line(&current), current));
-        v.error = None;
-    }
-    let (_, line, applied) = v.edit.as_mut().expect("set");
-    let strref = Table::strref(row).0;
-    ui.horizontal(|ui| {
-        ui.strong(format!("StrRef {strref}"));
-        ui.weak(format!("line {row}"));
-        if ui.small_button("Copy").on_hover_text("Copy the StrRef").clicked() {
-            ui.ctx().copy_text(strref.to_string());
-        }
-    });
-    let before = line.clone();
-    // Typing in a field: 0 the text, 1 the feminine text.
-    let mut typing = None;
-    // A text box of the height it has here: a longer text scrolls in it.
-    let text_box = |ui: &mut Ui, salt: &str, text: &mut String, hint: &str| {
-        // (Each line's box scrolled as it was left, not as another's.)
-        let area = egui::ScrollArea::vertical()
-            .id_salt((salt, row))
-            .max_height(box_height)
-            .auto_shrink(false);
-        area.show(ui, |ui| {
-            let edit = egui::TextEdit::multiline(text)
-                .desired_rows(3)
-                .desired_width(f32::INFINITY)
-                .min_size(egui::vec2(0.0, box_height))
-                .hint_text(hint);
-            crate::widgets::text_area(ui, egui::Id::new(salt), edit).response.changed()
-        })
-        .inner
-    };
-    // (Enter in the list, or a line clicked twice: to its text.)
-    if to_text && editable {
-        ui.memory_mut(|m| m.request_focus(egui::Id::new("talk-text")));
-    }
-    ui.add_enabled_ui(editable, |ui| {
-        ui.label(if feminine { "Text (masculine)" } else { "Text" });
-        if text_box(ui, "talk-text", &mut line.text, "the line's text") {
-            typing = Some(0);
-        }
-        if let Some(f) = &mut line.feminine {
-            ui.label("Feminine");
-            if text_box(ui, "talk-feminine", f, "the feminine text") {
-                typing = Some(1);
-            }
-        }
-        ui.horizontal(|ui| {
-            ui.label("Sound");
-            let mut sound = crate::widgets::ResRefText(&mut line.sound);
-            ui.add(crate::widgets::resref_edit(&mut sound).desired_width(140.0));
-            ui.label("Length (s)");
-            ui.add(egui::DragValue::new(&mut line.sound_length).speed(0.05).range(0.0..=600.0));
-        });
-    });
-    if *line != before {
-        match t.set_line(row, &stored_line(line, applied), typing) {
-            Ok(()) => {
-                *applied = t.line(row);
-                v.error = None;
-                v.line_changed(t, row);
-            }
-            Err(e) => v.error = Some(e),
-        }
-    }
-    if let Some(e) = &v.error {
-        ui.colored_label(ui.visuals().error_fg_color, e);
-    }
-}
-
-/// The least and the most the line's editor under the list takes of the
-/// tab's `available` height: what it needs (`fewest`), and at most seven
-/// tenths of the tab.
-fn split_limits(available: f32, fewest: f32) -> (f32, f32) {
-    (fewest, (available * 0.7).max(fewest))
-}
-
-/// The line between the list and the line's editor, which is dragged up
-/// and down (drawn as a separator is, lit while the pointer is on it):
-/// the editor's height dragged to, from its `editor` height now.
-fn split(ui: &mut Ui, editor: f32) -> Option<f32> {
-    // (As tall as a separator, which it was.)
-    let size = egui::vec2(ui.available_width(), 6.0);
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    // (A little taller than the line, to be found by the pointer.)
-    let grip = rect.expand2(egui::vec2(0.0, 3.0));
-    let r = ui.interact(grip, egui::Id::new("talk-split-grip"), egui::Sense::drag());
-    if r.hovered() || r.dragged() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-    }
-    let visuals = ui.visuals();
-    let stroke = if r.dragged() {
-        visuals.widgets.active.fg_stroke
-    } else if r.hovered() {
-        visuals.widgets.hovered.fg_stroke
-    } else {
-        visuals.widgets.noninteractive.bg_stroke
-    };
-    ui.painter().hline(rect.x_range(), rect.center().y, stroke);
-    // (Where the pointer is against where it was pressed, from the height
-    // the editor had then: a drag's first steps, before egui calls it a
-    // drag, count too.)
-    if r.drag_started() {
-        ui.data_mut(|d| d.insert_temp(r.id, editor));
-    }
-    if !r.dragged() {
-        return None;
-    }
-    let from: f32 = ui.data(|d| d.get_temp(r.id))?;
-    let (origin, at) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
-    Some(from - (at?.y - origin?.y))
 }
 
 #[cfg(test)]

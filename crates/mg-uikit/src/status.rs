@@ -736,6 +736,7 @@ pub struct StatusItem {
     modified: bool,
     max_width: Option<f32>,
     tooltip: Option<String>,
+    warn: bool,
 }
 
 impl StatusItem {
@@ -748,7 +749,14 @@ impl StatusItem {
             modified: false,
             max_width: None,
             tooltip: None,
+            warn: false,
         }
+    }
+
+    /// In the theme's `warn` (the NUI board's `.sb-item.nb`, "Not built").
+    pub fn warn(mut self) -> Self {
+        self.warn = true;
+        self
     }
 
     /// Weak: 11 px `text-3` (`.sb-item.weak`).
@@ -832,7 +840,11 @@ impl StatusItem {
 impl egui::Widget for StatusItem {
     fn ui(self, ui: &mut Ui) -> Response {
         let t = ui.tokens();
-        let color = if self.weak { t.text_3 } else { t.text_2 };
+        let color = match (self.warn, self.weak) {
+            (true, _) => t.warn,
+            (_, true) => t.text_3,
+            _ => t.text_2,
+        };
         let (galley, kept) = self.galleys(ui, color);
         let height = galley.size().y.max(kept.size().y).max(marks::MARK_HEIGHT);
         let size = vec2(self.width(ui), height);

@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-12T18:12:53Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
 ---
 
 # Plugins
@@ -47,7 +47,7 @@ A plugin's code runs in a sandbox. It can:
   it asks the first time it writes into each folder. Files of the same
   names there are replaced, and no copy of them is kept. It writes into
   that folder only, never into a folder inside it or above it;
-- act by itself, if it says so (the Plugins window lists what each
+- act by itself, if it says so (the Plugins tab lists what each
   plugin does by itself): when a module is opened or saved; before a
   save, to warn of what it would write or stop it; and when you place
   or paste objects, or a wizard makes something
@@ -56,7 +56,7 @@ A plugin's code runs in a sandbox. It can:
   asks for a folder or for leave to write, it asks once, not at every
   save: what you allowed is kept between runs, for the plugin's code as
   it was (its files edited by hand, even under the same version, ask
-  again), the Plugins window says how much, and **Forget** there makes
+  again), the Plugins tab says how much, and **Forget** there makes
   it ask again. Disabling, removing or installing the plugin anew
   forgets it too. (What an earlier Moonglow kept by the plugin's
   version is kept for its code as it is at its first event in 4.0.0,
@@ -111,10 +111,20 @@ in it) into the plugins folder and press **Reload**.
 **Open Folder** opens it (and makes it, the first time), and **Reload**
 reads it again after you copy a plugin in or change one.
 
+Manage Plugins opens the **Plugins** tab, a document tab like the
+Appearance Gallery's: docked, split beside another, or in a window of its
+own when **Options › Open editors** is As Floating Windows. **Ctrl+W**
+closes it. It works with no module open, and is kept with the open tabs.
+The whole page scrolls (the list of plugins is not a small box of its
+own). **Install from File…** opens it too. What asks a question of you
+stays a dialog: **Remove…**, **Replace**, **Settings…**, the question a
+project's plugins bring, and a plugin's own questions. A plugin's panel is
+not the tab: it is as it was.
+
 ## Enabling
 
 Every plugin is **off until you enable it**: installing one runs none of
-its code. Manage Plugins lists each plugin with its version, what it says
+its code. The Plugins tab lists each plugin with its version, what it says
 it does, who wrote it, its license, and the commands and checks it adds.
 Tick its box to enable it; Moonglow remembers.
 

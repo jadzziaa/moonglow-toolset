@@ -104,6 +104,9 @@ enum Pointer {
     /// Rests at the point with the key pressed every so many frames, as a
     /// key held down repeats (E turning the selection, in an area's view).
     Keys(egui::Pos2, egui::Key, usize),
+    /// Rests at the point with the wheel turning down by so many points a
+    /// frame (a form's pages on one scroll, top to bottom).
+    Down(egui::Pos2, f32),
 }
 
 struct Report {
@@ -264,6 +267,15 @@ fn frames(
                         modifiers: egui::Modifiers::NONE,
                     });
                 }
+            }
+            Pointer::Down(at, by) => {
+                input.events.push(egui::Event::PointerMoved(at));
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -by),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
             }
             Pointer::Drags(from, to) => {
                 let at = from.lerp(to, n as f32 / (count - 1).max(1) as f32);
@@ -457,6 +469,61 @@ fn view_in(
     said_memory(h, what);
 }
 
+/// An area's camera once the zoom of the views before has stopped (the
+/// wheel's zoom goes on a while after its frames).
+fn resting_camera(h: &mut App<'_>, area: ResRef) -> Option<mg_ui::area_view::Orbit> {
+    let orbit = |h: &App<'_>| h.state().area_views.get(&area).and_then(|v| v.orbit);
+    for _ in 0..1000 {
+        let was = orbit(h);
+        h.run_steps(1);
+        if orbit(h) == was {
+            break;
+        }
+    }
+    orbit(h)
+}
+
+/// Gives an area's camera back as [`resting_camera`] had it (`rest`): the
+/// views after a view added among others are then timed from where they
+/// were before it.
+fn rest_camera(h: &mut App<'_>, area: ResRef, rest: Option<mg_ui::area_view::Orbit>) {
+    resting_camera(h, area);
+    if let (Some(rest), Some(v)) = (rest, h.state_mut().area_views.get_mut(&area)) {
+        v.orbit = Some(rest);
+    }
+    h.run_steps(2);
+    let now = h.state().area_views.get(&area).and_then(|v| v.orbit);
+    assert_eq!(now, rest, "the camera given back");
+}
+
+/// Under 1400 an editor's Right Dock sections fold into one tab bar:
+/// asserts the tabs named in order along the dock's top and `front`, a
+/// label of the front panel's own, drawn in the dock under them.
+fn tabs_folded(h: &App<'_>, tabs: &[&str], front: &str) {
+    let dock = h.state().right_dock_rect().expect("no Right Dock");
+    let drawn: Vec<(String, egui::Rect)> = h
+        .query_all_by(|n| n.label().is_some() && n.bounding_box().is_some())
+        .filter(|n| dock.contains_rect(n.rect()))
+        .map(|n| (n.accesskit_node().label().unwrap_or_default().to_string(), n.rect()))
+        .collect();
+    let at = |name: &str| drawn.iter().find(|(l, _)| l == name).map(|(_, r)| *r);
+    let mut was: Option<egui::Rect> = None;
+    for name in tabs {
+        let r = at(name).unwrap_or_else(|| panic!("no {name} tab in the folded Right Dock"));
+        assert!(r.top() < dock.top() + 40.0, "{name} not in the dock's tab bar: {r:?}");
+        if let Some(was) = was {
+            assert!(r.left() > was.right() - 1.0, "{name} not after the tab before");
+            assert!((r.center().y - was.center().y).abs() < 2.0, "{name} not on one row");
+        }
+        was = Some(r);
+    }
+    let bar = was.map_or(dock.top(), |r| r.bottom());
+    assert!(
+        drawn.iter().any(|(l, r)| l.contains(front) && r.top() >= bar),
+        "{front:?} not drawn in the front panel"
+    );
+}
+
 /// A line for a view's frames, timed one way (`how`).
 fn said(r: &mut Report, what: &str, how: &str, f: &Frames) {
     let cpu: Vec<Duration> = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).collect();
@@ -540,11 +607,11 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
         let v = &h.state().area_views[&area];
         let step = v.screen_pos(at + glam::Vec3::new(4.0, 3.0, 0.0)).zip(v.screen_pos(at));
         if let (Some(from), Some((ahead, foot))) = (v.move_grip(i), step) {
-            grip = Some((from, from + (ahead - foot)));
+            grip = Some((from, from + (ahead - foot), at));
             break;
         }
     }
-    let Some((from, to)) = grip else {
+    let Some((from, to, pivot)) = grip else {
         println!("  {what}: none to hold away from its handles");
         return;
     };
@@ -603,6 +670,40 @@ fn drag_selection(h: &mut App<'_>, r: &mut Report, what: &str, area: ResRef) {
         h.state_mut().actions.push(Action::Undo);
         h.run_steps(1);
     }
+    // The turning ring led round, the Turn snap at 15 degrees (M4's U8:
+    // the wedge, the snap's ticks, the readout chip), and with Shift the
+    // east arrow led 3 m along (the guide line across the view, the
+    // chip): each taken back.
+    let handles = h.state().area_views.get(&area).and_then(|v| {
+        let r = v.handle_radius_at(pivot)?;
+        let ring = |a: f32| v.screen_pos(pivot + glam::Vec3::new(a.cos(), a.sin(), 0.0) * r);
+        let head = pivot + glam::Vec3::X * r * 1.45;
+        Some((
+            (ring(0.3)?, ring(1.5)?),
+            (v.screen_pos(head)?, v.screen_pos(head + glam::Vec3::X * 3.0)?),
+        ))
+    });
+    if let Some(((ring_from, ring_to), (arrow_from, arrow_to))) = handles {
+        let snap = h.state().settings.snap_angle;
+        h.state_mut().settings.snap_angle = Some(15);
+        h.run_steps(2);
+        let f = frames(h, rect, Pointer::Drags(ring_from, ring_to), r.count, |_, _| {});
+        said(r, &what, "its turning ring dragged", &f);
+        h.state_mut().settings.snap_angle = snap;
+        h.run_steps(2);
+        assert_eq!(undo(h).as_deref(), Some("Rotate"), "{what}: the ring turned it");
+        h.state_mut().actions.push(Action::Undo);
+        h.run_steps(2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+        h.run_steps(1);
+        let f = frames(h, rect, Pointer::Drags(arrow_from, arrow_to), r.count, |_, _| {});
+        said(r, &what, "its east arrow dragged", &f);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(2);
+        assert_eq!(undo(h).as_deref(), Some("Move"), "{what}: the arrow moved it");
+        h.state_mut().actions.push(Action::Undo);
+        h.run_steps(2);
+    }
     // (The selection let go.)
     if let Some(v) = h.state_mut().area_views.get_mut(&area) {
         v.selection.clear();
@@ -621,6 +722,24 @@ fn click(h: &mut App<'_>, label: &str) {
     let found = h.query_all_by_label(label).next().map(|node| node.click()).is_some();
     assert!(found, "no {label:?} to click: was the control renamed?");
     h.run_steps(2);
+}
+
+/// The row `row` of the Top Bar's menu `menu`, clicked (M4's U28: Find
+/// Instance and Build Module as a builder opens them).
+fn menu(h: &mut App<'_>, menu: &str, row: &str) {
+    h.get_by_label("Top Bar").get_by_label(menu).click();
+    h.run_steps(2);
+    let keyed = format!("{row} ");
+    let at = h
+        .query_all_by(|n| n.label().is_some_and(|l| l == row || l.starts_with(&keyed)))
+        .next()
+        .unwrap_or_else(|| panic!("no {row:?} in {menu}: was the command renamed?"))
+        .rect();
+    let (pos, button, modifiers) = (at.center(), egui::PointerButton::Primary, Default::default());
+    h.hover_at(pos);
+    h.event(egui::Event::PointerButton { pos, button, pressed: true, modifiers });
+    h.event(egui::Event::PointerButton { pos, button, pressed: false, modifiers });
+    h.run_steps(3);
 }
 
 /// [`click`] on the first thing labelled `label` that is not in the group
@@ -718,12 +837,16 @@ fn palette_rect(h: &App<'_>) -> Option<egui::Rect> {
     // (Under its tab bar: the Palette tab's.)
     let tab =
         (h.query_all_by_label("Palette")).map(|n| n.rect()).find(|r| dock.contains(r.center()))?;
-    // (In the wide layout's two columns, M3's T14, its own: the first.)
-    let dock = match h.query_by_label(mg_ui::RIGHT_COLUMN_TWO) {
-        Some(_) => {
+    // (Its own section, M4's U6: in the wide layout's two columns the
+    // first, Properties beside it; stacked, over Properties, whose header
+    // ends with Open in Tab; else the dock.)
+    let open = h.query_by_label(mg_ui::properties_panel::OPEN_IN_TAB).map(|n| n.rect());
+    let dock = match open {
+        Some(open) if (open.center().y - tab.center().y).abs() < 4.0 => {
             let first = mg_uikit::shell::Yields::right_first_column(dock.width());
             dock.with_max_x(dock.left() + first)
         }
+        Some(open) => dock.with_max_y(open.top() - 2.0),
         None => dock,
     };
     // (120 points from its left: the wheel turns at its middle, 60 points
@@ -741,6 +864,40 @@ fn palette_view(h: &mut App<'_>, r: &mut Report, what: &str) {
     let rect = palette_rect(h);
     view_in(h, r, what, rect, |_, _| {});
     fold_palette(h);
+}
+
+/// A blueprint's pages on their one scroll (M4's U9), scrolled from the
+/// first to the last by the wheel over the pages: each frame draws the
+/// pages in sight, and those come into sight measured as they come.
+fn pages_scrolled(h: &mut App<'_>, r: &mut Report, what: &str, key: ResKey) {
+    let what = format!("{what}, its pages scrolled top to bottom");
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) || r.shots {
+        return;
+    }
+    let tab = Tab::Blueprint(key);
+    open(h, tab.clone());
+    let rect = rect_of(h.state(), &tab).expect("the blueprint's window");
+    let pages = mg_ui::blueprint::pages(key.restype);
+    let at = |h: &App<'_>| h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied();
+    // (Over the pages, in their left margin beside the list, the
+    // window's own margin before it: a list on a page takes the wheel
+    // over it.)
+    let over = egui::pos2(rect.left() + mg_uikit::pages::PAGE_LIST + 12.0, rect.center().y);
+    // (Enough frames to reach the last page, at 120 points a frame.)
+    let mut f = frames(h, rect, Pointer::Down(over, 120.0), 4, |_, _| {});
+    let mut more = 0;
+    while at(h) != pages.last().copied() && more < 40 {
+        let g = frames(h, rect, Pointer::Down(over, 120.0), r.count, |_, _| {});
+        f.ui.extend(g.ui);
+        f.tessellate.extend(g.tessellate);
+        f.gpu.extend(g.gpu);
+        f.vertices = f.vertices.max(g.vertices);
+        f.passes = f.passes.max(g.passes);
+        more += 1;
+    }
+    assert_eq!(at(h), pages.last().copied(), "{what}: the wheel reached the last page");
+    said(r, &what, "wheel", &f);
+    close(h, &tab);
 }
 
 fn tab(h: &mut App<'_>, r: &mut Report, what: &str, tab: Tab) {
@@ -989,6 +1146,114 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // Paint on with two placeables chosen and the palette shown (M4's
+    // U4: its settings in the header's left group and the Brush popover,
+    // the palette's Brush section; before it, the strip over the view):
+    // the brush's circle and its next dab follow the pointer.
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        app.palette.kind = BlueprintKind::Placeable;
+        app.palette.selected = ResKey::parse("plc_chest1", ResType::UTP);
+        app.palette.chosen = ResKey::parse("plc_tree", ResType::UTP).into_iter().collect();
+        app.paint = true;
+    }
+    show_palette(h);
+    view(h, r, &format!("{name}, Paint on, two placeables chosen"), Some(&tab));
+    {
+        let app = h.state_mut();
+        app.paint = false;
+        app.palette.selected = None;
+        app.palette.chosen.clear();
+    }
+    fold_palette(h);
+    // Select Tiles on with a box of tiles selected (six by six at most)
+    // and the tiles palette shown (M4's U5: Select Tiles' commands in the
+    // header's left group and Tile Properties the Right Dock's lower
+    // section, reading the tiles once and drawing their lights, height
+    // and textures; before it, the Select tool's group and no panel).
+    show_palette(h);
+    {
+        let app = h.state_mut();
+        app.palette.tiles = true;
+        if let Some(v) = app.area_views.get_mut(&area) {
+            let (w, d) = v.model.as_ref().map_or((0, 0), |m| (m.width, m.height));
+            v.selection.clear();
+            v.tile_mode = true;
+            v.tile_selection =
+                (0..d.min(6)).flat_map(|y| (0..w.min(6)).map(move |x| (x, y))).collect();
+        }
+    }
+    view(h, r, &format!("{name}, Select Tiles on, a box of tiles selected"), Some(&tab));
+    {
+        let app = h.state_mut();
+        app.palette.tiles = false;
+        if let Some(v) = app.area_views.get_mut(&area) {
+            v.tile_mode = false;
+            v.tile_selection.clear();
+        }
+    }
+    fold_palette(h);
+    // (The camera as the views above leave it, given back after the two
+    // Properties panel views: their wheel frames zoom it out, and the
+    // views after them would otherwise be timed from farther away, which
+    // made their wheel rows 18 percent dearer than before M4's U6 with no
+    // change of their own; U30's review.)
+    let rest = resting_camera(h, area);
+    // A creature selected, its Inventory page in the Properties panel
+    // under the palettes (M4's U6: the Properties window's page drawn in
+    // the Right Dock's lower section every frame; before it, the creature
+    // selected and no panel).
+    let creature = (h.state().area_views.get(&area).and_then(|v| v.model.as_ref()))
+        .and_then(|m| m.objects.iter().find(|o| o.kind == mg_area::ObjectKind::Creature))
+        .map(|o| (o.kind, o.index));
+    if let Some(creature) = creature.filter(|_| std::env::var_os("FRAME_NO_PANEL_VIEWS").is_none())
+    {
+        show_palette(h);
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection = vec![creature];
+        }
+        h.run_steps(3);
+        if let Some(page) = h.query_by_label("Pages").and_then(|p| p.query_by_label("Inventory")) {
+            page.click();
+        }
+        h.run_steps(3);
+        view(
+            h,
+            r,
+            &format!("{name}, a creature's Inventory page in the Properties panel"),
+            Some(&tab),
+        );
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection.clear();
+        }
+        fold_palette(h);
+    }
+    // Every placeable selected (edited together in the Properties panel,
+    // its Basic page, every frame; before M4's U6, selected and no panel).
+    let placeables: Vec<_> = (h.state().area_views.get(&area).and_then(|v| v.model.as_ref()))
+        .map(|m| m.objects.iter().filter(|o| o.kind == mg_area::ObjectKind::Placeable))
+        .map(|all| all.map(|o| (o.kind, o.index)).collect())
+        .unwrap_or_default();
+    if placeables.len() > 1 && std::env::var_os("FRAME_NO_PANEL_VIEWS").is_none() {
+        show_palette(h);
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection = placeables.clone();
+        }
+        h.run_steps(3);
+        if let Some(page) = h.query_by_label("Pages").and_then(|p| p.query_by_label("Basic")) {
+            page.click();
+        }
+        h.run_steps(3);
+        let what =
+            format!("{name}, {} placeables selected, the Properties panel", placeables.len());
+        view(h, r, &what, Some(&tab));
+        if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+            v.selection.clear();
+        }
+        fold_palette(h);
+    }
+    rest_camera(h, area, rest);
     // The Outliner (M3's T13) with a kind of 200 objects or more opened
     // (one of them selected: the Outliner opens its kind and brings it
     // into sight), against its kinds closed, the same one selected.
@@ -1022,13 +1287,15 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         (p.tiles, p.filter) = (false, String::new());
     }
     // The Right Dock in two columns (M3's T14: the wide layout gives it
-    // 741 at 3440, the Palette and the Preview side by side), a blueprint
-    // chosen so that the Preview draws its model beside the area each
-    // frame, against one column of 320 with the Palette in front: the
-    // largest area alone, in a window of the wide layout.
+    // 741 at 3440; since M4's U6 the Palette and the Preview as tabs of the
+    // first, Properties the second), a blueprint chosen and the Preview's
+    // tab in front so that it draws its model beside the area each frame,
+    // against one column of 320 with the Palette in front (over
+    // Properties): the largest area alone, in a window of the wide layout.
     if objects >= 500 && screen_size().x >= mg_uikit::shell::WIDE_FROM {
         let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
         h.state_mut().palette.selected = Some(chest);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
         let started = Instant::now();
         while h.state().preview_panel_rect().is_none() {
             assert!(started.elapsed().as_secs() < 30, "the Preview's column is not drawn");
@@ -1039,6 +1306,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         view(h, r, &both, Some(&tab));
         // The wide layout's own width (`right_dock_width_wide`).
         h.state_mut().settings.right_dock_width_wide = Some(320);
+        h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Palette));
         let started = Instant::now();
         while h.state().preview_panel_rect().is_some() {
             assert!(started.elapsed().as_secs() < 30, "the Right Dock still in two columns");
@@ -1068,6 +1336,41 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     if let Some(v) = h.state_mut().area_views.get_mut(&area) {
         v.selection.clear();
         v.walkmesh = false;
+    }
+    // 32 objects selected (as many as get handles of their own) and Shift
+    // held, seen close: each one's arrows, tilt rings and scale handle (M4's
+    // U7: each line over its edge, the rings in 96 pieces), lit under the
+    // pointer as it goes by. The camera on the object with the most others
+    // within 12 m, the 32 nearest it selected: their handles in sight (the
+    // view's own middle had few in some areas; U7's review).
+    if let Some(v) = h.state_mut().area_views.get_mut(&area)
+        && let (Some(m), Some(orbit)) = (v.model.as_ref(), v.orbit.as_mut())
+    {
+        let handled: Vec<_> = (m.objects.iter())
+            .filter(|o| o.kind != mg_area::ObjectKind::Sound && !o.locked)
+            .collect();
+        let crowd = |o: &mg_area::AreaObject| {
+            handled.iter().filter(|p| (p.position - o.position).length() < 12.0).count()
+        };
+        if let Some(middle) = handled.iter().max_by_key(|o| crowd(o)).map(|o| o.position) {
+            orbit.target = middle;
+        }
+        orbit.pitch = 0.7;
+        orbit.distance = 25.0;
+        let target = orbit.target;
+        let mut near: Vec<_> =
+            (handled.iter()).map(|o| ((o.position - target).length(), (o.kind, o.index))).collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v.selection = near.into_iter().take(32).map(|(_, key)| key).collect();
+    }
+    // (Held from here: the window keeps the modifiers its events gave.)
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(1);
+    view(h, r, &format!("{name}, 32 selected, Shift held"), Some(&tab));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+    if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+        v.selection.clear();
     }
     drag_selection(h, r, &format!("{name}, a selection dragged"), area);
     close(h, &tab);
@@ -1755,18 +2058,67 @@ fn frames_at_144() {
         view_in(&mut h, &mut r, &format!("standard placeable palette, {what}"), rect, |_, _| {});
         fold_palette(&mut h);
     }
+    // The large palette (M4's U25): the standard placeables' Gallery with
+    // every category open, no search, its pictures made, the wheel
+    // turned over it from the top on.
+    h.state_mut().settings.gallery_tile = Some(64);
+    palette(&mut h, BlueprintKind::Placeable, false, "");
+    show_palette(&mut h);
+    let dock = h.state().right_dock_rect().expect("the Right Dock");
+    let expand = h.query_all_by_label("Expand All").find(|n| dock.contains(n.rect().center()));
+    expand.expect("the palette's Expand All").click();
+    h.run_steps(300);
+    let rect = palette_rect(&h);
+    view_in(&mut h, &mut r, "standard placeable palette, Gallery, every category", rect, |_, _| {});
+    fold_palette(&mut h);
+    h.state_mut().settings.palette_open.clear();
+    h.state_mut().settings.palette_gallery = false;
+    h.state_mut().settings.gallery_tile = None;
+    // An armor's Appearance page (M4's U25): the game's nw_aarcl001
+    // viewed, its first part's pictures under its lists, made.
+    let armor = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
+    let gff = {
+        let game = h.state().game.as_deref().expect("the game's data");
+        mg_gff::Gff::read(&game.resman.get(&armor).expect("nw_aarcl001")).unwrap()
+    };
+    h.state_mut().ws.as_mut().expect("the module").view(armor, gff);
+    h.state_mut().blueprint_pages.insert((armor, mg_edit::GffPath::root()), "Appearance");
+    open(&mut h, Tab::Blueprint(armor));
+    h.run_steps(300);
+    assert!(
+        h.query_all_by_label_contains("Pictures of").next().is_some(),
+        "the armor's part pictures"
+    );
+    view(
+        &mut h,
+        &mut r,
+        "armor nw_aarcl001, Appearance page pictures",
+        Some(&Tab::Blueprint(armor)),
+    );
+    close(&mut h, &Tab::Blueprint(armor));
     h.state_mut().settings.palette_gallery = false;
     h.state_mut().settings.gallery_tile = None;
     h.state_mut().background_jobs = background;
     h.state_mut().palette.filter.clear();
 
     resources_panel(&mut h, &mut r, "resource browser");
-    tab(&mut h, &mut r, "Faction Editor", Tab::Factions);
-    tab(&mut h, &mut r, "Journal Editor", Tab::Journal);
+    factions(&mut h, &mut r);
+    journal(&mut h, &mut r);
     tab(&mut h, &mut r, "Placeable Gallery", Tab::PlaceableGallery);
     tab(&mut h, &mut r, "User Manual", Tab::Manual);
+    talk_table(&mut h, &mut r);
+    tileset(&mut h, &mut r);
+    hak(&mut h, &mut r);
     if let Some(k) = dialog {
-        tab(&mut h, &mut r, &format!("conversation {}", k.resref), Tab::Dialog(k));
+        // (With five bookmarks, listed in the Outliner beside it since M4's
+        // U15, its tree open with its indent guides.)
+        let t = Tab::Dialog(k);
+        open(&mut h, t.clone());
+        let marks = (0..5).map(|i| (mg_module::dialog::Kind::Entry, i)).collect();
+        h.state_mut().dialog_views.entry(k).or_default().bookmarks = marks;
+        h.run_steps(3);
+        view(&mut h, &mut r, &format!("conversation {}", k.resref), Some(&t));
+        close(&mut h, &t);
     }
     if let Some(k) = script {
         tab(&mut h, &mut r, &format!("script {}", k.resref), Tab::Script(k));
@@ -1776,6 +2128,19 @@ fn frames_at_144() {
     {
         if let Some(k) = k {
             tab(&mut h, &mut r, &format!("{what} {}", k.resref), Tab::Blueprint(k));
+            // (With its own Preview unfolded beside it, its model drawn
+            // again as it moves: M4's U11.)
+            if what != "store" {
+                let t = Tab::Blueprint(k);
+                open(&mut h, t.clone());
+                show_preview(&mut h);
+                view(&mut h, &mut r, &format!("{what} {}, its Preview", k.resref), Some(&t));
+                fold_palette(&mut h);
+                close(&mut h, &t);
+            }
+            if what == "creature" {
+                pages_scrolled(&mut h, &mut r, &format!("creature {}", k.resref), k);
+            }
             tab(&mut h, &mut r, &format!("{what} {} as GFF", k.resref), Tab::Gff(k));
         }
     }
@@ -1794,6 +2159,329 @@ fn frames_at_144() {
         }
     }
     r.end();
+}
+
+/// A copy of the game's tcn01 in the tileset editor (M4's U20), docked
+/// As Tabs: its tile table of 408 rows (the rows in sight alone laid out)
+/// on the Tiles page, tile 16 chosen; Check run on it (two faults put in:
+/// tile 17's model one nowhere, group 0's first tile -1), its findings in
+/// Problems, in front of the Bottom Dock; the Preview and Textures in the
+/// Right Dock (the tile's 3D view paused, as a tile's starts), its parts
+/// in the Outliner. (The tip's copy, 3229ef5c, takes
+/// the same steps, its findings listed under its row; it has no Problems
+/// to show.)
+fn tileset(h: &mut App<'_>, r: &mut Report) {
+    let what = "tileset tcn01, its tile table of 408 rows";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let key = ResKey::parse("tcn01", ResType::SET).unwrap();
+    let set = {
+        let game = h.state().game.as_deref().expect("the game's data");
+        game.resman.get(&key).unwrap().into_owned()
+    };
+    let mut text = String::from_utf8_lossy(&set).into_owned();
+    let t = mg_set::Tileset::parse(&set, mg_core::Codepage::default()).unwrap();
+    text = text.replacen(&format!("Model={}", t.tiles[17].model), "Model=tcn01_zz17", 1);
+    let group = text.find("[GROUP0]").unwrap();
+    let tile0 = group + text[group..].find("Tile0=").unwrap();
+    let end = tile0 + text[tile0..].find("\r\n").unwrap();
+    text.replace_range(tile0..end, "Tile0=-1");
+    let path = mg_testkit::scratch_dir("frame-tileset").join("tcn01.set");
+    std::fs::write(&path, text).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    h.run_steps(3);
+    let id = h.state().tilesets.last().expect("the tileset open").id;
+    let t = Tab::Tileset(id);
+    {
+        let d = h.state_mut().tilesets.iter_mut().find(|d| d.id == id).unwrap();
+        d.page = mg_ui::tileset_view::Page::Tiles;
+        d.tile = Some(16);
+    }
+    h.run_steps(3);
+    click(h, "Check");
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before, the Bottom Dock closed.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Problems));
+    h.run_steps(5);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems), "Problems not shown");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+    // (Under 1400 Preview and Textures fold into one tab bar, Preview's in
+    // front.)
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label_contains("Textures, of ").is_some(), "Textures not shown");
+    } else {
+        tabs_folded(h, &["Preview", "Textures"], "Tile diagram: tile 16");
+    }
+    assert!(h.query_by_label("408 tiles").is_some(), "the Outliner's parts not shown");
+    let tiles = h
+        .state()
+        .tilesets
+        .iter()
+        .find(|d| d.id == id)
+        .map_or(0, |d| d.tileset().map_or(0, |t| t.tiles.len()));
+    let found: usize = h.state().problems.sets().iter().map(|s| s.problems.len()).sum();
+    println!(
+        "  ({tiles} tiles; {found} found by Check; the Right Dock drawn: {}; the Outliner's parts: {})",
+        h.state().right_dock_rect().is_some(),
+        h.query_by_label("408 tiles").is_some()
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+}
+
+/// The game's `id_resources.hak` in the hak editor (M4's U21), docked As
+/// Tabs: its 2,706 resources sorted by type (the rows in sight alone laid
+/// out), `c_masterius.mdl` chosen; the Preview (its model's 3D view
+/// paused, as a model's starts) and Details in the Right Dock, its types in
+/// the Outliner. (The tip's copy, 549b08f3, takes the same steps without
+/// the panels' assertions: it has none of them.)
+fn hak(h: &mut App<'_>, r: &mut Report) {
+    let what = "hak id_resources.hak, its 2706 rows sorted by type";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let Some(root) = h.state().install.as_ref().map(|gi| gi.root.clone()) else { return };
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let id = mg_ui::hak_view::open_at(h.state_mut(), &root.join("data/hk/id_resources.hak"))
+        .expect("the game's hak");
+    let t = Tab::Hak(id);
+    let masterius = ResKey::parse("c_masterius", ResType::MDL).unwrap();
+    // (A file added, Hak.png's `mg_chair.mdl`: its 2,706 rows.)
+    let chair = mg_testkit::scratch_dir("frame-hak").join("mg_chair.mdl");
+    std::fs::write(&chair, b"chair").unwrap();
+    {
+        let d = h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap();
+        d.hak.add_files(&[chair]);
+        d.sort = mg_ui::hak_view::Sort::Type;
+        d.selected = [masterius].into();
+    }
+    h.run_steps(3);
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(5);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
+    // (Under 1400 Preview and Details fold into one tab bar, Preview's in
+    // front.)
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label_contains("Details, ").is_some(), "Details not shown");
+    } else {
+        tabs_folded(h, &["Preview", "Details"], "Animation");
+    }
+    assert!(h.query_by_label_contains(".mdl, 9").is_some(), "no Outliner");
+    let rows = h.state().haks.iter().find(|d| d.id == id).map_or(0, |d| d.hak.items().len());
+    println!(
+        "  ({rows} resources; the Right Dock drawn: {}; the Outliner's types: {})",
+        h.state().right_dock_rect().is_some(),
+        h.query_all_by_label_contains(".mdl, ").next().is_some()
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+}
+
+/// The Faction Editor (M4's U22), docked As Tabs: Advanced's matrix with
+/// its frozen headers, the second faction's cell toward the first chosen,
+/// Faction, Reaction and Reactions in the Right Dock and the factions in
+/// the Outliner (asserted shown). How many factions it draws is printed.
+fn factions(h: &mut App<'_>, r: &mut Report) {
+    let what = "Faction Editor";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    let folded = h.state().right_dock_shows().is_none();
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let t = Tab::Factions;
+    {
+        let v = &mut h.state_mut().faction_view;
+        v.advanced = true;
+        v.selected = 2;
+        v.target = 1;
+    }
+    open(h, t.clone());
+    // (Its panels shown, loudly: the Right Dock may be folded by the views
+    // before.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Reaction));
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&t).is_some_and(|at| at.surface.is_main()), "not docked");
+    assert!(h.state().right_dock_rect().is_some(), "no Right Dock");
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label("Global effect").is_some(), "Faction not shown");
+        assert!(h.query_by_label("Full detail").is_some(), "Reactions not shown");
+    } else {
+        // (Under 1400 the three panels fold into one tab bar, Reaction's in
+        // front.)
+        assert_eq!(
+            h.state().right_dock_shows(),
+            Some(mg_ui::Panel::Reaction),
+            "Reaction not shown"
+        );
+        // (Reaction's own slider: the matrix's cells, " toward ", have
+        // rects past the editor's edge, under the dock, drawn or not.)
+        tabs_folded(h, &["Faction", "Reaction", "Reactions"], "Reputation value");
+    }
+    let outliner =
+        h.query_all_by_label(mg_ui::OUTLINER).any(|g| g.query_by_label("Hostile").is_some());
+    assert!(outliner, "no Outliner of the factions");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let count = mg_module::factions::Factions::of_module(&ws.module).factions.len();
+    let cells = h
+        .query_by_label(mg_ui::faction_view::MATRIX)
+        .map_or(0, |m| m.query_all_by_label_contains(" toward ").count());
+    println!(
+        "  ({count} factions, {cells} cells laid out; the Right Dock drawn: {}; the Outliner: {outliner})",
+        h.state().right_dock_rect().is_some(),
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+    // (The Right Dock folded again as it was found: the views after
+    // unfold it on the panel they ask for.)
+    if folded {
+        fold_palette(h);
+    }
+}
+
+/// The Journal Editor (M4's U22), docked As Tabs: its first category opened
+/// and its first entry chosen, Entry and Category in the Right Dock
+/// (asserted shown). How many categories and entries it has is printed.
+fn journal(h: &mut App<'_>, r: &mut Report) {
+    let what = "Journal Editor";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    let folded = h.state().right_dock_shows().is_none();
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let t = Tab::Journal;
+    {
+        let v = &mut h.state_mut().journal_view;
+        v.open = [0].into();
+        v.selected = Some(mg_ui::journal_view::Node::Entry(0, 0));
+    }
+    open(h, t.clone());
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Entry));
+    h.run_steps(5);
+    assert!(h.state().dock.find_tab(&t).is_some_and(|at| at.surface.is_main()), "not docked");
+    assert!(h.state().right_dock_rect().is_some(), "no Right Dock");
+    assert!(h.query_by_label("Finish category").is_some(), "Entry not shown");
+    let jrl = ResKey::parse("module", ResType::JRL).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let cats: Vec<mg_gff::Struct> = ws
+        .doc(&jrl)
+        .ok()
+        .and_then(|g| g.root.list("Categories").map(<[_]>::to_vec))
+        .unwrap_or_default();
+    let entries: usize = cats.iter().map(|c| mg_module::journal::entries(c).len()).sum();
+    println!(
+        "  ({} categories, {entries} entries; the Right Dock drawn: {})",
+        cats.len(),
+        h.state().right_dock_rect().is_some(),
+    );
+    view(h, r, what, Some(&t));
+    close(h, &t);
+    h.state_mut().settings.open_editors = was;
+    if folded {
+        fold_palette(h);
+    }
+}
+
+/// The game's `dialog.tlk` (M4's U17), docked As Tabs: its 112,228 lines
+/// scrolled by the wheel (the rows in sight alone laid out), line 18608
+/// chosen, String, References and Talk Table in the Right Dock beside it.
+/// The rows in sight before and after are printed: the wheel scrolls them.
+fn talk_table(h: &mut App<'_>, r: &mut Report) {
+    let what = "talk table dialog.tlk, docked";
+    if r.only.as_ref().is_some_and(|only| !what.contains(only.as_str())) {
+        return;
+    }
+    let was = h.state().settings.open_editors;
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    // (Shown in the Talk Table tab, as the Resources panel's row shows it.)
+    let t = Tab::TalkTable;
+    h.state_mut().actions.push(Action::ShowGameTalk);
+    h.run_steps(3);
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.go_to_line(18608);
+    }
+    // (Its panels in the Right Dock, unfolded on String: loudly.)
+    h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::String));
+    h.run_steps(5);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::String), "String not shown");
+    let seen = |h: &App<'_>| {
+        let id = egui::Id::new(("talk-rows-seen", mg_ui::talk_view::Which::Game));
+        h.ctx.data(|d| d.get_temp::<(usize, usize)>(id))
+    };
+    let lines = h.state().game_talk.as_ref().map_or(0, |g| g.table.len());
+    let panels = h.state().right_dock_rect().is_some();
+    println!("  ({lines} lines; the Right Dock drawn: {panels}; rows in sight {:?})", seen(h));
+    view(h, r, what, Some(&t));
+    println!("  (rows in sight after the wheel: {:?})", seen(h));
+    // Only lines with text switched each frame (the list made anew of
+    // 112,228 lines each time), and Find looking for "the" and "and" by
+    // turns (begun again each frame: its slice of a frame every frame):
+    // what a frame costs at their worst.
+    let switch = |app: &mut mg_ui::Moonglow, n: usize| {
+        if let Some(g) = app.game_talk.as_mut() {
+            g.view.only_text = n.is_multiple_of(2);
+        }
+    };
+    view_with(h, r, "talk table dialog.tlk, Only lines with text switched", Some(&t), switch);
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = false;
+    }
+    let find = |app: &mut mg_ui::Moonglow, n: usize| {
+        if let Some(g) = app.game_talk.as_mut() {
+            g.view.filter = if n.is_multiple_of(2) { "the".into() } else { "and".into() };
+        }
+    };
+    view_with(h, r, "talk table dialog.tlk, Find begun again each frame", Some(&t), find);
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.filter.clear();
+    }
+    // Find "e" with Only lines with text on (M4's U17 review): each frame
+    // of it, from its first to its last (its last fifth, where the lines
+    // found so far are most), a frame (`step`: its pass, tessellated)
+    // timed on its own.
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = true;
+        g.view.filter = "e".into();
+    }
+    let sweeping = |h: &App<'_>| h.state().game_talk.as_ref().is_some_and(|g| g.view.sweeping());
+    let mut times = Vec::new();
+    let began = Instant::now();
+    loop {
+        let at = Instant::now();
+        h.step();
+        times.push(at.elapsed());
+        if (!sweeping(h) && times.len() > 1) || began.elapsed() > Duration::from_secs(60) {
+            break;
+        }
+    }
+    let late = times[times.len() * 4 / 5..].to_vec();
+    let worst = times.iter().max().copied().unwrap_or_default();
+    println!(
+        "  talk table dialog.tlk, Find \"e\" with Only lines with text: {} frames, the last fifth's median {:.2} ms (worst {:.2}), the worst of all {:.2} ms",
+        times.len(),
+        ms(pick(late.clone(), 0.5)),
+        ms(late.iter().max().copied().unwrap_or_default()),
+        ms(worst),
+    );
+    if let Some(g) = h.state_mut().game_talk.as_mut() {
+        g.view.only_text = false;
+        g.view.filter.clear();
+    }
+    close(h, &t);
+    fold_palette(h);
+    h.state_mut().settings.open_editors = was;
 }
 
 /// The persistent world's views (`world/mod.rs`): the lists at the sizes
@@ -1857,7 +2545,10 @@ fn frames_at_144_in_a_persistent_world() {
 
     let store = Tab::Blueprint(ResKey::parse("pw_store", ResType::UTM).unwrap());
     open(&mut h, store.clone());
-    h.get_by_label("Inventory").click();
+    h.state_mut().blueprint_pages.insert(
+        (ResKey::parse("pw_store", ResType::UTM).unwrap(), mg_edit::GffPath::root()),
+        "Inventory",
+    );
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     // Its picker on the custom palette, searched for what all 8,000 have:
@@ -1912,13 +2603,48 @@ fn frames_at_144_in_a_persistent_world() {
         h.state_mut().placeable_gallery = None;
     }
     // Find Instance with nothing typed: every placed object of the 300
-    // areas found, the rows in sight laid out (the review's A18).
-    h.state_mut().find_instance = Some(Default::default());
-    h.run_steps(2);
+    // areas found, the rows in sight laid out (the review's A18). (M4's
+    // U28: opened by Edit's menu, its form and hits in Search Results in
+    // the Bottom Dock.)
+    menu(&mut h, "Edit", "Find Instance…");
+    assert_eq!(
+        h.state().bottom_dock_shows(),
+        Some(mg_ui::Panel::SearchResults),
+        "Search Results not shown"
+    );
     click(&mut h, "Search");
+    // (A job since U28: until it ends.)
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 120, "the search did not end");
+    }
+    h.run_steps(3);
     let found = h.state().find_instance.as_ref().map_or(0, |f| f.results.len());
     view(&mut h, &mut r, &format!("Find Instance, {found} found"), None);
     h.state_mut().find_instance = None;
+    // Build Module (Unused and Missing Resources, not Compile) over the
+    // 300 areas: its findings in Problems in the Bottom Dock, the dialog
+    // over the view.
+    menu(&mut h, "Build", "Build Module…");
+    if let Some(w) = h.state_mut().build.as_mut() {
+        (w.unused, w.missing, w.compile) = (true, true, false);
+    }
+    h.run_steps(2);
+    h.query_all_by_label("Build").last().expect("Build").click_accesskit();
+    // (Until the build's job ends.)
+    let started = std::time::Instant::now();
+    h.run_steps(2);
+    while h.state().busy() {
+        h.step();
+        assert!(started.elapsed().as_secs() < 120, "the build did not end");
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems), "Problems not shown");
+    let found =
+        h.state().problems.of(&mg_ui::problems::Source::Build).map_or(0, |s| s.problems.len());
+    view(&mut h, &mut r, &format!("Build Module, {found} found, in Problems"), None);
+    h.state_mut().build = None;
 
     // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a
     // filter typed.
@@ -2797,4 +3523,272 @@ fn tdod_area(
         lamp_count.min(400)
     );
     Some((path, user, area, i64::from(side) * i64::from(side)))
+}
+
+/// M4's U23: the read-only tab of an authored GFF of 2,100 fields (30
+/// structs of 70, each unfolded: clicked from the last up, the rows
+/// above staying where they were), from a scratch user folder's
+/// `override`, docked As Tabs; then Options on its General page, docked.
+/// Prints how many of the GFF's field rows were laid out (AccessKit nodes
+/// named, or plain labels valued, `f..`: the rows in sight alone where
+/// only they are drawn).
+/// `FRAME_VIEW` picks one ("read-only GFF", "Options General").
+#[test]
+#[ignore]
+fn read_only_and_options() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let user = mg_testkit::scratch_dir("frame-perf-u23").join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mut gff = mg_gff::Gff::new(*b"UTC ");
+    for s in 0..30u32 {
+        let mut child = mg_gff::Struct { id: s, ..Default::default() };
+        for f in 0..70 {
+            child.set(&format!("f{s:02}_{f:02}"), mg_gff::Value::Int(f));
+        }
+        gff.root.set(&format!("S{s:02}"), mg_gff::Value::Struct(child));
+    }
+    std::fs::write(user.join("override/mg_perf_big.utc"), gff.to_bytes().unwrap()).unwrap();
+    let mut r = Report::new();
+    println!("read-only GFF and Options: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.set_render_state(rs.clone());
+    app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let wanted = |r: &Report, what: &str| r.only.as_ref().is_none_or(|o| what.contains(o.as_str()));
+    let what = "read-only GFF, 2,100 fields unfolded, docked";
+    if wanted(&r, what) {
+        let key = ResKey::parse("mg_perf_big", ResType::UTC).unwrap();
+        let t = Tab::Resource(key);
+        open(&mut h, t.clone());
+        h.run_steps(5);
+        // (A short window shows the rows only scrolled to: the view builds
+        // the rows in sight alone. Unfolded from the last up, a row unfolded
+        // leaves those above it where they are; scrolled up to as needed.)
+        let at = h.query_all_by_label_contains("S00").next().map(|n| n.rect().center());
+        let at = at.expect("no S00 row");
+        let wheel = |h: &mut App<'_>, by: f32| {
+            h.event(egui::Event::PointerMoved(at));
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, by),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        };
+        for s in (0..30).rev() {
+            let name = format!("S{s:02}");
+            let by = if s == 29 { -60.0 } else { 60.0 };
+            for _ in 0..200 {
+                if h.query_all_by_label_contains(&name).next().is_some() {
+                    break;
+                }
+                wheel(&mut h, by);
+            }
+            let found = h.query_all_by_label_contains(&name).next().map(|n| n.click()).is_some();
+            assert!(found, "no {name} row");
+            h.run_steps(2);
+        }
+        let fields = |h: &App<'_>| {
+            h.query_all(egui_kittest::kittest::by().predicate(|n| {
+                // (A row's name: its label, or a plain label's value.)
+                let name = n.label().or_else(|| n.value());
+                name.is_some_and(|l| l.starts_with('f') && l.as_bytes().get(3) == Some(&b'_'))
+            }))
+            .count()
+        };
+        let laid = fields(&h);
+        assert!(laid > 0, "no field rows: not unfolded");
+        println!("  ({laid} of the 2,100 field rows laid out)");
+        view(&mut h, &mut r, what, Some(&t));
+        close(&mut h, &t);
+    }
+    let what = "Options General, docked";
+    if wanted(&r, what) {
+        h.state_mut().actions.push(Action::OptionsDialog);
+        h.run_steps(5);
+        click(&mut h, "General");
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("Create backups of modules").is_some(), "not General");
+        view(&mut h, &mut r, what, Some(&Tab::Options));
+    }
+    r.end();
+}
+
+/// M4's U24: the Welcome page with 200 recent modules (paths alone, made
+/// up and never read: none of them is there; a `.mod`, a `.nwm`, a module
+/// folder and a nasher project in turn), no module open. Prints how many
+/// of the 200 rows were laid out (AccessKit nodes whose names hold
+/// "Recent module ", the rows in sight alone where only they are drawn).
+/// `FRAME_VIEW=Welcome` picks it.
+#[test]
+#[ignore]
+fn welcome_page() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut r = Report::new();
+    println!("Welcome: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.recent = (0..200)
+        .map(|i| {
+            let place = format!("/srv/nwn/modules/set {i:03}");
+            std::path::PathBuf::from(match i % 4 {
+                0 => format!("{place}/Recent module {i}.mod"),
+                1 => format!("{place}/Recent module {i}.nwm"),
+                2 => format!("{place}/Recent module {i}"),
+                _ => format!("{place}/Recent module {i} project"),
+            })
+        })
+        .collect();
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let what = "Welcome, 200 recent modules, no module";
+    if r.only.as_ref().is_none_or(|o| what.contains(o.as_str())) {
+        let laid = h.query_all_by_label_contains("Recent module ").count();
+        assert!(laid > 0, "no recent rows: not the Welcome page");
+        println!("  ({laid} of the 200 recent rows laid out)");
+        view(&mut h, &mut r, what, Some(&Tab::Welcome));
+    }
+    r.end();
+}
+
+/// M4's U29 (the review's A18, `docs/deferred.md`): Edit Areas Together
+/// over an authored module of 3,000 areas (each a 1 by 1 area of the
+/// game's Rural tileset, a third of them interior, a third underground),
+/// opened by Edit's menu: the 3,000 listed, then all ticked (Tick Shown),
+/// then their shared Visual page (before U29 the Area Properties window
+/// of the 3,000, opened by its Edit 3000 Together; since U29 the Right
+/// Dock's Edit Areas Together section, its Visual page chosen on its
+/// rail). `FRAME_VIEW=Edit Areas Together` picks them.
+#[test]
+#[ignore]
+fn edit_areas_together_3000() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    const COUNT: usize = 3_000;
+    let dir = mg_testkit::scratch_dir("frame-perf-u29");
+    let path = dir.join("areas3000.mod");
+    {
+        use mg_gff::{Gff, Struct, Value};
+        let mut m = mg_module::Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let mut list = Vec::new();
+        for n in 0..COUNT {
+            let name = format!("area{n:04}");
+            let r = ResRef::from_str(&name).unwrap();
+            let mut item = Struct::new(6);
+            item.set("Area_Name", Value::resref(r));
+            list.push(item);
+            let mut are = Gff::new(*b"ARE ");
+            let title = mg_core::LocString::from_text(
+                mg_core::Language::ENGLISH,
+                mg_core::Gender::Male,
+                format!("Area {n}"),
+            );
+            are.root.set("Name", Value::LocString(title));
+            are.root.set("ResRef", Value::resref(r));
+            are.root.set("Tag", Value::String(name.to_uppercase().into_bytes()));
+            are.root.set("Tileset", Value::resref(ResRef::from_str("ttr01").unwrap()));
+            are.root.set("Width", Value::Int(1));
+            are.root.set("Height", Value::Int(1));
+            are.root.set("Flags", Value::Dword([0, 1, 3][n % 3]));
+            are.root.set("DayNightCycle", Value::Byte(1));
+            let mut tile = Struct::new(1);
+            tile.set("Tile_ID", Value::Int(0));
+            tile.set("Tile_Orientation", Value::Int(0));
+            tile.set("Tile_Height", Value::Int(0));
+            are.root.set("Tile_List", Value::List(vec![tile]));
+            m.set(ResKey::new(r, ResType::ARE), are.to_bytes().unwrap());
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("AreaProperties", Value::Struct(Struct::new(100)));
+            m.set(ResKey::new(r, ResType::GIT), git.to_bytes().unwrap());
+        }
+        info.root.set("Mod_Area_list", Value::List(list));
+        m.set_info(&info).unwrap();
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    }
+    let mut r = Report::new();
+    println!("Edit Areas Together over {COUNT} areas: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    // (The areas the module opened with, closed: the views time the
+    // section or the window, not an area's view beside them.)
+    let shown: Vec<Tab> = (h.state().dock.iter_all_tabs())
+        .map(|(_, t)| t.clone())
+        .filter(|t| matches!(t, Tab::Area(_) | Tab::ModuleProperties))
+        .collect();
+    for t in &shown {
+        close(&mut h, t);
+    }
+    menu(&mut h, "Edit", "Edit Areas Together…");
+    h.run_steps(3);
+    // (A row is named "Area 0 (area0000)" or, since U29, "area0000 (Area 0)".)
+    let listed = h.query_all_by_label_contains("(area").count()
+        + h.query_all_by_label_contains("(Area ").count();
+    assert!(listed > 0, "no area rows: Edit Areas Together not shown");
+    println!("  ({listed} of the {COUNT} area rows laid out)");
+    // (The pointer moved and the wheel turned over the list's rows, as
+    // they lie: the window's before U29, the Right Dock's section since.
+    // Over the whole screen, the wheel was turned at its middle, which
+    // since U29 is the empty editor area, not the list: the review of
+    // U29.)
+    let rows = rows_rect(&h);
+    view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas listed"), rows, |_, _| {});
+    click(&mut h, "Tick Shown");
+    h.run_steps(2);
+    let rows = rows_rect(&h);
+    view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas ticked"), rows, |_, _| {});
+    // Their shared pages: the window (before U29), or the section's
+    // Visual page (since).
+    let together = format!("Edit {COUNT} Together");
+    if h.query_by_label(&together).is_some() {
+        click(&mut h, &together);
+    } else {
+        click(&mut h, "Visual");
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_by_label_contains("Always Dark").is_some(),
+        "not on the Visual page of the {COUNT} areas"
+    );
+    // (Over the page, round its Always Dark.)
+    let page = h.query_by_label_contains("Always Dark").map(|n| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+        n.rect().expand2(egui::vec2(100.0, 120.0)).intersect(screen)
+    });
+    view_in(
+        &mut h,
+        &mut r,
+        &format!("Edit Areas Together, {COUNT} areas, Visual page"),
+        page,
+        |_, _| {},
+    );
+    r.end();
+}
+
+/// Where the list of Edit Areas Together's rows lies on the screen (the
+/// rows laid out, in sight).
+fn rows_rect(h: &App<'_>) -> Option<egui::Rect> {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    h.query_all_by(|n| {
+        n.label().is_some_and(|l| l.contains("(Area ") || l.contains("(area"))
+            && n.bounding_box().is_some()
+    })
+    .map(|n| n.rect().intersect(screen))
+    .filter(|r| r.is_positive())
+    .reduce(|a, b| a.union(b))
 }

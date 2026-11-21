@@ -312,10 +312,11 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
             }
         }
     });
-    // (Named widgets: the dock's leaves with a name.)
+    // (Named widgets: the dock's leaves with a name; not a gallery's grid,
+    // a list of the cells drawn in it, which egui gives it beside it.)
     let ids: std::collections::HashMap<u64, &String> = own
         .iter()
-        .filter(|(name, _, _)| !name.ends_with("\"\""))
+        .filter(|(name, _, _)| !name.ends_with("\"\"") && !name.starts_with("List "))
         .map(|(name, _, id)| (*id, name))
         .collect();
     h.ctx.viewport(|v| {
@@ -436,6 +437,9 @@ fn least_body(kind: Kind, front: mg_ui::Panel) -> usize {
     match (front, kind) {
         (mg_ui::Panel::Preview, Kind::Tiles) => 1,
         (mg_ui::Panel::Preview, _) => 6,
+        // (A Gallery of few blueprints in the narrow dock, its pictures
+        // under the Group by row it has there since M4's U6: two rows.)
+        (_, Kind::Blueprint(_, true)) => 8,
         (_, Kind::Tiles | Kind::Blueprint(..)) => 10,
         (_, Kind::Prefabs | Kind::Lights) => 3,
         (_, Kind::Start) => 1,
@@ -760,6 +764,14 @@ fn a_press_on_the_palette_s_scroll_bar_scrolls_it() {
     assert_ne!(top_label(&h), before, "the list scrolled");
 }
 
+/// The foot of the palettes' section: over Properties' section where the
+/// Right Dock stacks them (M4's U6, from 1400), else the dock's.
+fn palette_bottom(h: &Harness<'_, Moonglow>) -> f32 {
+    let note = h.query_by_label(mg_ui::properties_panel::NOTHING_SELECTED).map(|n| n.rect().top());
+    // (The note 8 under Properties' 26 point header.)
+    note.map_or_else(|| right_dock_rect(h).bottom(), |top| top - 34.0)
+}
+
 /// The palette's lists keep their own scroll places: the placeables'
 /// scrolled down stays so through the tiles palette shown and back, the
 /// tiles' list at its top meanwhile; and the Left Dock's tree keeps its
@@ -779,7 +791,7 @@ fn the_palette_s_lists_keep_their_own_scroll_places() {
     expand_all_in_the_dock(&mut h);
     let dock = right_dock_rect(&h);
     let at_top = top_label(&h);
-    let over = egui::pos2(dock.center().x, dock.bottom() - 100.0);
+    let over = egui::pos2(dock.center().x, palette_bottom(&h) - 100.0);
     h.hover_at(over);
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
@@ -1168,8 +1180,9 @@ fn editor_right(h: &Harness<'_, Moonglow>) -> f32 {
 }
 
 /// The Right Dock follows the active docked editor: with the area's tab in
-/// front it holds the Palette and the Preview; with Module Properties, a
-/// script or the manual docked in front of it, it is not drawn at all (no
+/// front it holds the Palette and the Preview; with a script's, the
+/// script's Reference and Help (M4's U12); with Module Properties or the
+/// manual docked in front of it, it is not drawn at all (no
 /// strip, no fold button, nothing of it left), the editor area takes its
 /// room, View › Right Dock is grayed and F6 passes over it; with the
 /// area's tab in front again it is back as it was: as wide, and folded
@@ -1190,7 +1203,7 @@ fn the_right_dock_follows_the_active_editor() {
     let beside = editor_right(&h);
     assert!(beside < window.right() - 390.0);
     let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
-    let others = [Tab::ModuleProperties, script, Tab::Manual];
+    let others = [Tab::ModuleProperties, Tab::Manual];
     // (The script: one of the module's, made for the test.)
     {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1239,6 +1252,19 @@ fn the_right_dock_follows_the_active_editor() {
         assert!((right_dock_rect(&h).width() - width).abs() < 1.0, "as wide");
         assert_eq!(right_tabs(&h), ["Palette", "Preview"], "with both its tabs");
     }
+    // A script's tab: its own Reference over its Help, the area's palettes
+    // gone; the area's tab again, the palettes back as they were.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    settle(&mut h);
+    assert_eq!(h.state().active_editor(), Some(&script));
+    assert!(right_dock_drawn(&h), "the script's Right Dock");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
+    assert!(!palette_shown(h.state()));
+    h.get_by_label("Reference, nwscript and includes");
+    h.get_by_label("Help, Nothing chosen");
+    click_tab(&mut h, &Tab::Area(area));
+    settle(&mut h);
+    assert_eq!(right_tabs(&h), ["Palette", "Preview"], "the area's again");
     // Folded, it stays folded through a tab that takes it away.
     fold_palette(h.state_mut());
     settle(&mut h);
@@ -1276,40 +1302,53 @@ fn a_floating_window_leaves_the_right_dock_as_it_is() {
     assert!(!focused.surface.is_main(), "the window's");
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
     assert!(palette_shown(h.state()));
-    assert_eq!(right_tabs(&h), ["Palette", "Preview"]);
+    assert_eq!(right_tabs(&h), ["Palette", "Properties", "Preview"]);
 }
 
 /// Two panes in the editor area's middle, the area's on the left and a
-/// tool's (the Faction Editor's) on the right: the Right Dock follows the
-/// one with the focus, its tab in front; the area opened again (from the
-/// module tree, a link) while the tool's has the focus gives its pane the
-/// focus.
+/// tool's on the right: the Right Dock follows the one with the focus,
+/// its tab in front; the area opened again (from the module tree, a link)
+/// while the tool's has the focus gives its pane the focus. The tool is
+/// Module Properties, which brings no Right Dock (none is drawn beside
+/// it), and the Faction Editor, which brings its own panels since M4's
+/// U22.
 #[test]
 fn the_right_dock_follows_the_pane_with_the_focus() {
-    let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
-    {
-        let dock = &mut h.state_mut().dock;
-        let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
-        dock.main_surface_mut().split_right(node, 0.6, vec![Tab::Factions]);
+    for tool in [Tab::ModuleProperties, Tab::Factions] {
+        let Some((mut h, area)) = area_harness("right-dock-two-panes") else { return };
+        {
+            let dock = &mut h.state_mut().dock;
+            if let Some(at) = dock.find_tab(&tool) {
+                dock.remove_tab(at);
+            }
+            let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
+            dock.main_surface_mut().split_right(node, 0.6, vec![tool.clone()]);
+        }
+        settle(&mut h);
+        let what = format!("{tool:?}");
+        let tools_own = |h: &Harness<'_, Moonglow>| match tool {
+            Tab::Factions => right_tabs(h) == ["Faction", "Reaction"],
+            _ => !right_dock_drawn(h),
+        };
+        click_tab(&mut h, &tool);
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&tool), "{what}");
+        assert!(!palette_shown(h.state()), "{what}: the tool's pane: not the area's panels");
+        assert!(tools_own(&h), "{what}: the tool's own (none, or its panels in Basic)");
+        click_tab(&mut h, &Tab::Area(area));
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "{what}");
+        assert!(palette_shown(h.state()), "{what}: the area's pane: the Right Dock");
+        click_tab(&mut h, &tool);
+        settle(&mut h);
+        assert!(tools_own(&h), "{what}: the tool's again");
+        // The area opened again (from the module tree, say: it is open in
+        // the other pane) is the active editor, its pane given the focus.
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "{what}");
+        assert!(palette_shown(h.state()), "{what}: the area opened: the Right Dock");
     }
-    settle(&mut h);
-    click_tab(&mut h, &Tab::Factions);
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
-    assert!(!right_dock_drawn(&h), "the tool's pane: no Right Dock");
-    click_tab(&mut h, &Tab::Area(area));
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
-    assert!(palette_shown(h.state()), "the area's pane: the Right Dock");
-    click_tab(&mut h, &Tab::Factions);
-    settle(&mut h);
-    assert!(!right_dock_drawn(&h));
-    // The area opened again (from the module tree, say: it is open in the
-    // other pane) is the active editor, its pane given the focus.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
-    assert!(palette_shown(h.state()), "the area opened: the Right Dock");
 }
 
 /// With the last area closed, the placeholder that says none is open
@@ -1525,9 +1564,8 @@ fn a_wheel_over_the_palette_asks_for_no_pictures_of_the_rows_it_passes() {
     settle(&mut h);
     expand_all_in_the_dock(&mut h);
     // (The pointer on a row's words, low in the list.)
-    let dock = right_dock_rect(&h);
     let row = top_row(&h);
-    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    let at = egui::pos2(row.left() + 20.0, palette_bottom(&h) - 120.0);
     h.hover_at(at);
     let before = h.state().thumbnails.asked();
     // (One step for each turn of the wheel: the list scrolls under the
@@ -1567,9 +1605,8 @@ fn a_rested_row_s_picture_is_asked_for_before_its_tooltip_opens() {
     }
     settle(&mut h);
     expand_all_in_the_dock(&mut h);
-    let dock = right_dock_rect(&h);
     let row = top_row(&h);
-    let at = egui::pos2(row.left() + 20.0, dock.bottom() - 120.0);
+    let at = egui::pos2(row.left() + 20.0, palette_bottom(&h) - 120.0);
     let tooltip_shown = |h: &Harness<'_, Moonglow>| {
         h.ctx.memory(|m| {
             m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Tooltip)

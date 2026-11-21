@@ -35,7 +35,7 @@ pub struct Symbol {
     pub custom: bool,
 }
 
-/// The side lists' tabs.
+/// What the Reference panel lists (its segmented control's choices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SideTab {
     #[default]
@@ -45,14 +45,30 @@ pub enum SideTab {
     Templates,
 }
 
-/// The bottom panel's tabs.
+/// The script's panels of the Bottom Dock (M4's U13: Compiler and
+/// Bookmarks, its own, and the global Search Results; Help is the Right
+/// Dock's own panel since U12): the one a script asked to the front last
+/// ([`ScriptTools::info`], [`ScriptTools::ask_forward`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InfoTab {
     #[default]
     Compiler,
-    Help,
     Bookmarks,
     SearchResults,
+}
+
+/// A Bottom Dock panel asked to the front ([`ScriptTools::ask_forward`]):
+/// by the script `from` (none: a search not of one script's), opening the
+/// dock where it is closed if `open` (a search's hits, a compile that
+/// failed), else only where it is open. The docks act on it as the next
+/// frame begins (`shell::bottom_forward`): the main window's Bottom Dock
+/// where `from` is the docked script in front (or for a search, where it
+/// does not float), its window's bottom pane where it floats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Forward {
+    pub(crate) from: Option<ResKey>,
+    pub(crate) tab: InfoTab,
+    pub(crate) open: bool,
 }
 
 /// A compiler message, with where it points if it says.
@@ -109,7 +125,6 @@ pub struct Search {
     pub in_open: bool,
     /// The script the window works on.
     pub script: Option<ResKey>,
-    pub results: Vec<(ResKey, usize, String)>,
 }
 
 /// The most lines Search Results keeps (Find In Files, References): a
@@ -189,10 +204,63 @@ pub struct ScriptTools {
     /// Scripts to open in the external editor once their editor has them
     /// (opened from the module tree, with the option on).
     pub(crate) open_externally: std::collections::HashSet<ResKey>,
+    /// What the Reference panel lists, and its filter.
     pub side: SideTab,
     pub filter: String,
+    /// The Bottom Dock panel a script asked to the front last.
     pub info: InfoTab,
+    /// The asks of this frame, until the docks act on them as the next
+    /// frame begins (`shell::bottom_forward`).
+    pub(crate) forward: Vec<Forward>,
+    /// Counts what the Bottom Dock panels show changing (a compile's
+    /// messages, a bookmark, a search's hits): each panel drawn notes the
+    /// count it showed and the pass ([`ScriptTools::bottom_drawn`]); one
+    /// drawn this pass before the change is drawn again
+    /// (`shell::follow_bottom`), and nothing is asked for otherwise.
+    pub(crate) made: u64,
+    /// The pass a Bottom Dock panel was last drawn in and the least count
+    /// ([`ScriptTools::made`]) a panel drawn in it showed.
+    pub(crate) bottom_drawn: Option<(u64, u64)>,
+    /// The Bottom Dock panel (its keys) to take the keyboard's focus as
+    /// it is drawn (F6 to it): from the script's text, so that what is
+    /// typed then goes nowhere.
+    pub(crate) list_focus: Option<crate::palette_view::Keys>,
+    /// The function or constant the Help panel shows.
     pub help: Option<Symbol>,
+    /// Text the Reference panel put in (a double click on a name), for the
+    /// script's editor to put in at its cursor once it is drawn (the panel
+    /// is drawn before it).
+    pub(crate) insert: Option<(ResKey, String)>,
+    /// Help asked to the front by the script it names (a double click on
+    /// a name in its text, its Go to Definition): where that script is
+    /// docked, the Help panel brought in front of the one tab bar
+    /// Reference and Help share under 1400 once a script is the editor in
+    /// front (`shell::help_forward`); where it floats, its window's pane
+    /// shows Help already, and nothing else changes.
+    pub(crate) help_forward: Option<ResKey>,
+    /// The Reference panel's filter to take the keyboard's focus as it is
+    /// drawn (F6 to it).
+    pub(crate) reference_focus: bool,
+    /// The Help panel to take the keyboard's focus as it is drawn (F6 to
+    /// it): from the script's text, so that what is typed then goes
+    /// nowhere rather than into the script.
+    pub(crate) help_focus: bool,
+    /// The name Reference's list was last scrolled to, or clicked: a name
+    /// Help shows that differs (chosen by the cursor in the text, Go to
+    /// Definition) scrolls the list to it once.
+    pub(crate) list_at: Option<String>,
+    /// What the Reference panel showed as it was last drawn: the pass
+    /// (`Context::cumulative_pass_nr`), the script, its symbols' list and
+    /// the name marked chosen. Drawn before the editor, it is drawn again
+    /// where the editor changed them in the same pass, and only then: a
+    /// Reference not drawn this pass (behind Help's tab, the dock folded)
+    /// asks for nothing (M4's U12 review, A1).
+    pub(crate) reference_drawn: Option<(u64, ResKey, usize, Option<String>)>,
+    /// What the Help panel showed as it was last drawn: the pass and the
+    /// name, drawn again where the editor chose another in that pass.
+    pub(crate) help_drawn: Option<(u64, Option<String>)>,
+    /// What Help read of the name it shows, kept while it is shown.
+    pub(crate) help_read: Option<Arc<crate::script_reference::HelpRead>>,
     pub messages: Vec<Message>,
     pub search: Search,
     pub completion: Option<Completion>,
@@ -207,7 +275,7 @@ pub struct ScriptTools {
     pub convert_indent: Option<(ResKey, bool, bool)>,
     /// A step of a script's own history to take, back (`false`) or again
     /// (`true`), once its editor is drawn: Edit › Undo or Redo, or the
-    /// toolbar's, while the script is the one worked in
+    /// Top Bar's, while the script is the one worked in
     /// (`script_view::undo_target`).
     pub(crate) undo: Option<(ResKey, bool)>,
     /// A script's editor to give the keys back to once it is drawn (a
@@ -240,6 +308,20 @@ pub struct ScriptTools {
 const TEMPLATES_KEPT: f64 = 2.0;
 
 impl ScriptTools {
+    /// The script Help was asked to the front by, while the docks have not
+    /// yet brought it ([`ScriptTools::help_forward`]): for tests.
+    #[doc(hidden)]
+    pub fn help_forward_pending(&self) -> Option<ResKey> {
+        self.help_forward
+    }
+
+    /// Gives `key`'s editor the keyboard once it is drawn, as a menu
+    /// closed with nothing chosen does (for tests).
+    #[doc(hidden)]
+    pub fn keys_back_for_test(&mut self, key: ResKey) {
+        self.keys_back = Some(key);
+    }
+
     /// [`templates`], read at most [`TEMPLATES_KEPT`] seconds ago from the
     /// same folders, else now.
     pub(crate) fn templates(
@@ -388,7 +470,17 @@ impl ScriptTools {
              Scripts on Save is off)"
         );
         self.messages.push(Message::new(key, said, None, false));
-        self.info = InfoTab::Compiler;
+        self.ask_forward(Some(key), InfoTab::Compiler, false);
+    }
+
+    /// The Bottom Dock panel `tab` asked to the front by the script `from`
+    /// (none: a search not of one script's), the dock opened where it is
+    /// closed if `open` ([`Forward`]); what the panels show changed
+    /// ([`ScriptTools::made`]).
+    pub(crate) fn ask_forward(&mut self, from: Option<ResKey>, tab: InfoTab, open: bool) {
+        self.info = tab;
+        self.forward.push(Forward { from, tab, open });
+        self.made += 1;
     }
 
     /// All symbols a script can use: its own and its includes' (custom),

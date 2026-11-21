@@ -805,7 +805,7 @@ pub(crate) fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable)
 /// [`choices`], as the game data keeps them: the window's own rows ask
 /// every frame, and each got a copy of the whole list (feat.2da's
 /// thousand rows and more, with their names).
-fn listed(
+pub(crate) fn listed(
     game: Option<&GameData>,
     table: &mg_rules::rows::RowTable,
 ) -> std::sync::Arc<Vec<Choice>> {
@@ -1363,8 +1363,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             && ui
                                 .button(format!("Choose {} Area(s)…", areas.len()))
                                 .on_hover_text(
-                                    "Edit Areas Together, with the areas of what is ticked \
-                                     ticked",
+                                    "Edit Areas Together with the areas of the ticked results",
                                 )
                                 .clicked()
                         {
@@ -1495,10 +1494,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.actions.push(Action::OpenTab(tab));
     }
     if let Some(areas) = choose_areas {
-        app.area_chooser = Some(crate::area_props::AreaChooser {
-            chosen: areas.into_iter().collect(),
-            ..Default::default()
-        });
+        app.area_chooser = Some(crate::area_props::AreaChooser::of(areas));
+        crate::tool_sections::bring(app, crate::shell::Panel::AreasTogether);
     }
     app.advanced_search = draft;
 }

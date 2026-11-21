@@ -45,8 +45,9 @@ impl SideDoc for hak_view::HakDoc {
     fn title(&self) -> String {
         self.title().trim_end_matches(" *").to_string()
     }
+    /// (A description typed and not yet set counts.)
     fn has_unsaved(&self) -> bool {
-        self.hak.is_dirty()
+        self.is_dirty()
     }
     fn saved_with_module(&self, app: &Moonglow) -> bool {
         // (By whatever name the path reaches the game's folder: a hak
@@ -56,10 +57,19 @@ impl SideDoc for hak_view::HakDoc {
     fn can_undo(&self, redo: bool) -> bool {
         self.step_name(redo).is_some()
     }
+    /// (A description typed and not yet set is a step to take back: it is
+    /// set as Undo is pressed, then undone.)
+    /// (Nothing to redo while it is pending: what is typed comes first.)
     fn step_name(&self, redo: bool) -> Option<String> {
+        if self.typing_description() {
+            return (!redo).then(|| "Description".to_string());
+        }
         (if redo { self.hak.redo_label() } else { self.hak.undo_label() }).map(str::to_string)
     }
+    /// (A description typed and not yet set is set first: its step is the
+    /// one taken back.)
     fn undo(&mut self, redo: bool) {
+        self.set_typed();
         if redo {
             self.hak.redo();
         } else {
@@ -146,30 +156,25 @@ impl SideDoc for tileset_view::TilesetDoc {
     }
 }
 
-/// OK and Cancel under the window of an editor of a file that is saved
-/// when asked (a hak, a 2DA, a tileset, the talk table, a script), as the
-/// other editors have them: OK saves it and closes the window; Cancel
-/// closes it as last saved, asking first about unsaved changes
-/// ([`Moonglow::may_cancel`]). One only looked at (`read_only`) has
-/// Close. Drawn before the window's pages, of whose room it takes the
-/// foot; `before` is run once a button is pressed (a cell being typed
-/// set). Whether the window is closing: nothing more is drawn of it.
-pub(crate) fn ok_cancel(
+/// The tips of a side editor's OK and Cancel, at its header's end: OK's
+/// and Cancel's.
+pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
+    "Save and close the window",
+    "Close the window without saving, asking about unsaved changes first",
+];
+
+/// What a side editor's OK or Cancel (`pressed`) does, at its header's end
+/// (a script's, M4's U12; a hak's, the last at its foot, U21): `before` run first,
+/// then OK saves and closes, Cancel closes asking about unsaved changes,
+/// Close (`read_only`) closes. Whether the window is closing.
+pub(crate) fn pressed_ok_cancel(
     app: &mut Moonglow,
-    ui: &mut egui::Ui,
     tab: &Tab,
     read_only: bool,
+    pressed: crate::blueprint::Pressed,
     before: impl FnOnce(&mut Moonglow),
 ) -> bool {
     use crate::blueprint::Pressed;
-    let tips = [
-        "Save and close the window",
-        "Close the window without saving, asking about unsaved changes first",
-    ];
-    let id = egui::Id::new(("side-ok-cancel", tab));
-    let pressed = crate::blueprint::ok_cancel_saying(ui, id, read_only, tips);
-    failed_foot(app, ui, tab);
-    let Some(pressed) = pressed else { return false };
     before(app);
     // (A save that fails here asks the tab's question: why, and the ways
     // out, are on screen rather than nothing.)
@@ -205,7 +210,7 @@ pub(crate) fn ok_cancel(
 /// Why `tab`'s document could not be saved the last time, under its
 /// editor (above its OK and Cancel): the editor's own Save, its OK and
 /// the module's Save say it there, not only in the log.
-fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
+pub(crate) fn failed_foot(app: &Moonglow, ui: &mut egui::Ui, tab: &Tab) {
     let Some(why) = app.failed_saving(tab) else { return };
     // (A 2DA's editor says it already, above its grid: "Not saved: …".)
     if let Tab::Table(id) = *tab
@@ -363,7 +368,15 @@ impl Moonglow {
         match *tab {
             Tab::Hak(id) => self.haks.retain(|d| d.id != id),
             Tab::Table(id) => self.tables.retain(|d| d.id != id),
-            Tab::Tileset(id) => self.tilesets.retain(|d| d.id != id),
+            Tab::Tileset(id) => {
+                // (What Check found is current where the file on disk is
+                // what was checked; else Problems says why not, M4's U20.)
+                if let Some(d) = self.tilesets.iter().find(|d| d.id == id) {
+                    let (path, dirty) = (d.path.clone(), d.is_dirty());
+                    crate::tileset_view::closed(self, &path, dirty);
+                }
+                self.tilesets.retain(|d| d.id != id)
+            }
             // (Lines typed for the module's fields are the module's: its
             // own changes are dropped, those kept.)
             Tab::TalkTable if self.talk.as_ref().is_some_and(|t| t.has_typed_unsaved()) => {
@@ -519,6 +532,10 @@ impl Moonglow {
             .or_else(|| self.undo_keys.clone())
             .or_else(|| self.undo_before_bars.clone().filter(|_| self.pointer_on_bars))
             .or_else(|| self.pointer_on_bars.then(|| self.worked_side_editor()).flatten())
+            // (Never the module's talk table while the tab shows the game's
+            // dialog.tlk over it, from whatever it was noted by: Undo, Redo,
+            // their labels and tips are then the module's.)
+            .filter(|tab| *tab != Tab::TalkTable || self.game_talk.is_none())
     }
 
     /// The side editor (or the talk table's) the user last worked in
@@ -651,34 +668,37 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         Cancel,
     }
     let mut answer = None;
-    widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("side-doc-closing")).show(ctx, |ui| {
-        ui.label(format!("Save changes to {title}?"));
-        if let Some(failed) = &failed {
-            // (A path is long: wide enough to read in a few lines.)
-            ui.set_min_width(440.0);
-            ui.add(
-                egui::Label::new(egui::RichText::new(failed).color(ui.visuals().error_fg_color))
+    let footed = widgets::modal(ctx, "Unsaved Changes")
+        .id(egui::Id::new("side-doc-closing"))
+        .show_foot(ctx, |ui| {
+            ui.label(format!("Save changes to {title}?"));
+            if let Some(failed) = &failed {
+                // (A path is long: wide enough to read in a few lines.)
+                crate::widgets::fit_min_width(ui, 440.0);
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(failed).color(ui.visuals().error_fg_color),
+                    )
                     .wrap(),
-            );
-        }
-        if more > 0 {
-            ui.weak(format!(
-                "{more} more {} unsaved changes after this.",
-                if more == 1 { "tab has" } else { "tabs have" }
-            ));
-        }
-        ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
-                answer = Some(Answer::Save);
+                );
             }
-            if ui.button("Don't Save").clicked() {
-                answer = Some(Answer::DontSave);
+            if more > 0 {
+                ui.weak(format!(
+                    "{more} more {} unsaved changes after this.",
+                    if more == 1 { "tab has" } else { "tabs have" }
+                ));
             }
-            if widgets::cancel(ui) {
-                answer = Some(Answer::Cancel);
-            }
+            ((), widgets::Foot::new().main("Save", true).button("Don't Save", true).cancel())
         });
-    });
+    if let Some(f) = footed {
+        if f.pressed.main() {
+            answer = Some(Answer::Save);
+        } else if f.pressed.clicked("Don't Save") {
+            answer = Some(Answer::DontSave);
+        } else if f.pressed.cancelled() {
+            answer = Some(Answer::Cancel);
+        }
+    }
     match answer {
         None => {}
         // (Nothing more is asked, and what waited for the answers is not

@@ -624,6 +624,27 @@ impl UsageIndex {
         out
     }
 
+    /// [`strref_usages`](Self::strref_usages) of `strref` in `module`, read
+    /// one resource at a time and `stop` asked between them (the talk
+    /// table editor's References panel, on a thread of its own): `None`
+    /// where it was stopped. What it finds is what an index of the module
+    /// finds.
+    pub fn strref_usages_until(
+        module: &Module,
+        strref: u32,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<Vec<Usage>> {
+        let mut index = UsageIndex::default();
+        for key in module.keys() {
+            if stop() {
+                return None;
+            }
+            let Some(data) = module.shared(key) else { continue };
+            index.seen.insert(*key, Read::of(*key, data));
+        }
+        Some(index.strref_usages(strref))
+    }
+
     /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.
     pub fn mentions(&self, name: &str, ignore_case: bool, codepage: Codepage) -> Vec<Mention> {
         self.mentions_of(name.as_bytes(), ignore_case, codepage)

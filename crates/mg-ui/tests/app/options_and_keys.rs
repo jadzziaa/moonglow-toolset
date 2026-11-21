@@ -380,7 +380,7 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Manual).is_some());
     // The menu shows the new key.
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
     assert!(h.query_by_label_contains("Ctrl+M").is_some() || cfg!(target_os = "macos"));
     h.key_press(egui::Key::Escape);
@@ -400,8 +400,8 @@ fn keys_remapped_in_options_and_used() {
         ws.doc(&key).unwrap().root.list("StartingList").map_or(0, <[_]>::len)
     };
     assert_eq!(starts(&mut h), 0);
-    // (The conversation editor's: the module tree and the palettes have one too.)
-    let at = h.get_all_by_label("Expand All").last().unwrap().rect().center();
+    // (Over the conversation's lines, its Root.)
+    let at = h.get_all_by_label("Root").last().unwrap().rect().center();
     h.hover_at(at);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
@@ -615,7 +615,7 @@ fn menus_by_the_keyboard() {
     h.get_by_label("File").click();
     h.run();
     assert!(shown(&h, "Save As"));
-    h.get_by_label("Edit").hover();
+    menu(&h, "Edit").hover();
     h.run();
     h.run();
     h.run();
@@ -626,9 +626,13 @@ fn menus_by_the_keyboard() {
 fn the_user_manual_opens_from_help_and_follows_its_links() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
-    h.get_by_label_contains("User Manual").click();
+    // (The menu's, which says its key: the Welcome page's User Manual has
+    // the same role and none.)
+    let page =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().label().as_deref() == Some("User Manual");
+    h.get_all_by_label_contains("User Manual").find(|n| !page(n)).unwrap().click();
     h.run();
     // The contents, with the chapters beside them.
     h.get_by_label("Moonglow Toolset: User Manual");
@@ -636,8 +640,12 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     let listed =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     assert!(h.get_all_by_label("Troubleshooting").any(|n| listed(&n)));
-    // A link in the text opens its chapter in place.
-    h.get_all_by_label("Getting started").find(|n| !listed(n)).unwrap().click();
+    // A link in the text opens its chapter in place. (The manual's, nearest
+    // its title: the Welcome page under it has a Getting started link too.)
+    let title = h.get_by_label("Moonglow Toolset: User Manual").rect().center();
+    let near = |n: &egui_kittest::Node<'_>| (n.rect().center() - title).length() as i32;
+    let link = h.get_all_by_label("Getting started").filter(|n| !listed(n)).min_by_key(near);
+    link.unwrap().click();
     h.run();
     h.get_by_label("What you need");
     // The chapter list picks another.
@@ -675,9 +683,12 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.get_all_by_label("The main window").find(|n| listed(n)).unwrap().click();
     h.run();
     follow(&mut h, "whose each area is", "Claimed areas");
-    h.get_by_label("Help").click();
+    h.get_by_label("Top Bar").get_by_label("Help").click();
     h.run();
-    h.get_by_label("About Moonglow Toolset").click();
+    // (The menu's: the Welcome page's is a link.)
+    let link = egui::accesskit::Role::Link;
+    let about = h.get_all_by_label("About Moonglow Toolset");
+    about.into_iter().find(|n| n.accesskit_node().role() != link).unwrap().click();
     h.run();
     h.get_by_label(&format!("Version {}", mg_core::release::version()));
 }
@@ -739,12 +750,12 @@ fn the_graphics_backend_is_chosen_in_options() {
 }
 
 /// The Top Bar draws its quick actions as icons alone, each with a tip
-/// that names it (with its key, disabled or not), whatever Options ›
-/// General › Editors' toolbar buttons says: that setting (Icons only,
-/// kept in the settings) is the editors' toolbars', and the area view's
-/// still honors it, its buttons icons alone at once.
+/// that names it (with its key, disabled or not). Options › General has
+/// no "Toolbar buttons" since M4's U23 (Part 2, decision 6): the Top Bar's
+/// buttons are icons with tips, and every editor's header yields by its
+/// width alone.
 #[test]
-fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
+fn the_top_bar_draws_icons_with_tips_and_options_has_no_toolbar_buttons() {
     let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
     let quick = [
@@ -754,42 +765,12 @@ fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
         ("Undo", mg_uikit::Icon::Undo),
         ("Redo", mg_uikit::Icon::Redo),
     ];
-    let rects = |h: &Harness<'_, Moonglow>| quick.map(|(n, _)| tool(h, n).rect());
-    let before = rects(&h);
-    for ((name, icon), r) in quick.iter().zip(before) {
-        assert!(icon_drawn(&h, *icon, r), "{name}'s icon");
+    for (name, icon) in quick {
+        let r = tool(&h, name).rect();
+        assert!(icon_drawn(&h, icon, r), "{name}'s icon");
         // (An icon button, 22 square: no words.)
         assert!(r.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{name} {r:?}");
     }
-    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-    h.run();
-    h.get_by_label("General").click();
-    h.run();
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let both = |n: &egui_kittest::Node<'_>| {
-        n.accesskit_node().value().as_deref() == Some("Icons and text")
-    };
-    // (Below the Editors section: brought into sight, its list below it.)
-    h.query_all(combo.clone())
-        .find(both)
-        .expect("the editors' toolbar buttons' dropdown")
-        .scroll_to_me();
-    h.run();
-    h.query_all(combo).find(both).unwrap().click();
-    h.run();
-    h.get_by_label("Icons only").click();
-    h.run();
-    h.get_by_label("OK").click();
-    h.run();
-    assert!(h.state().settings.toolbar_icons_only);
-    let saved = serde_json::to_string(&h.state().settings).unwrap();
-    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
-    assert!(back.toolbar_icons_only, "kept");
-    let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
-    assert!(!old.toolbar_icons_only, "icons and text in settings from before");
-    h.run();
-    // The Top Bar as it was: the setting is not its.
-    assert_eq!(rects(&h), before, "the Top Bar's quick actions where they were");
     // A tip named for the button, with its key.
     let new = tool(&h, "New").rect().center();
     h.hover_at(new);
@@ -808,22 +789,25 @@ fn the_top_bar_draws_icons_with_tips_and_the_area_toolbar_honors_the_setting() {
     let tip = h.get_by_label_contains("Save module").accesskit_node();
     let tip = tip.label().or(tip.value()).unwrap_or_default();
     assert!(tip.starts_with("Save module ("), "named, with its key: {tip}");
-    h.state_mut().settings.toolbar_icons_only = false;
-    h.run();
-    assert_eq!(rects(&h), before, "and back");
 
-    // The area view's toolbar honors it: its words go, and come back.
-    let Some((mut h, _)) = area_harness("top-bar-area-icons") else { return };
-    let wide = area_tool(&h, "Reorient Camera").rect().width();
-    let top_bar = rects(&h);
-    h.state_mut().settings.toolbar_icons_only = true;
-    h.run_steps(2);
-    let now = area_tool(&h, "Reorient Camera").rect().width();
-    assert!(now < wide && now <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{wide} -> {now}");
-    assert_eq!(rects(&h), top_bar, "the Top Bar as it was");
-    h.state_mut().settings.toolbar_icons_only = false;
-    h.run_steps(2);
-    assert_eq!(area_tool(&h, "Reorient Camera").rect().width(), wide);
+    // Options › General: every section, and no Toolbar buttons among them.
+    h.hover_at(egui::pos2(5.0, 790.0));
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    h.get_by_label("General").click();
+    settle(&mut h);
+    // (The section's, not the Welcome page's chapter link.)
+    let link = egui::accesskit::Role::Link;
+    assert!(h.get_all_by_label("Troubleshooting").any(|n| n.accesskit_node().role() != link));
+    for gone in ["Toolbar buttons", "Editors' toolbar buttons", "Icons and text", "Icons only"] {
+        assert!(h.query_by_label_contains(gone).is_none(), "{gone} is retired");
+    }
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let toolbar = |n: &egui_kittest::Node<'_>| {
+        let v = n.accesskit_node().value().unwrap_or_default();
+        v.contains("Icons")
+    };
+    assert!(h.query_all(combo).find(toolbar).is_none(), "no Icons and text dropdown");
 }
 
 /// Options › General › Light theme: the window's theme follows the
@@ -873,13 +857,25 @@ fn the_theme_is_set_in_options() {
     assert_eq!(mg_uikit::applied(&h.ctx), Some(Theme::Light));
 }
 
-/// Options › General › Editors' toolbar buttons, Icons only, in the editors'
-/// toolbars too (ShadowM's request): the script editor's and the
-/// conversation editor's buttons show their glyphs alone and take less
-/// room, each named in its tip and by its name for a screen reader; with
-/// Icons and text, their words alone, as before.
+/// The editors' headers' icon buttons, as ShadowM asked for them (once
+/// Options' "Toolbar buttons: Icons only", retired in M4's U23): the
+/// script editor's Used By an icon, named for a screen reader, with the
+/// tip saying what it does; the conversation editor's toggles named and
+/// said to be on or off; each header as wide whatever an old settings
+/// file says of the setting.
+/// `settings` as read from a file of before M4's U23 that also says
+/// `toolbar_icons_only: on` (the field retired): read whole, nothing
+/// left unread.
+fn with_old_toolbar_field(settings: &mg_ui::Settings, on: bool) -> mg_ui::Settings {
+    let text = settings.saved_text();
+    let old = text.replacen('(', &format!("(toolbar_icons_only:{on},"), 1);
+    let (read, unread) = mg_ui::Settings::read_fields(&old).expect("an old file reads");
+    assert!(unread.is_empty(), "{unread:?}");
+    read
+}
+
 #[test]
-fn the_editors_toolbars_show_icons_only_when_asked() {
+fn the_editors_headers_show_named_icons() {
     let dir = mg_testkit::scratch_dir("ui-editor-icons-only");
     let path = sample_module(&dir);
     let script = ResKey::parse("hello", ResType::NSS).unwrap();
@@ -903,10 +899,12 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script)));
     h.run_steps(3);
     let words = width(&h, &scripts);
-    h.state_mut().settings.toolbar_icons_only = true;
+    // (An old file with the setting on: read into the window, nothing
+    // moves.)
+    h.state_mut().settings = with_old_toolbar_field(&h.state().settings, true);
     h.run_steps(3);
     let glyphs = width(&h, &scripts);
-    assert!(glyphs < words * 0.6, "the script's toolbar narrower: {glyphs} of {words}");
+    assert_eq!(glyphs, words, "the script's header as it was");
     // (Each an icon button, named by its words, its icon drawn.)
     let used_by = h.get_by_label("Used By").rect();
     assert!(used_by.width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "{used_by:?}");
@@ -914,9 +912,8 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.get_by_label("Used By").hover();
     // (A tooltip waits a moment.)
     h.run_steps(60);
-    h.get_by_label("Used By\nWhere the module runs or includes this script");
+    h.get_by_label("Where the module runs or includes this script");
     h.hover_at(egui::pos2(5.0, 790.0));
-    h.state_mut().settings.toolbar_icons_only = false;
     h.run_steps(3);
     let tab = h.state().dock.find_tab(&Tab::Script(script)).unwrap();
     h.state_mut().dock.remove_tab(tab);
@@ -924,10 +921,10 @@ fn the_editors_toolbars_show_icons_only_when_asked() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(talk)));
     h.run_steps(3);
     let words = width(&h, &lines);
-    h.state_mut().settings.toolbar_icons_only = true;
+    h.state_mut().settings = with_old_toolbar_field(&h.state().settings, false);
     h.run_steps(3);
     let glyphs = width(&h, &lines);
-    assert!(glyphs < words * 0.6, "the conversation's toolbar narrower: {glyphs} of {words}");
+    assert_eq!(glyphs, words, "the conversation's header as it was");
     // The toggles still toggle, said to be on or off.
     h.get_by_label("Comments").click();
     h.run_steps(2);
@@ -1030,10 +1027,12 @@ fn the_theme_s_chevrons_and_row_hover_are_drawn() {
         assert!(chevrons(&h, combo, t.text_2) >= 1, "a combo box's chevron ({light})");
         assert_eq!(triangles(&h, combo), 0, "no triangle in a combo box ({light})");
         // A list's row under the pointer: the Options' pages.
-        let row = h.get_by_label("Area").rect();
+        // (The page's row, not the Area page's words in General.)
+        let page = || egui_kittest::kittest::by().role(egui::accesskit::Role::Button).label("Area");
+        let row = h.get(page()).rect();
         h.hover_at(row.center());
         settle(&mut h);
-        let row = h.get_by_label("Area").rect();
+        let row = h.get(page()).rect();
         assert_eq!(row.height(), mg_uikit::metrics::ROW_HEIGHT);
         let fills: Vec<egui::Rect> = drawn(&h)
             .iter()

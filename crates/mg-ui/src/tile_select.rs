@@ -1,5 +1,5 @@
 //! Selecting tiles in the area viewer (Aurora's Select Terrain mode), and
-//! the Tile Properties window.
+//! the Tile Properties panel.
 //!
 //! - In tile mode a click selects the tile under the pointer (Shift + click
 //!   adds it, Ctrl + click adds or removes it; past the area's edge, none)
@@ -14,13 +14,16 @@
 //!   with tiles selected step them too), Delete and Tile Properties. A tile brush without a right click of its own
 //!   opens it too, on the tile clicked; out of tile mode the area's menu
 //!   starts with the tile's items (`ground_items`) where no object is.
-//! - Tile Properties sets the selected tiles' main and source light colours
-//!   and animation loops (ARE `Tile_*`), each control enabled only where a
-//!   tile's model has that light or loop (`mg_area::TileFeatures`; with
-//!   several tiles, where any has it), the others greyed out, as Aurora
-//!   shows them. Each tile is written only what its own model has.
-//!   Defaults puts back the lighting scheme's first colours and the loops.
-//! - Its Replacement Texture (EE's `Tile_ReplaceTex`, which Aurora's
+//! - Tile Properties (the Right Dock's lower section while Select Tiles
+//!   is on: M4's U5, the AreaTiles board; [`panel`]) shows the selected
+//!   tiles, the first one's values, and follows the selection. It sets
+//!   their main and source light colors and animation loops (ARE
+//!   `Tile_*`), each control enabled only where a tile's model has that
+//!   light or loop (`mg_area::TileFeatures`; with several tiles, where
+//!   any has it), the others grayed out, as Aurora shows them. Each tile
+//!   is written only what its own model has. Defaults puts back the
+//!   lighting scheme's first colors and the loops.
+//! - Its Replacement texture (EE's `Tile_ReplaceTex`, which Aurora's
 //!   window hasn't got) is the `replacetexture.2da` row a mesh of the
 //!   tile's model drawn with `replace_tex` is drawn with, enabled where a
 //!   tile's model has one: a row chosen is written as its number plus one
@@ -31,13 +34,12 @@
 //!   fit) offers every tile of the tileset, any one put in the tiles as it
 //!   is, turned as chosen, nothing around it fitted to it (issue #29); its
 //!   Turn turns the tiles chosen at once, each as it is.
-//! - Every change shows in the area as it is made: the lights, loops and
-//!   height are the window's own step to undo (`write_draft`: taken back
-//!   and written again on each change, so one step however many), OK keeps
-//!   it, Cancel takes it back (`take_back`). A tile put in from the
-//!   pictures, or turned, is a step of its own, put under the window's
-//!   (`put_in`), and stays on Cancel. Closed with changes (its X, Escape),
-//!   it asks: Save (keep), Don't Save (take back) or Cancel.
+//! - There is no OK or Cancel: each change is one step to undo on every
+//!   tile chosen, written at once (a Height dragged is one step for the
+//!   drag), and only the control changed is written: a control chosen,
+//!   even to the value the first tile shows, goes to every tile that has
+//!   it; one not touched writes nothing. A tile put in from the pictures,
+//!   or turned, is a step of its own. Ctrl+Z takes a change back.
 //! - A tile of a group or a feature changes only with its group (the
 //!   steps, the variants, Delete takes the whole group), unless Options ›
 //!   Area allows editing them (`Grid::free_groups`).
@@ -56,16 +58,21 @@ use crate::terrain_mode::current_grid;
 /// A cell and the tiles that fit there, each with its model's name.
 pub type Variants = ((u32, u32), Vec<(mg_tiles::Placement, String)>);
 
-/// The Tile Properties window's values.
+/// The Tile Properties panel's tiles and values: read from the area as
+/// the selection or the area changes ([`panel`]), and changed by its
+/// controls; what differs from what was read is written at once.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TileProps {
     pub area: ResRef,
     /// The tiles it sets, by index in `Tile_List`.
     pub tiles: Vec<usize>,
-    /// How many times the ARE's lists had been rewritten as it opened
+    /// How many times the ARE's lists had been rewritten as it read them
     /// ([`mg_edit::Workspace::rewrites`]): once they are again, its
-    /// indices may be other tiles', and it closes ([`tiles_moved`]).
+    /// indices may be other tiles', and it reads them again.
     pub rewrites: u64,
+    /// The workspace's revision as it read them: at another, it reads them
+    /// again (a change of its own, Ctrl+Z, a brush, a paste, a plugin).
+    pub revision: u64,
     pub main: [u8; 2],
     pub source: [u8; 2],
     pub loops: [bool; 3],
@@ -75,64 +82,48 @@ pub struct TileProps {
     pub has_source: [bool; 2],
     pub has_loops: [bool; 3],
     /// Whether any of the tiles' models has a mesh drawn with
-    /// `replace_tex`: Replacement Texture is enabled.
+    /// `replace_tex`: Replacement texture is enabled.
     pub has_replace: bool,
-    /// Replacement Texture: the first tile's `Tile_ReplaceTex` (1, row 0,
+    /// Replacement texture: the first tile's `Tile_ReplaceTex` (1, row 0,
     /// for a tile without the field, as the client draws it).
     pub replace: u8,
-    /// The replacement texture the window opened with (or took up).
+    /// The replacement texture read.
     pub opened_replace: u8,
     /// What each tile's own model has, by `tiles`' order: what is written
     /// into that tile (the rest of its fields are kept as they are).
     pub has_each: Vec<mg_area::TileFeatures>,
-    /// The values the window opened with (or took up after a variant was
-    /// put in): a control whose value differs from it is set.
+    /// The values read (the first tile's): a control whose value differs
+    /// from it is changed, and written.
     pub opened: ([u8; 2], [u8; 2], [bool; 3]),
-    /// The controls chosen in the window, by [`FIELDS`]' order, even to
-    /// the value they had: each is written into every tile that has it,
-    /// the others keep each tile's own.
+    /// The controls chosen since they were read, by [`FIELDS`]' order,
+    /// even to the value they had: each is written into every tile that
+    /// has it, the others keep each tile's own.
     pub touched: [bool; 8],
-    /// The tiles' `Tile_List` structs before the window changed them, by
-    /// `tiles`' order: what Cancel puts back where its own step is no
-    /// longer the last command.
-    pub base: Vec<mg_gff::Struct>,
-    /// The workspace's revision just after the window last wrote its own
-    /// step (one command, "Tile Properties"): while it is the revision,
-    /// that step is the last command, and a change takes it back and
-    /// writes it anew (one step however many changes). `None`: nothing of
-    /// the window's is in the area.
-    pub live: Option<u64>,
-    /// A step of the window's was found under another command (one made
-    /// elsewhere, or the window's own undone): `base` stays as the window
-    /// opened, for Cancel.
-    pub buried: bool,
-    /// What the window last wrote: a frame that changes nothing writes
-    /// nothing.
-    pub written: Option<Draft>,
-    /// Closed with changes: Save, Don't Save or Cancel is asked.
-    pub closing: bool,
     /// With one tile chosen, a larger group's or a feature's, which
     /// changes only with its group: its variants aren't offered (a group
     /// of one tile, a staircase, is not one).
     pub grouped: bool,
-    /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
+    /// The light whose color is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
     /// With one tile chosen: its cell and the tiles that fit there, in
     /// the order Next Variant steps through them, each with its model.
     pub variants: Option<Variants>,
     /// The tile there now.
     pub variant: Option<mg_tiles::Placement>,
-    /// The tiles' cells, by `tiles`' order.
+    /// The tiles' cells, by `tiles`' order (the selection's).
     pub cells: Vec<(u32, u32)>,
     /// Height: the tiles' `Tile_Height`, in the tileset's height steps,
     /// set alone (nothing around them fitted to them); `None` while the
     /// tiles have different heights and none is chosen (shown as mixed).
     pub height: Option<i32>,
-    /// The height the window opened with.
+    /// The height read.
     pub opened_height: Option<i32>,
     /// The first tile's height, which a mixed Height steps from.
     pub first_height: i32,
-    /// One height step, metres (the tileset's `Transition`).
+    /// The first tile's tile in the tileset (`Tile_ID`), whose model's
+    /// textures are listed.
+    pub first_id: i64,
+    /// One height step, meters (the tileset's `Transition`).
     pub step: f32,
     /// A tile of a group or feature is among them without the rest of its
     /// group, which changes only whole (unless Options › Area allows
@@ -140,7 +131,7 @@ pub struct TileProps {
     pub height_locked: bool,
     /// All tiles (ignore fit): every tile of the tileset offered as
     /// pictures, any of them put in the tiles chosen as it is, nothing
-    /// around fitted to it (#29). Off as the window opens.
+    /// around fitted to it (#29). Off as the panel first shows tiles.
     pub all_tiles: bool,
     /// The quarter turns (counter-clockwise) a tile chosen among all of
     /// them is put in with.
@@ -148,22 +139,12 @@ pub struct TileProps {
     /// Every tile of the tileset, with its model's name.
     pub every: Vec<(u32, String)>,
     /// What All tiles' search finds: tiles by their model's name or their
-    /// number in the tileset (empty as the window opens).
+    /// number in the tileset.
     pub find: String,
-    /// The tiles' `Tile_List` structs as the window last read or wrote
-    /// them, and the workspace's revision then: where they are otherwise
-    /// now (the window's own step undone with Ctrl+Z, or redone; a brush,
-    /// a paste or a plugin on them), the window reads them again
-    /// ([`reread`]).
-    pub seen: Vec<mg_gff::Struct>,
-    pub seen_at: u64,
-    /// Every value the window has written into the tiles (the latest of
-    /// each control), across its readings again: what Cancel takes back
-    /// where the tiles still have it.
-    pub wrote: Option<Draft>,
-    /// The tiles as the window's own step left them, the last time it
-    /// wrote one: that step redone (Ctrl+Y after Ctrl+Z) is its own again.
-    pub own: Option<Vec<mg_gff::Struct>>,
+    /// The workspace's revision just after a Height being dragged wrote
+    /// its step: while the drag goes on, that step is taken back and
+    /// written again, one step for the drag.
+    pub live: Option<u64>,
 }
 
 /// The most height steps up or down Tile Properties' Height sets (the
@@ -199,17 +180,6 @@ pub struct Draft {
 }
 
 impl Draft {
-    /// This draft with what `later` sets over it (a control `later` sets,
-    /// at `later`'s value; the others as here).
-    fn and(&self, later: &Draft) -> Draft {
-        let pick = |k: usize| if later.set[k] { later.values[k] } else { self.values[k] };
-        Draft {
-            values: std::array::from_fn(pick),
-            set: std::array::from_fn(|k| self.set[k] || later.set[k]),
-            height: later.height.or(self.height),
-        }
-    }
-
     /// The value of control `k` and whether a tile with features `has`
     /// takes it.
     fn field(&self, k: usize, has: &mg_area::TileFeatures) -> Option<Value> {
@@ -224,7 +194,8 @@ impl Draft {
 }
 
 impl TileProps {
-    /// What the window's controls say to write.
+    /// What the panel's controls say to write: those changed since the
+    /// tiles were read.
     pub fn draft(&self) -> Draft {
         let (main, source, loops) = self.opened;
         let values = [
@@ -261,13 +232,6 @@ impl TileProps {
         let height =
             self.height.filter(|_| !self.height_locked && self.height != self.opened_height);
         Draft { values, set, height }
-    }
-
-    /// Whether the window has changed the tiles (or is set to): closed
-    /// other than by OK, it asks whether to keep that.
-    pub fn changed(&self) -> bool {
-        let d = self.draft();
-        self.live.is_some() || d.set.iter().any(|s| *s) || d.height.is_some()
     }
 }
 
@@ -423,7 +387,7 @@ pub(crate) fn input(
 }
 
 /// Copies the selected tiles (Aurora: within a tileset).
-fn copy_tiles(app: &mut Moonglow, view: &AreaView) -> Option<TileClip> {
+pub(crate) fn copy_tiles(app: &mut Moonglow, view: &AreaView) -> Option<TileClip> {
     let g = current_grid(app, view)?;
     let tools = view.terrain.as_ref()?;
     let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
@@ -564,21 +528,34 @@ pub(crate) fn context_menu(
     }
     // Properties last, as in Aurora's menus.
     mg_uikit::menu_separator(ui);
-    if ui.button("Tile Properties…").clicked() {
+    if ui.button(PROPERTIES_ITEM).on_hover_text(PROPERTIES_TIP).clicked() {
         properties_of(app, view, &cells);
         ui.close();
     }
 }
 
-/// Opens Tile Properties for `cells`: out of tile mode, the tile selection
-/// (which the window is opened on) is left as it was, so that the view
-/// doesn't show a tile selected that nothing selects.
+/// The tile menu's item that shows Tile Properties, and its tip.
+pub(crate) const PROPERTIES_ITEM: &str = "Tile Properties";
+const PROPERTIES_TIP: &str =
+    "Select Tiles with these tiles selected, their properties in the Right Dock";
+
+/// Shows Tile Properties for `cells` (the tile menu's item): Select Tiles
+/// taken, if it isn't the tool in hand (a brush put down: the shelf's one
+/// tool at a time), with `cells` selected, and the Right Dock's Tile
+/// Properties panel shown (its header toggle turned on). Nothing in a
+/// read-only area, which takes no Select Tiles.
 pub(crate) fn properties_of(app: &mut Moonglow, view: &mut AreaView, cells: &[(u32, u32)]) {
-    let kept = std::mem::replace(&mut view.tile_selection, cells.to_vec());
-    open_properties(app, view);
-    if !view.tile_mode {
-        view.tile_selection = kept;
+    use crate::area_view::tools::{AreaTool, choose, tool_of};
+    if tool_of(app, view) != AreaTool::Tiles {
+        choose(app, view, AreaTool::Tiles);
     }
+    if !view.tile_mode {
+        return;
+    }
+    view.selection.clear();
+    view.tile_selection = cells.to_vec();
+    app.settings.hide_tile_properties = false;
+    app.actions.push(crate::Action::ShowPanel(crate::Panel::TileProperties));
 }
 
 /// The tile menu's steps, on the tiles in `cells`: as the tiles
@@ -626,7 +603,8 @@ pub(crate) fn ground_items(
 ) {
     mg_uikit::menu_heading(ui, format!("Tile ({}, {})", t.0, t.1));
     tile_items(app, view, ui, &[t]);
-    if ui.button("Tile Properties…").clicked() {
+    // (Offered only in an area that may be changed: `editing_items`.)
+    if ui.button(PROPERTIES_ITEM).on_hover_text(PROPERTIES_TIP).clicked() {
         properties_of(app, view, &[t]);
         ui.close();
     }
@@ -851,16 +829,13 @@ impl TileValues {
     }
 }
 
-/// Opens Tile Properties for the selected tiles, with the first one's
-/// values, as the workspace has them (the view may not have caught up
-/// with a change just made).
-fn open_properties(app: &mut Moonglow, view: &AreaView) {
-    let Some(tools) = view.terrain.as_ref() else { return };
-    let Some(are) =
-        app.ws.as_mut().and_then(|ws| ws.doc(&ResKey::new(view.area, ResType::ARE)).ok())
-    else {
-        return;
-    };
+/// Tile Properties of the selected tiles, with the first one's values,
+/// as the workspace has them (the view may not have caught up with a
+/// change just made); `None` where they can't be read (no tileset, a
+/// tile past the area's list).
+fn read_props(app: &mut Moonglow, view: &AreaView) -> Option<TileProps> {
+    let tools = view.terrain.as_ref()?;
+    let are = app.ws.as_mut().and_then(|ws| ws.doc(&ResKey::new(view.area, ResType::ARE)).ok())?;
     let width = are.root.integer("Width").unwrap_or(0).max(0) as u32;
     let list = are.root.list("Tile_List").unwrap_or(&[]).to_vec();
     let rewrites =
@@ -869,7 +844,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         view.tile_selection.iter().map(|&(x, y)| (y * width + x) as usize).collect();
     let base: Vec<mg_gff::Struct> = tiles.iter().filter_map(|&i| list.get(i).cloned()).collect();
     if base.len() != tiles.len() || base.is_empty() {
-        return;
+        return None;
     }
     let values: Vec<TileValues> = base.iter().map(TileValues::of).collect();
     let first = &values[0];
@@ -923,12 +898,9 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
     let loops = [0, 1, 2].map(|k| first.loops[k] && has.loops[k]);
     let (main, source, replace) = (first.main, first.source, first.replace);
-    let seen_at = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
-    app.tile_props = Some(TileProps {
-        seen: base.clone(),
-        seen_at,
-        wrote: None,
-        own: None,
+    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+    Some(TileProps {
+        revision,
         area: view.area,
         variants,
         variant,
@@ -946,24 +918,21 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         has_each,
         opened: (main, source, loops),
         touched: [false; 8],
-        base,
         live: None,
-        buried: false,
-        written: None,
-        closing: false,
         grouped,
         picking: None,
         cells,
         height,
         opened_height: height,
         first_height: first.height,
+        first_id: first.id,
         step: tools.set.general.transition,
         height_locked,
         all_tiles: false,
         turn: 0,
         every,
         find: String::new(),
-    });
+    })
 }
 
 /// lightcolor.2da's toolset colours (TOOLSETRED, GREEN, BLUE, 0 to 1).
@@ -979,20 +948,26 @@ pub(crate) fn light_colors(app: &Moonglow) -> Vec<Color32> {
         .collect()
 }
 
-/// A colour swatch button.
+/// A color swatch button (`.swatch`: 36 by 22 of `raised`, `raised-hover`
+/// under the pointer, the color 3 in from its edges with a dark outline;
+/// the one chosen ringed in `accent`; grayed, `text-off`'s ground).
 fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(28.0, 22.0),
+        egui::vec2(36.0, mg_uikit::metrics::CONTROL_HEIGHT),
         if enabled { egui::Sense::click() } else { egui::Sense::hover() },
     );
-    let fill = if enabled { color } else { ui.visuals().widgets.noninteractive.bg_fill };
-    ui.painter().rect_filled(rect, 2.0, fill);
-    let stroke = if selected {
-        egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent)
-    } else {
-        ui.visuals().widgets.noninteractive.bg_stroke
-    };
-    ui.painter().rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
+    let t = mg_uikit::tokens(ui.ctx());
+    let ground = if enabled && response.hovered() { t.raised_hover } else { t.raised };
+    ui.painter().rect_filled(rect, 3.0, ground);
+    let inner = rect.shrink(3.0);
+    let fill = if enabled { color } else { color.gamma_multiply(0.35) };
+    ui.painter().rect_filled(inner, 2.0, fill);
+    let outline = egui::Stroke::new(1.0, Color32::from_black_alpha(90));
+    ui.painter().rect_stroke(inner, 2.0, outline, egui::StrokeKind::Outside);
+    if selected {
+        let ring = egui::Stroke::new(2.0, t.accent);
+        ui.painter().rect_stroke(rect, 3.0, ring, egui::StrokeKind::Inside);
+    }
     response
 }
 
@@ -1005,137 +980,169 @@ fn named(r: &egui::Response, name: &str, enabled: bool) {
 /// tileset's environment map (`EnvMap`).
 fn tile_model(app: &Moonglow, props: &TileProps) -> Option<(String, Option<String>)> {
     let tools = app.area_views.get(&props.area)?.terrain.as_ref()?;
-    let id = usize::try_from(props.seen.first()?.integer("Tile_ID")?).ok()?;
+    let id = usize::try_from(props.first_id).ok()?;
     let tile = tools.set.tiles.get(id)?;
     Some((tile.model.clone(), tools.set.general.env_map.clone()))
 }
 
-/// Whether Tile Properties' tiles may have left their places in the list
-/// since it opened (Rotate Area, Resize Area, their undo, the list set
-/// whole, the file read again): if so it closes, writing nothing, for its
-/// indices may be other tiles' (GitHub issue 31).
-fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
-    let key = ResKey::new(props.area, ResType::ARE);
-    let moved = app.ws.as_ref().is_none_or(|ws| ws.rewrites(&key) != props.rewrites);
-    if moved {
-        app.log.info(format!(
-            "Area {}: its tiles were laid out anew; Tile Properties closed",
-            props.area
-        ));
+/// The words after Tile Properties' title in its header (the AreaTiles
+/// board's "6 tiles", GalleryTiles' "Tile (4, 4)"): the tiles selected in
+/// the area `editor` is, or none.
+pub(crate) fn detail(app: &Moonglow, editor: Option<&crate::Tab>) -> String {
+    let Some(crate::Tab::Area(area)) = editor else { return String::new() };
+    let selected = app.area_views.get(area).map(|v| v.tile_selection.as_slice()).unwrap_or(&[]);
+    match selected {
+        [] => "none selected".into(),
+        [(x, y)] => format!("Tile ({x}, {y})"),
+        many => format!("{} tiles", many.len()),
     }
-    moved
 }
 
-/// Tile Properties, in its tab, and its colour picker.
-pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
-    let ctx = &ui.ctx().clone();
-    let Some(props) = app.tile_props.take() else { return };
-    if tiles_moved(app, &props) {
-        return;
+/// What the panel says with no tile selected.
+pub const NO_TILES: &str = "Click a tile to see its properties here, or drag a box over several.";
+
+/// Tile Properties of the tiles selected in `area`, as the panel is to
+/// show them: those it has (with what was changed in it), or read again
+/// where the selection, the area or its tiles have changed since (what
+/// the panel shows but the tiles don't have: All tiles, its Turn and
+/// search, the color being chosen, a Height being dragged, kept for the
+/// same tiles). `None` with no tile selected or none to read.
+fn props_now(app: &mut Moonglow, area: ResRef) -> Option<TileProps> {
+    // (Another area's panel drawn in the frame too, a dragged out area's
+    // beside a docked one: its own kept apart, not read again each frame.)
+    let was = match app.tile_props.take() {
+        Some(p) if p.area != area => {
+            app.tile_props_aside.insert(p.area, p);
+            app.tile_props_aside.remove(&area)
+        }
+        was => was,
+    };
+    let view = app.area_views.get(&area)?;
+    let cells = view.tile_selection.clone();
+    if cells.is_empty() {
+        return None;
     }
-    let mut props = reread(app, props);
+    let key = ResKey::new(area, ResType::ARE);
+    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+    let rewrites = app.ws.as_ref().map_or(0, |ws| ws.rewrites(&key));
+    let same_tiles = |p: &TileProps| p.area == area && p.cells == cells;
+    if was
+        .as_ref()
+        .is_some_and(|p| same_tiles(p) && p.revision == revision && p.rewrites == rewrites)
+    {
+        return was;
+    }
+    let view = app.area_views.remove(&area)?;
+    let read = read_props(app, &view);
+    app.area_views.insert(area, view);
+    let mut now = read?;
+    if let Some(p) = was.filter(|p| same_tiles(p) && p.rewrites == rewrites) {
+        (now.all_tiles, now.turn, now.find) = (p.all_tiles, p.turn, p.find);
+        (now.picking, now.live) = (p.picking, p.live);
+    }
+    Some(now)
+}
+
+/// Tile Properties, the Right Dock's panel while Select Tiles is on (or
+/// the area's window's, where it is dragged out): the tiles selected in
+/// the area `editor` is, and its color picker. Each change is written at
+/// once, as one step to undo ([`write_changes`]).
+pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate::Tab>) {
+    let Some(crate::Tab::Area(area)) = editor.cloned() else { return };
+    // (The pane F6 is at outlined, as the other panes are.)
+    let keys = crate::palette_view::Keys::TileProperties;
+    crate::palette_view::keys_outline(ui, ui.max_rect(), keys);
+    let focus = std::mem::take(&mut app.tile_props_focus);
+    let Some(mut props) = props_now(app, area) else {
+        let none = app.area_views.get(&area).is_none_or(|v| v.tile_selection.is_empty());
+        ui.add_space(4.0);
+        ui.weak(if none { NO_TILES } else { "These tiles can't be read." });
+        return;
+    };
+    let ctx = &ui.ctx().clone();
     let mut picked = None;
     let mut pick = None;
+    let mut defaults_asked = false;
+    let mut dragging = false;
+    // (The first control F6 gives the focus to.)
+    let mut first: Option<egui::Id> = None;
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
-    let mut cancel = false;
-    let mut escape = false;
-    let mut done = None;
-    {
-        {
-            egui::Grid::new("tile_props").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-                for k in 0..2 {
-                    ui.add_enabled(
-                        props.has_main[k],
-                        egui::Label::new(format!("Main Light {}", k + 1)),
-                    );
-                    let main =
-                        swatch(ui, color(usize::from(props.main[k])), props.has_main[k], false);
-                    named(&main, &format!("Main Light {} Color", k + 1), props.has_main[k]);
-                    if main.on_hover_text("Click here to select a color").clicked() {
-                        props.picking = Some(k);
-                    }
-                    // (One the tiles don't have shows unchecked, as Aurora's.)
-                    let mut none = false;
-                    let on = if props.has_loops[k] { &mut props.loops[k] } else { &mut none };
-                    let r = ui
-                        .add_enabled(
-                            props.has_loops[k],
-                            mg_uikit::Checkbox::new(on, format!("Animation Loop {}", k + 1)),
-                        )
-                        .on_hover_text("Check to play this tile animation");
-                    props.touched[4 + k] |= r.changed();
-                    ui.end_row();
-                }
-                for k in 0..2 {
-                    ui.add_enabled(
-                        props.has_source[k],
-                        egui::Label::new(format!("Source Light {}", k + 1)),
-                    );
+    egui::ScrollArea::vertical().id_salt("tile-props-scroll").auto_shrink([false, false]).show(
+        ui,
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            mg_uikit::section_heading(ui, "Lights and Loops");
+            egui::Grid::new("tile_props").num_columns(3).spacing([10.0, 6.0]).show(ui, |ui| {
+                for row in 0..4 {
+                    // Main lights 1 and 2, then source lights 1 and 2; the
+                    // loops beside the first three.
+                    let (source, k) = (row >= 2, row % 2);
+                    let has = if source { props.has_source[k] } else { props.has_main[k] };
+                    let words = match source {
+                        true => format!("Source light {}", k + 1),
+                        false => format!("Main light {}", k + 1),
+                    };
+                    label_cell(ui, &words, has);
                     // A source light's value v shows as lightcolor row 2v.
-                    let source = swatch(
-                        ui,
-                        color(2 * usize::from(props.source[k])),
-                        props.has_source[k],
-                        false,
-                    );
-                    named(&source, &format!("Source Light {} Color", k + 1), props.has_source[k]);
-                    if source.on_hover_text("Click here to select a color").clicked() {
-                        props.picking = Some(2 + k);
+                    let shown = match source {
+                        true => color(2 * usize::from(props.source[k])),
+                        false => color(usize::from(props.main[k])),
+                    };
+                    let r = swatch(ui, shown, has, false);
+                    named(&r, &format!("{words} color"), has);
+                    if has {
+                        first.get_or_insert(r.id);
                     }
-                    if k == 0 {
+                    if r.on_hover_text("Click here to select a color").clicked() {
+                        props.picking = Some(row);
+                    }
+                    if row < 3 {
+                        // (One the tiles don't have shows unchecked, as
+                        // Aurora's.)
                         let mut none = false;
-                        let on = if props.has_loops[2] { &mut props.loops[2] } else { &mut none };
+                        let on =
+                            if props.has_loops[row] { &mut props.loops[row] } else { &mut none };
                         let r = ui
                             .add_enabled(
-                                props.has_loops[2],
-                                mg_uikit::Checkbox::new(on, "Animation Loop 3"),
+                                props.has_loops[row],
+                                mg_uikit::Checkbox::new(on, format!("Animation loop {}", row + 1)),
                             )
                             .on_hover_text("Check to play this tile animation");
-                        props.touched[6] |= r.changed();
+                        props.touched[4 + row] |= r.changed();
                     }
                     ui.end_row();
                 }
             });
-            height_row(ui, &mut props);
-            replacement_row(app, ui, &mut props);
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("Defaults").clicked() {
-                    done = Some(false);
+            egui::Grid::new("tile_props_form").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+                dragging = height_row(ui, &mut props);
+                replacement_row(app, ui, &mut props);
+                ui.label("");
+                let tip = "The lighting scheme's first colors, and the loops";
+                let r = ui.button("Defaults");
+                first.get_or_insert(r.id);
+                if r.on_hover_text(tip).clicked() {
+                    defaults_asked = true;
                 }
-                if ui.button("OK").on_hover_text("Keep the changes, shown in the area").clicked()
-                    || crate::widgets::enter(ui)
-                {
-                    done = Some(true);
-                }
-                // (Its Cancel takes back what changed; Escape, as its X
-                // does, asks first: `may_close`.)
-                let undo = "Set the tiles back as they were when the window opened";
-                if ui.button("Cancel").on_hover_text(undo).clicked() {
-                    cancel = true;
-                }
+                ui.end_row();
             });
-            // (Escape in the search field is the field's: it clears it.)
-            if crate::widgets::escape_here(ui) && !crate::widgets::escape_left_search(ctx) {
-                escape = true;
-            }
             // The textures of the tile's model (of the first, of several),
             // as the area has it now (a variant put in shows its own).
             if let Some((model, env)) = tile_model(app, &props) {
-                ui.separator();
                 let note = (props.tiles.len() > 1)
                     .then(|| format!("The first of the {} tiles chosen.", props.tiles.len()));
                 let place = crate::model_textures::Place {
                     area_env: env.as_deref(),
-                    max_height: Some((ui.available_height() * 0.45).clamp(160.0, 420.0)),
+                    max_height: Some(320.0),
                     open: false,
-                    note,
+                    note: None,
                 };
-                crate::model_textures::section(app, ui, "tile-props", &model, place);
+                crate::model_textures::section(app, ui, ("tile-props", props.area), &model, place);
+                if let Some(note) = note {
+                    ui.weak(note);
+                }
             }
             if props.grouped {
-                ui.separator();
                 ui.weak(
                     "A tile of a group or a feature: it changes only with its group, so other \
                      tiles aren't offered here (Options › Area › Allow editing tiles of groups \
@@ -1145,20 +1152,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             // All tiles (ignore fit): an explicit switch, the fit-only
             // variants as ever with it off (#29).
             let free = !props.grouped && !props.cells.is_empty();
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                let all = ui
-                    .add_enabled(free, mg_uikit::Checkbox::new(&mut props.all_tiles, ALL_TILES))
-                    .on_hover_text(
-                        "Offer every tile of the tileset, whether it fits its neighbors or not",
-                    );
-                if !free {
-                    all.on_disabled_hover_text(
-                        "A tile of a group or a feature changes only with its group",
-                    );
-                }
-                if props.all_tiles && free {
-                    ui.separator();
+            let all = ui
+                .add_enabled(free, mg_uikit::Checkbox::new(&mut props.all_tiles, ALL_TILES))
+                .on_hover_text(
+                    "Offer every tile of the tileset, whether it fits its neighbors or not",
+                );
+            if !free {
+                all.on_disabled_hover_text(
+                    "A tile of a group or a feature changes only with its group",
+                );
+            }
+            if props.all_tiles && free {
+                ui.horizontal_wrapped(|ui| {
                     crate::widgets::field_label(ui, "Turn");
                     for (k, name) in ["0°", "↺90°", "↺180°", "↺270°"].iter().enumerate() {
                         let r = ui.selectable_value(&mut props.turn, k as u8, *name).on_hover_text(
@@ -1169,10 +1174,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                             pick = Some(Pick::Turn(k as u8));
                         }
                     }
-                }
-            });
-            if props.all_tiles && free {
-                ui.separator();
+                });
                 let side = variant_side(app);
                 // (Found by the search: by model name, or by number.)
                 let needle = mg_core::text::Needle::new(&props.find);
@@ -1185,19 +1187,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 let all = props.every.len();
                 ui.horizontal(|ui| {
                     let count = match found.len() {
-                        n if n == all => format!("All Tiles ({all} in the tileset)"),
-                        n => format!("All Tiles ({n} of {all})"),
+                        n if n == all => format!("All tiles ({all} in the tileset)"),
+                        n => format!("All tiles ({n} of {all})"),
                     };
                     ui.label(count).on_hover_text(
                         "Every tile of the tileset, turned as chosen. Click one to put it here.",
                     );
                     size_slider(app, ui, side);
                 });
-                // (Of the window's visible width, its clear button beside:
-                // as wide as the room offered, the window grew with it.)
-                let seen = ui.clip_rect().right() - ui.cursor().left();
-                let room = ui.available_width().min(seen) - 30.0;
-                crate::widgets::SearchField::new(egui::Id::new("tile-all-search"), &mut props.find)
+                let room = ui.available_width() - 30.0;
+                let id = egui::Id::new(("tile-all-search", props.area));
+                crate::widgets::SearchField::new(id, &mut props.find)
                     .hint(ALL_TILES_SEARCH)
                     .clear_tip("Show every tile")
                     .find_over()
@@ -1211,9 +1211,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             } else if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1)
             {
-                // The tile's variants: as many across as the tab is wide,
-                // the rest of its height theirs.
-                ui.separator();
+                // The tile's variants: as many across as the panel is
+                // wide, in the panel's own scroll.
                 let side = variant_side(app);
                 ui.horizontal(|ui| {
                     ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
@@ -1221,30 +1220,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     );
                     size_slider(app, ui, side);
                 });
-                // (A picture's column: its side, the grid's gap and the
-                // spacing after it; the scroll bar's room off the width.)
-                let stride = side + 6.0 + ui.spacing().item_spacing.x;
-                let across = ((ui.available_width() - 16.0 + 6.0) / stride).floor().max(1.0);
-                egui::ScrollArea::vertical()
-                    .id_salt("tile-variants")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        egui::Grid::new("tile-variants").spacing([6.0, 6.0]).show(ui, |ui| {
-                            for (i, (p, model)) in variants.into_iter().enumerate() {
-                                let current = props.variant == Some(p);
-                                if variant_picture(app, ui, p, &model, current, side) {
-                                    picked = Some(p);
-                                }
-                                if i % across as usize == across as usize - 1 {
-                                    ui.end_row();
-                                }
-                            }
-                        });
-                    });
+                // (The kit's small cells, as many across as the panel is
+                // wide, 6 apart.)
+                let id = egui::Id::new(("tile-variants", props.area));
+                if let Some(p) = variant_pictures(app, ui, id, &variants, props.variant, side) {
+                    picked = Some(p);
+                }
             }
-        }
+        },
+    );
+    if focus && let Some(id) = first {
+        ui.memory_mut(|m| m.request_focus(id));
     }
-    // The colour picker: lightcolor's 32 colours (16 for source lights).
+    // The color picker: lightcolor's 32 colors (16 for source lights).
     if let Some(which) = props.picking {
         let source = which >= 2;
         let current = if source {
@@ -1256,13 +1244,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         crate::widgets::dialog(ctx, "Select a Color", &mut keep)
             .collapsible(false)
             .resizable(false)
-            .show(ctx, |ui| {
+            .show_bare(ctx, |ui| {
                 egui::Grid::new("light_colors").spacing([4.0, 4.0]).show(ui, |ui| {
                     for row in 0..colors.len().min(32) {
                         if source && row % 2 == 1 {
                             continue;
                         }
-                        if swatch(ui, color(row), true, row == current).clicked() {
+                        let r = swatch(ui, color(row), true, row == current);
+                        // (Named by lightcolor's row, for a screen reader.)
+                        let n = if source { row / 2 } else { row };
+                        named(&r, &format!("Light color {n}"), true);
+                        if r.clicked() {
                             props.touched[which] = true;
                             if source {
                                 props.source[which - 2] = (row / 2) as u8;
@@ -1288,95 +1280,35 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     {
         pick = Some(Pick::Variant(p));
     }
-    // A tile put in: under the window's own step, which is written again
-    // over it (and the window takes up the tile put in).
+    // A tile put in: a step of its own; what the controls changed is
+    // written after it.
     if let Some(what) = pick {
-        props = put_in(app, props, what);
+        put_in(app, &mut props, what);
     }
-    if done == Some(false) {
+    if defaults_asked {
         defaults(app, &mut props);
     }
-    // Every change shows in the area at once.
-    write_draft(app, &mut props);
-    if done == Some(true) {
-        // (OK: what is written stays, one step to undo.)
-        return;
-    }
-    if cancel {
-        take_back(app, &mut props);
-        return;
-    }
-    if escape {
-        // (Not while the question is asked: its own Cancel takes Escape.)
-        if props.changed() {
-            props.closing = true;
-        } else {
-            return;
-        }
-    }
+    write_changes(app, &mut props, dragging);
     app.tile_props = Some(props);
 }
 
-/// Tile Properties closed (its X, Escape) with changes: the question a
-/// side editor's tab asks, Save, Don't Save or Cancel. Save keeps them as
-/// OK does, Don't Save takes them back as its Cancel button does; Cancel
-/// keeps the window open.
-pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
-    if !app.tile_props.as_ref().is_some_and(|p| p.closing) {
-        return;
-    }
-    // (Don't Save would write the tiles' old values where they no longer
-    // are.)
-    if let Some(props) = app.tile_props.take() {
-        if tiles_moved(app, &props) {
-            return;
-        }
-        app.tile_props = Some(props);
-    }
-    enum Answer {
-        Save,
-        DontSave,
-        Cancel,
-    }
-    let mut answer = None;
-    crate::widgets::modal(ctx, "Unsaved Changes").id(egui::Id::new("tile-props-closing")).show(
-        ctx,
-        |ui| {
-            ui.label("Save changes to Tile Properties?");
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    answer = Some(Answer::Save);
-                }
-                if ui.button("Don't Save").clicked() {
-                    answer = Some(Answer::DontSave);
-                }
-                if crate::widgets::cancel(ui) {
-                    answer = Some(Answer::Cancel);
-                }
-            });
-        },
-    );
-    match answer {
-        None => {}
-        Some(Answer::Save) => app.tile_props = None,
-        Some(Answer::DontSave) => {
-            if let Some(mut props) = app.tile_props.take() {
-                take_back(app, &mut props);
-            }
-        }
-        Some(Answer::Cancel) => {
-            if let Some(p) = app.tile_props.as_mut() {
-                p.closing = false;
-            }
-        }
+/// A label of Tile Properties' grids, bright where the tiles have what it
+/// names and in `text-off` where they don't.
+fn label_cell(ui: &mut egui::Ui, words: &str, enabled: bool) {
+    if enabled {
+        crate::widgets::field_label(ui, words);
+    } else {
+        ui.add_enabled(false, egui::Label::new(words));
     }
 }
 
 /// A variant's picture's side, in points: the usual, and the slider's
-/// least and most (the most is the pictures' own size, in pixels).
-const VARIANT: f32 = 84.0;
-const VARIANT_MIN: f32 = 64.0;
-const VARIANT_MAX: f32 = crate::model_view::THUMBNAIL as f32;
+/// least and most (the most is the pictures' own size, in pixels): the
+/// kit's small variant's.
+const VARIANT: f32 = mg_uikit::gallery::SMALL_DEFAULT;
+const VARIANT_MIN: f32 = mg_uikit::gallery::SMALL_MIN;
+const VARIANT_MAX: f32 = mg_uikit::gallery::SMALL_MAX;
+const _: () = assert!(VARIANT_MAX == crate::model_view::THUMBNAIL as f32);
 
 /// The variants' pictures' side, as their slider was last left.
 pub(crate) fn variant_side(app: &Moonglow) -> f32 {
@@ -1387,7 +1319,7 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
 pub const ALL_TILES_SEARCH: &str = "Search model, number";
 
 /// Tile Properties' All tiles switch's name.
-pub const ALL_TILES: &str = "All Tiles (Ignore Fit)";
+pub const ALL_TILES: &str = "All tiles (ignore fit)";
 
 /// The pictures' Size slider, beside their heading.
 fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {
@@ -1398,18 +1330,30 @@ fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {
     }
 }
 
-/// Tile Properties' Height: the tiles' `Tile_Height`, a step down or up
-/// with its buttons, or any number of steps typed or dragged; set alone,
-/// nothing around them fitted to them (#29).
-fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
+/// Tile Properties' Height, two rows of its form's grid: the tiles'
+/// `Tile_Height`, a step down or up with its buttons, or any number of
+/// steps typed or dragged, and under it what a step is; set alone,
+/// nothing around them fitted to them (#29). Whether the number is being
+/// dragged (one step for the drag: [`write_changes`]).
+fn height_row(ui: &mut egui::Ui, props: &mut TileProps) -> bool {
+    let locked = props.height_locked;
+    label_cell(ui, "Height", !locked);
+    let mut dragging = false;
     ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Height");
-        let locked = props.height_locked;
         ui.add_enabled_ui(!locked, |ui| {
+            // (Joined, as the boards draw the field between its buttons.)
+            ui.spacing_mut().item_spacing.x = 1.0;
             let mut v = props.height.unwrap_or(props.first_height);
             let mut set = None;
+            let step = |icon, name: &str, tip: &str, first: bool| {
+                mg_uikit::KitButton::new(Some(icon), name)
+                    .icon_only(true)
+                    .look(mg_uikit::ButtonLook::Raised)
+                    .joined(first, !first)
+                    .tip(tip)
+            };
             let tip = "A height step down for these tiles alone";
-            let down = crate::widgets::icon_button(ui, mg_uikit::Icon::Minus, "Lower Height", tip);
+            let down = ui.add(step(mg_uikit::Icon::Minus, "Lower Height", tip, true));
             if down.clicked() {
                 set = Some(v - 1);
             }
@@ -1419,34 +1363,44 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
                 // (The tiles have different heights: one typed sets them all.)
                 value = value.custom_formatter(|_, _| "Mixed".into());
             }
-            let r = ui.add(value).on_hover_text(
+            let r = ui.add_sized(egui::vec2(48.0, ui.spacing().interact_size.y), value).on_hover_text(
                 "The tiles' height in the tileset's height steps. Their neighbors don't change.",
             );
+            dragging = r.dragged();
             if r.changed() {
                 set = Some(v);
             }
             let tip = "A height step up for these tiles alone";
-            let up = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Raise Height", tip);
+            let up = ui.add(step(mg_uikit::Icon::Plus, "Raise Height", tip, false));
             if up.clicked() {
                 set = Some(v + 1);
             }
             if let Some(h) = set {
                 props.height = Some(h.clamp(-HEIGHT_RANGE, HEIGHT_RANGE));
             }
-            let at = match props.height {
-                Some(h) => format!("{} m", h as f32 * props.step),
-                None => "mixed".into(),
-            };
-            ui.weak(format!("steps of {} m: {at}", props.step));
         });
-        if locked {
-            ui.weak("(a group's tile, without the rest of its group)")
-                .on_hover_text("Select all of a group's or feature's tiles to raise or lower it");
-        }
     });
+    ui.end_row();
+    ui.label("");
+    let at = match props.height {
+        Some(h) => format!("{} m", h as f32 * props.step),
+        None => "mixed".into(),
+    };
+    ui.weak(format!("steps of {} m: {at}", props.step));
+    ui.end_row();
+    // (Grayed: why, as a line of its own, the tip saying what to do.)
+    if locked {
+        ui.label("");
+        let why = egui::Label::new(egui::RichText::new(HEIGHT_LOCKED).weak()).wrap();
+        ui.add(why)
+            .on_hover_text("Select all of a group's or feature's tiles to raise or lower it");
+        ui.end_row();
+    }
+    dragging
 }
 
-/// Tile Properties' Replacement Texture: the `replacetexture.2da` row the
+/// Tile Properties' Replacement texture, a row of its form's grid: the
+/// `replacetexture.2da` row the
 /// tiles' `replace_tex` is drawn with, chosen from the table's rows, each
 /// written as its number plus one (as the client reads the field); a
 /// value the client crashes on (0, or past the table) shown as such, said
@@ -1466,10 +1420,8 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
         })
         .unwrap_or_default();
     let enabled = props.has_replace;
+    label_cell(ui, REPLACEMENT, enabled);
     ui.horizontal(|ui| {
-        ui.add_enabled(enabled, egui::Label::new("Replacement Texture")).on_hover_text(
-            "What the tile's replace_tex meshes are drawn with: a row of replacetexture.2da",
-        );
         let row = mg_area::replacement_row(Some(i64::from(props.replace)), rows.len());
         let r = ui.add_enabled_ui(enabled, |ui| {
             let mut list = crate::widgets::row_choice(
@@ -1477,16 +1429,17 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
                 &rows,
                 row.map(|r| r as i64),
             )
-            .ordered();
+            .ordered()
+            // (To the panel's edge, as the AreaTiles board draws it.)
+            .width(ui.available_width())
+            .hover_text(
+                "What the tile's replace_tex meshes are drawn with: a row of replacetexture.2da",
+            );
             if row.is_none() {
                 list = list.shown(format!("{}: no row", props.replace));
             }
             list.show(ui)
         });
-        if row.is_none() {
-            let red = ui.visuals().error_fg_color;
-            ui.colored_label(red, "crashes the game as the area loads");
-        }
         if !enabled {
             r.response.on_disabled_hover_text(
                 "None of these tiles' models has a mesh drawn with replace_tex",
@@ -1498,7 +1451,25 @@ fn replacement_row(app: &Moonglow, ui: &mut egui::Ui, props: &mut TileProps) {
             props.touched[REPLACE] = true;
         }
     });
+    ui.end_row();
+    // (Under the box, in the panel's width: beside it, a dock 280 wide
+    // cut it off.)
+    if mg_area::replacement_row(Some(i64::from(props.replace)), rows.len()).is_none() {
+        ui.label("");
+        let red = ui.visuals().error_fg_color;
+        ui.add(egui::Label::new(egui::RichText::new(CRASHES).color(red)).wrap());
+        ui.end_row();
+    }
 }
+
+/// What Replacement texture says of a value the game crashes on.
+pub const CRASHES: &str = "crashes the game as the area loads";
+
+/// Why Tile Properties' Height is grayed, under it.
+pub const HEIGHT_LOCKED: &str = "(a group's tile, without the rest of its group)";
+
+/// Tile Properties' Replacement texture's label.
+pub const REPLACEMENT: &str = "Replacement texture";
 
 /// Every tile of the tileset as pictures, turned as Tile Properties'
 /// Turn says, as many across as the tab is wide; only the rows in sight
@@ -1511,44 +1482,24 @@ fn all_tiles_pictures(
     tiles: &[(u32, String)],
     side: f32,
 ) -> Option<mg_tiles::Placement> {
-    let stride = side + 6.0 + ui.spacing().item_spacing.x;
-    // (Of the window's visible width: a row wider than the window, the
-    // heading's, offers more room than it shows.)
-    let seen = ui.clip_rect().right() - ui.cursor().left();
-    let room = ui.available_width().min(seen);
-    let across = ((room - 16.0 + 6.0) / stride).floor().max(1.0) as usize;
-    let rows = tiles.len().div_ceil(across);
-    // (A picture's button, its padding, and its name under it.)
-    let pad = ui.spacing().button_padding.y * 2.0;
-    let name = ui.text_style_height(&egui::TextStyle::Small);
-    let row = side + pad + ui.spacing().item_spacing.y + name;
-    let mut picked = None;
-    egui::ScrollArea::vertical().id_salt("tile-all").auto_shrink([false, false]).show_rows(
-        ui,
-        row,
-        rows,
-        |ui, range| {
-            for r in range {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0 + ui.spacing().item_spacing.x;
-                    for (id, model) in tiles.iter().skip(r * across).take(across) {
-                        let p =
-                            mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 };
-                        let now = props
-                            .variant
-                            .is_some_and(|v| v.tile == *id && v.orientation == props.turn);
-                        ui.vertical(|ui| {
-                            ui.set_min_height(row);
-                            if variant_picture(app, ui, p, model, now, side) {
-                                picked = Some(p);
-                            }
-                        });
-                    }
-                });
-            }
-        },
-    );
-    picked
+    let list: Vec<(mg_tiles::Placement, String)> = tiles
+        .iter()
+        .map(|(id, model)| {
+            (mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 }, model.clone())
+        })
+        .collect();
+    // (A scroll of its own inside the panel's, as tall as the panel shows
+    // under its top: only the rows in sight drawn, however many.)
+    let shown = (ui.clip_rect().bottom() - ui.cursor().top()).max(240.0);
+    egui::ScrollArea::vertical()
+        .id_salt("tile-all")
+        .auto_shrink([false, false])
+        .max_height(shown)
+        .show(ui, |ui| {
+            let id = egui::Id::new(("tile-all-pictures", props.area));
+            variant_pictures(app, ui, id, &list, props.variant, side)
+        })
+        .inner
 }
 
 /// The edits that set the tiles of `heights` (`Tile_List` index and
@@ -1585,35 +1536,21 @@ enum Pick {
 ///   (keeping its lights), nothing around fitted to it.
 ///
 /// Both of the last are refused, as the brushes are, over a group's tile.
-/// The window's own step is taken back first and written again over the
-/// tile put in (by [`write_draft`]), so that the window's lights, loops and
-/// height are kept and its Cancel still takes back only them. The window
-/// is then of the tiles as they are now.
-fn put_in(app: &mut Moonglow, mut props: TileProps, what: Pick) -> TileProps {
-    let Some(mut view) = app.area_views.remove(&props.area) else { return props };
-    withdraw_own(app, &mut props);
-    // (Whatever happens, the draft is written again after.)
-    props.written = None;
-    let made = pick_command(app, &props, &mut view, what);
-    let Some((command, first)) = made else {
-        app.area_views.insert(props.area, view);
-        return props;
-    };
+/// The panel reads the tiles again after it ([`props_now`]); what its
+/// controls changed in the frame is written after it.
+fn put_in(app: &mut Moonglow, props: &mut TileProps, what: Pick) {
+    let Some(mut view) = app.area_views.remove(&props.area) else { return };
+    let made = pick_command(app, props, &mut view, what);
+    app.area_views.insert(props.area, view);
+    let Some((command, first)) = made else { return };
     if let Err(e) = app.apply(command)
         && !std::mem::take(&mut app.claims.held)
     {
         app.log.error(e.to_string());
     }
-    // The window of the tiles as they are now, its draft kept.
-    let cells = props.cells.clone();
-    properties_of(app, &mut view, &cells);
-    app.area_views.insert(props.area, view);
-    let Some(mut now) = app.tile_props.take() else { return props };
-    carry_draft(&props, &mut now);
     if matches!(what, Pick::Variant(_)) {
-        now.variant = Some(first);
+        props.variant = Some(first);
     }
-    now
 }
 
 /// The command [`put_in`] applies (and the tile put in first), from the
@@ -1693,84 +1630,80 @@ fn pick_command(
     Some((command, first))
 }
 
-/// Tile Properties opened again on its tiles (a tile put in): `now` takes
-/// what the window had set (`was`) over the tiles' new values, its step
-/// and how it shows the pictures.
-fn carry_draft(was: &TileProps, now: &mut TileProps) {
-    let draft = was.draft();
-    for k in 0..FIELDS.len() {
-        if !draft.set[k] {
-            continue;
-        }
-        now.touched[k] = true;
-        match k {
-            0 | 1 => now.main[k] = was.main[k],
-            2 | 3 => now.source[k - 2] = was.source[k - 2],
-            REPLACE => now.replace = was.replace,
-            _ => now.loops[k - 4] = was.loops[k - 4],
-        }
-    }
-    if let Some(h) = draft.height {
-        now.height = Some(h);
-    }
-    (now.all_tiles, now.turn, now.find) = (was.all_tiles, was.turn, was.find.clone());
-    (now.live, now.buried) = (was.live, was.buried);
-    (now.wrote, now.own) = (was.wrote.clone(), was.own.clone());
-    // (Where a step of the window's is under another command, the tiles
-    // as they were before it, for Cancel.)
-    if was.buried || was.live.is_some() {
-        now.base = was.base.clone();
-    }
-    now.written = None;
-}
-
-/// One variant in Tile Properties: its model's picture, turned as the
-/// tile would lie (the quarter turns written under it too), framed if it
-/// is the one there now, `side` points across; under the pointer, at its
-/// largest. Whether it was clicked.
-fn variant_picture(
+/// Tile Properties' variants (or All tiles'): each its model's picture,
+/// turned as the tile would lie, in the kit's small cells `side` points
+/// across, 6 apart, as many across as there is room, only the rows in
+/// sight drawn; its model's name under it in Hack, the quarter turns
+/// under that where it is turned, the one there now selected; under the
+/// pointer, at its largest beside the panel. The one clicked (or taken by
+/// Enter), if one is.
+fn variant_pictures(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
-    p: mg_tiles::Placement,
-    model: &str,
-    current: bool,
+    id: egui::Id,
+    list: &[(mg_tiles::Placement, String)],
+    now: Option<mg_tiles::Placement>,
     side: f32,
-) -> bool {
-    let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL);
-    let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, p.orientation));
-    let made = pictured.and_then(|k| app.thumbnails.get(k)).flatten();
-    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
-    let name = format!("{model}{turn}");
-    let r = ui
-        .vertical(|ui| {
-            ui.set_width(side);
-            let size = egui::vec2(side, side);
-            let r = match made {
-                Some(id) => ui.add(
-                    egui::Button::image(egui::Image::new((id, size)))
-                        .selected(current)
-                        .frame(current),
-                ),
-                None => ui.add_sized(size, egui::Button::new("…").selected(current)),
-            };
-            if current {
-                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
-                ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Outside);
-            }
-            ui.add(egui::Label::new(egui::RichText::new(&name).small()).truncate());
-            r
-        })
-        .inner;
-    let title = format!("Tile {}: {name}", p.tile);
-    let r = match made {
-        // (Larger, where the picture is shown smaller than it was made.)
-        Some(id) if side < VARIANT_MAX => r.on_hover_ui(|ui| {
-            ui.label(&title);
-            ui.add(egui::Image::new((id, egui::vec2(VARIANT_MAX, VARIANT_MAX))));
-        }),
-        _ => r.on_hover_text(title),
+) -> Option<mg_tiles::Placement> {
+    use mg_uikit::gallery;
+    const TURNS: [&str; 4] = ["", "↺90°", "↺180°", "↺270°"];
+    let pictured = |p: mg_tiles::Placement, model: &str| {
+        let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL)?;
+        Some(crate::model_view::Pictured::Tile(key, p.orientation))
     };
-    r.clicked()
+    let turned = list.iter().any(|(p, _)| p.orientation % 4 != 0);
+    let current = list.iter().position(|(p, _)| Some(*p) == now);
+    let keys = !crate::shell::keys_blocked(ui.ctx());
+    let grid = gallery::GalleryGrid::new(id, list.len(), side)
+        .small()
+        .label(gallery::label_height(true, 1, turned))
+        .cursor(current)
+        .keys_allowed(keys)
+        .name("Variants");
+    let panel = ui.clip_rect();
+    let (mut picked, mut hovered) = (None, None);
+    let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+        let (p, model) = &list[i];
+        let made = pictured(*p, model).and_then(|k| app.thumbnails.made(k));
+        let turn = TURNS[usize::from(p.orientation % 4)];
+        // (Said with its turn, "tcn01_a02_01 ↺90°", as before.)
+        let said = if turn.is_empty() { model.clone() } else { format!("{model} {turn}") };
+        gallery::GalleryCell::new(model, crate::widgets::cell_picture(made))
+            .said(&said)
+            .detail((!turn.is_empty()).then_some(turn))
+            .kind(mg_uikit::Icon::Tile)
+            .model(true)
+            .small(true)
+            .selected(Some(*p) == now)
+            .paint(ui, rect, tile, cell, r);
+        if r.clicked() {
+            picked = Some(*p);
+        }
+        if r.hovered() && !r.dragged() {
+            hovered = Some((rect, format!("Tile {}: {said}", p.tile), made.flatten()));
+        }
+    });
+    if let Some(i) = out.activated {
+        picked = Some(list[i].0);
+    }
+    // (Larger, beside the panel, where the picture is shown smaller than
+    // it was made: never over the cell it tells of.)
+    if let Some((cell, title, made)) = hovered {
+        // (Its picture's width and the frame's margins; its title alone, a
+        // tooltip's width.)
+        let width = if made.is_some() && side < VARIANT_MAX { VARIANT_MAX + 16.0 } else { 220.0 };
+        // (Measured anew for another tile, or its picture made.)
+        let what = (&title, made.is_some(), width as u32);
+        gallery::show_beside(ui.ctx(), id.with("enlarged"), cell, panel, width, what, |ui| {
+            ui.label(&title);
+            if let Some(id) = made.filter(|_| side < VARIANT_MAX) {
+                ui.add(egui::Image::new((id, egui::vec2(VARIANT_MAX, VARIANT_MAX))));
+            }
+        });
+    }
+    let ahead: Vec<_> = out.ahead.filter_map(|i| pictured(list[i].0, &list[i].1)).collect();
+    app.thumbnails.show(ahead);
+    picked
 }
 
 /// Defaults: the lighting scheme's first colours and every loop on (where
@@ -1824,47 +1757,42 @@ fn draft_edits(app: &mut Moonglow, props: &TileProps, draft: &Draft) -> Vec<Edit
     edits
 }
 
-/// The window's own step taken back, if it is still the last command (no
-/// redo left of it); otherwise it is left where it is (`buried`).
-fn withdraw_own(app: &mut Moonglow, props: &mut TileProps) {
-    let Some(at) = props.live else { return };
-    let Some(ws) = app.ws.as_mut() else { return };
-    if ws.revision() != at {
-        props.buried = true;
-        return;
-    }
-    match ws.withdraw() {
-        Ok(_) => props.live = None,
-        Err(e) => {
-            props.buried = true;
-            app.log.error(format!("Tile Properties: {e}"));
-        }
-    }
-}
-
-/// Writes the window's draft into the tiles, when it changed: its own
-/// step is taken back and written again (one step to undo however many
-/// changes, a height dragged too), so that the area shows it at once.
-/// Where another command has come after its step (made elsewhere, or the
-/// window's own undone), a new step is written over what is there.
-fn write_draft(app: &mut Moonglow, props: &mut TileProps) {
+/// Writes what the panel's controls changed into the tiles, at once, as
+/// one step to undo ("Tile Properties"): each tile only what its own
+/// model has, and only where it differs. A Height being dragged
+/// (`dragging`) writes one step for the drag: while it goes on, its own
+/// step (still the last command) is taken back and written again. The
+/// panel reads the tiles again after (the workspace's revision moved).
+fn write_changes(app: &mut Moonglow, props: &mut TileProps, dragging: bool) {
     let draft = props.draft();
-    if props.written.as_ref() == Some(&draft) {
+    let height_alone = !draft.set.iter().any(|s| *s) && draft.height.is_some();
+    if !draft.set.iter().any(|s| *s) && draft.height.is_none() {
+        if !dragging {
+            props.live = None;
+        }
         return;
     }
-    withdraw_own(app, props);
+    let Some(ws) = app.ws.as_mut() else { return };
+    // (Its own step, still the last command: the revision it left, and
+    // the command its.)
+    let own = ws.peek_undo().is_some_and(|c| c.label == "Tile Properties");
+    let again = dragging && height_alone && own && props.live == Some(ws.revision());
+    if again && let Err(e) = ws.withdraw() {
+        app.log.error(format!("Tile Properties: {e}"));
+    }
     let edits = draft_edits(app, props, &draft);
-    props.written = Some(draft);
+    props.live = None;
     if !edits.is_empty() {
+        let before = app.ws.as_ref().map(mg_edit::Workspace::revision);
         match app.apply(Command::new("Tile Properties", edits)) {
             Ok(()) => {
-                props.live = app.ws.as_ref().map(mg_edit::Workspace::revision);
-                let draft = props.written.clone().expect("just set");
-                props.wrote = Some(match props.wrote.take() {
-                    Some(was) => was.and(&draft),
-                    None => draft,
-                });
-                props.own = Some(tiles_now(app, props));
+                // (Only where it was written: `Moonglow::apply` says Ok to
+                // a command it leaves, of a resource open only to look at,
+                // and the step after must not take back another's.)
+                let now = app.ws.as_ref().map(mg_edit::Workspace::revision);
+                if dragging && height_alone && now != before {
+                    props.live = now;
+                }
             }
             Err(e) => {
                 if !std::mem::take(&mut app.claims.held) {
@@ -1873,115 +1801,10 @@ fn write_draft(app: &mut Moonglow, props: &mut TileProps) {
             }
         }
     }
-    // (What the window made of the tiles is what it has seen.)
-    note_seen(app, props);
-}
-
-/// The tiles' structs as the workspace has them now, by `tiles`' order.
-fn tiles_now(app: &mut Moonglow, props: &TileProps) -> Vec<mg_gff::Struct> {
-    let key = ResKey::new(props.area, ResType::ARE);
-    let Some(are) = app.ws.as_mut().and_then(|ws| ws.doc(&key).ok()) else { return Vec::new() };
-    let list = are.root.list("Tile_List").unwrap_or(&[]);
-    props.tiles.iter().filter_map(|&i| list.get(i).cloned()).collect()
-}
-
-/// Records the tiles as they are now as what the window has seen.
-fn note_seen(app: &mut Moonglow, props: &mut TileProps) {
-    props.seen = tiles_now(app, props);
-    props.seen_at = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
-}
-
-/// Tile Properties' tiles changed by something other than the window
-/// (its own step undone with Ctrl+Z, or redone; a brush, a paste or a
-/// plugin on them): the window reads them again and shows what they are
-/// now, and what is changed in it after is written from there (it kept
-/// showing its own values and wrote them all again at its next change).
-/// What Cancel puts back stays the tiles as the window opened; whether
-/// the window has a step of its own in the area is worked out again.
-fn reread(app: &mut Moonglow, props: TileProps) -> TileProps {
-    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
-    if revision == props.seen_at {
-        return props;
-    }
-    let mut props = props;
-    let now = tiles_now(app, &props);
-    if now == props.seen {
-        props.seen_at = revision;
-        return props;
-    }
-    let Some(mut view) = app.area_views.remove(&props.area) else { return props };
-    let cells = props.cells.clone();
-    properties_of(app, &mut view, &cells);
-    app.area_views.insert(props.area, view);
-    let Some(mut again) = app.tile_props.take() else { return props };
-    // Its own step: the last command again (redone, the tiles as it left
-    // them), taken back (undone: next in the redo list), or under another
-    // command (a change in the window then writes a step over that one).
-    let own = |c: Option<&Command>| c.is_some_and(|c| c.label == "Tile Properties");
-    let ws = app.ws.as_ref();
-    let redone = own(ws.and_then(|ws| ws.peek_undo())) && props.own.as_ref() == Some(&now);
-    let undone = props.live.is_some() && own(ws.and_then(|ws| ws.peek_redo()));
-    again.live = redone.then_some(revision);
-    again.buried = !redone && (props.buried || (props.live.is_some() && !undone));
-    (again.base, again.wrote, again.own) = (props.base, props.wrote, props.own);
-    (again.all_tiles, again.turn, again.find) = (props.all_tiles, props.turn, props.find);
-    (again.closing, again.picking) = (props.closing, props.picking);
-    // (Read as they are: nothing to write until a control is changed.)
-    again.written = Some(again.draft());
-    again
-}
-
-/// Cancel (and the close question's Don't Save): the tiles as they were
-/// when the window opened. Its own step, while it is the last command, is
-/// taken back (nothing left to redo). Where another command came after it,
-/// a step of its own ("Cancel Tile Properties") puts back what the window
-/// opened with, in the lights, loops and heights the window set and that
-/// still have its values (what was changed since, elsewhere, stays), what
-/// stands on the tiles moved back with them. A tile put in from the
-/// pictures is its own step, and stays (Undo takes it out).
-fn take_back(app: &mut Moonglow, props: &mut TileProps) {
-    withdraw_own(app, props);
-    if !props.buried && props.live.is_none() {
-        return;
-    }
-    // (Every value the window wrote, across its readings again.)
-    let draft = props.wrote.clone().or_else(|| props.written.clone());
-    let draft = draft.unwrap_or_else(|| props.draft());
-    let key = ResKey::new(props.area, ResType::ARE);
-    let Some(ws) = app.ws.as_mut() else { return };
-    let Ok(are) = ws.doc(&key) else { return };
-    let list = are.root.list("Tile_List").unwrap_or(&[]);
-    let mut edits = Vec::new();
-    let mut heights = Vec::new();
-    for (n, &i) in props.tiles.iter().enumerate() {
-        let (Some(current), Some(base)) = (list.get(i), props.base.get(n)) else { continue };
-        let has = props.has_each.get(n).copied().unwrap_or_default();
-        for (k, label) in FIELDS.iter().enumerate() {
-            if let Some(value) = draft.field(k, &has)
-                && current.get(label) == Some(&value)
-                && base.get(label) != Some(&value)
-            {
-                edits.push(Edit::SetField {
-                    key,
-                    path: GffPath::root().item("Tile_List", i),
-                    label: (*label).into(),
-                    value: base.get(label).cloned(),
-                });
-            }
-        }
-        let height = |s: &mg_gff::Struct| TileValues::of(s).height;
-        if draft.height.is_some_and(|h| height(current) == h && height(base) != h) {
-            heights.push((i, height(base)));
-        }
-    }
-    edits.extend(height_edits(ws, props.area, props.step, &heights));
-    props.live = None;
-    if !edits.is_empty()
-        && let Err(e) = app.apply(Command::new("Cancel Tile Properties", edits))
-        && !std::mem::take(&mut app.claims.held)
-    {
-        app.log.error(e.to_string());
-    }
+    // (Read again at the next frame, what was written then what the
+    // panel shows; nothing written leaves the tiles as they are, and the
+    // panel shows them so.)
+    props.revision = u64::MAX;
 }
 
 /// How long the tiles that refused a stroke stay red, in seconds.

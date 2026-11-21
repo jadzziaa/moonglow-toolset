@@ -32,7 +32,7 @@ use serde_json::{Map, json};
 
 /// The Visual page's fields: the lighting scheme, the sun's and the
 /// moon's colors, fog and shadows, day and night, the sky and the weather.
-/// What Give Every Area This Page's Settings, Copy From Area and saved
+/// What Copy This Page to Every Area, Copy From Area and saved
 /// lighting give an area.
 pub const VISUAL_FIELDS: &[&str] = &[
     "ChanceLightning",

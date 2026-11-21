@@ -1,6 +1,24 @@
 use super::super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 
+/// The header's Interact and Reset over the canvas (M4's U18: the
+/// canvas's row had them), for the cases that draw the canvas alone.
+fn header(ui: &mut Ui, state: &mut State) {
+    // (A panel of its own over the canvas: the canvas under it at whole
+    // pixels, as under the header.)
+    egui::Panel::top("test-header").exact_size(24.0).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let mut on = state.preview_interactive;
+            if ui.toggle_value(&mut on, "Interact").changed() {
+                state.interact(on);
+            }
+            if ui.add_enabled(on, egui::Button::new("Reset")).clicked() {
+                state.reset();
+            }
+        });
+    });
+}
+
 struct Case {
     doc: Value,
     settings: Settings,
@@ -14,6 +32,7 @@ fn harness(children: Value, settings: Settings) -> Harness<'static, Case> {
     doc["root"]["children"] = children;
     Harness::builder().with_size(egui::vec2(900.0, 850.0)).build_ui_state(
         |ui, t: &mut Case| {
+            header(ui, &mut t.state);
             preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
         },
         Case { doc, settings, state: State::default(), assets: skin::Assets::default() },
@@ -271,6 +290,7 @@ fn wrapped_preview_toolbar_stays_compact() {
             assets.loaded = true;
             let mut h = Harness::builder().with_size(egui::vec2(width, 760.0)).build_ui_state(
                 |ui, t: &mut Case| {
+                    header(ui, &mut t.state);
                     preview::canvas(ui, &mut t.doc, &t.settings, &mut t.state, &mut t.assets)
                 },
                 Case {

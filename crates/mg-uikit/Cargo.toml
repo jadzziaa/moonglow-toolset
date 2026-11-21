@@ -1,6 +1,6 @@
 [package]
 name = "mg-uikit"
-description = "The Moonglow suite's look: theme, color tokens, metrics, fonts, the drawn icon set, the form helpers and the shell's parts shared by Moonglow Toolset and Moonglow Viewer (egui, and egui_dock with the dock feature)"
+description = "The Moonglow suite's look: theme, color tokens, metrics, fonts, the drawn icon set, the form helpers and the shell's parts made for Moonglow Toolset and Moonglow Viewer (egui, and egui_dock with the dock feature)"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ publish.workspace = true
 
 # (Egui, and egui_dock only with the `dock` feature; no Moonglow crate:
 # Moonglow Viewer, which takes the toolset's crates by git tag and not
-# mg-ui, uses it too.)
+# mg-ui, is to use it too, from the redesign's M6.)
 [dependencies]
 egui.workspace = true
 egui_dock = { workspace = true, optional = true }

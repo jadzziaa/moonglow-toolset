@@ -168,17 +168,19 @@ fn the_eye_and_the_area_toolbar_s_show_toggle_are_one_state() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
     rest(&mut h);
     assert!(shown(&h) && pressed(&in_outliner(&h, "Show Waypoints")));
-    assert!(pressed(&area_tool(&h, "Show Waypoints")));
+    assert!(pressed(&area_tool(&mut h, "Show Waypoints")));
     in_outliner(&h, "Show Waypoints").click();
     until(&mut h, "hidden", |h| !shown(h));
     // (The toolbar drawn after the Outliner: the same frame; the eye the
     // next.)
-    until(&mut h, "the toolbar's toggle off", |h| !pressed(&area_tool(h, "Show Waypoints")));
+    until(&mut h, "the toolbar's toggle off", |h| {
+        !pressed(&area_tool_shown(h, "Show Waypoints").unwrap())
+    });
     until(&mut h, "the eye off", |h| !pressed(&in_outliner(h, "Show Waypoints")));
     assert!(h.state().area_views[&area].selection.is_empty(), "a hidden object is not selected");
     assert!(h.state().settings.hidden_in_areas.iter().any(|k| k == "Waypoints"), "kept");
     // The toolbar's toggle the other way.
-    area_tool(&h, "Show Waypoints").click();
+    area_click(&mut h, "Show Waypoints");
     until(&mut h, "shown", |h| shown(h));
     until(&mut h, "the eye on", |h| pressed(&in_outliner(h, "Show Waypoints")));
     // A row of a hidden kind: the kind shown, the object selected.
@@ -448,20 +450,25 @@ fn expand_all_and_collapse_all() {
 }
 
 /// One group is named "Outliner" (its header's name is apart); its eyes
-/// share their names with the area toolbar's Show toggles, each found in
+/// share their names with the area header's Show toggles, each found in
 /// its own group, and the kinds' and objects' rows are named apart from
 /// the module tree's rows of the same objects beside them.
 #[test]
 fn the_outliner_s_names_for_a_screen_reader() {
     let Some((mut h, area)) = outliner_harness("outliner-names", 1) else { return };
     assert_eq!(h.query_all_by_label(mg_ui::OUTLINER).count(), 1);
+    // (The header's toggles on its row, or in its Show popover in a
+    // compact header, opened.)
+    area_tool(&mut h, "Show Creatures");
     for kind in ObjectKind::ALL {
         let name = format!("Show {}", kind.label());
         let all: Vec<_> = h.query_all_by_label(&name).collect();
-        assert_eq!(all.len(), 2, "{name}: the toolbar's and the eye");
-        assert_eq!(all.iter().filter(|n| in_group(n, "Area toolbar")).count(), 1, "{name}");
+        assert_eq!(all.len(), 2, "{name}: the header's and the eye");
+        let header = |n: &&egui_kittest::Node<'_>| in_group(n, AREA_HEADER) || in_group(n, "Show");
+        assert_eq!(all.iter().filter(header).count(), 1, "{name}");
         assert_eq!(all.iter().filter(|n| in_group(n, mg_ui::OUTLINER)).count(), 1, "{name}");
     }
+    close_area_popover(&mut h);
     // The module tree's rows beside its own: none named alike. (The area
     // opened out in the tree by its arrow, its object selected.)
     h.get_by_label_contains("Placed Objects in ").click();

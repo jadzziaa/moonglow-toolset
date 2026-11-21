@@ -518,6 +518,42 @@ fn keep_aside(path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// The docks' layout for one kind of editor ([`Settings::dock_layouts`]),
+/// by the panels' names (`shell::Panel::name`): a name this version does
+/// not know is passed by, the section's first panel in front.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DockLayout {
+    /// The panel in front of each of the Right Dock's sections, from the
+    /// top (`""`: none chosen, its first).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fronts: Vec<String>,
+    /// Each section's share of the Right Dock's height, from the top, as
+    /// the builder dragged the seams between them: in thousandths of an
+    /// equal share (1000 each: equal; none kept, equal).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<u16>,
+    /// The Bottom Dock's panel in front, of the kind's own panels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<String>,
+    /// The Right Dock's first column's width where it stands in two (the
+    /// wide layout), as the builder dragged the seam between them (none:
+    /// the layout's, 340 or half the dock).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u16>,
+    /// The panel in front of the one tab bar the sections fold into in a
+    /// window under 1400, where it was chosen there (none: the first
+    /// section's front).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folded: Option<String>,
+    /// The Right Dock's width in the wide layout where the kind's dock
+    /// holds one panel alone (a form's Preview, M4's U11), as the builder
+    /// dragged its edge (none: 549); the two-column dock's is
+    /// [`Settings::right_dock_width_wide`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wide_width: Option<u16>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -566,6 +602,14 @@ pub struct Settings {
     pub sound_ranges: bool,
     /// The area view's Minimap switch is on, in views opened from now on.
     pub area_minimap: bool,
+    /// The area header's Overlays switch is off (the grid, the minimap,
+    /// the walkmeshes and the sound ranges not drawn, each kept as
+    /// ticked), in views opened from now on. An older Moonglow ignores it.
+    pub hide_overlays: bool,
+    /// The area header's Tile Properties toggle is off in Select Tiles:
+    /// the Right Dock shows no Tile Properties section (U5). An older
+    /// Moonglow ignores it.
+    pub hide_tile_properties: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,
@@ -577,8 +621,8 @@ pub struct Settings {
     /// them (in every area view). Off by default, as Aurora draws nothing
     /// there and the area's edge shows plainest so.
     pub tile_border: bool,
-    /// The 3D views' Shaders switch (the area view's toolbar, the model
-    /// view's): the game's own shaders draw what they can, a material's
+    /// The 3D views' Shaders switch (the area header's Lighting popover, the
+    /// model view's): the game's own shaders draw what they can, a material's
     /// custom ones among them (`docs/shaders-proposal.md`). `None`: as
     /// [`GAME_SHADERS_BY_DEFAULT`] has it, until the switch is used.
     pub game_shaders: Option<bool>,
@@ -586,7 +630,7 @@ pub struct Settings {
     /// on a ground under it that takes only shadows. `None`: on, until
     /// the switch is used.
     pub model_shadows: Option<bool>,
-    /// The kinds of objects the area view's toolbar hides (`Triggers`,
+    /// The kinds of objects the area header's Show toggles hide (`Triggers`,
     /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
     /// `Start` for the start location's marker; `Merchants`, as 1.35 and
     /// earlier wrote it, is read as `Stores`): every area view, the open
@@ -728,12 +772,62 @@ pub struct Settings {
     /// narrower window), each the width of its own layout. `None`: not
     /// chosen there, 741.
     pub right_dock_width_wide: Option<u32>,
+    /// The docks' layout for each kind of editor (by `Tab::kind`: "area",
+    /// "script"…), as the builder left it (M4's U2): which panel is in
+    /// front of each of the Right Dock's sections and of the Bottom Dock,
+    /// and the sections' shares of the dock's height; kept per kind, not
+    /// per document, as the docks' sizes are. Nothing is written until
+    /// something is chosen (a file with none reads empty), and kinds and
+    /// panels are kept by their names, so that a newer Moonglow's kind or
+    /// panel reads here, is kept, and is passed by (`DockLayout`). The
+    /// area's sections keep no front here: its Right Dock is on the tab
+    /// chosen last for the run, and on the Palette as a module opens.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub dock_layouts: std::collections::BTreeMap<String, DockLayout>,
     /// The Left Dock's seam over the Outliner, as the builder dragged it:
     /// the height of the panel above it (Module or Resources, its tab bar
     /// included), in whole points, kept as the docks' sizes are (drawn held
     /// to what the dock's height allows, kept as chosen). `None`: not
     /// chosen, the board's split (`mg_uikit::metrics::MODULE_PANEL`).
     pub module_panel_height: Option<u32>,
+    /// The same seam beside a conversation, where the Outliner lists its
+    /// bookmarks (M4's U15 review: the coordinator's ruling, a seam per
+    /// what the Outliner lists, so a drag beside a conversation never moves
+    /// the areas' and theirs never loses the bookmarks' 166). `None`: not
+    /// chosen, the Conversation board's (the Outliner 166 high). Written
+    /// only once chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bookmarks_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a
+    /// table, its columns (M4's U16: a seam per what the Outliner lists,
+    /// as the bookmarks'). `None`: not chosen, the Table board's (254).
+    /// Written only once chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a NUI
+    /// designer, its Layers (M4's U18: a seam of its own, as the columns').
+    /// `None`: not chosen, the NUI board's (416). Written only once chosen,
+    /// so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layers_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a
+    /// tileset, its parts (M4's U20: a seam of its own, as the Layers').
+    /// `None`: not chosen, the Tileset board's (394). Written only once
+    /// chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts_panel_height: Option<u32>,
+    /// The height of the Left Dock's panel over the Outliner beside a hak,
+    /// its types (M4's U21: a seam of its own, as the parts'). `None`: not
+    /// chosen, the Hak board's (412). Written only once chosen, so files
+    /// stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub types_panel_height: Option<u32>,
+    /// The Left Dock's panel over the Outliner beside the faction editor,
+    /// listing the factions (M4's U22: a seam of its own, as the types').
+    /// `None`: not chosen, the Factions board's (452). Written only once
+    /// chosen, so files stay as they were.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub factions_panel_height: Option<u32>,
     /// The docks' sizes were looked at once in this version's way
     /// (`shell::take_dock_sizes`, on the first frame): a size egui kept for
     /// a dock's panel in a version before the chosen sizes were kept apart
@@ -778,10 +872,6 @@ pub struct Settings {
     /// How large Tile Properties' variants' pictures are, points (their
     /// slider's; `None`: the usual size).
     pub tile_variant_side: Option<u16>,
-    /// The talk table editor's split: each table's (by its name, and
-    /// `+f` with a feminine table; the last changed first) share of the
-    /// tab given to the chosen line's text, thousandths.
-    pub talk_splits: Vec<(String, u16)>,
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
     /// the module tree (where it lists by name) and the palettes.
     pub name_resrefs: bool,
@@ -815,18 +905,13 @@ pub struct Settings {
     pub graphics_failures: Vec<GraphicsFailure>,
     /// The lit check's notice that the game's shaders draw wrong, hidden
     /// (Don't Show Again) on a GPU, driver and backend: Moonglow draws with
-    /// its own there without saying so under the toolbar, until the driver
+    /// its own there without saying so under the Top Bar, until the driver
     /// changes ([`crate::renderer_check::lit_found`]). Options › General
     /// shows it again.
     pub graphics_notices_hidden: Vec<GraphicsFailure>,
-    /// Options > General: Editors' toolbar buttons, Icons only: the area
-    /// view's and the editors' toolbar buttons show their glyphs alone,
-    /// their names in their tips (the default: Icons and text). The Top
-    /// Bar is icons either way.
-    pub toolbar_icons_only: bool,
-    /// Options › Area › Toolbar: the area view's toolbar's buttons left
+    /// Options › Area › Header: the area header's controls left
     /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as
-    /// "Show Creatures"). A builder's ask: a toolbar of what is used.
+    /// "Show Creatures"). A builder's ask: a header of what is used.
     pub hidden_area_tools: Vec<String>,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
@@ -1038,7 +1123,7 @@ pub struct Settings {
     #[serde(default)]
     pub turn_together: bool,
     /// The area view: what is placed goes onto the top of a placeable or
-    /// door under the pointer (the toolbar's Onto Objects), as Drop onto
+    /// door under the pointer (the area header's Onto Objects), as Drop onto
     /// Object sets it after; off, on the ground.
     #[serde(default)]
     pub place_onto_objects: bool,
@@ -1178,13 +1263,15 @@ impl Settings {
     /// `resources`), now the Left Dock's Resources panel, and for the
     /// palettes' (kind `palette`: `split left 300` where their pane was
     /// split off the middle's left), now the Right Dock's Palette panel,
-    /// which neither moves nor has a window; and every kind kept in the
+    /// which neither moves nor has a window; Tile Properties' place and
+    /// size (kind `tile-properties`), a window or tab before it was the
+    /// Right Dock's panel (M4's U5); and every kind kept in the
     /// palettes' pane (place `palettes`), which then opens where its kind
     /// opens. Nothing else changes, and run again it changes nothing
     /// more. ([`crate::Moonglow::with_settings`] runs it.)
     pub fn shell_migrate(&mut self) {
         // (The kinds of window that are panels now.)
-        const PANELS: [&str; 2] = ["resources", "palette"];
+        const PANELS: [&str; 3] = ["resources", "palette", "tile-properties"];
         let panel = |kind: &String| PANELS.contains(&kind.as_str());
         self.window_places.retain(|(kind, place)| !panel(kind) && place.trim() != "palettes");
         self.window_sizes.retain(|(kind, _)| !panel(kind));
@@ -1241,15 +1328,30 @@ impl Settings {
         else {
             return mine;
         };
-        let merged: Vec<String> = now
+        // (A setting written only where it is not empty, `dock_layouts`, is
+        // missing from a text that has none: missing is a value too, so
+        // that this window untouched takes theirs, and their Reset Layout
+        // is not undone by this window's unchanged one.)
+        let names: Vec<String> = (now.iter().map(|(n, _)| n.clone()))
+            .chain(was.keys().cloned())
+            .chain(theirs.keys().cloned())
+            .fold(Vec::new(), |mut all, n| {
+                if !all.contains(&n) {
+                    all.push(n);
+                }
+                all
+            });
+        let now: std::collections::HashMap<String, String> = now.into_iter().collect();
+        let merged: Vec<String> = names
             .into_iter()
-            .map(|(name, value)| {
-                let changed = was.get(&name) != Some(&value);
-                let kept = match theirs.get(&name) {
-                    Some(theirs) if !changed => theirs,
-                    _ => &value,
+            .filter_map(|name| {
+                let value = now.get(&name);
+                let changed = was.get(&name) != value;
+                let kept = match changed {
+                    false => theirs.get(&name),
+                    true => value,
                 };
-                format!("{name}:{kept}")
+                kept.map(|kept| format!("{name}:{kept}"))
             })
             .collect();
         // (What this version reads of it: a setting of theirs it can't
@@ -1470,6 +1572,21 @@ mod tests {
         let mut new = Settings::default();
         new.shell_migrate();
         assert_eq!(new, Settings::default());
+    }
+
+    /// Tile Properties' window of before its panel (M4's U5): its place
+    /// and size, from an older file's text, read without error and
+    /// dropped, the others kept; run again, nothing more.
+    #[test]
+    fn shell_migrate_drops_tile_properties_window_once() {
+        let old = r#"(window_places:[("tile-properties","split right 316"),("script","middle")],window_sizes:[("tile-properties",(560,640)),("dialog",(900,680))])"#;
+        let mut read: Settings = ron::from_str(old).expect("an older file reads");
+        read.shell_migrate();
+        assert_eq!(read.window_places, [("script".to_string(), "middle".to_string())]);
+        assert_eq!(read.window_sizes, [("dialog".to_string(), [900, 680])]);
+        let once = read.clone();
+        read.shell_migrate();
+        assert_eq!(read, once, "run again: nothing more");
     }
 
     /// The palettes' settings of before the Right Dock (M3 T5): their own
@@ -1975,6 +2092,58 @@ mod tests {
         assert_eq!(read.settings.open_editors, OpenEditors::Tabs, "no file");
     }
 
+    /// The docks' layouts per kind (M4's U2): nothing written until one
+    /// is chosen, so a file stays as it was; an older file reads with none;
+    /// kept and read back in RON and JSON; a newer Moonglow's kind and
+    /// panel names read here with nothing unread; and an older Moonglow
+    /// (without the field) reads a file that has them.
+    #[test]
+    fn the_docks_layouts_per_kind_read_and_write_both_ways() {
+        let plain = Settings::default();
+        assert!(!plain.saved_text().contains("dock_layouts"), "{}", plain.saved_text());
+        let (read, unread) = Settings::read_fields(&plain.saved_text()).unwrap();
+        assert!(read.dock_layouts.is_empty() && unread.is_empty());
+        let mut kept = Settings { light_theme: true, ..Default::default() };
+        let script = DockLayout {
+            fronts: vec!["Reference".into(), String::new()],
+            shares: vec![1400, 600],
+            bottom: Some("Compiler".into()),
+            column: Some(420),
+            folded: Some("Help".into()),
+            wide_width: Some(600),
+        };
+        kept.dock_layouts.insert("script".into(), script);
+        // (A newer one's kind, and a panel this version has no name for.)
+        let newer = DockLayout { fronts: vec!["Checks".into()], ..Default::default() };
+        kept.dock_layouts.insert("a-newer-editor".into(), newer);
+        let text = kept.saved_text();
+        assert!(text.contains("dock_layouts"), "{text}");
+        assert_eq!(Settings::read_fields(&text).unwrap(), (kept.clone(), Vec::new()));
+        let json = serde_json::to_string(&kept).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), kept);
+        // (An empty layout writes none of its parts.)
+        let bare = Settings {
+            dock_layouts: [("hak".to_string(), DockLayout::default())].into(),
+            ..Default::default()
+        };
+        assert!(bare.saved_text().contains("\"hak\":()"), "{}", bare.saved_text());
+        // (As a Moonglow without the field reads it.)
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Older {
+            light_theme: bool,
+            hide_log: bool,
+        }
+        let older: Older = ron::from_str(&text).unwrap();
+        assert!(older.light_theme && !older.hide_log, "{text}");
+        let older: Older = serde_json::from_str(&json).unwrap();
+        assert!(older.light_theme);
+        // (A layout with a part a newer one added reads, the part passed by.)
+        let added = text.replace("bottom:Some(\"Compiler\")", "bottom:Some(\"Compiler\"),split:2");
+        assert_ne!(added, text);
+        assert_eq!(Settings::read_fields(&added).unwrap(), (kept, Vec::new()));
+    }
+
     /// The settings 4.1.0 kept (before the shell's dock sizes), as RON and
     /// as JSON, read as the defaults with the log open, nothing unread and
     /// nothing put aside; a setting this version no longer has (or never
@@ -2125,6 +2294,28 @@ mod tests {
         std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
         assert_eq!(Settings::text_in_eframe_file(&path, "k"), Some(saved));
         assert_eq!(Settings::text_in_eframe_file(&path, "other"), None);
+        // The docks' layouts, written only where there are some: this
+        // window untouched takes the other's script layout; the other's
+        // Reset Layout (none left) is not undone by this window's
+        // unchanged ones; this window's own change is its.
+        let mut theirs = started.clone();
+        theirs.dock_layouts.insert(
+            "script".into(),
+            DockLayout { fronts: vec!["Reference".into()], ..Default::default() },
+        );
+        let merged: Settings =
+            ron::from_str(&started.saved_over(&started, &theirs.saved_text())).unwrap();
+        assert_eq!(merged.dock_layouts, theirs.dock_layouts, "theirs taken");
+        let reset = started.saved_text();
+        let merged: Settings = ron::from_str(&theirs.saved_over(&theirs, &reset)).unwrap();
+        assert!(merged.dock_layouts.is_empty(), "their reset kept: {:?}", merged.dock_layouts);
+        let mut mine = started.clone();
+        mine.dock_layouts.insert(
+            "area".into(),
+            DockLayout { fronts: vec!["Preview".into()], ..Default::default() },
+        );
+        let merged: Settings = ron::from_str(&mine.saved_over(&started, &reset)).unwrap();
+        assert_eq!(merged.dock_layouts, mine.dock_layouts, "this window's own");
     }
 
     /// A backend's failure is kept by GPU, driver and backend (one in place
@@ -2281,5 +2472,66 @@ mod tests {
         assert!(s.recent_areas(Path::new("c.mod")).is_empty());
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    /// A settings file from before M4's U23, as the tip wrote it (its
+    /// `saved_text`, with "Toolbar buttons" `toolbar_icons_only` true and
+    /// false, Part 2's decision 6): it reads without an error, nothing
+    /// unread or kept aside, by itself and from eframe's file; written
+    /// back the field is gone, and every other field is as it was written.
+    /// Another window's file from before, merged over, is the same; so is
+    /// the JSON a plugin is shown.
+    #[test]
+    fn an_old_file_with_toolbar_buttons_reads_and_is_written_without_it() {
+        let files = [
+            (true, include_str!("../tests/fixtures/settings-tip-icons-only-true.ron")),
+            (false, include_str!("../tests/fixtures/settings-tip-icons-only-false.ron")),
+        ];
+        let dir = mg_testkit::scratch_dir("settings-old-toolbar-buttons");
+        let key = "moonglow-settings";
+        for (on, text) in files {
+            let text = text.trim_end();
+            assert!(text.contains(&format!("toolbar_icons_only:{on},")), "the tip's file");
+            let (read, unread) = Settings::read_fields(text).expect("it reads");
+            assert!(unread.is_empty(), "{unread:?}");
+            let back = read.saved_text();
+            assert!(!back.contains("toolbar_icons_only"), "written without it");
+            let old = fields_of(text).expect("fields");
+            let kept: Vec<_> = old.into_iter().filter(|(n, _)| n != "toolbar_icons_only").collect();
+            // (Two fields came after the file, from develop's Builders'
+            // asks: written at their defaults, the rest as it was.)
+            let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
+                .expect("fields")
+                .into_iter()
+                .partition(|(n, _)| !kept.iter().any(|(k, _)| k == n));
+            let defaults = [("tree_tags", "false"), ("appearance_portrait", "false")]
+                .map(|(n, v)| (n.to_string(), v.to_string()));
+            assert_eq!(added, defaults, "only the fields added since, at their defaults");
+            assert_eq!(written, kept, "nothing else changed");
+            // (Its settings as written: a few not their defaults.)
+            assert!(read.light_theme && read.ui_scale == Some(125), "{back}");
+            assert_eq!(read.recent, [PathBuf::from("/modules/Chapter1.mod")]);
+            // From eframe's file, as the desktop app reads it.
+            let path = dir.join(format!("app-{on}.ron"));
+            let kv = std::collections::HashMap::from([(key.to_string(), text.to_string())]);
+            std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+            let r = Settings::read_eframe(&path, key);
+            assert!(r.unread.is_empty() && r.unreadable.is_none(), "{:?}", r.problem());
+            assert_eq!(r.kept, None, "nothing kept aside");
+            assert_eq!(r.settings.saved_text(), back);
+            // Another window's file from before, saved over: theirs read,
+            // the field gone.
+            let merged = Settings::default().saved_over(&Settings::default(), text);
+            assert_eq!(merged, back, "another window's old file, merged");
+            let json = serde_json::to_string(&read).unwrap();
+            assert!(!json.contains("toolbar_icons_only"), "{json}");
+            let from_json: Settings = serde_json::from_str(&json.replacen(
+                '{',
+                &format!("{{\"toolbar_icons_only\":{on},"),
+                1,
+            ))
+            .unwrap();
+            assert_eq!(from_json, read, "JSON with the field reads as without it");
+        }
     }
 }

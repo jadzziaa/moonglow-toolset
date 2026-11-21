@@ -166,7 +166,7 @@ pub(crate) fn palette_picker(
             _ => reveal = None,
         }
     }
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         ui.selectable_value(&mut custom, false, "Standard Palette");
         ui.selectable_value(&mut custom, true, "Custom Palette");
     });
@@ -297,8 +297,7 @@ pub(crate) struct Kept {
 
 /// What a window's list targets were read for: the module's revision, and
 /// the window's objects (the first, then the others).
-pub(super) type TargetsFor =
-    (Option<u64>, ResKey, mg_edit::GffPath, Vec<(ResKey, mg_edit::GffPath)>);
+pub(super) type TargetsFor = (Option<u64>, ResKey, mg_edit::GffPath, crate::widgets::Also);
 
 /// A blueprint's fields: the module's, else the game's.
 pub(crate) fn blueprint(

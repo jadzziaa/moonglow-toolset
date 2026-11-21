@@ -827,7 +827,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         Later,
     }
     let mut answer = None;
-    crate::widgets::modal(ctx, "Changed Outside Moonglow").show(ctx, |ui| {
+    let footed = crate::widgets::modal(ctx, "Changed Outside Moonglow").show_foot(ctx, |ui| {
         ui.label(
             "These files of the project were changed by another program, and Moonglow has \
                  unsaved changes to them:",
@@ -838,32 +838,25 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.monospace(format!("{}{gone}", c.path.display()));
             }
         });
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if ui
-                .button("Keep Moonglow's")
-                .on_hover_text("Your changes stay, and the next Save writes them over the files")
-                .clicked()
-            {
-                answer = Some(Answer::Ours);
-            }
-            if ui
-                .button("Take the Files'")
-                .on_hover_text("Read the files again. Your unsaved changes to them are lost.")
-                .clicked()
-            {
-                answer = Some(Answer::Theirs);
-            }
-            if ui
-                .button("Later")
-                .on_hover_text("Moonglow's stay for now, and Save won't write over these files")
-                .clicked()
-                || crate::widgets::escape_closes(ui.ctx(), "Changed Outside Moonglow")
-            {
-                answer = Some(Answer::Later);
-            }
-        });
+        let foot = crate::widgets::Foot::new()
+            .main("Keep Moonglow's", true)
+            .no_enter()
+            .tip("Your changes stay, and the next Save writes them over the files")
+            .button("Take the Files'", true)
+            .tip("Read the files again. Your unsaved changes to them are lost.")
+            .leave("Later")
+            .tip("Moonglow's stay for now, and Save won't write over these files");
+        ((), foot)
     });
+    if let Some(f) = footed {
+        if f.pressed.main() {
+            answer = Some(Answer::Ours);
+        } else if f.pressed.clicked("Take the Files'") {
+            answer = Some(Answer::Theirs);
+        } else if f.pressed.cancelled() {
+            answer = Some(Answer::Later);
+        }
+    }
     let conflicts = std::mem::take(&mut app.outside.conflicts);
     match answer {
         Some(Answer::Ours) => {

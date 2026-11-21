@@ -82,32 +82,66 @@ impl AreaWizard {
     }
 }
 
+/// The Area Wizard's Size (the Dialogs board's): Tiny, Small, Medium and
+/// Large as a segmented control across the dialog, each setting the rows
+/// and the columns, none chosen where the two are another size; under it
+/// the rows × the columns, any size the game takes, and what a tile is.
+fn area_size(ui: &mut Ui, w: &mut AreaWizard) {
+    // (The board's `.col.g4`: the label 4 over the control.)
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.label("Size");
+        let mut chosen =
+            AREA_SIZES.iter().find(|(_, n)| (w.width, w.height) == (*n, *n)).map(|c| c.1);
+        let choices: Vec<(Option<u32>, &str, &str)> =
+            AREA_SIZES.iter().map(|(label, n)| (Some(*n), *label, "")).collect();
+        // (In a row a control high: the control is laid out in the middle
+        // of the height it is given, and the body's scroll gives it all.)
+        // (The group named "Area size": "Size" is its label's, which a
+        // test finds by that name alone.)
+        let r = ui
+            .horizontal(|ui| mg_uikit::segmented_fill(ui, "Area size", &mut chosen, &choices))
+            .inner;
+        if r.changed()
+            && let Some(n) = chosen
+        {
+            (w.width, w.height) = (n, n);
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        crate::widgets::spin_draft(ui, &mut w.width, AREA_SIZE_RANGE, 1.0, |d| d);
+        ui.label(egui::RichText::new("×").color(mg_uikit::tokens(ui.ctx()).text_2));
+        crate::widgets::spin_draft(ui, &mut w.height, AREA_SIZE_RANGE, 1.0, |d| d);
+        ui.weak("tiles, 10 m each");
+    });
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let mut close = false;
     match &mut app.wizard {
         None => {}
         Some(Wizard::NewModule { name }) => {
-            crate::widgets::modal(&ctx, "New Module").show(&ctx, |ui| {
+            let footed = crate::widgets::modal(&ctx, "New Module").show_foot(&ctx, |ui| {
                 crate::widgets::field_label(ui, "Module name");
                 let field = ui.add(mg_uikit::text_field(name));
                 crate::widgets::autofocus(ui, &field);
-                ui.horizontal(|ui| {
-                    let ok = !name.trim().is_empty();
-                    if ui.add_enabled(ok, egui::Button::new("Create")).clicked()
-                        || (ok && crate::widgets::enter(ui))
-                    {
-                        app.actions.push(Action::NewModule(name.trim().to_string()));
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
+                let ok = !name.trim().is_empty();
+                ((), crate::widgets::Foot::new().main("Create", ok).cancel())
             });
+            if let Some(f) = footed {
+                if f.pressed.main() {
+                    app.actions.push(Action::NewModule(name.trim().to_string()));
+                    close = true;
+                }
+                if f.pressed.cancelled() {
+                    close = true;
+                }
+            }
         }
         Some(Wizard::NewArea(w)) => {
-            crate::widgets::modal(&ctx, "Area Wizard").show(&ctx, |ui| {
+            let footed = crate::widgets::modal(&ctx, "Area Wizard").show_foot(&ctx, |ui| {
                 crate::widgets::field_label(ui, "Name");
                 let field = ui.add(mg_uikit::text_field(&mut w.name));
                 crate::widgets::autofocus(ui, &field);
@@ -138,7 +172,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             if !w.shows(t) {
                                 continue;
                             }
-                            let mut label = ui.selectable_label(w.selected == Some(i), &t.name);
+                            // (Chosen, filled across the row, not behind
+                            // its words alone: the Wizard board's, U30's
+                            // #11. The name at the row's left.)
+                            let row = egui::Button::selectable(
+                                w.selected == Some(i),
+                                (t.name.as_str(), egui::Atom::grow()),
+                            )
+                            .min_size(egui::vec2(ui.available_width(), 0.0));
+                            let mut label = ui.add(row);
                             if w.hidden.contains(&t.resref) {
                                 label = label.on_hover_text(format!(
                                     "{}: hidden by the project (moonglow.toml's [tilesets])",
@@ -169,39 +211,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 }
                 ui.add_space(6.0);
-                ui.label("Size");
-                ui.horizontal(|ui| {
-                    for (label, n) in AREA_SIZES {
-                        if ui.selectable_label((w.width, w.height) == (n, n), label).clicked() {
-                            (w.width, w.height) = (n, n);
-                        }
-                    }
-                });
-                ui.horizontal(|ui| {
-                    crate::widgets::spin_draft(ui, &mut w.width, AREA_SIZE_RANGE, 1.0, |d| d);
-                    ui.label("×");
-                    crate::widgets::spin_draft(ui, &mut w.height, AREA_SIZE_RANGE, 1.0, |d| d);
-                    ui.weak("tiles, 10 m each");
-                });
+                area_size(ui, w);
                 ui.add_space(6.0);
-                ui.check_box(&mut w.launch_properties, "Launch Area Properties Dialog");
-                ui.check_box(&mut w.open_viewer, "Open Area in the Area Viewer");
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    let spec = w.spec().filter(|s| !s.name.is_empty());
-                    if (ui.add_enabled(spec.is_some(), egui::Button::new("Create")).clicked()
-                        || (spec.is_some() && crate::widgets::enter(ui)))
-                        && let Some(spec) = spec
-                    {
-                        app.actions.push(Action::NewArea(spec));
-                        app.after_new_area = (w.open_viewer, w.launch_properties);
-                        close = true;
-                    }
-                    if crate::widgets::cancel(ui) {
-                        close = true;
-                    }
-                });
+                ui.check_box(&mut w.launch_properties, "Open Area Properties");
+                ui.check_box(&mut w.open_viewer, "Open area in the Area Viewer");
+                let spec = w.spec().filter(|s| !s.name.is_empty());
+                let foot = crate::widgets::Foot::new().main("Create", spec.is_some()).cancel();
+                (spec, foot)
             });
+            if let Some(f) = footed {
+                if f.pressed.main()
+                    && let Some(spec) = f.inner.flatten()
+                {
+                    app.actions.push(Action::NewArea(spec));
+                    app.after_new_area = (w.open_viewer, w.launch_properties);
+                    close = true;
+                }
+                if f.pressed.cancelled() {
+                    close = true;
+                }
+            }
         }
     }
     if close {
@@ -211,27 +240,34 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if app.closing {
         let mut open = true;
         let mut answer = None;
-        let mut always = false;
-        crate::widgets::dialog(&ctx, "Close Moonglow?", &mut open)
+        let always_id = egui::Id::new("close-always");
+        let (on, tip) = crate::widgets::always_now(
+            &ctx,
+            always_id,
+            "Tools › Options › General › Questions › Ask before the window is closed",
+        );
+        let footed = crate::widgets::dialog(&ctx, "Close Moonglow?", &mut open)
             .collapsible(false)
             .resizable(false)
-            .show(&ctx, |ui| {
+            .show_foot(&ctx, |ui| {
                 ui.label("Nothing is unsaved. The tabs that are open will be closed.");
-                ui.horizontal(|ui| {
-                    if ui.button("Close Moonglow").clicked() {
-                        answer = Some(true);
-                    }
-                    if crate::widgets::cancel(ui) {
-                        answer = Some(false);
-                    }
-                });
-                always = crate::widgets::always_box(
-                    ui,
-                    egui::Id::new("close-always"),
-                    "Don't ask again",
-                    "Tools › Options › General › Questions › Ask before the window is closed",
-                );
+                let foot = crate::widgets::Foot::new()
+                    .check("Don't ask again", on, Some(tip))
+                    .main("Close Moonglow", true)
+                    .no_enter()
+                    .cancel();
+                ((), foot)
             });
+        let mut always = false;
+        if let Some(f) = footed {
+            always = crate::widgets::always_kept(&ctx, always_id, f.pressed.checked);
+            if f.pressed.main() {
+                answer = Some(true);
+            }
+            if f.pressed.cancelled() {
+                answer = Some(false);
+            }
+        }
         if let Some(close) = answer {
             app.closing = false;
             if close {
@@ -252,11 +288,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "the new module".into());
         let failed = app.module_failed.as_ref().map(|why| format!("It could not be saved: {why}"));
-        crate::widgets::modal(&ctx, "Unsaved Changes").show(&ctx, |ui| {
+        let footed = crate::widgets::modal(&ctx, "Unsaved Changes").show_foot(&ctx, |ui| {
             ui.label(format!("Save changes to {what}?"));
             // (Its Save failed last time: why, under the question.)
             if let Some(failed) = &failed {
-                ui.set_min_width(440.0);
+                crate::widgets::fit_min_width(ui, 440.0);
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(failed).color(ui.visuals().error_fg_color),
@@ -264,20 +300,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     .wrap(),
                 );
             }
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    app.actions.push(Action::SaveThen(Box::new(pending.clone())));
-                    app.confirm_discard = None;
-                }
-                if ui.button("Don't Save").clicked() {
-                    app.actions.push(Action::Proceed(Box::new(pending.clone())));
-                    app.confirm_discard = None;
-                }
-                if crate::widgets::cancel(ui) {
-                    app.confirm_discard = None;
-                }
-            });
+            ((), crate::widgets::Foot::new().main("Save", true).button("Don't Save", true).cancel())
         });
+        if let Some(f) = footed {
+            if f.pressed.main() {
+                app.actions.push(Action::SaveThen(Box::new(pending.clone())));
+                app.confirm_discard = None;
+            }
+            if f.pressed.clicked("Don't Save") {
+                app.actions.push(Action::Proceed(Box::new(pending.clone())));
+                app.confirm_discard = None;
+            }
+            if f.pressed.cancelled() {
+                app.confirm_discard = None;
+            }
+        }
         if app.confirm_discard.is_none() {
             app.module_failed = None;
         }

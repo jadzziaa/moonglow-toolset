@@ -112,6 +112,9 @@ pub(crate) struct HeldText {
     pub typed: bool,
     /// The window it is in, for its Cancel: set once that is drawn.
     pub window: Option<HeldIn>,
+    /// It is the Properties panel's (no window's, no Cancel's): a window
+    /// drawn after the panel in that frame does not claim it.
+    pub panel: bool,
 }
 
 /// The window a [`HeldText`] is in: what its Cancel is given to note
@@ -326,12 +329,14 @@ pub(crate) enum Pressed {
 /// alone. Drawn before the window's pages, of whose room it takes the
 /// foot.
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
-    let tips = [
-        "Close the window: its changes are kept",
-        "Close the window and set back its changes, as one Undo step",
-    ];
-    ok_cancel_saying(ui, egui::Id::new(first), viewed, tips)
+    ok_cancel_saying(ui, egui::Id::new(first), viewed, OK_CANCEL_TIPS)
 }
+
+/// [`ok_cancel`]'s tips: OK's and Cancel's.
+pub(crate) const OK_CANCEL_TIPS: [&str; 2] = [
+    "Close the window: its changes are kept",
+    "Close the window and set back its changes, as one Undo step",
+];
 
 /// [`ok_cancel`] for a window that says what its two buttons do itself
 /// (`tips`: OK's and Cancel's).
@@ -346,7 +351,7 @@ pub(crate) fn ok_cancel_saying(
         .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
         .show_separator_line(true)
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            row(ui, |ui| {
                 if viewed {
                     if ui.button("Close").clicked() {
                         pressed = Some(Pressed::Ok);
@@ -363,6 +368,127 @@ pub(crate) fn ok_cancel_saying(
             });
         });
     pressed
+}
+
+/// What a form window's header shows at its left (the Creature board's
+/// `.bp-title`): its kind's icon, its name and, quieter, its resref (or
+/// what stands for one).
+pub(crate) struct Title<'t> {
+    /// The header's accessible name ("Creature blueprint header").
+    pub header: String,
+    pub icon: mg_uikit::Icon,
+    pub name: &'t str,
+    pub sub: &'t str,
+}
+
+/// [`ok_cancel_saying`]'s `in_header` form (the proposal's M4 Part 2,
+/// decision 4): the window's header row (`mg_uikit::header`, 30 px of
+/// `bar`) with its title at the left and OK and Cancel (Close alone where
+/// only looked at) in its end slot, at the right end; the same tips and
+/// the same [`Pressed`]. Drawn first, at the window's top.
+pub(crate) fn ok_cancel_header(
+    ui: &mut Ui,
+    title: &Title<'_>,
+    viewed: bool,
+    tips: [&str; 2],
+) -> Option<Pressed> {
+    use mg_uikit::KitButton;
+    let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    let measure = |text: &str| {
+        let galley =
+            ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
+        galley.size().x
+    };
+    const GAP: f32 = 8.0;
+    let buttons: Vec<KitButton> = match viewed {
+        true => vec![KitButton::new(None, "Close")],
+        false => vec![
+            KitButton::new(None, "OK").tip(tips[0]),
+            KitButton::new(None, "Cancel").tip(tips[1]),
+        ],
+    };
+    let gap = mg_uikit::header::HEADER_GAP;
+    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len() as f32 - 1.0).max(0.0);
+    // The title yields where the row is short (the style guide's
+    // ellipsis): the resref first, then the name cut short, the icon kept;
+    // its accessible name the whole of it.
+    let room = (ui.available_width()
+        - 2.0 * mg_uikit::header::HEADER_PADDING
+        - end_width
+        - 2.0 * gap
+        - 2.0)
+        .max(0.0);
+    let frame = 4.0 + mg_uikit::metrics::ICON + GAP + 4.0;
+    let name_w = measure(title.name);
+    let sub_w = if title.sub.is_empty() { 0.0 } else { GAP + measure(title.sub) };
+    let (shown_sub, name_room) = match frame + name_w + sub_w <= room {
+        true => (title.sub.to_string(), name_w),
+        false => (String::new(), (room - frame).min(name_w).max(0.0)),
+    };
+    let width = frame + name_room + if shown_sub.is_empty() { 0.0 } else { sub_w };
+    let (icon, name, sub) = (title.icon, title.name.to_string(), shown_sub);
+    let whole = match title.sub.is_empty() {
+        true => title.name.to_string(),
+        false => format!("{} {}", title.name, title.sub),
+    };
+    let item = mg_uikit::header::Item::custom("Title", width.ceil(), move |ui| {
+        ui.spacing_mut().item_spacing.x = GAP;
+        ui.add_space(4.0);
+        let t = mg_uikit::tokens(ui.ctx());
+        let (rect, response) = ui
+            .allocate_exact_size(egui::Vec2::splat(mg_uikit::metrics::ICON), egui::Sense::hover());
+        icon.paint(ui.painter(), rect, t.text);
+        // (Painted; one accessible label, the whole title, on the icon.)
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole));
+        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+        let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
+        let galley = ui.painter().layout_job(job);
+        let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+        ui.painter().galley(rect.min, galley, t.text);
+        if !sub.is_empty() {
+            let galley = ui.painter().layout_no_wrap(sub, font, t.text_3);
+            let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+            ui.painter().galley(rect.min, galley, t.text_3);
+        }
+    });
+    let out = mg_uikit::header::EditorHeader::new(title.header.clone())
+        .left(item)
+        .end_separator(false)
+        .show_with_end(ui, end_width, |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let mut pressed = None;
+            for b in buttons {
+                let words = b.accessible_name().to_string();
+                if ui.add(b).clicked() {
+                    pressed = Some(if words == "Cancel" { Pressed::Cancel } else { Pressed::Ok });
+                }
+            }
+            pressed
+        });
+    out.end
+}
+
+/// After a panel of an editor with OK and Cancel is drawn, before the
+/// editor (the journal's Entry and Category, M4's U22): what it asked for
+/// this frame (`app.actions` from `pending` on) noted for the editor's
+/// Cancel (`tab`, its `targets`), and a text field of it with the
+/// keyboard the editor's, as a field of the editor's own is
+/// ([`window_drawn_but`]).
+pub(crate) fn panel_drawn(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    pending: usize,
+    tab: &Tab,
+    targets: &[(ResKey, GffPath)],
+) {
+    note_changes(app, pending, tab, targets, &[]);
+    let pass = ctx.cumulative_pass_nr();
+    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none() && h.drawn == pass) {
+        let (tab, targets) = (tab.clone(), targets.to_vec());
+        held.window = Some(HeldIn { tab, targets, kept: Vec::new() });
+    }
 }
 
 /// After a window with [`ok_cancel`] is drawn: notes what it asked for
@@ -477,7 +603,7 @@ pub(crate) fn window_drawn_but(
     // should it be gone before the keyboard leaves it, what it sets then,
     // after the window is drawn, is this window's to set back. A window
     // drawn after it this frame finds it claimed.)
-    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none()) {
+    if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none() && !h.panel) {
         let (tab, targets, kept) = (tab.clone(), targets.to_vec(), kept.to_vec());
         held.window = Some(HeldIn { tab, targets, kept });
     }
@@ -656,11 +782,16 @@ pub(crate) struct Form<'a> {
     /// Other objects or blueprints of the same type edited with it
     /// (Aurora's multi-editor): each field set is set on them too. Each is
     /// its document and path.
-    pub also: Vec<(ResKey, GffPath)>,
+    pub also: crate::widgets::Also,
     /// The object as it is now.
     pub root: Struct,
     /// What the list pages did to the objects edited together.
     pub together: Together,
+    /// Drawn as its object's own tab or window, every page on one scroll
+    /// (`false`: the Properties panel's page, Module or Area Properties,
+    /// the journal): where its tab brings the Preview panel, its Preview
+    /// button shows that (M4's U11).
+    pub own_tab: bool,
 }
 
 /// What a form's list pages asked of several objects edited together
@@ -729,12 +860,22 @@ pub(crate) fn kept_for_load_order<T: Clone + Send + Sync + 'static>(
 /// of one area's objects share none. A placed object's window keeps its
 /// ids as it follows its object ([`Moonglow::window_ids`]).
 fn window_state_id(app: &Moonglow, key: ResKey, path: &GffPath, name: &str) -> egui::Id {
+    // (The Properties panel's apart from a window's: its own, though both
+    // follow the object.)
+    let host = if app.panel_form { "panel" } else { "window" };
     if key.restype == ResType::GIT
         && let Some(id) = app.window_ids.get(&(key.resref, path.clone()))
     {
-        return id.with(("blueprint", name));
+        return id.with(("blueprint", name, host));
     }
-    egui::Id::new(("blueprint", key, path, name))
+    // (A journal's entry or category, in its panels: by the object, as it
+    // moves, M4's U22.)
+    if key.restype == ResType::JRL
+        && let Some(id) = crate::journal_view::field_id(app, path)
+    {
+        return id.with(("blueprint", name, host));
+    }
+    egui::Id::new(("blueprint", key, path, name, host))
 }
 
 /// After a frame: what the pages keep while they are drawn, let go of
@@ -798,6 +939,19 @@ pub(crate) fn found_kept(
         let needle = mg_core::text::Needle::new(find);
         Arc::new((0..choices.len()).filter(|&i| needle.finds(&choices[i].text)).collect())
     })
+}
+
+/// How many rows of text a field of several lines shows to reach from
+/// `ui`'s cursor down to `bottom` (its frame and margins taken off): the
+/// room its panel gives it, which its width does not change. At least
+/// three.
+fn rows_to(ui: &Ui, bottom: f32) -> usize {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let row = ui.fonts_mut(|f| f.row_height(&font)).max(1.0);
+    // (egui's margin of a field, 2 above and below, and its frame's line.)
+    let frame = 2.0 * 2.0 + 2.0;
+    let room = bottom - ui.cursor().top() - frame;
+    ((room / row).floor().max(3.0)) as usize
 }
 
 /// The color of text that is the talk table's (a StrRef's), not a
@@ -925,6 +1079,12 @@ impl Form<'_> {
         window_state_id(self.app, self.key, &self.path, name)
     }
 
+    /// The id of its text field of `label` (a panel's F6 gives it the
+    /// keyboard's focus).
+    pub(crate) fn field_id(&self, label: &str) -> egui::Id {
+        self.id(label)
+    }
+
     /// The id its lists are kept by (`situated::pick_list` and the
     /// others): the window's own.
     pub(crate) fn picks(&self) -> egui::Id {
@@ -996,7 +1156,20 @@ impl Form<'_> {
     /// the objects edited together differ in any of the fields `labels`.
     pub(crate) fn mark_mixed_inline(&mut self, ui: &mut Ui, labels: &[&str]) {
         if labels.iter().any(|l| self.differs(l)) {
-            ui.colored_label(ui.visuals().warn_fg_color, MIXED).on_hover_text(MIXED_TIP);
+            mixed_mark_inline(ui, self.id(labels.first().copied().unwrap_or("")).with("mixed"));
+        }
+    }
+
+    /// [`mark_mixed_inline`](Self::mark_mixed_inline) for one bit of a
+    /// field of flags: before a group of choices, the whole group's.
+    pub(crate) fn mark_mixed_bit_inline(&mut self, ui: &mut Ui, label: &str, bit: u32) {
+        let set = |v: Option<&Value>| match v {
+            Some(Value::Dword(f)) => *f & bit,
+            Some(Value::Int(f)) => *f as u32 & bit,
+            _ => 0,
+        };
+        if self.differs_by(label, set) {
+            mixed_mark_inline(ui, self.id(&format!("{label}#{bit}")).with("mixed"));
         }
     }
 
@@ -1008,8 +1181,8 @@ impl Form<'_> {
             return;
         }
         let color = ui.visuals().warn_fg_color;
-        ui.horizontal(|ui| {
-            ui.colored_label(color, MIXED);
+        row(ui, |ui| {
+            mixed_mark(ui, MIXED_TIP);
             ui.colored_label(
                 color,
                 "They differ here: this shows the first one's, and what you change here sets \
@@ -1020,14 +1193,24 @@ impl Form<'_> {
 
     /// The "≠" before the field about to be drawn: painted in the gutter
     /// to its left, and known to the screen reader and the pointer.
+    ///
+    /// On the field's label, after its words, where the label is kept
+    /// (`widgets::label_before`): a mark in the gutter was 5 by 7 pixels,
+    /// and outside the page where a narrow form stacks the label over the
+    /// field (M4's U29 review). Else in the gutter, as before.
     fn paint_mixed(&self, ui: &Ui, label: &str) {
-        let at = ui.cursor().min + egui::vec2(-3.0, 2.0);
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let color = ui.visuals().warn_fg_color;
-        let rect = ui.painter().text(at, egui::Align2::RIGHT_TOP, MIXED, font, color);
-        let r = ui.interact(rect, self.id(label).with("mixed"), egui::Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
-        r.on_hover_text(MIXED_TIP);
+        let id = self.id(label).with("mixed");
+        let size = mixed_mark_size(ui);
+        let rect = match crate::widgets::label_before(ui) {
+            Some(l) => egui::Rect::from_min_size(
+                egui::pos2(l.right() + 4.0, l.center().y - size.y / 2.0),
+                size,
+            ),
+            None => {
+                egui::Rect::from_min_size(ui.cursor().min + egui::vec2(-3.0 - size.x, 1.0), size)
+            }
+        };
+        paint_mixed_mark(ui, rect, id, MIXED_TIP);
     }
 
     /// Several blueprints edited together (not placed objects).
@@ -1050,14 +1233,14 @@ impl Form<'_> {
         if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
             && (*at, *key) == (revision, self.key)
             && *path == self.path
-            && *also == self.also
+            && (Arc::ptr_eq(also, &self.also) || *also == self.also)
             && kept.first().is_some_and(|t| t.at == self.root)
         {
             return kept.clone();
         }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
-            for (key, path) in &self.also {
+            for (key, path) in self.also.iter() {
                 if let Some(s) = ws.doc(key).ok().and_then(|d| path.get(&d.root).cloned()) {
                     out.push(lists::Target::new(*key, path.clone(), s));
                 }
@@ -1168,7 +1351,8 @@ impl Form<'_> {
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
         let drawn = ui.ctx().cumulative_pass_nr();
         // (Its window says which it is once it is drawn: `window_drawn_but`.)
-        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc });
+        let panel = false;
+        self.app.held_text = Some(HeldText { id, drawn, command, window: None, typed: loc, panel });
     }
 
     /// The type the game's files give field `label` of the struct the
@@ -1206,7 +1390,8 @@ impl Form<'_> {
         let id = self.id(label);
         let (shown, _) = crate::text::to_editor(&current);
         let buf = self.app.buffers.entry(id).or_insert_with(|| shown.clone());
-        let r = ui.add(mg_uikit::text_field(buf).id(id).char_limit(max).desired_width(240.0));
+        let r =
+            ui.add(mg_uikit::text_field(buf).id(id).char_limit(max).desired_width(fit(ui, 240.0)));
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != shown {
             *buf = shown.clone();
@@ -1249,17 +1434,83 @@ impl Form<'_> {
 
     /// A localized name: the English text, and `…` for every language.
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.locstring_then(ui, what, label, |_, _| {});
+    }
+
+    /// A [`locstring`](Self::locstring) and `after` (a creature's Random
+    /// Name) after its `…`. In a narrow form the text takes the field's
+    /// whole width, and whose it is ("StrRef 5763") stands on the row
+    /// under it with the buttons (the owner's ruling on U30's #1: a name
+    /// beside its strref in a 280 panel was cut to four letters).
+    pub(crate) fn locstring_then(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        after: impl FnOnce(&mut Self, &mut Ui),
+    ) {
+        if narrow(ui) {
+            self.narrow_locstring(ui, what, label, after);
+            return;
+        }
         self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        ui.horizontal(|ui| {
-            if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
+        row(ui, |ui| {
+            // (Where its text is not its own, the field says whose inside
+            // its right end, "StrRef 24650" or the language's name, in
+            // the talk table's color: the Creature board's `.field .keys`.
+            // A window's field fills its row's room but for the buttons
+            // after it; a narrow form's is `narrow_locstring`.)
+            let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+            // (A field is never wider than its row's room: egui's isn't;
+            // and a few points for the frames past their widgets.)
+            let buttons =
+                2.0 * (mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x) + 6.0;
+            let width = (ui.available_width() - buttons).clamp(LOC_FIELD.start, LOC_FIELD.end);
+            let id = self.id(label);
+            let color = talk_table_color(ui);
+            let keys = borrowed.as_ref().map(|(from, why)| {
+                let font = egui::FontId::proportional(mg_uikit::metrics::SMALL_SIZE);
+                let w = ui.fonts_mut(|f| f.layout_no_wrap(from.clone(), font, color)).size().x;
+                (from.clone(), *why, w)
+            });
+            let at = ui.cursor().min;
+            let typed = ui
+                .scope(|ui| {
+                    if keys.is_some() {
+                        ui.visuals_mut().override_text_color = Some(color);
+                    }
+                    let room = keys.as_ref().map_or(0.0, |k| k.2 + KEYS_PADDING);
+                    ui.data_mut(|d| d.insert_temp(egui::Id::new(FIELD_END_ROOM), room));
+                    let typed =
+                        crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width);
+                    ui.data_mut(|d| d.remove::<f32>(egui::Id::new(FIELD_END_ROOM)));
+                    typed
+                })
+                .inner;
+            if let Some(v) = typed {
                 self.set_typed(
                     what,
                     label,
                     Value::LocString(with_edited_text(current.clone(), &v)),
                 );
             }
-            let shown = crate::widgets::loc_shown(self.app, &current).0;
+            if let Some((from, why, w)) = keys {
+                let h = ui.spacing().interact_size.y;
+                let field = egui::Rect::from_min_size(at, egui::vec2(width, h));
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(field.right() - w - KEYS_PADDING, field.top()),
+                    egui::pos2(field.right() - 4.0, field.bottom()),
+                );
+                let mut inside = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(rect)
+                        .layout(egui::Layout::right_to_left(egui::Align::Center)),
+                );
+                let text =
+                    egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
+                inside.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+            }
             let held = current.clone();
             self.hold_text(ui, what, label, &shown, true, move |text| {
                 Value::LocString(with_edited_text(held.clone(), &text))
@@ -1267,19 +1518,74 @@ impl Form<'_> {
             if crate::widgets::languages_button(ui) {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
+            after(self, ui);
         });
     }
 
-    /// A localized multi-line text (descriptions).
+    /// [`locstring_then`](Self::locstring_then) in a narrow form: the
+    /// field, then a row of whose its text is, its `…` and `after`.
+    fn narrow_locstring(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        after: impl FnOnce(&mut Self, &mut Ui),
+    ) {
+        self.mark_mixed(ui, label);
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let id = self.id(label);
+        ui.vertical(|ui| {
+            let typed = ui
+                .scope(|ui| {
+                    if borrowed.is_some() {
+                        ui.visuals_mut().override_text_color = Some(color);
+                    }
+                    let width = fit(ui, 240.0);
+                    crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
+                })
+                .inner;
+            if let Some(v) = typed {
+                self.set_typed(
+                    what,
+                    label,
+                    Value::LocString(with_edited_text(current.clone(), &v)),
+                );
+            }
+            let held = current.clone();
+            self.hold_text(ui, what, label, &shown, true, move |text| {
+                Value::LocString(with_edited_text(held.clone(), &text))
+            });
+            ui.horizontal_wrapped(|ui| {
+                if let Some((from, why)) = &borrowed {
+                    let text = egui::RichText::new(from.as_str())
+                        .size(mg_uikit::metrics::SMALL_SIZE)
+                        .color(color);
+                    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                }
+                if crate::widgets::languages_button(ui) {
+                    let edit = LocStringEdit::new(self.target(label), what, &current);
+                    self.app.loc_edit = Some(edit);
+                }
+                after(self, ui);
+            });
+        });
+    }
+
+    /// A localized multi-line text (descriptions), under its section
+    /// heading: the text's name, the language edited after it, the
+    /// languages button at its end (the Creature board's Description).
     pub(crate) fn locstring_memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        ui.horizontal(|ui| {
-            let language = crate::text::edit_language().name().unwrap_or("?");
-            crate::widgets::field_label(ui, format!("{what} ({language})"));
-            if crate::widgets::languages_button(ui) {
-                self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-            }
+        let language = crate::text::edit_language().name().unwrap_or("?");
+        let mut languages = false;
+        mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
+            languages = crate::widgets::languages_button(ui);
         });
+        if languages {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
         self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
             self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
@@ -1288,6 +1594,113 @@ impl Form<'_> {
         self.hold_text(ui, what, label, &shown, true, move |text| {
             Value::LocString(with_edited_text(current.clone(), &text))
         });
+    }
+
+    /// [`locstring_memo`](Self::locstring_memo) as the Journal board's
+    /// Entry has it: whose text it is where it is not its own ("StrRef
+    /// 63176", in the talk table's color) in the heading's row before the
+    /// languages button, not under the text; and the text reaching down to
+    /// `bottom` (the room its panel gives it), however wide.
+    pub(crate) fn locstring_memo_to(&mut self, ui: &mut Ui, what: &str, label: &str, bottom: f32) {
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let language = crate::text::edit_language().name().unwrap_or("?");
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let mut languages = false;
+        mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
+            languages = crate::widgets::languages_button(ui);
+            if let Some((from, why)) = &borrowed {
+                let text = egui::RichText::new(from.as_str())
+                    .size(mg_uikit::metrics::SMALL_SIZE)
+                    .color(color);
+                ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+            }
+        });
+        if languages {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
+        self.mark_mixed(ui, label);
+        let id = self.id(label);
+        let rows = rows_to(ui, bottom);
+        let typed = ui
+            .scope(|ui| {
+                if borrowed.is_some() {
+                    ui.visuals_mut().override_text_color = Some(color);
+                }
+                let buffers = &mut self.app.buffers;
+                crate::widgets::commit_loc_text_in(
+                    buffers,
+                    ui,
+                    id,
+                    &shown,
+                    Some(rows),
+                    f32::INFINITY,
+                    None,
+                )
+            })
+            .inner;
+        if let Some(v) = typed {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        self.hold_text(ui, what, label, &shown, true, move |text| {
+            Value::LocString(with_edited_text(current.clone(), &text))
+        });
+    }
+
+    /// [`memo`](Self::memo) reaching down to `bottom` (the room its panel
+    /// gives it), however wide: the Journal board's Comments.
+    pub(crate) fn memo_to(&mut self, ui: &mut Ui, what: &str, label: &str, bottom: f32) {
+        self.mark_mixed(ui, label);
+        let current = decode(self.root.string(label).unwrap_or_default());
+        let id = self.id(label);
+        let rows = rows_to(ui, bottom);
+        let buffers = &mut self.app.buffers;
+        let typed = crate::widgets::commit_text_in(
+            buffers,
+            ui,
+            id,
+            &current,
+            Some(rows),
+            f32::INFINITY,
+            None,
+        );
+        if let Some(v) = typed {
+            self.set(what, label, Value::String(encode(&v)));
+        }
+        self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
+    }
+
+    /// [`locstring`](Self::locstring) as the Journal board's Category Name
+    /// has it: the whole field's width for the name, the languages button
+    /// beside it, and whose text it is where it is not its own (the talk
+    /// table's color) said by its tip, not inside the field over the name.
+    pub(crate) fn locstring_whole(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let id = self.id(label);
+        let button = ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
+        let width = (ui.available_width() - button).max(60.0);
+        let field = ui.scope(|ui| {
+            if borrowed.is_some() {
+                ui.visuals_mut().override_text_color = Some(color);
+            }
+            crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
+        });
+        if let Some((from, why)) = &borrowed {
+            field.response.on_hover_text(format!("{from}: {why}"));
+        }
+        if let Some(v) = field.inner {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        let held = current.clone();
+        self.hold_text(ui, what, label, &shown, true, move |text| {
+            Value::LocString(with_edited_text(held.clone(), &text))
+        });
+        if crate::widgets::languages_button(ui) {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
+        }
     }
 
     /// Sets several fields in one command.
@@ -1329,6 +1742,12 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = self.int(label);
         let mut v = current;
+        // (Its rail shorter where the room is: its value's box beside it.)
+        if narrow(ui) {
+            let value = 48.0 + ui.spacing().item_spacing.x;
+            let rail = ui.spacing().slider_width.min(ui.available_width() - value).max(40.0);
+            ui.spacing_mut().slider_width = rail;
+        }
         let r = mg_uikit::slider(
             ui,
             egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits),
@@ -1425,10 +1844,18 @@ impl Form<'_> {
 
     /// A checkbox for a flag (BYTE 0 or 1); the value.
     pub(crate) fn check(&mut self, ui: &mut Ui, text: &str, label: &str) -> bool {
+        self.check_if(ui, true, text, label)
+    }
+
+    /// A [`check`](Self::check) that can be ticked only where `enabled`
+    /// (a static placeable's Useable). (Disabled as a widget, not in a
+    /// scope of its own: a scope in a form's grid cell stood its row 47
+    /// to 51 points from the next, U30's #2.)
+    pub(crate) fn check_if(&mut self, ui: &mut Ui, enabled: bool, text: &str, label: &str) -> bool {
         self.mark_mixed(ui, label);
         let current = self.int(label) != 0;
         let mut v = current;
-        if ui.check_box(&mut v, text).changed() {
+        if ui.add_enabled(enabled, mg_uikit::controls::Checkbox::new(&mut v, text)).changed() {
             self.set_int(text, label, i64::from(v), FieldType::Byte);
         }
         v
@@ -1488,6 +1915,54 @@ impl Form<'_> {
         if let Some(v) = commit_number(ui, self.int(label), range) {
             self.set_int(what, label, v, FieldType::Byte);
         }
+    }
+
+    /// [`number`](Self::number) `width` wide, its number at its right end
+    /// (the Journal board's ID and XP): egui's field centers it, so it is
+    /// drawn with its text unseen and the number painted at the right;
+    /// typed in, the field's own text shows (at the right too, from the
+    /// layout). Its response.
+    pub(crate) fn number_at_right(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        range: std::ops::RangeInclusive<i64>,
+        width: f32,
+    ) -> egui::Response {
+        self.mark_mixed(ui, label);
+        let current = self.int(label);
+        let size = egui::vec2(width, mg_uikit::metrics::CONTROL_HEIGHT);
+        let layout = egui::Layout::right_to_left(egui::Align::Center);
+        let (set, r) = ui
+            .allocate_ui_with_layout(size, layout, |ui| {
+                ui.spacing_mut().interact_size.x = width;
+                // (The field's id, as `drag_number_shown` takes it.)
+                let editing = ui.memory(|m| m.has_focus(ui.next_auto_id()));
+                if !editing {
+                    ui.visuals_mut().override_text_color = Some(egui::Color32::TRANSPARENT);
+                }
+                let (set, shown, r) =
+                    crate::widgets::drag_number_shown(ui, current, |d| d.range(range));
+                if !editing {
+                    let style = ui.style().drag_value_text_style.clone();
+                    let font = style.resolve(ui.style());
+                    let color = ui.style().interact(&r).text_color();
+                    let galley = ui.painter().layout_no_wrap(shown.to_string(), font, color);
+                    let inner = r.rect.shrink2(ui.spacing().button_padding);
+                    let at = egui::pos2(
+                        inner.right() - galley.size().x,
+                        inner.center().y - galley.size().y / 2.0,
+                    );
+                    ui.painter().galley(at, galley, color);
+                }
+                (set, r)
+            })
+            .inner;
+        if let Some(v) = set {
+            self.set_int(what, label, v, FieldType::Byte);
+        }
+        r
     }
 
     /// [`number`](Self::number) with Aurora's pair of arrows after the
@@ -1637,7 +2112,7 @@ impl Form<'_> {
         let id = self.id(label);
         let app = &mut *self.app;
         let mut shown = about.map(|about| move |ui: &mut Ui, row| about(app, ui, row));
-        let mut list = crate::widgets::row_choice(id, choices, current).width(220.0);
+        let mut list = crate::widgets::row_choice(id, choices, current).width(fit(ui, 220.0));
         if let Some(shown) = shown.as_mut() {
             list = list.about(shown);
         }
@@ -1652,8 +2127,29 @@ impl Form<'_> {
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        ui.horizontal(|ui| {
-            if let Some(v) = resref_field(self.app, ui, self.id(label), current, &what, &types) {
+        // (Outside a narrow form, which wraps its rows, the field yields
+        // to its `…` and Edit where the row's room is short: Module
+        // Properties' events at a window of 420 put both past its edge,
+        // U30's #14. The grid's last column's room, which its first
+        // column's labels decide, not a column's width: no feedback.)
+        let yield_to = (!narrow(ui)).then(|| {
+            let s = ui.spacing();
+            let small = egui::TextStyle::Button.resolve(ui.style());
+            let color = ui.visuals().text_color();
+            let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+            let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
+            let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
+            width.clamp(SCRIPT_FIELD_LEAST, 160.0)
+        });
+        row(ui, |ui| {
+            let id = self.id(label);
+            let picked = match yield_to {
+                Some(width) => crate::widgets::with_resref_width(ui, width, |ui| {
+                    resref_field(self.app, ui, id, current, &what, &types)
+                }),
+                None => resref_field(self.app, ui, id, current, &what, &types),
+            };
+            if let Some(v) = picked {
                 self.set(&what, label, Value::resref(v));
             }
             let field = self.id(label);
@@ -1677,7 +2173,7 @@ impl Form<'_> {
             return;
         }
         let (mut load, mut save) = (false, false);
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             load = ui
                 .button("Load Script Set")
                 .on_hover_text("Set the scripts from a script set file (.ini)")
@@ -1753,7 +2249,7 @@ impl Form<'_> {
     ) {
         self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        ui.horizontal(|ui| {
+        row(ui, |ui| {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
                 self.set(what, label, Value::resref(v));
             }
@@ -1856,7 +2352,7 @@ impl Form<'_> {
         let buf = self.app.buffers.entry(id).or_insert_with(|| current.to_string());
         let mut text = crate::widgets::ResRefText(&mut *buf);
         let r = ui
-            .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(160.0))
+            .add(crate::widgets::resref_edit(&mut text).id(id).desired_width(fit(ui, 160.0)))
             .on_hover_text("Edit the blueprint ResRef");
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
         if !crate::widgets::has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
@@ -1991,8 +2487,233 @@ fn held_item_at(path: &GffPath) -> Option<usize> {
 
 /// The pages of a placed object's Properties: its blueprint's, less the
 /// blueprint's comments.
-pub(crate) fn instance_pages(t: ResType) -> Vec<&'static str> {
+pub fn instance_pages(t: ResType) -> Vec<&'static str> {
     pages(t).iter().copied().filter(|p| *p != "Comments").collect()
+}
+
+/// The width under which a Properties form is laid out narrow (the
+/// Properties panel, at the Right Dock's 280 to 460 or so): its scroll
+/// vertical alone, text wrapping, a form's two columns sharing the width
+/// ([`form_grid`]), rows of several controls wrapping, so that nothing
+/// runs past the panel's edge. A window keeps its look above it.
+pub(crate) const NARROW_FORM: f32 = 400.0;
+
+/// The width of a localized name's field in a window (`Form::locstring`):
+/// its row's room, held to these.
+const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
+
+/// The least a script's field yields to ([`Form::script`]): about eight
+/// characters of a resref.
+const SCRIPT_FIELD_LEAST: f32 = 60.0;
+
+/// The room inside a field's right end round the words that say whose its
+/// text is ("StrRef 24650"): the board's `.field .keys` padding.
+const KEYS_PADDING: f32 = 8.0;
+
+/// Where a field drawn by `widgets::commit_field` finds room to keep at
+/// its right end, inside it, for words drawn there (`Form::locstring`).
+pub(crate) const FIELD_END_ROOM: &str = "blueprint-field-end-room";
+
+/// Whether the form being drawn is laid out narrow: as [`form_ui`] found
+/// its room ([`NARROW_FORM`]), whatever cell or column of it `ui` is (a
+/// window's grid cell is narrower than that, and keeps its look); outside
+/// a form (Area and Module Properties' pages, a wizard's), never.
+pub(crate) fn narrow(ui: &Ui) -> bool {
+    ui.data(|d| d.get_temp::<bool>(egui::Id::new(NARROW_ID))).unwrap_or(false)
+}
+
+/// Where [`form_ui`] keeps whether the form it draws is narrow.
+const NARROW_ID: &str = "blueprint-form-narrow";
+
+/// `add` drawn as a narrow form's ([`narrow`]): a panel's fields (the
+/// journal's Entry and Category, M4's U22) fill the room they are given,
+/// never wider.
+pub(crate) fn narrow_form<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), true));
+    let r = add(ui);
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
+    r
+}
+
+/// A form's grid of labels and values, two columns (the pages' `Grid`s):
+/// in a narrow room ([`narrow`]) each column at most half the width, its labels wrapping there, the value column taking the
+/// rest (its fields fill what they are given).
+pub(crate) fn form_grid(ui: &Ui, id: impl egui::AsIdSalt) -> FormGrid {
+    let narrow = narrow(ui);
+    let grid = egui::Grid::new(id).num_columns(2);
+    let half = (ui.available_width() * 0.5).floor();
+    let grid = match narrow {
+        true => grid.max_col_width(half),
+        false => grid,
+    };
+    FormGrid { grid, narrow, half }
+}
+
+/// A form's grid ([`form_grid`]): egui's, its text wrapping within its
+/// columns in a narrow room (with the columns held to their widths, a
+/// label wraps at half the width, never at a column's first, unknown
+/// width).
+pub(crate) struct FormGrid {
+    grid: egui::Grid,
+    narrow: bool,
+    half: f32,
+}
+
+impl FormGrid {
+    pub(crate) fn spacing(mut self, spacing: impl Into<egui::Vec2>) -> Self {
+        self.grid = self.grid.spacing(spacing);
+        self
+    }
+
+    /// The labels' column at least `mg_uikit::metrics::LABEL_WIDTH` (in a
+    /// narrow room, at most half the width still).
+    pub(crate) fn labels(mut self) -> Self {
+        let least = match self.narrow {
+            true => mg_uikit::metrics::LABEL_WIDTH.min(self.half),
+            false => mg_uikit::metrics::LABEL_WIDTH,
+        };
+        self.grid = self.grid.min_col_width(least);
+        self
+    }
+
+    pub(crate) fn striped(mut self, striped: bool) -> Self {
+        self.grid = self.grid.striped(striped);
+        self
+    }
+
+    pub(crate) fn show<R>(
+        self,
+        ui: &mut Ui,
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<R> {
+        match self.narrow {
+            true => ui.scope(|ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                self.grid.show(ui, add).inner
+            }),
+            false => self.grid.show(ui, add),
+        }
+    }
+}
+
+/// A form's section (M4's U10, the Creature board's): its heading
+/// (`widgets::section_heading`), then its grid of labels and values
+/// ([`form_grid`], kept by `id`), the labels' column at least the
+/// stylesheet's `--lbl-w` (`mg_uikit::metrics::LABEL_WIDTH`) so that the
+/// sections of a page line up.
+pub(crate) fn section(
+    ui: &mut Ui,
+    title: &str,
+    id: impl egui::AsIdSalt,
+    add: impl FnOnce(&mut Ui),
+) {
+    crate::widgets::section_heading(ui, title);
+    form_grid(ui, id).labels().spacing([12.0, 6.0]).show(ui, add);
+}
+
+/// The room from `ui`'s cursor to its right edge (in a grid's cell, to
+/// the page's right edge): what a row of fixed widths has before it runs
+/// past a column of pages side by side (M4's U10).
+pub(crate) fn room_right(ui: &Ui) -> f32 {
+    ui.max_rect().right() - ui.cursor().min.x
+}
+
+/// A list with what it gives beside it (a creature's spells to choose
+/// from, and those it has): the list the wider, the side
+/// [`SIDE_SHARE`] of the room (between [`SIDE_LEAST`] and
+/// [`SIDE_MOST`]), each clipped to its part; in a narrow form, halves as
+/// `Ui::columns` gives them.
+pub(crate) fn list_beside<R>(ui: &mut Ui, add: impl FnOnce(&mut [Ui]) -> R) -> R {
+    if narrow(ui) {
+        return ui.columns(2, add);
+    }
+    let gap = ui.spacing().item_spacing.x;
+    let total = ui.available_width();
+    let side = (total * SIDE_SHARE).clamp(SIDE_LEAST, SIDE_MOST).min(total / 2.0);
+    let list = (total - side - gap).max(0.0);
+    let top = ui.cursor().min;
+    let high = ui.available_height();
+    let part =
+        |x: f32, w: f32| egui::Rect::from_min_size(egui::pos2(x, top.y), egui::vec2(w, high));
+    let mut parts = [part(top.x, list), part(top.x + list + gap, side)].map(|r| {
+        let mut child = ui.new_child(
+            egui::UiBuilder::new().max_rect(r).layout(egui::Layout::top_down(egui::Align::Min)),
+        );
+        child.set_clip_rect(r.intersect(ui.clip_rect()));
+        child
+    });
+    // (A name longer than the side cut short, its whole in its tip. Not
+    // the list's: its grid's columns, laid out by their first frame, would
+    // cut every name to that.)
+    parts[1].style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+    let out = add(&mut parts);
+    let used = parts[0].min_rect().union(parts[1].min_rect());
+    ui.advance_cursor_after_rect(used);
+    out
+}
+
+/// The share of the room what a list gives takes beside it
+/// ([`list_beside`]: the board's Spells, `minmax(0, 1fr) 140px`).
+const SIDE_SHARE: f32 = 0.35;
+/// The least and most what a list gives takes beside it.
+const SIDE_LEAST: f32 = 150.0;
+const SIDE_MOST: f32 = 320.0;
+
+/// A row of controls: in a narrow room ([`narrow`]) wrapping onto the
+/// next line where the panel's width ends, else one line as a window has
+/// it. (Held in a column of its own: a grid's row grows with what is
+/// wrapped in a column, not with a wrapping row placed in it alone, whose
+/// lines past the first the grid's next row was drawn over.)
+pub(crate) fn row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    match narrow(ui) {
+        true => {
+            let shown = ui.vertical(|ui| ui.horizontal_wrapped(add));
+            egui::InnerResponse::new(shown.inner.inner, shown.response)
+        }
+        false => ui.horizontal(add),
+    }
+}
+
+/// Two parts side by side, top aligned (a page's palette and its list):
+/// in a narrow room ([`narrow`]) the first over the second.
+pub(crate) fn beside_or_over<R>(
+    ui: &mut Ui,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    let layout = match narrow(ui) {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, add)
+}
+
+/// A part's width beside another, `want`; in a narrow room, where the
+/// parts stand one over the other ([`beside_or_over`]), the whole width.
+/// (`narrow`: [`narrow`] of the room both parts share, asked before them.)
+pub(crate) fn part_width(narrow: bool, ui: &Ui, want: f32) -> f32 {
+    if narrow { ui.available_width() } else { want }
+}
+
+/// A column of controls between two parts side by side (a list's Add and
+/// Remove); in a narrow room, a row of them wrapping.
+pub(crate) fn down_or_row<R>(
+    narrow: bool,
+    ui: &mut Ui,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::InnerResponse<R> {
+    match narrow {
+        true => ui.horizontal_wrapped(add),
+        false => ui.vertical(add),
+    }
+}
+
+/// The width a control asks for, `want`, held to the room `ui` has (in
+/// the narrow panel: a field fills its column, never past its edge).
+pub(crate) fn fit(ui: &Ui, want: f32) -> f32 {
+    match narrow(ui) {
+        true => want.min(ui.available_width()).max(0.0),
+        false => want,
+    }
 }
 
 /// The Properties of the object at `path` in the document `key` (a
@@ -2011,61 +2732,209 @@ pub(crate) fn edit_many(
     path: GffPath,
     also: Vec<(ResKey, GffPath)>,
 ) {
-    let Some(ws) = &mut app.ws else {
-        ui.label("No module is open.");
-        return;
-    };
-    let root = match ws.doc(&key) {
-        Ok(g) => match path.get(&g.root) {
-            Some(s) => s.clone(),
-            None => {
-                ui.label("This object is no longer there.");
-                return;
-            }
-        },
-        Err(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e.to_string());
-            return;
-        }
-    };
+    let Some(root) = object_now(app, ui, &key, &path) else { return };
     let restype = instance_type(&path).unwrap_or(key.restype);
-    // Several blueprints or placed objects edited together.
-    let several = !also.is_empty();
     // The window this is, and the objects it edits.
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
-    let tab = match (path.0.is_empty(), also.is_empty()) {
-        (true, true) => Tab::Blueprint(key),
-        (true, false) => Tab::Blueprints(targets.iter().map(|(k, _)| *k).collect()),
-        (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
-        (false, false) => Tab::Instances {
-            area: key.resref,
-            paths: targets.iter().map(|(_, p)| p.clone()).collect(),
-        },
+    let tab = tab_of(key, &path, &also);
+    let (held, is_viewed) = looked_at(app, &key);
+    // (Named, for a screen reader and the tests: the Properties panel
+    // draws the same fields.)
+    mg_uikit::name_group(ui, WINDOW_GROUP);
+    let (name, sub) = title_of(app, &key, &path, &root, also.len());
+    let kind = kind_name(restype);
+    let header = match path.0.is_empty() {
+        true => format!("{kind} blueprint header"),
+        false => format!("{kind} properties header"),
     };
-    // (A placed object of an area another builder holds, in a project
-    // that keeps those read-only: looked at, as the game's blueprints are.)
-    let held = crate::claims::area_of(&key).and_then(|a| crate::claims::read_only(app, a));
-    let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
-    let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
+    let title = Title { header, icon: crate::tabs::icon(&tab), name: &name, sub: &sub };
+    let pressed = ok_cancel_header(ui, &title, is_viewed || held.is_some(), OK_CANCEL_TIPS);
     // (Every page, of several too: their lists are edited on each,
     // `docs/lists-together-proposal.md`.)
     let pages: Vec<&str> =
         if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     let page_key = (key, path.clone());
-    let mut page = (app.blueprint_pages.get(&page_key).copied())
-        .or_else(|| app.open_tabs.page(&tab, &pages))
-        .unwrap_or(pages[0]);
-    if !pages.contains(&page) {
-        page = pages[0];
+    let asked = app.blueprint_pages.get(&page_key).copied();
+    let page = asked.or_else(|| app.open_tabs.page(&tab, &pages)).unwrap_or(pages[0]);
+    let mut top = pages.iter().position(|p| *p == page).unwrap_or(0);
+    // (The pages one after another on one scroll, the list at their left:
+    // `blueprint_pages` keeps the page at the top, and a page put there
+    // from elsewhere, Inventory… or a test, is brought to the top.)
+    let id = window_state_id(app, key, &path, "pages");
+    let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &pages, &mut top);
+    let all = AllPages { id, pages: &pages, top: &mut top, bring: listed.chosen };
+    let shown = FormShown {
+        key,
+        path,
+        also: Arc::new(also),
+        root,
+        restype,
+        page,
+        held,
+        is_viewed,
+        heading: None,
+        all: Some(all),
+    };
+    let pending = form_ui(app, &mut listed.body, shown);
+    // (Unless a page asked for another while it was drawn: brought to the
+    // top in the next frame.)
+    match app.blueprint_pages.get(&page_key).copied() == asked {
+        true => _ = app.blueprint_pages.insert(page_key, pages[top]),
+        false => ui.ctx().request_repaint(),
     }
-    ui.horizontal_wrapped(|ui| {
-        for p in &pages {
-            ui.selectable_value(&mut page, *p, *p);
+    window_drawn(app, pending, &tab, &targets, pressed);
+}
+
+/// What a Properties window's header calls what it edits (its name, and
+/// quieter its resref): a blueprint by its name and resref, a placed
+/// object by its name and its blueprint's (else its tag), several by the
+/// first and how many more.
+fn title_of(
+    app: &Moonglow,
+    key: &ResKey,
+    path: &GffPath,
+    root: &Struct,
+    more: usize,
+) -> (String, String) {
+    let text = |s: &[u8]| String::from_utf8_lossy(s).into_owned();
+    let tag = root.string("Tag").map(text).unwrap_or_default();
+    let mut sub = match path.0.is_empty() {
+        true => key.resref.to_string(),
+        false => {
+            let template = ["TemplateResRef", "InventoryRes", "EquippedRes"]
+                .iter()
+                .find_map(|l| root.resref(l).filter(|r| !r.is_empty()));
+            template.map_or(tag.clone(), |r| r.to_lowercase().to_string())
         }
-    });
-    app.blueprint_pages.insert(page_key, page);
-    ui.separator();
+    };
+    let mut name = crate::tree::blueprint_name(app.game.as_deref(), root).trim().to_string();
+    if name.is_empty() {
+        name = if tag.is_empty() { std::mem::take(&mut sub) } else { tag };
+    }
+    if more > 0 {
+        sub = match sub.is_empty() {
+            true => format!("and {more} more"),
+            false => format!("{sub} and {more} more"),
+        };
+    }
+    (name, sub)
+}
+
+/// A blueprint type's kind, as a header names it.
+fn kind_name(t: ResType) -> &'static str {
+    match t {
+        ResType::UTC => "Creature",
+        ResType::UTI => "Item",
+        ResType::UTP => "Placeable",
+        ResType::UTD => "Door",
+        ResType::UTT => "Trigger",
+        ResType::UTE => "Encounter",
+        ResType::UTS => "Sound",
+        ResType::UTM => "Store",
+        ResType::UTW => "Waypoint",
+        _ => "Object",
+    }
+}
+
+/// A Properties window's pages on one scroll ([`FormShown::all`]): the
+/// scroll's id (the list beside it reads it by the same), the pages, the
+/// page at the top (asked for, then as shown), and whether the list chose
+/// it this frame.
+pub(crate) struct AllPages<'p> {
+    pub id: egui::Id,
+    pub pages: &'p [&'static str],
+    pub top: &'p mut usize,
+    pub bring: bool,
+}
+
+/// The tab of a Properties window of the object at `path` of `key`, with
+/// those edited with it (`also`): a blueprint's, several blueprints', a
+/// placed object's or several placed objects'.
+pub(crate) fn tab_of(key: ResKey, path: &GffPath, also: &[(ResKey, GffPath)]) -> Tab {
+    match (path.0.is_empty(), also.is_empty()) {
+        (true, true) => Tab::Blueprint(key),
+        (true, false) => {
+            Tab::Blueprints(std::iter::once(key).chain(also.iter().map(|(k, _)| *k)).collect())
+        }
+        (false, true) => Tab::Instance { area: key.resref, path: path.clone() },
+        (false, false) => Tab::Instances {
+            area: key.resref,
+            paths: std::iter::once(path.clone())
+                .chain(also.iter().map(|(_, p)| p.clone()))
+                .collect(),
+        },
+    }
+}
+
+/// The name of a blueprint's or placed object's Properties window (or
+/// tab), as a group around its pages and fields.
+pub const WINDOW_GROUP: &str = "Properties window";
+
+/// The object at `path` of the document `key` as it is now, or `None`
+/// with what is wrong said in `ui` (no module, the object gone, the
+/// document unread).
+fn object_now(app: &mut Moonglow, ui: &mut Ui, key: &ResKey, path: &GffPath) -> Option<Struct> {
+    let Some(ws) = &mut app.ws else {
+        ui.label("No module is open.");
+        return None;
+    };
+    match ws.doc(key) {
+        Ok(g) => match path.get(&g.root) {
+            Some(s) => Some(s.clone()),
+            None => {
+                ui.label("This object is no longer there.");
+                None
+            }
+        },
+        Err(e) => {
+            ui.colored_label(ui.visuals().error_fg_color, e.to_string());
+            None
+        }
+    }
+}
+
+/// Whether the document `key` is only looked at: held by another builder
+/// (a placed object of an area another builder holds, in a project that
+/// keeps those read-only: why, as `claims::read_only` says it), or the
+/// game's (`Workspace::is_viewed`).
+pub(crate) fn looked_at(app: &Moonglow, key: &ResKey) -> (Option<String>, bool) {
+    let held = crate::claims::area_of(key).and_then(|a| crate::claims::read_only(app, a));
+    let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(key));
+    (held, is_viewed)
+}
+
+/// What a Properties form shows ([`form_ui`]): the objects (the first
+/// `key` and `path`, the others `also`), the first as it is now, its type,
+/// the page shown, why it is only looked at, and a heading over the page
+/// where its host draws one (the Properties panel's page name and the
+/// object's place: `(page, readout)`).
+pub(crate) struct FormShown<'p> {
+    pub key: ResKey,
+    pub path: GffPath,
+    pub also: crate::widgets::Also,
+    pub root: Struct,
+    pub restype: ResType,
+    pub page: &'p str,
+    pub held: Option<String>,
+    pub is_viewed: bool,
+    pub heading: Option<(&'p str, Option<String>)>,
+    /// Every page on one scroll (the window's), not `page` alone (the
+    /// Properties panel's).
+    pub all: Option<AllPages<'p>>,
+}
+
+/// A Properties form's page, as a window (with OK and Cancel, over it)
+/// and the Properties panel (no OK or Cancel, its pages a rail) draw it:
+/// the note of what is only looked at, the note of several, the page in
+/// its scroll; a change only looked at refused and said, and of several
+/// a change only the first would take dropped. Returns where the page's
+/// actions began in `app.actions` (what a window notes for its Cancel).
+pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> usize {
+    let FormShown { key, path, also, root, restype, page, held, is_viewed, heading, all } = shown;
+    let several = !also.is_empty();
+    let targets: Vec<(ResKey, GffPath)> =
+        std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
     let viewed = is_viewed || held.is_some();
     let refused_id = egui::Id::new(("view-refused", key));
     if viewed {
@@ -2130,24 +2999,52 @@ pub(crate) fn edit_many(
     if viewed {
         typing_kept_out(ui, ui.available_rect_before_wrap());
     }
-    let mut form = Form { app, key, path, also, root, together: Default::default() };
-    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`.)
-    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        read_only_if(ui, viewed, |ui| match restype {
-            // (Every kind's, drawn alike.)
-            _ if page == "Variables" => form.variables_page(ui),
-            ResType::UTW => waypoint::page(&mut form, ui, page),
-            ResType::UTS => sound::page(&mut form, ui, page),
-            ResType::UTT => trigger::page(&mut form, ui, page),
-            ResType::UTE => encounter::page(&mut form, ui, page),
-            ResType::UTM => store::page(&mut form, ui, page),
-            ResType::UTD => door::page(&mut form, ui, page),
-            ResType::UTP => placeable::page(&mut form, ui, page),
-            ResType::UTI => item::page(&mut form, ui, page),
-            ResType::UTC => creature::page(&mut form, ui, page),
-            _ => {}
-        })
-    });
+    let own_tab = all.is_some();
+    let mut form = Form { app, key, path, also, root, together: Default::default(), own_tab };
+    // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`;
+    // in a narrow room, the panel's, down alone, its rows fitting it.)
+    // (The Properties panel's always: it has no sideways scroll, at any
+    // width the dock or its column is given.)
+    // (The window's pages judged on a page's own width, inside its
+    // margins: `form_pages::narrow`.)
+    let narrow = match all.is_some() {
+        true => crate::form_pages::narrow(ui.available_width()),
+        false => ui.available_width() < NARROW_FORM || form.app.panel_form,
+    };
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(NARROW_ID), narrow));
+    let scroll = match narrow {
+        true => egui::ScrollArea::vertical(),
+        false => egui::ScrollArea::both(),
+    };
+    match all {
+        // (Each page its own scroll: another page opens at its top.)
+        None => {
+            scroll.id_salt(("form-page", page)).auto_shrink([false, false]).show(ui, |ui| {
+                if let Some((title, readout)) = &heading {
+                    mg_uikit::section_heading(ui, *title);
+                    if let Some(readout) = readout {
+                        ui.label(egui::RichText::new(readout).small().weak());
+                    }
+                }
+                read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, page));
+            });
+        }
+        // (The window's: every page on one scroll, drawn where in sight.)
+        Some(AllPages { id, pages, top, bring }) => {
+            let scroll = crate::form_pages::scroll(
+                id,
+                pages,
+                !narrow,
+                bring,
+                crate::form_pages::page_columns(ui.available_width()),
+            );
+            scroll.show(ui, top, |ui, i| {
+                read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
+            });
+        }
+    }
+    // (The form drawn: what is drawn after it judges its own room.)
+    ui.data_mut(|d| d.remove::<bool>(egui::Id::new(NARROW_ID)));
     // The game's blueprint (or a read-only area's object) takes no
     // change, the note above saying so when one is tried.
     if viewed && look_only(form.app, pending, &|k| *k == key) {
@@ -2192,7 +3089,25 @@ pub(crate) fn edit_many(
             ui.data_mut(|d| d.remove::<(String, u64)>(note_id));
         }
     }
-    window_drawn(form.app, pending, &tab, &targets, pressed);
+    pending
+}
+
+/// A page of a blueprint's or placed object's form, by its name.
+fn page_ui(form: &mut Form<'_>, ui: &mut Ui, restype: ResType, page: &str) {
+    match restype {
+        // (Every kind's, drawn alike.)
+        _ if page == "Variables" => form.variables_page(ui),
+        ResType::UTW => waypoint::page(form, ui, page),
+        ResType::UTS => sound::page(form, ui, page),
+        ResType::UTT => trigger::page(form, ui, page),
+        ResType::UTE => encounter::page(form, ui, page),
+        ResType::UTM => store::page(form, ui, page),
+        ResType::UTD => door::page(form, ui, page),
+        ResType::UTP => placeable::page(form, ui, page),
+        ResType::UTI => item::page(form, ui, page),
+        ResType::UTC => creature::page(form, ui, page),
+        _ => {}
+    }
 }
 
 /// A form only looked at (the game's blueprint, opened by View; what an
@@ -2238,6 +3153,52 @@ const MIXED_LIMIT: usize = 64;
 /// The mark of a field whose value differs among the objects edited
 /// together.
 pub(crate) const MIXED: &str = "≠";
+
+/// The size of the [`MIXED`] mark: a badge of the body text's height.
+fn mixed_mark_size(ui: &Ui) -> egui::Vec2 {
+    let h = ui.text_style_height(&egui::TextStyle::Body).max(14.0);
+    egui::vec2(h, h)
+}
+
+/// The [`MIXED`] mark at `rect`: "≠" bold on a tint of the warning color,
+/// readable in both themes; known to the screen reader as "≠" whose value
+/// is "mixed", and to the pointer by its tip (M4's U29 review).
+fn paint_mixed_mark(
+    ui: &Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    tip: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let color = ui.visuals().warn_fg_color;
+    let p = ui.painter();
+    p.rect_filled(rect, 3.0, color.gamma_multiply(0.18));
+    p.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Inside);
+    let font = egui::FontId::proportional(rect.height() - 1.0);
+    p.text(rect.center() + egui::vec2(0.0, -0.5), egui::Align2::CENTER_CENTER, MIXED, font, color);
+    let r = ui.interact(rect, id, egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
+    ui.ctx().accesskit_node_builder(r.id, |node| {
+        node.set_label(MIXED);
+        node.set_value("mixed");
+    });
+    r.on_hover_text(tip)
+}
+
+/// The [`MIXED`] mark laid out where the next widget goes (before a group
+/// of choices: the whole group's).
+fn mixed_mark_inline(ui: &mut Ui, id: egui::Id) {
+    let size = mixed_mark_size(ui);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    paint_mixed_mark(ui, rect, id, MIXED_TIP);
+}
+
+/// The [`MIXED`] mark laid out where the next widget goes, with its tip
+/// `tip` (a list's row whose objects differ there).
+pub(crate) fn mixed_mark(ui: &mut Ui, tip: impl Into<egui::WidgetText>) -> egui::Response {
+    let size = mixed_mark_size(ui);
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::hover());
+    paint_mixed_mark(ui, rect, r.id.with("mixed"), tip)
+}
 
 /// The tip of [`MIXED`].
 const MIXED_TIP: &str = "The objects differ here: this shows the first one's. What you set goes to \

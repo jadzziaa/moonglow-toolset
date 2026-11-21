@@ -39,10 +39,11 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     assert!((now - palette).abs() < 3.0, "the Right Dock: {palette} wide, then {now}");
     assert!(width(&h, &Tab::NoArea).unwrap() > 300.0);
 
-    // An area opened takes its place (the pane lists those opened lately
-    // and the module's, each a link, beside the module tree's row); the
-    // Right Dock stays.
-    assert_eq!(h.query_all_by_label("start").count(), 3);
+    // An area opened takes its place (the pane is the kit's empty state
+    // since M4's U24: the areas are the Module panel's rows and Quick
+    // Open's, `welcome::no_area_s_areas_are_in_the_module_panel_and_quick_open`);
+    // the Right Dock stays.
+    assert_eq!(h.query_all_by_label("start").count(), 1, "the Module panel's row alone");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
     h.run();
     h.run();
@@ -56,9 +57,7 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     assert!(has(&h, &Tab::NoArea));
     let now = dock(&h);
     assert!((now - palette).abs() < 3.0, "the Right Dock: {palette} wide, then {now}");
-    // The area just opened is offered first, among those opened lately.
-    h.get_by_label("Opened lately");
-    assert_eq!(h.query_all_by_label("start").count(), 3);
+    assert_eq!(h.query_all_by_label("start").count(), 1);
 }
 
 /// Without the palettes (no game), the middle is not left blank either.
@@ -690,12 +689,24 @@ fn the_palette_is_a_panel_not_a_tab() {
 /// in its place.
 #[test]
 fn a_tool_tab_dropped_on_a_side_is_docked_there() {
+    for tool in [Tab::Factions, Tab::ModuleProperties] {
+        tool_tab_dropped_on_a_side(&tool);
+    }
+}
+
+/// [`a_tool_tab_dropped_on_a_side_is_docked_there`] with `tool`'s tab: the
+/// Faction Editor's (its own Right Dock panels since M4's U22) and Module
+/// Properties' (which brings no Right Dock).
+fn tool_tab_dropped_on_a_side(tool: &Tab) {
     let Some((mut h, area)) = area_harness("dock-tool-side") else { return };
     // (In a pane of its own split off the middle's right.)
     {
         let dock = &mut h.state_mut().dock;
+        if let Some(at) = dock.find_tab(tool) {
+            dock.remove_tab(at);
+        }
         let node = dock.find_tab(&Tab::Area(area)).unwrap().node;
-        dock.main_surface_mut().split_right(node, 0.7, vec![Tab::Factions]);
+        dock.main_surface_mut().split_right(node, 0.7, vec![tool.clone()]);
     }
     h.run_steps(4);
     let layout = |h: &Harness<'_, Moonglow>| {
@@ -714,7 +725,7 @@ fn a_tool_tab_dropped_on_a_side_is_docked_there() {
         let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
         found.map(|(_, l)| (l.rect, l.viewport)).unwrap()
     };
-    let (rect, viewport) = leaf(&h, &Tab::Factions);
+    let (rect, viewport) = leaf(&h, tool);
     // (Its tab: the first in its pane's bar, after egui_dock's arrow.)
     let tab = egui::pos2(rect.left() + 60.0, (rect.top() + viewport.top()) / 2.0);
     let (target, _) = leaf(&h, &Tab::Area(area));
@@ -733,19 +744,31 @@ fn a_tool_tab_dropped_on_a_side_is_docked_there() {
         let found = h.state().dock.iter_leaves().find(|(_, l)| l.tabs.contains(tab));
         found.map(|(p, l)| (p.surface.is_main(), l.tabs.len(), l.rect.center().x)).unwrap()
     };
-    let (tool, area_pane) = (main(&Tab::Factions), main(&Tab::Area(area)));
-    assert_eq!((tool.0, tool.1), (true, 1), "{:?}", layout(&h));
-    assert!(tool.2 < area_pane.2, "left of the area: {:?}", layout(&h));
-    // The Right Dock follows the pane with the focus: the tool's brings
-    // none; the area's the palettes, as they were.
-    click_tab(&mut h, &Tab::Factions);
+    let (pane, area_pane) = (main(tool), main(&Tab::Area(area)));
+    assert_eq!((pane.0, pane.1), (true, 1), "{tool:?}: {:?}", layout(&h));
+    assert!(pane.2 < area_pane.2, "{tool:?}: left of the area: {:?}", layout(&h));
+    // The Right Dock follows the pane with the focus: none beside Module
+    // Properties, the Faction Editor's own panels (U22); the area's the
+    // palettes, as they were.
+    click_tab(&mut h, tool);
     settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
-    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the tool");
+    assert_eq!(h.state().active_editor(), Some(tool));
+    assert!(!palette_shown(h.state()), "{tool:?}: not the palettes beside the tool");
+    let shows = h.state().right_dock_shows();
+    match tool {
+        Tab::Factions => assert!(
+            matches!(
+                shows,
+                Some(mg_ui::Panel::Faction | mg_ui::Panel::Reaction | mg_ui::Panel::Reactions)
+            ),
+            "the tool's own panels beside it (U22): {shows:?}"
+        ),
+        _ => assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside {tool:?}"),
+    }
     click_tab(&mut h, &Tab::Area(area));
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)));
-    assert!(palette_shown(h.state()), "the palettes where they were");
+    assert!(palette_shown(h.state()), "{tool:?}: the palettes where they were");
 }
 
 /// The resource browser is the Left Dock's Resources panel, fixed there
@@ -1268,7 +1291,9 @@ fn a_window_of_tabs_moves_by_its_tab_bar_alone() {
     // By the tab bar's room beside the tabs, it moves.
     drag(&mut h, before.min + egui::vec2(400.0, 12.0));
     let moved = window(&h);
-    assert!(moved.min.x > before.min.x + 30.0, "moved by its tab bar: {before:?} {moved:?}");
+    // (Down: the screen's right edge stops it going right, the window
+    // placed clear of the Left Dock's strip.)
+    assert!(moved.min.y > before.min.y + 20.0, "moved by its tab bar: {before:?} {moved:?}");
     let before = moved;
     h.state_mut().settings.drag_windows_anywhere = true;
     h.run();
@@ -1466,9 +1491,11 @@ fn the_talk_table_opens_again_on_its_line() {
     assert_eq!(h.state().talk_view.selected, Some(2), "still on its line");
 }
 
-/// Tile Properties kept with a module, still waiting for its area's view
-/// when the module is closed again (the area never drawn: here, with no
-/// game data), is kept again, not lost.
+/// Tile Properties kept with a module by an older Moonglow (its tab, before
+/// it was the Right Dock's panel), still waiting for its area's view when
+/// the module is closed again (the area never drawn: here, with no game
+/// data), is kept again, not lost: read without error, the other tabs
+/// open; once its area is deleted from the module, it is dropped.
 #[test]
 fn tile_properties_waiting_for_its_area_is_kept_again() {
     let (path, app, kept) = tabs_app("ui-open-tabs-tiles-waiting");
@@ -1487,13 +1514,30 @@ fn tile_properties_waiting_for_its_area_is_kept_again() {
     for session in 0..2 {
         h.state_mut().open_module(&path);
         h.run_steps(3);
-        assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "waiting");
+        assert!(h.state().tile_props.is_none(), "waiting");
         assert!(h.state().dock.find_tab(&Tab::Factions).is_some(), "the others open");
         h.state_mut().actions.push(mg_ui::Action::Close);
         h.run();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("tile-properties:start:5"), "kept again ({session}): {text}");
     }
+    // Its area deleted from the module meanwhile: no longer kept (written
+    // back for ever, else).
+    h.state_mut().open_module(&path);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("start").unwrap();
+    let keys: Vec<ResKey> = [ResType::ARE, ResType::GIT, ResType::GIC]
+        .into_iter()
+        .map(|t| ResKey::new(area, t))
+        .filter(|k| h.state().ws.as_ref().unwrap().module.contains(k))
+        .collect();
+    assert!(!keys.is_empty(), "the module has the area");
+    h.state_mut().actions.push(mg_ui::Action::DeleteResources(keys));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains("tile-properties"), "the deleted area's not kept: {text}");
 }
 
 /// With Options › General's Open a module with the tabs it had off, a
@@ -1605,9 +1649,9 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     assert!(!text.contains("\"palettes\""), "no palettes' pane: {text}");
     assert!(!text.contains("\"palette\""), "no palettes' tab: {text}");
     // The palettes' tab in a record whose tab in front is not an area's
-    // (the Faction Editor, docked in the middle): the dock unfolded on the
-    // Palette but not asked for by name, so not drawn beside the Faction
-    // Editor; the area's tab in front, it is, on the Palette.
+    // (the Faction Editor, docked in the middle): the Palette not asked
+    // for by name, so not shown beside the Faction Editor (folded, on its
+    // own panels); the area's tab in front, it is, on the Palette.
     fold_palette(h.state_mut());
     settle(&mut h);
     h.state_mut().settings.window_places = vec![("factions".into(), "middle".into())];
@@ -1623,8 +1667,12 @@ fn a_tab_kept_in_the_palettes_pane_opens_where_its_kind_opens() {
     let factions = h.state().dock.find_tab(&Tab::Factions).expect("the Faction Editor open");
     assert!(factions.surface.is_main(), "docked in the middle");
     assert_eq!(h.state().active_editor(), Some(&Tab::Factions));
-    assert!(h.state().right_dock_rect().is_none(), "no Right Dock beside the Faction Editor");
-    assert!(h.query_by_label("Show the Right Dock").is_none(), "nor its strip");
+    // (The Faction Editor brings its own panels since U22: the dock
+    // stands folded beside it, its strip on them, not on the Palette.)
+    assert!(h.state().right_dock_rect().is_none(), "folded beside the Faction Editor");
+    let strip = h.get_by_label(mg_ui::RIGHT_DOCK);
+    assert!(strip.query_by_label("Palette").is_none(), "not the palettes' strip");
+    strip.get_by_label("Faction");
     assert!(h.state().settings.hide_palettes, "the builder's fold stands");
     h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Palette));
     settle(&mut h);
@@ -1867,6 +1915,13 @@ fn side_editors_and_tools_open_again_with_the_module() {
     assert!(app.dock.find_tab(&Tab::PlaceableGallery).is_some());
     assert!(app.dock.find_tab(&Tab::Options).is_some());
     assert_eq!(app.options.as_ref().unwrap().page, mg_ui::OptionsPage::General);
+    // (And General drawn, not only chosen: its Questions in sight. M4's
+    // U23 fix.)
+    let mut h = h;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Options));
+    h.run_steps(3);
+    assert!(h.query_by_label("Questions").is_some(), "Options drawn on General");
+    let app = h.state();
     let after = shown(app);
     assert_eq!(after.iter().filter(|k| *k == "Tileset").count(), 0);
     assert_eq!(after.len(), before.len() - 1, "{before:?} {after:?}");
@@ -2684,6 +2739,10 @@ fn escape_in_front(mode: Mode) {
         press(&h, at, false, egui::Modifiers::NONE);
     }
     h.run_steps(5);
+    // (The double click shows the Properties panel, ruling Q1; its Open
+    // in Tab, the window of today.)
+    h.get_by_label(mg_ui::properties_panel::OPEN_IN_TAB).click();
+    h.run_steps(5);
     let path = mg_edit::GffPath::root().item("WaypointList", 1);
     let tab = Tab::Instance { area, path };
     assert!(h.state().dock.find_tab(&tab).is_some(), "the Properties tab");
@@ -2808,10 +2867,12 @@ fn scripts_open_as_tabs_of_one_window() {
     assert_ne!(third.0, first.0, "a window of its own");
 }
 
-/// The lower halves of the script, conversation and journal editors
-/// (the compiler's pane, the selection's fields) are dragged up only so
-/// far: three fifths of the script editor, seven tenths of the others,
-/// the text or the lines above keeping their room.
+/// The lower half of the script editor (its window's bottom pane,
+/// Compiler and the rest since M4's U13) is dragged up only so far: a
+/// third of the script's window, the text above keeping its room. (The
+/// conversation's line's fields left its lower half for the Right Dock's
+/// Node section in M4's U14, the journal's for its Entry and Category in
+/// U22.)
 #[test]
 fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     let dir = mg_testkit::scratch_dir("ui-lower-halves");
@@ -2824,17 +2885,20 @@ fn the_editors_lower_halves_are_held_to_a_share_of_the_editor() {
     mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there.");
     m.set_gff(talk, &g).unwrap();
     m.save().unwrap();
-    for (tab, panel, share) in [
-        (Tab::Script(script), egui::Id::new(("script-info", script)), 0.6),
-        (Tab::Dialog(talk), egui::Id::new(("dlg-data", talk)), 0.7),
-        (Tab::Journal, egui::Id::new("journal-fields"), 0.7),
-    ] {
+    let (tab, panel, share) =
+        (Tab::Script(script), egui::Id::new(("window-bottom", Tab::Script(script))), 1.0 / 3.0);
+    {
         let mut app = app_with(Vec::new());
         app.settings.no_last_area = true;
         app.open_module(&path);
         app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
         let mut h = harness(app, 1200.0, 900.0);
         h.run_steps(4);
+        // (The script's in a window as tall as the harness has room for.)
+        if matches!(tab, Tab::Script(_)) {
+            own_window(&mut h, &tab, egui::pos2(20.0, 20.0), egui::vec2(1100.0, 860.0));
+            h.run_steps(4);
+        }
         let rect = |h: &Harness<'_, Moonglow>| {
             egui::containers::panel::PanelState::load(&h.ctx, panel)
                 .unwrap_or_else(|| panic!("{tab:?}: no lower half"))
@@ -2895,6 +2959,9 @@ fn a_properties_window_s_buttons_stay_put() {
     m.set(post, Gff::new(*b"UTW ").to_bytes().unwrap());
     let talk = ResKey::parse("talk", ResType::DLG).unwrap();
     m.set(talk, Gff::new(*b"DLG ").to_bytes().unwrap());
+    // (A script's, in its header's end slot since M4's U12.)
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(script, b"void main() { }\n".to_vec());
     m.save().unwrap();
     let area = ResRef::from_str("start").unwrap();
     let mut moving = Vec::new();
@@ -2943,8 +3010,14 @@ fn a_properties_window_s_buttons_stay_put() {
             hak,
             table,
             tileset,
+            Tab::Script(script),
+            // (Options' OK and Cancel at its header's end since M4's U23.)
+            Tab::Options,
         ] {
-            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            h.state_mut().actions.push(match tab {
+                Tab::Options => mg_ui::Action::OptionsDialog,
+                _ => mg_ui::Action::OpenTab(tab.clone()),
+            });
             h.run_steps(8);
             // (A window of its own, as a builder has it.)
             let path = h.state().dock.find_tab(&tab).unwrap();

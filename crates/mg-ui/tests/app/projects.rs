@@ -128,7 +128,8 @@ fn a_nui_window_s_scripts_go_into_a_nasher_project() {
     // (The Right Dock's palettes beside it, their groups opening: settled,
     // not a count of frames.)
     settle(&mut h);
-    h.get_by_label("Build & compile").click();
+    // (The designer's header's, M4's U18.)
+    h.get_by_label(mg_ui::nui_names::NUI_HEADER).get_by_label(mg_ui::nui_names::BUILD).click();
     h.run();
     let log = format!("{:?}", h.state().log.entries);
     assert!(log.contains("Built zz_win"), "{log}");
@@ -282,9 +283,10 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     h.state_mut().talk_view.new_name = "MG_New".into();
     h.run();
     h.get_by_label_contains("Made in the project as src/mg_new.tlk.json");
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
-    h.run();
-    h.run();
+    settle(&mut h);
     let json = project.join("src/mg_new.tlk.json");
     let t = h.state().talk.as_ref().expect("the new table is open");
     assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
@@ -292,8 +294,7 @@ fn a_new_talk_table_of_a_project_is_made_in_it() {
     let cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
     assert!(cfg.contains("file = \"mg_new.tlk\"") && cfg.contains("exclude = \"**/*.tlk.json\""));
     // The module names it; a line added and saved goes into its JSON.
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     type_into_hint(&mut h, "the line's text", "Fresh");
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -351,8 +352,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Hello"));
     // A line added and typed, saved with the module: the JSON as nwn_tlk
     // writes it, the lines there kept as they were.
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     type_into_hint(&mut h, "the line's text", "Greetings");
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
@@ -381,8 +381,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     h.run();
     assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "Servus");
     assert!(!h.state().talk.as_ref().unwrap().is_dirty());
-    h.get_by_label("Add Line").click();
-    h.run();
+    talk_click(&mut h, mg_ui::talk_view::ADD_LINE);
     std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Grüß Gott"}]}"#).unwrap();
     h.state_mut().reload_resources(false);
     h.run();
@@ -1156,14 +1155,13 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.run_steps(4);
     // (The description's folder is walked on a thread of its own.)
     settle(&mut h);
-    h.get_by_label_contains("Described by loot.2da.toml: 4 columns");
+    h.get_by_label_contains("Described by loot.2da.toml: 4 of 5 columns");
     let d = h.state().tables[0].description().expect("the description is read");
     assert_eq!(d.column("Kinds").unwrap().kind.entries().len(), 2);
     // Values by their names; the cell out of its range is the one wrong.
     h.get_by_label("LOOT_KIND_GOLD | LOOT_KIND_GEMS");
     h.get_by_label("Rare");
-    h.get_by_label("1 cell is wrong").click();
-    h.run_steps(3);
+    table_click(&mut h, "1 cell is wrong");
     assert_eq!(h.state().tables[0].selected, Some((1, 1)));
     h.get_by_label_contains("500 is above what the column takes");
     h.get_by_label("In a hundred");
@@ -1195,36 +1193,23 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(0, "Place"), Some("2"));
     // A list's cell is chosen by name: the table gets the value.
-    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
-    let open = |h: &mut Harness<'_, Moonglow>, shows: &str| {
-        let at = h
-            .query_all(combo.clone())
-            .find(|n| n.accesskit_node().value().is_some_and(|v| v == shows))
-            .map(|n| n.rect().center())
-            .unwrap_or_else(|| panic!("the list showing {shows}"));
-        h.hover_at(at);
-        press(h, at, true, egui::Modifiers::NONE);
-        press(h, at, false, egui::Modifiers::NONE);
-        h.run_steps(3);
-    };
-    h.get_by_label("Common").click();
-    h.run_steps(3);
-    open(&mut h, "Common");
-    h.get_by_label("Rare  (1)").click();
-    h.run_steps(3);
+    // (Since M4's U16 the Cell panel's rows, each with its value.)
+    grid_cell(&h, "Common").click();
+    settle(&mut h);
+    choice(&h, "Rare").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("1"));
     // Flags are ticked: each is a bit of the cell, written as the list's
     // own values are.
-    h.get_by_label("LOOT_KIND_GOLD").click();
-    h.run_steps(3);
-    open(&mut h, "LOOT_KIND_GOLD");
-    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
-    h.run_steps(3);
+    grid_cell(&h, "LOOT_KIND_GOLD").click();
+    settle(&mut h);
+    choice(&h, "LOOT_KIND_GEMS").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Kinds"), Some("0x03"));
-    h.get_by_label("LOOT_KIND_GOLD  (0x01)").click();
-    h.run_steps(3);
-    h.get_by_label("LOOT_KIND_GEMS  (0x02)").click();
-    h.run_steps(3);
+    choice(&h, "LOOT_KIND_GOLD").click();
+    settle(&mut h);
+    choice(&h, "LOOT_KIND_GEMS").click();
+    settle(&mut h);
     assert_eq!(table_of(&h, id).get(0, "Kinds"), None, "no flag: an empty cell");
     // A value no list has, typed in the cell, is a fault said as it is typed.
     h.key_press(egui::Key::Escape);
@@ -1239,7 +1224,7 @@ fn a_described_table_is_chosen_from_its_lists() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(0, "Rarity"), Some("17"));
-    h.get_by_label("2 cells are wrong");
+    assert_eq!(table_headers_with(&h, "2 cells are wrong"), 1);
     // The description is read again when its file changes: with a wider
     // range, the chance of 500 is not wrong any more.
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -1248,7 +1233,7 @@ fn a_described_table_is_chosen_from_its_lists() {
     // (Looked at once a second, of the time egui gives.)
     h.run_steps(90);
     settle(&mut h);
-    h.get_by_label("1 cell is wrong");
+    assert_eq!(table_headers_with(&h, "1 cell is wrong"), 1);
     // A table the description names, open in the editor: as it is there,
     // not as its file has it.
     let places = dir.join("src/places.2da");
@@ -1311,6 +1296,8 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         // in Moonglow's editor, and the external editor gets a copy.
         h.state_mut().new_script = Some("fresh".into());
         h.run_steps(2);
+        h.get_by_label("Create").scroll_to_me();
+        settle(&mut h);
         h.get_by_label("Create").click();
         h.run_steps(4);
         let fresh = ResKey::parse("fresh", ResType::NSS).unwrap();
@@ -1338,7 +1325,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1395,6 +1382,8 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     h.run();
     h.get_by_label("Small").click();
     h.run();
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
@@ -1402,7 +1391,7 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
 
     // No code: as Aurora again, and the rest of the file kept.
     std::fs::write(dir.join(".moonglow/user.toml"), "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1437,6 +1426,8 @@ fn the_names_typed_for_new_resources_start_with_the_builder_code() {
     assert_eq!(h.state().new_script.as_deref(), Some("ab_"));
     typed_name(&h, "ab_").type_text("gate");
     h.run();
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
@@ -1479,6 +1470,8 @@ fn the_names_typed_for_new_resources_start_with_the_builder_code() {
     typed_name(&h, "_ab").type_text("gate");
     h.run();
     assert_eq!(h.state().new_dialog.as_deref(), Some("gate_ab"));
+    h.get_by_label("Create").scroll_to_me();
+    settle(&mut h);
     h.get_by_label("Create").click();
     h.run();
     let ws = h.state().ws.as_ref().unwrap();
@@ -1581,7 +1574,7 @@ fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 800.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Builder Code…").click();
     h.run();
@@ -1649,7 +1642,7 @@ fn a_module_in_one_file_has_no_builder_code() {
     app.open_module(&sample_module(&dir));
     let mut h = window_harness(app);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     assert!(h.get_by_label("Builder Code…").accesskit_node().is_disabled());
 }
@@ -2082,7 +2075,9 @@ fn a_builder_code_that_holds_claims_is_said_in_its_window() {
 
 /// C6: Edit › Claims Table… shows the table whole (every area of it and
 /// the module, whose each is), and takes another builder's claim over
-/// (asked first), hands this builder's on, releases and claims.
+/// (asked first), hands this builder's on, releases and claims. (M4's
+/// U28: a Bottom Dock tab, a row an area, its name the area's and its
+/// value whose it is and the notes; closed by Close Report.)
 #[test]
 fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     let table = format!(
@@ -2093,14 +2088,15 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
         claimed_project("ui-claims-table", "[claims]\nfile = \"claims.2da\"\n", &table);
     let mut h = harness(app, 1000.0, 700.0);
     h.run();
-    h.get_by_label("Edit").click();
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label("Claims Table…").click();
-    h.run();
-    h.get_by_label("claims.2da: whose each area is. Your code is ab.");
-    h.get_by_label("cd since 2026-10-20");
-    h.get_by_label("kz_gone");
-    h.get_by_label("merged, not in the module");
+    settle(&mut h);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ClaimsTable));
+    let said = |h: &Harness<'_, Moonglow>, area: &str| in_dock(h, area).value().unwrap_or_default();
+    in_dock(&h, "claims.2da: whose each area is. Your code is ab.");
+    assert_eq!(said(&h, "start"), "cd since 2026-10-20");
+    assert_eq!(said(&h, "kz_gone"), "free, merged, not in the module");
     let row = |dir: &std::path::Path| {
         let text = std::fs::read_to_string(dir.join("claims.2da")).unwrap();
         text.lines().nth(3).unwrap().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
@@ -2126,7 +2122,7 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     h.run();
     assert_eq!(row(&dir), "0 start ab");
     assert!(logged(&h, "start taken over from cd by ab, in claims.2da: commit it, and tell them"));
-    h.get_by_label_contains("yours: ab since");
+    assert!(said(&h, "start").starts_with("yours: ab since"), "{}", said(&h, "start"));
     // Handed on: not to one's own code.
     h.get_by_label("Hand To…").click();
     h.run();
@@ -2142,11 +2138,12 @@ fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
     assert_eq!(row(&dir), "0 start ef");
     assert!(logged(&h, "start handed to ef by ab, in claims.2da: commit it, and tell them"));
     // The window follows the table: another's again.
-    h.get_by_label_contains("ef since");
+    assert!(said(&h, "start").starts_with("ef since"), "{}", said(&h, "start"));
     assert!(h.query_by_label("Hand To…").is_none());
-    click_dialog_s_own_close(&mut h, "Claims Table");
-    h.run();
-    assert!(h.query_by_label("Claims Table").is_none());
+    in_dock(&h, "Close Report").click();
+    settle(&mut h);
+    assert!(h.query_by_label("claims.2da: whose each area is. Your code is ab.").is_none());
+    assert_ne!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::ClaimsTable));
 }
 
 /// C6: Claim This Area (the module tree's menu) writes the builder's row
@@ -2680,7 +2677,9 @@ fn a_project_s_command_is_in_the_palette_and_takes_keys() {
     h.run();
     // Options › Keyboard lists them, and another key chosen there runs it.
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
-    h.run();
+    // (Settled: Options' Enter OK comes the frame after the window is
+    // under the pointer.)
+    settle(&mut h);
     h.get_by_label("Keyboard").click();
     h.run();
     type_into_hint(&mut h, "Find a command", "project");

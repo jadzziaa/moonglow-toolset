@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-09T00:08:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T03:15:48Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -27,7 +27,9 @@ you open share one editor window as tabs.
 
 A field you type in changes the window when you leave it or press Enter, a
 dragged number when you let go: each is one step for Undo, and the preview
-shows what you are typing meanwhile. **OK** under the editor closes it;
+shows what you are typing meanwhile. A field you are typing in whose panel
+goes (another tab of the Right Dock chosen, the dock folded, another page)
+sets what you typed as it goes. **OK** at the header's right end closes it;
 **Cancel** closes it and sets the window and its settings back to what they
 were when you opened it, as one step that Undo takes back. The code in
 the event script's sections is yours and stays, whatever you wrote in it
@@ -41,23 +43,118 @@ that include it are changed to the new include and function names. A
 window that was built is built again under its new name in the same step,
 its scripts and yours that open it compiled, as the other renames compile
 what they change; where it can't be (no game install, an opener changed by
-hand, code that doesn't compile), the log says why, and **Build & compile**
+hand, code that doesn't compile), the log says why, and **Build & Compile**
 does it afterwards. **Rename…** on the window's `NAME_o.nss` or
 `NAME_e.nss` renames the window. `mg rename MODULE NAME.jui NEW` does the
 same from the command line.
 
 ## Design
 
-The **Design** page puts the canvas between a searchable component palette
-and the selected element's properties. Click a control on the canvas or in
-**Layers** to select it. Click a component to add it to the selected layout
-(or the selected control's parent); drag it onto a row, column or list to
-choose its destination. A list adds template cells. **Element actions** and
-the Layers menu offer move, duplicate and delete. The side panels resize;
-in a narrow tab they become **Add element**, **Layers** and **Properties** menus.
-**Layers** is a collapsible tree: use its arrows or **Expand all / Collapse all**.
-Selecting a control on the canvas reveals its ancestors. Up/Down visit visible
-rows; Left/Right collapse/expand branches. New lists start with an empty row
+The designer's header holds its pages as a switch (**Design**, **Bindings**,
+**Events & Variants**, **Images**), **Build & Compile** (the hammer's
+accented button; off while the checks find an error, which its tip counts),
+**Export…**, and **More** with **Import…** and **How to Open It…**; at its
+right **Interact** and **Reset**, **View**, and **OK** and **Cancel**. What
+has no room loses its words, then goes into More. Nothing stands between it
+and the canvas.
+
+**The source group.** **View › Layout › Split source** opens the window's
+source as an editor group of its own at the design's right (its tab named
+as the window, `crier.jui`); in a designer in a window of its own, in that
+window, which widens by its room (moved left where the screen's edge is in
+the way) and goes back where it was as the group closes (moved or sized
+meanwhile, it keeps your place, narrowed again). The source is bound to its
+design: Reopen Closed Tab brings it back beside the design, opening the
+design first if it is closed, and wherever it was dragged it closes with
+the design. A second NUI window opens among the designs, never in a source
+group. Its header holds the switch
+**JUI Source** (the window's text as the module holds it) and **Binding
+JSON** (its settings': binds, handlers, variants), **Event Script…** (the
+window's `NAME_e.nss`, written and opened at its handlers) and **Opener
+Script** (`NAME_o.nss`, off until Build & Compile makes it). The text is
+numbered a line at a time in the script editor's font and colors. What you
+type is set when you leave the field (another switch position, a click
+elsewhere, the group or the design closed with the keyboard still in it,
+onto the text you typed over: changed from elsewhere meanwhile, what you
+typed is let go) and before the module is saved, one step for Undo, a draft that doesn't read too: it is kept, and the pages ask for it
+to be put right; meanwhile the canvas shows what you type wherever it reads.
+The design and the source follow each other: a control chosen on the
+canvas or in Layers brings the text's cursor to its first line, the
+cursor's line marked; a click in the text chooses the control it is in, and
+moving the cursor with the keys goes on choosing while it was the text that
+chose (a control chosen on the canvas or in Layers stays chosen as you read
+with the keys, and several chosen are never let go by the cursor). Choosing a swap layout variant to
+edit moves the switch to Binding JSON, where the variant is written. The
+switch is kept for each window while Moonglow runs, and with the module's
+open tabs when it is opened again; **Editor** or **Preview only** in Layout,
+or the group's own ×, closes it, and closing the design closes it too.
+While the source group is the editor in front, the keys are its own (Delete
+and Tab are the text's); a click on the canvas gives them back to the design.
+
+**Checks** is a panel of the Bottom Dock, its switch in the Status Bar with
+the count of what the checks found (errors in the error color, warnings in
+the warning color): a row a finding, errors first, a window or settings that
+don't read first of all, each with its kind, the control it is about (a
+click chooses it on the canvas, in Layers and in the source), its message
+(whole in its tip) and its fix (**Bind It**, **Turn It Off**, **Add Close
+Handler**); its bar says the window's count (`crier: 0 errors · 1
+warning`). New errors bring it to the front and open the Bottom Dock
+(warnings open nothing); a designer in a window of its own shows it in the
+window's bottom pane. Layers marks a control a check names with a warning
+(or error) mark at its row's right, its message as the mark's tip; a click
+on the mark goes to Checks.
+
+**The Status Bar** says, while the designer is the editor in front, what
+the last Build left in the warning color (**Not built**, its scripts not
+what Build makes of the window now; **Build failed**, the reason on hover)
+and the window's count of binds and handlers (`3 binds, 3 handlers`); a
+designer in a window of its own says the first in its header. Its hints
+are the canvas's, as Options › Keyboard binds them: **Click** Select,
+**Drag** Resize by handle, **Esc** Cancel resize, and with a control chosen
+**Ctrl + D** Duplicate, **Alt + Up** Move up and **Delete**; in Interact,
+**Click** Try a control. None while a field is typed in or a popover is
+open, on the other pages, or while the source group is in front.
+
+The designer's panels are the docks', on every page and in every **Layout**
+(the editor keeps its width as you switch): **Components** over **Properties** over
+**Bindings** in the Right Dock (one bar of three tabs in a window narrower than
+1400 points, and in a narrow editor too: Properties is always a panel, never a
+menu, and a dropdown in it opens and chooses as anywhere), and **Layers** in the
+Outliner under the Left Dock's tabs. A designer in a window of its own brings
+them into its window: the three at its right, Layers at its left where the
+window has the room (else a strip at the canvas's left whose icon unfolds
+them over it). Two designers in two groups each bring their own as their
+group is chosen; a designer's source group brings its designer's.
+
+**Properties** is a form: each label beside its field (over it only where
+the panel is too narrow for both), under bold section headings that fold
+and unfold with a click; **Width** and **Height** share a row, with one
+`…` for both; a property's description is its label's tooltip. Buttons
+that add something (**Add Property**, **Add Handler**, **Create Bind**,
+**Draw Primitive**, **Add Variant**, **Add Option**…) carry a plus. A
+field you are typing in is set when you leave it, when its panel goes, or
+when the designer closes (its **Cancel** drops it), and before the module
+is saved; if the window changes under it from elsewhere, what you typed is
+let go, never set on another control.
+
+Click a control on the canvas or in **Layers** to select it. Click a
+component in **Components** (**Find a control…** narrows them) to add it
+to the selected layout (or the selected control's parent); drag it onto a
+row, column or list in Layers or on the canvas to choose its destination. A
+list adds template cells. **Element Actions** (the `…` at the Properties
+panel's header) and **Layer Actions** (the `…` at the Outliner's) offer move,
+duplicate, wrap, delete, copy, cut and paste. The Properties panel's header
+names the control selected; the Bindings panel's counts the binds.
+**Layers** is a collapsible tree, only the rows in sight laid out: use its
+arrows or **Expand All** and **Collapse All** at the Outliner's header, and
+**Find a layer or ID…** to list the controls that hold what you type.
+Selecting a control on the canvas reveals its ancestors and brings its row
+into sight. A click in Layers gives them the keys (F6 too, through the
+panes): Up/Down visit visible rows, Home and End the first and the last, Page
+Up and Page Down by a page, Left/Right collapse/expand branches (Left on a
+folded or plain one goes to its parent), Enter folds or unfolds, letters go
+to a control by its words, Delete, Duplicate, Move Up and Move Down are
+Options › Keyboard's NUI keys, Escape hands them back to the canvas. New lists start with an empty row
 template and a 150-point height. Add the controls you want repeated in each row;
 the empty-list hint belongs only to the editor. Existing list contents are kept.
 
@@ -69,13 +166,24 @@ Handles are hidden in Clean view and remain available during Interact.
 Window resizing edits its geometry, preserving position and the `resizable`
 setting that controls whether players may resize it in game. List-template cells get
 their width from the template; resize their containing list or edit cell settings
-in JUI source. Dynamic dimensions are not replaced by a resize gesture.
+in JUI Source. Dynamic dimensions are not replaced by a resize gesture.
 
-**Fit** and **100%** control canvas zoom. **Game preview** reads `nui_skin.tml`,
-textures and TrueType fonts from your configured NWN installation and current
-module content. No game artwork is bundled with Moonglow. **Scale** previews
-100–200% UI scaling; **State** shows the selected control normally, hovered,
-pressed or disabled. **Clean view** hides selection outlines and editor guides.
+**Fit** and **100%** at the canvas's bottom right control its zoom (**View ›
+Zoom** too); at its top left it says **Game preview** with the UI scale and
+the state shown (the window's size in its tip), the resources' issues under
+it, and with **View › Resources** where each picture and font came from;
+what is not drawn here and Interact's last event stand at its bottom left.
+They stand over the canvas, and take no click beside them. **Game preview** reads
+`nui_skin.tml`, textures and TrueType fonts from your configured NWN
+installation and current module content. No game artwork is bundled with
+Moonglow. The header's **View** popover holds how the canvas shows the
+window, kept for the designer as long as Moonglow runs: **Layout** (Editor,
+Preview only, Split source: the source group), **UI scale** (100–200%),
+**Zoom** (Fit, 100%), **State** (the selected
+control normally, hovered, pressed or disabled; off in Interact),
+**Resources**, **Clean view** (hides selection outlines and editor guides),
+**Preview on screen** and **Screen**. Its dropdowns open in it; Escape
+closes it alone.
 Images and image buttons show the named game resource,
 including image regions, alignment and aspect modes. List rows use their
 corresponding bind-array values.
@@ -100,7 +208,7 @@ controls have no widths, as `nw_inc_nui`'s functions make them:
 collapse button. A static `collapsed: false` hides that button; Reset restores
 the initial preview state. Font sizes use the installed font's vertical metrics.
 
-Turn on **Interact** to try checkboxes, toggle buttons, sliders, text fields,
+Turn on **Interact** (the header's play button) to try checkboxes, toggle buttons, sliders, text fields,
 dropdowns, options, tabs and the color picker (a text field of several lines
 takes no Page Down or Page Up, as in the game). Event handlers are NWScript and
 run only in the game; Interact closes the window for a handler that starts with
@@ -111,7 +219,7 @@ also resets the simulation. List contents scroll with the wheel or scrollbar.
 The palette, Layers and properties remain editable during Interact, including
 dragging components into layouts. An authoring change resets the simulation
 to the updated document. Select controls in Layers while their preview handles
-input. Element shortcuts work over the editor panels; over the interactive
+input. Element shortcuts work over the canvas and in Layers; over the interactive
 canvas, keys belong to the simulated controls.
 Disabled and hidden controls cannot change values. This mode simulates local
 input; NWN event timing and the native layout solver
@@ -125,7 +233,7 @@ variant; surrounding controls remain read-only until you return to the main wind
 Drag existing controls in Layers to reorder them or move them into containers.
 Drop near the top/bottom of a row to insert before/after; the middle targets its
 container. Ctrl-click selects several elements for Delete. Use the layer search
-to reveal matching branches. **Element actions** can wrap a selection in a row,
+to reveal matching branches. **Element Actions** can wrap a selection in a row,
 column or group. List-to-list moves retain cell width and variable-width settings.
 
 Select a list cell to edit its width and stretch behavior. Select the list itself
@@ -133,9 +241,9 @@ to edit **Row data**: add, duplicate or remove a row across its bind arrays.
 Structured arrays, colors and rectangles are editable in Properties and Bindings.
 The forms show the first 200 items of an array and the first 200 rows of Row
 data, and say how many more there are: a list tried at thousands of rows is
-edited in **Advanced › Binding JSON**.
+edited in **Binding JSON** (the source group's).
 Dropdown entries expose their numeric values separately from their labels.
-Bind formatting exposes the stock number flags, decimal precision and text flags.
+**Bind Formatting** exposes the stock number flags, decimal precision and text flags.
 
 Add **Swap layout** from the Design palette to create an area with replaceable
 contents. Select it and use **Variants** in Properties: edit its initial contents,
@@ -178,15 +286,15 @@ is 0.33333334326744080; 2.5 at none is 2). Verify exact spacing, drawing, scroll
 
 ## Images
 
-**Advanced › Images** lists the pictures the window shows (its Images, Image
+**Images** (the header's switch) lists the pictures the window shows (its Images, Image
 buttons and draw layers', its variants' too) and where the game finds each:
 the module, a hak, the game, or nowhere (the game then shows its `gui_error`
 picture). **Add Images from Disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
 the file's name is the picture's, shortened to at most 16 letters, digits, `_`
 or `-` when it is longer or has other symbols)
 into the module, to use while you work. Players get custom pictures from a
-hak: **Add images to a new hak…** writes them into one, or **Move module
-images into a new hak** moves this window's pictures there from the module.
+hak: **Add Images to a New Hak…** writes them into one, or **Move Module
+Images into a New Hak** moves this window's pictures there from the module.
 A module that has haks offers them too, in **Into**. A new hak is made in the
 game's hak folder (one saved elsewhere is copied there) and added at the
 top of the module's haks; Undo takes it off the list and brings the pictures
@@ -212,14 +320,11 @@ its corner to size it, or its points (a line's ends, a curve's, an arc's
 center); the change lands on release, one Undo step.
 **Choose image** searches the current resource stack and displays up to 24
 matching thumbnails. Cropping uses the native image region. Individual list-row
-images are edited in Row data. **Screen** previews common
+images are edited in Row data. **View › Screen** previews common
 resolutions and enables title dragging to author window position. A geometry
 bind remains a bind. Position and resize gestures commit on release; Esc cancels.
-The layout selector offers the full editor, preview alone, or preview beside
-editable JUI source. While editing a variant, split source shows the companion
-settings JSON. The source is written to the module when you leave the field, an incomplete
-draft too: it is kept, and Undo takes it back. Meanwhile the preview beside it
-shows what you type whenever it reads as a window.
+**View › Layout** offers the full editor, preview alone, or the source group
+beside the design (Split source, above).
 
 ## Keys
 
@@ -249,8 +354,8 @@ Unknown fields and widget types are retained. Duplicate JSON keys are reported
 instead of silently discarding a value.
 Unused null `label`/`value` slots are hidden in the inspector. For a supported
 property, **Set Value…** initializes the appropriate type instead of offering
-arbitrary JSON types. Custom data remains available in **Advanced › JUI source**.
-**Advanced properties** appears only when the selected element has additional
+arbitrary JSON types. Custom data remains available in **JUI Source**.
+**Advanced Properties** appears only when the selected element has additional
 editable fields; it does not show an empty section for type/version metadata.
 **Tooltip when disabled** explains an unavailable control on hover
 (for example, insufficient gold). It is optional text, not a switch that turns
@@ -258,31 +363,46 @@ the regular tooltip off; remove the tooltip property when no tooltip is wanted.
 
 ## Bindings
 
-In **Design**, select a control and use **Property binding** at the top of its
-Properties panel. Choose the property, then **+ New bind for property**.
+In **Design**, select a control and use **Property Binding** at the top of its
+Properties panel. Choose the property, then the plus beside **Source** (**New Bind for Property**).
 The suggested name and initial value come from the control; **Create**
 creates and connects the value in one Undo step. **Cancel** leaves the module
 unchanged. The source dropdown offers compatible existing binds, or **Constant
 (no bind)** to detach while keeping the initial value (the first row for a list).
-Other controls using the same bind are unaffected by detaching.
+Other controls using the same bind are unaffected by detaching. A bound
+property's row shows its bind as a chip beside its label (the link icon and
+the bind's name); a click on it shows that property in Property Binding,
+where its Source changes the bind or takes it off, with its initial value
+and its **Bind Formatting**.
 
 List-template properties create an array with one value per existing row.
 Ordinary properties do not offer row arrays. A control whose value is bound
 offers **Value changed** in its **Events**: a handler that runs when the value
 changes. **Bindings** still lists all values for document-wide editing.
 
-The property's **… › Make dynamic (bind)** menu remains a shortcut.
+The property's **… › Make Dynamic (Bind)** menu remains a shortcut.
 The menu is available for dynamic arguments in the stock NUI API. Layout
 arguments such as list row height and group borders remain constants; replace
 the layout to change them while the window is open.
-**Bindings › + Create bind** creates a named, typed value with an explicit
-initial value. Each bind's **+ Add handler** adds a **Value changed** handler;
-the window watches the bind for it. The window's `close` event (the player
-closing it) and code that closes the window are separate things.
-**Bindings** also edits structured initial values and optional watches;
-**Advanced › Binding JSON** exposes the underlying settings. List-template binds need arrays;
+The **Bindings** panel is a table of the window's binds (**Name**, **Initial
+Value**, **Watch**; the row of the bind the property chosen in Property
+Binding takes its value from is filled, the bind chosen in the table
+ringed): **New Bind**, the plus on its header, creates a named,
+typed value with an explicit initial value; **Watch** adds or takes off a
+bind's **Value changed** handler (the window watches the bind for it); a
+row chosen shows that bind's form under the table, where it is renamed, its
+initial value edited by its kind, its handlers written (**When This Value
+Changes**), where it is used listed and the bind deleted. Under the table
+stand **Custom window ID** (empty: the window's name; set as you leave it,
+or as its panel goes) and the two choices
+of client delivery (**Load JUI from the client by resource name**, **Events
+go to the module's event script**), what each does in its tip. The
+**Bindings** page shows every bind's form at once (with **Create Bind**),
+the panel beside it then the table alone. The window's `close` event (the
+player closing it) and code that closes the window are separate things.
+**Binding JSON** exposes the underlying settings. List-template binds need arrays;
 ordinary binds use the property's scalar, rectangle or color. A bind's name
-(given in **+ Create Bind**, in **+ New Bind for Property** or by its
+(given in **Create Bind**, in **New Bind for Property** or by its
 **Rename**) can't hold a line break, a tab or another control character, which
 the event script's section lines could not carry. The generator
 requires explicit defaults and sets every value before enabling watches.
@@ -324,13 +444,13 @@ What a window does is NWScript you write, in its event script
 ```
 
 Select a control in **Design** and use its **Events** (the window's, with
-nothing selected): pick an event and **+ Add handler**. Only the events that
+nothing selected): pick an event and **Add Handler**. Only the events that
 control sends in the game are offered: **Clicked** for buttons, **Focus
 gained** and **lost** for text inputs, **Visible range changed** for lists,
 **Value changed** for a control whose value is bound, and the mouse for any
 control; the window has **Window opened** and **Window closed**. A control
 without an ID gets one. Its section is in the event script at once.
-**Events & variants** lists every handler, with a
+**Events & Variants** lists every handler, with a
 selector for whose event to add. Renaming a control's ID, a bind or a variant
 renames its handlers' sections, and the name where your code names it: as
 an argument of one of the game's NUI functions (`NuiSetBind(oPlayer,
@@ -344,8 +464,8 @@ code. **Insert…** adds ready-made code to it: **Close Window**, **Set bind**
 (to its current value, written as NWScript reads it: `JsonString("…")`,
 `JsonInt(…)`, `JsonBool(…)`), **Toggle bind** and **Show variant**; a menu
 with nothing to offer is off. After that it is
-ordinary code to change. **Event Script…** on the toolbar opens the whole
-script. **Remove** takes the handler away; what you wrote in it stays in the
+ordinary code to change. **Event Script…** in the source group's header opens
+the whole script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
 place for `#include` lines and helper functions. When the script's editor
@@ -451,7 +571,7 @@ fit across its row, a text field's `max`) `mg nui validate` says.
 
 ## Build and export
 
-**Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
+**Build & Compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
 `<name>_e.nss` (events) and the event handler's NCS bytecode using the installed
 game's API and the compiler Compile All uses: the built-in one, or the external
 one chosen in Options › Script Editor, with debug files (`.ndb`) when Generate
@@ -467,8 +587,8 @@ into a section. A script written by hand (with no markers) stays as it is.
 The build status includes both scripts, handlers and swap layout variants.
 A manually changed opener is reported as a conflict, not replaced. Build
 saves the window's own scripts first; save any other open script edits,
-including changed includes, before building. A failed Build says so beside
-its button (the reason on hover) until the next one.
+including changed includes, before building. A failed Build says so in the
+Status Bar (**Build failed**, the reason on hover) until the next one.
 
 The opener has **no `main` and no automatic player selection**. Include it in
 your own script, choose the player for that script's event and call
@@ -508,7 +628,7 @@ hak, this machine's override or development folder, or found nowhere), which
 players get from the hak or which you add to the module. The game's own go
 unsaid: every client has them.
 
-**Import…**, beside it, brings windows made elsewhere into the module, as
+**Import…**, in the header's More, brings windows made elsewhere into the module, as
 `mg nui import` does: choose `.jui` files (each brings its `NAME.txt` and
 `NAME_e.nss` from beside it) or ERF archives (`.erf`, `.hak`, `.mod`,
 `.nwm`) and zip files of windows. Each window comes with its settings, when
@@ -521,10 +641,7 @@ their checks found.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. What the checks found is
-listed under the tabs (their count there opens and closes the list, and new
-errors open it): a line a finding, errors first, with the control it is
-about, which the line selects, and a fix where there is one. A message
-longer than its line is cut, and whole in its tip. The checks describe the
+in **Checks** (above). The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,
@@ -586,7 +703,7 @@ and the preview follow them.
   built. Along a row or column, children may run past its size. The Creator keeps you
   from getting there: a control added or moved into such a row or column is
   shrunk to fit, a resize handle stops at the room left, and a size given to a
-  row or column (the **Auto** button, **Add property**) leaves room for its
+  row or column (the **Auto** button, **Add Property**) leaves room for its
   controls and their margins.
 - **Margins.** Every control has a margin of 2. Setting one replaces it, so a
   margin of 10 moves a control 8 further out, and 0 moves it 2 back.
@@ -696,7 +813,7 @@ and the preview follow them.
   says so.
 - **UI scale** is capped at the screen's height divided by 720 (never below
   100%), unless `ui.unconstrain-scale` is set: at 150% on a window 800 high
-  the game draws at 1.11, on one 993 high at 1.38. The preview's **Screen**
+  the game draws at 1.11, on one 993 high at 1.38. **View › Screen**
   mode applies the same cap. The game rounds each scaled size down to whole
   pixels (a row 34 high is 37 at 1.11, not 37.7), and so does the preview:
   each control's size, its margins and the gaps between controls (ten

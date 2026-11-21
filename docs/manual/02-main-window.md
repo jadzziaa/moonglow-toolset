@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # The main window
@@ -14,9 +14,14 @@ on a tab of its own (**Module**, the module tree, and **Resources**, the
 resource browser), and under them, while an area is in front, the
 **Outliner** (what the area holds: see [The Outliner](#the-outliner)), the
 **tabs** in the middle and the **Right Dock** on the right, with the
-**Palette** and **Preview** panels on two tabs, the **log** in the Bottom Dock under the tabs, and the
-**Status Bar** (the log's
-switch at its left and, while the log is closed, its last line; in its
+**Palette** and **Preview** panels on two tabs beside an area (beside a
+creature's, an item's, a placeable's or a door's editor, that editor's
+own **Preview** alone; beside a tileset its Preview and Textures), the
+**log**, **Problems** and **Search Results** in the Bottom Dock under the
+tabs (beside a script, its Compiler and Bookmarks too; beside a NUI
+window, its Checks), and the
+**Status Bar** (the Bottom Dock's
+switches at its left and, while the log is closed, its last line; in its
 middle the **hints** of the tab you work in, each a key or a gesture and
 what it does; at its right that tab's counts, a job while one runs, the
 module's name, "(modified)" while there are unsaved changes, and the
@@ -28,7 +33,8 @@ wider: see Narrow and wide windows, below). The docks follow the tab you work in
 the panels of an area, so it is there while an area's tab (or, with no
 area open, the tab saying so) is in front of the middle, and not at all
 while another tab is (Module Properties, a script, a blueprint, the
-manual: the middle then has the room); a tool in a window of its own
+manual: the middle then has the room; Edit Areas Together, while open,
+brings it beside any tab); a tool in a window of its own
 leaves it as the area under it has it. Where you
 work in two panes side by side, it follows the one you last clicked in.
 If you fold the dock away, **Tools › Palettes** brings it back; beside a
@@ -57,20 +63,19 @@ drawn over the bar's middle. The window can't be made narrower than the menus
 and follow it as soon as it changes); one left smaller opens at that
 size. Where the Status Bar is short of room, its parts give way in
 one order (see [The Status Bar](#the-status-bar)). The Top Bar
-is the same whatever **Tools › Options › General › Editors' toolbar
-buttons** says: that setting is the area view's and the editors'
-toolbars'. The icons are Moonglow's own drawings, one to a command. The
+is the same whatever an editor shows: each editor's one-row header
+yields to its own width (the old **Editors' toolbar buttons** setting
+is retired). The icons are Moonglow's own drawings, one to a command. The
 toolbar's other buttons of earlier versions have homes of their own:
 **Module Properties** (a box) and **New Area** (the Area Wizard, a
 plus) are icons on the Module panel's tab bar, beside **Expand All** and
 **Collapse All**; **Start** is **View ›
-Go to Start Location** (the area view's Go to Start Location and its
-Start filter show its circled arrow); **Resources** is the Left Dock's
+Go to Start Location** and the button under the area view's compass
+(it and the Start filter show its circled arrow); **Resources** is the Left Dock's
 Resources tab (also Tools › Resource Browser); **Palettes** is the
 Right Dock's Palette panel (also Tools › Palettes); **Preview** is the
-Right Dock's Preview panel, on the tab beside the palette's (also
-**Tools › Preview**). Each kind of object has one icon wherever it appears: on
-the area view's toolbar and in the palette's row of types.
+Right Dock's Preview panel, on the tab beside the palette's, or the
+editor's own beside a blueprint's editor (also **Tools › Preview**). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types.
 
 ## Menus
 
@@ -82,7 +87,7 @@ the area view's toolbar and in the palette's row of types.
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
-| Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
+| Plugins | the commands of the plugins you have enabled, Manage Plugins… (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
 | Help | User Manual, Command Palette…, Check for Updates…, About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
@@ -198,7 +203,11 @@ updates** (Options › Updates › Install updates automatically: this
 release downloaded at once and installed as Moonglow closes, and later
 ones without the window); it opens once for each release while
 Moonglow runs, and once
-it is closed a line under the Top Bar says so, with **What's New…** (the
+it is closed a line under the Top Bar says so (on the Welcome page, its
+Status says so instead, without Don't Remind Me and the close button,
+where the Status is in sight; where the page is scrolled past it, or a
+floating editor stands over it, the line under the Top Bar tells it),
+with **What's New…** (the
 window again),
 **Install Now**, **Later**, **Don't Remind Me About This Version** (a
 later version is told again) and **Close Update Notice** (its close
@@ -277,7 +286,7 @@ changes them; the menus show the current keys.
 | Ctrl+S | Save the module; in a script editor that has the keyboard, the script into the module (its own Save: see [Scripts](07-scripts.md)) |
 | Ctrl+Z | Undo |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
-| Ctrl+H | Find and Replace Text |
+| Ctrl+H | Find and Replace Text (opens the Bottom Dock on Search Results) |
 | Ctrl+Alt+A | Area Wizard |
 | Ctrl+Alt+F | Faction Editor |
 | Ctrl+Alt+J | Journal Editor |
@@ -289,6 +298,7 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+S | New Script |
 | Ctrl+Alt+C | Creature Wizard |
 | Ctrl+Alt+I | Item Wizard |
+| Ctrl+Alt+R | Reorient Camera: the camera of the area shown last faces north again (the button under its compass) |
 | F11 | Full screen |
 | Alt+X | Exit (File › Exit, Aurora's key) |
 | Ctrl+W, Ctrl+F4 | Close the tab in front (of the editor group with the focus) |
@@ -298,7 +308,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area is in front, the middle, the Right Dock's panel in front where the dock is drawn, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA, a NUI window, a tileset or the Faction Editor is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers, a tileset's parts, the factions; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and an open tool section's, each its own stop; and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field); a NUI window's Checks, in the Bottom Dock, its first row's control; Problems its first finding's place; a tileset's Textures its first Copy), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, a tileset's tile table, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -491,8 +501,8 @@ CSV…**, below).
 chosen (or takes it away), Shift and a click chooses those from the row
 clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
-of one kind, or areas: one Properties window, what you change set on
-each), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
+of one kind: one Properties window, what you change set on each; areas:
+the Right Dock's Edit Areas Together section), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
 Folder**; for areas, **Export Minimaps…** and **Export Minimaps with
 Map Notes…**, each area's map into a folder as `NAME.png`
 ([Minimaps](04-areas.md#minimaps)); for conversations, the four below), **Delete…** (and the
@@ -595,14 +605,48 @@ on that panel. It holds the
 palettes and the Preview, each on a tab of its tab bar, the one in
 front filling the dock (their words, or their icons alone where the
 dock is too narrow for the words; Left and Right on a tab go to the
-other); they stay there: they can no longer be dragged into the
-middle, to the left or into a window of their own. The tab in front
-stays so while Moonglow runs; each module opens on the palette. The
+other). Under them is a second section by the area's tool in hand,
+with its own header and the seam between them dragged to share the
+dock's height (the palettes take a little more than half at first):
+**Properties**, what is selected ("Placeable", "3 placeables", "none
+selected"), with every tool but Select Tiles
+([Blueprints](05-blueprints.md#instances)); while **Select Tiles** is
+on, **Tile Properties** in its place (and nothing there while its
+header toggle hides it), what it shows ("6 tiles";
+[Areas](04-areas.md#tile-properties)). In a window under 1400 points
+the second is a tab of the one tab bar: Palette, Properties, Preview
+(Palette, Preview, Tile Properties in Select Tiles). While a **tool
+section** is open (**Edit Areas Together**, beside any tab; **Custom
+Light** or Change Light and **Bake Walkmesh to Transform**, beside
+their area: [Areas](04-areas.md)), it is a section of its own under
+the others, its main action and Cancel or Close in a row at its top,
+taking two thirds of the dock's height at first (all but Properties'
+header while nothing is selected); drag the seam over it and the share
+is kept until Moonglow closes. Its command shows the dock (folded or
+hidden too) with the section in front and gives it the keys, held over
+the area's view until you press anywhere outside it, Properties
+included; F6 stops at it as at the other sections. It closes by its
+Cancel or Close, by its main action, and when another module is
+opened. Under 1400 points it is the first tab of the one tab bar,
+its icon alone where the tab bar is narrow (Edit Areas Together's that
+of the area header's Together switch, Custom Light's and Bake's their
+own), its name in its tip. An area dragged
+out into a window of its own has Properties (or Tile Properties) in its
+window's right pane, the palettes staying in the Right Dock; in a window
+too narrow for the pane and a view of 400 points beside it, the pane is
+not drawn, and comes back as the window is widened (or dock the area
+again). They stay there: they can no longer be dragged into the
+middle, to the left or into a window of their own. The tab you choose
+in front is remembered, also when the module is opened again and the
+next time Moonglow starts (with nothing chosen, the palette is in
+front; under 1400, the one tab bar remembers its own). Each kind of editor remembers its own docks' tabs and the
+shares of panels stacked in them. The
 Right Dock is there only
 beside an area (see the start of this chapter): with another tab in
 front it is not drawn at all, and comes back as it was, folded or not,
 as wide. The **log** opens and closes by its switch, **Log**, at
-the left of the Status Bar, lit while the log is open; it comes back as
+the left of the Status Bar, lit while the log is open (View › Log shows
+the log in front of the Bottom Dock, or closes the dock); it comes back as
 high as it was. What is folded stays so the next time Moonglow starts,
 and so do the docks' sizes. In a window too small for a dock's size it
 is drawn smaller (a side dock at most two fifths of the window and
@@ -655,12 +699,20 @@ wider: the Left Dock 320 and the Right Dock 741, and the Module panel
 Dock's width you drag there is kept apart from the one you drag in a
 narrower window: each layout gives back its own. There a Right
 Dock wider than 560 (at its width at first, or dragged so) stands in
-two columns, the Palette in the first (340, or half the dock) and the
-Preview in the second, each with its own tab, a line between them, the
-arrow that folds the dock at the end of the second's tab bar, by the
-window's edge as in one column; F6 stops at each, and the one you press
-in or reach is the dock's panel (the one its strip and View › Right Dock
-bring back).
+two columns, the Palette and the Preview as tabs in the first (340, or
+half the dock) and Properties (or Tile Properties) in the second, an
+open tool section under it, a
+line between them that you drag to share the dock (each column at least
+280; kept for each kind of editor, and forgotten by View › Reset
+Layout), the arrow that folds the dock at the end of the second's
+header, by the window's edge as in one column; F6 stops at each, and
+the one you press in or reach is the dock's panel (the one its strip
+and View › Right Dock bring back). Beside an editor whose dock holds one
+panel alone (a blueprint's editor and its Preview), the dock there is
+549 wide at first: a creature's pages beside it stand in five columns
+of 480 on a 3440 screen, where at 560 they would make four. The width
+you drag it to is kept for that kind of editor, apart from the area's
+two columns.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,
@@ -714,10 +766,9 @@ has the arrow keys).
 
 **The eyes** are the area view's Show toggles: one state, two controls.
 Click a kind's eye to hide its objects in the view (the eye is struck
-through, the kind's row turns gray, and its toggle on the area toolbar
-goes off), and again to show them; a toggle on the toolbar changes the
-eye with it. What is hidden is hidden in every area view, as the
-toolbar's toggles always did, and a hidden object can't stay selected.
+through, the kind's row turns gray, and its toggle on the area's header goes off), and again to show them; a toggle on
+the header changes the eye with it. What is hidden is hidden in every
+area view, as the area's Show toggles always did, and a hidden object can't stay selected.
 
 **A kind** opens with a click on its row (or its arrow) and lists its
 objects, each with its name and, gray after it, its tag; both are cut
@@ -770,6 +821,14 @@ the whole height. A tool in a window of its own (with **Open editors:
 As Floating Windows**) leaves it as the area under it has it. The
 module tree keeps each area's objects too, under its row: both stay.
 
+**Beside a NUI window** on its Design page in the Editor view, the
+Outliner is its **Layers**, the window as a tree (see [NUI
+Creator](18-nui-creator.md)): its header names the window and has
+Expand All, Collapse All and Layer Actions, over Find a layer or ID… and
+the rows. Its seam is its own, 416 points from the dock's top at first
+and kept apart from the area's and the conversation's. The Right Dock
+holds the window's Components over Properties over Bindings meanwhile.
+
 ## Tabs and windows
 
 **A document tab** shows its kind's icon (an area's, a script's, a
@@ -817,11 +876,11 @@ plugin's panel) opens as **Options › General › Open editors** says:
 **As Tabs**, a tab of the focused editor group (the group last clicked;
 a new installation starts so), or **As Floating Windows**, a window of
 its own over the area, sized for what it shows, so the area view stays put
-(settings from before this switch keep it). Two open in a window of their
-own either way: Tile Properties, which follows the tiles chosen in an
-area view, and a model's view (a blueprint's Pop Out, the palette's
-Preview, a tile's model), opened to look at beside the editor it came
-from. **A kind you move opens where you last put one**: drag a window by
+(settings from before this switch keep it). A model's view (a
+blueprint's Pop Out, the palette's Preview, a tile's model) opens in a
+window of its own either way, to look at beside the editor it came
+from. (Tile Properties is the Right Dock's lower section while Select
+Tiles is on, not a window: [Areas](04-areas.md#tile-properties).) **A kind you move opens where you last put one**: drag a window by
 its tab into the main pane, or beside another, to dock it; drag a tab
 out, or choose **Eject** on its menu, to float it; the next editor of
 its kind opens there too (one moved to the side of the areas' group opens
@@ -839,23 +898,50 @@ in reach (and a dialog in the middle of a short window can cover what
 is behind it, the Welcome page's title too). Its **title row** runs
 across its top, the title at the left: drag the row to move the dialog
 (a drag on the rest of it, where no control is, moves nothing). A
-dialog that Escape closes (Find and Replace Text, Build Module, Rename,
+dialog that Escape closes (Build Module, Rename,
 About) has a **Close** at the row's right, after its own buttons when
 you go through it with Tab, and so do the pickers Select Portrait and
 Select Texture, whose Close is their Cancel; one that only its own
 buttons answer (a question, a wizard) has none. A dialog that folds
-(Find and Replace Text, Find Instance, Plugins and most dialogs that
+(most dialogs that
 Escape closes) has the arrow at the row's left: **Collapse** folds it
 to its row, **Expand** shows it again as it was. A job's window (a
 running command's progress, a plugin's question) has the same row, with
 no Close: its Cancel answers it.
 
+**Every dialog has a footer** at its foot, under a rule: at its left a
+note, a count or one setting's check box (Delete from Module's **Don't
+ask when nothing else names them**, Open Directory as a Module's **Always
+do this**, Close Moonglow?'s **Don't ask again**), at its right its
+buttons. The main action comes first, in the accent fill (a wizard's **<
+Back** before it), then the other actions, then **Cancel**, or what
+leaves without acting (**Done**, **Later**, **Close**) last. A dialog
+that Escape closes by its title row's Close (Publish to NWSync) has no Close in its footer
+too. **Enter** presses the main action whenever it is enabled, also with a
+one-line text field holding the keys, and not while it is disabled;
+**Escape** is Cancel, or closes the dialog (a plugin's message, whose
+only button is OK, closes by either). **Enter is not taken** by a main
+action that grants trust, overrides a protection, overwrites or quits:
+Close Moonglow? (**Close Moonglow**), Protected Area (**Change It
+Anyway**), Areas Not Yours and Before Saving (**Save Anyway**), Files
+Already in the Hak (**Replace N**), This Project Comes with Plugins
+(**Allow All**), a plugin's Remove and Replace, Run a Project Command?
+(**Allow and Run**), a plugin's question asking yes or no (**Yes**) and
+Changed Outside Moonglow (**Keep Moonglow's**). Click it, or reach it
+with Tab and press Enter or Space. **The keys go to the window in
+front**: with a long work's window or a plugin's question over a
+dialog, Enter and Escape are that window's, and a picker opened from a
+dialog takes them before the dialog under it. In a dialog whose body
+scrolls (a short window), Tab brings the control it moves to into sight.
+The body has 12 points of padding. Only the long work's window, a
+plugin's question, the talk-table question and Before Saving dim what is
+behind them.
+
 **Escape** closes the window in front: a dialog (as its Cancel or close
 button does; a picker opened from a Properties window closes alone, and
 the window stays), then a window with **OK** and **Cancel** (a
-Properties window, Options, Tile Properties) as its **Cancel** does, as in
-Aurora: what was changed in it is set back (Tile Properties with changes
-asks first, as its close button does); a model's window while the pointer
+Properties window, Options) as its **Cancel** does, as in Aurora: what
+was changed in it is set back; a model's window while the pointer
 is over it. **A docked tab with OK and Cancel** (Module Properties, which
 the module opens docked, a Properties tab, Options as a tab) is canceled
 by Escape the same way, in either mode, while it is in front of its
@@ -872,7 +958,7 @@ log, which the Status Bar shows while the log is closed: "Escape canceled
 Module Properties: its changes are set back. Edit › Undo brings them
 back." One **Edit › Undo** brings back what a Properties tab or window
 set back (Module and Area Properties too); what Options had not applied is
-dropped, and Tile Properties with changes asks first. Nothing is said
+dropped. Nothing is said
 where nothing was changed. Escape goes first to what is open over it or has it: an
 open menu or list, Quick Open, a dialog, a window in front with OK and
 Cancel where the keyboard is not in the tab, a search or filter field (the module tree's Filter, an
@@ -945,9 +1031,12 @@ window is open becomes a tab of that window, not one more window
 (**Options › Script Editor › Open scripts as tabs of one window**, on by
 default; off, each script has a window of its own).
 
-**With no area open**, the main pane says so and lists the areas opened
-lately in this module, then the module's areas, each to open with a
-click: the panes beside it keep their widths.
+**With no area open**, the main pane says so, with **Area Wizard…** and
+**Go to Start** (the area the module starts in, at the start location;
+grayed in a module with no areas): open an area from the Module panel's
+Areas (double-click), or with Quick Open (Ctrl+P), which lists this
+module's areas opened lately first with nothing typed. The panes beside
+it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
@@ -957,7 +1046,8 @@ encounter's), and a size dragged at its edge or corner is kept so.
 A window has a border, rounded corners and a shadow under it, and a
 **bar** across its top: the **Collapse** arrow at its left (folds the
 window to its bar; **Expand**, the same arrow, opens it again), its
-tabs, and at its right **Maximize** and **Close Window**, which closes
+tabs, and at its right **Maximize** and **Close Window** (Tab reaches
+them left to right: the arrow, the tabs, then Close Window), which closes
 the window and its tabs as closing each tab would (what asks before it
 closes asks, and **Closing a window cancels its changes** in Options ›
 General decides whether its changes are kept). A window split in panes
@@ -1086,8 +1176,11 @@ blueprint type (the row of icons at its top, in two rows where the dock
 is narrow),
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
 blueprint from the categories. Click in an area to place the chosen
-blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
-palette shows the tileset's brushes instead. The row's last three are
+blueprint (see [Areas](04-areas.md)). On its **Tiles** type (the area
+view's **Terrain** tool shows it), the palette shows the tileset's
+brushes instead. While the area view's **Paint** is on, a **Brush**
+section under the placeables' list names the blueprints the brush
+paints with, a row each with **×** to take it out of the brush. The row's last three are
 **Prefabs**, **Lights** (the game's invisible lights, one chosen and
 then put where an area is clicked) and **Start Location** (where a
 player's character enters the module: chosen, a click in an area puts
@@ -1095,8 +1188,13 @@ it there). The **Preview** tab beside it shows the chosen blueprint
 (Aurora's Preview window): its name, tag, resref, comments and a few
 fields of its type, an item's inventory icon, a store's stock by page,
 and creatures, doors, items and placeables in 3D under their fields,
-with the model viewer's controls. A 3D view is drawn in one place at a
-time: where the same blueprint or model is in a tab already, the tab
+with the model viewer's header row (its info line over it). Beside a
+creature's, an item's, a placeable's or a door's own editor in front,
+the Right Dock is that editor's Preview alone, of its own model (see
+[Blueprints](05-blueprints.md)); Tools › Preview then brings that one,
+and the palettes stay away. A 3D view is drawn in one place at a
+time: where the same blueprint or model is in a tab already (its model's
+tab, or its editor floating in a window with its own Preview), the tab
 keeps it and the Preview says the preview is shown elsewhere. The
 Preview is drawn only while its tab is in front (behind the palette's
 it reads and draws nothing), and then shows whatever is chosen in the
@@ -1156,6 +1254,51 @@ out as the text they compile from. Where the folder has some of the
 files already, it asks first (**Replace** them, **Skip Those**, or
 **Cancel**), and the files are written while a window shows how far it
 is, with **Cancel**.
+
+The read-only tab's header says where the resource is from (a lock and
+"Read-only: from the game's data", "from low.hak", "from the override
+folder", "from the module"; only the lock where the tab is narrow, the
+words in its tip) and its kind ("UTC file"), and at its right end
+**Copy to Module** (one Undo step on the module; off, its tip saying
+why, where no module is open or the module has its own) and **Save
+As…**; a 2DA adds **Edit…** (or **Edit in name.hak**). A module kept as
+files (a folder or a nasher project) cannot hold a resource whose kind
+has no file extension: Copy to Module is off on one there, its tip
+saying so. Nothing in the tab can be changed. A GFF file shows its
+fields in three columns, name, type and value, with a number's meaning
+beside it as `mg gff --names` gives it: a 2DA row's label
+(Appearance_Type 31 Chicken, a feat's name), a StrRef's text, "(no row
+65000 in appearance.2da)" or "(no string 16000000)" where the row or
+the string is missing. A value that means none (no StrRef, a Race of
+255, a row whose label is blank) has nothing beside it, as `mg gff
+--names` prints nothing; a string of the module's talk table shows its
+text where the module names one Moonglow has read, else "(string 5 of
+the module's talk table, not read here)". Lists and structs fold (a
+click on the row), their counts quieter than the values; the folds are
+kept while the tab is open, and only the rows in sight are drawn, so a
+GFF of fifty thousand fields scrolls as one of fifty.
+
+Right-click a row (or, with the row holding the keyboard, press
+Shift+F10) for its menu: **Copy Value** copies the value itself, not as
+the column shows it (a string without its quotes and with its line
+breaks, a resource name, a number, a void's bytes as hexadecimal); a
+localized string's item says what it copies (**Copy English Text**, or
+**Copy StrRef** where it has no text of its own) and, where it has more
+than one language, **Copy All Languages** copies each on a line of its
+own ("English: Hen"); **Copy Meaning** copies what is beside the
+number, where it has a meaning; **Copy Name** the field's name. Opened
+from the keyboard, the menu's first item has it: Tab moves on, Enter
+copies, Escape closes the menu and gives the keyboard back to the row.
+**Ctrl+C** on a row holding the keyboard copies its value, as Copy
+Value.
+
+The Status Bar's right end says the resource, its layer and its size
+("nw_chicken.utc from key:nwn_base, 3078 bytes"), for the read-only tab
+in front, or for one floating in a window of its own when the pointer
+is over that window or it was clicked last; where the tab is narrow and
+its header shows the lock alone, the lock's tip says the same. While
+the Resources panel is in use, the panel's count comes first ("633 of
+119065 resources, 8 overridden copies").
 
 A resource that several layers have (a portraits.2da in two haks, a
 texture in a hak and in the game's files) is listed once for the copy
@@ -1239,7 +1382,15 @@ Properties. Drag to turn
 the model (right or middle button to move it), use the wheel to zoom
 (finer with Shift or Ctrl held, or pinch on a touchpad; a sideways
 scroll moves it left and right, as in the area view), and play its
-animations, including those from its supermodels. An item modeled lying
+animations, including those from its supermodels. Its controls are
+one header row over the view: **Animation**, **Play** or **Pause**,
+**Frame**, the **Lights**, **Shadow** and **Shaders** switches and
+**Export Files…**; what has no room goes into the row's **More** (in a
+page or a panel, **Pop Out** is there too), never onto a second row. A
+model's tab says its name, nodes, meshes, parts and supermodel over the
+row. **Frame** fits the whole model in the view, across a narrow one too
+(the Preview beside a form), and the view stays framed as its shape
+changes until you move or zoom it. An item modeled lying
 (a sword, an axe) is stood on its end, its broad side to you: a blade
 shows its flat, not its edge. **Lights**
 lights it with its own light nodes. **Shadow** (on unless you turn it
@@ -1252,10 +1403,63 @@ point). The pictures
 of the galleries, the palettes and a hovered row's preview have no
 shadow. **Shaders** draws it with the game's
 own shaders, a material's custom ones among them (wind-swayed leaves move
-while the viewer plays): the same switch as the area view's toolbar
-(Areas › The toolbar).
+while the viewer plays): the same switch as the area header's
+(Areas › The header).
 
 ## The log
+
+The Bottom Dock under the tabs holds **Problems**, **Search Results** and
+the **Log** whatever is in front, and before them the panels the editor in front
+brings (a script's **Compiler** and **Bookmarks**: see
+[Scripts](07-scripts.md); a NUI window's **Checks**, its switch counting
+what the checks found: see [NUI Creator](18-nui-creator.md)), each a tab
+with its switch in the Status Bar. A NUI window's new errors open the dock
+on Checks, as a script's failed compile opens it on Compiler. A report
+is a tab of the dock too, while it is open: **Hak Pak Conflict
+Analysis**, **Resources Used** and **Claims Table** (see Modules ›
+Claimed areas, Modules › What the module uses of its haks and Build and
+test › Area Statistics). **Close Report**, a button at the end of the
+dock's tab bar (also a command in the command palette), closes the one in
+front. A report's table sorts by a column head (click; again for the other
+way; Resources Used's does not), takes the arrow keys, Page Up, Page Down,
+Home and End after a click on a row (or at once, when its command opened
+it: the keys stay with it until you click elsewhere, even with the
+pointer over an area), and Ctrl+C copies the row. The Status Bar shows
+the keys of the list that has them. Where the Claims Table is narrow,
+its other columns narrow first, and its actions fold into one **Actions**
+button per row only where they still do not fit. A command
+that fills a tab opens the dock and brings the tab to the front. However
+low you drag the dock, it still shows the panel's form (or header) and one
+whole row.
+**Problems** lists what each source of findings found last, each under
+its name, errors first, a source's findings replacing
+what it found before: a tileset's **Check** (see Areas › Making
+tilesets), **Build Module** and **Verify Module** (see Build and test); a
+click on a finding's place goes there. A row is chosen by a click, the
+arrow keys, Page Up, Page Down, Home and End move the choice, and Enter or
+a double click goes to it. A source's counts are said once, in the tab
+bar's place, and agree with its switch's; while Build Module or Verify
+Module runs, Problems says so ("Verify Module is running"). Build
+Module's heading has **Counted as Used** (where the build was asked for
+its Unused results);
+an Unused result's right-click menu has **Mark as Used**; Verify
+Module's findings have their fix button beside them where one is offered.
+When the module changes after Build Module's check, its heading says
+"Changed since the check: not counted". Its switch counts the
+current findings (those of a file changed since, closed without saving or
+gone stay listed, marked, not counted), red where one is an error; a Check
+that finds anything opens the dock on it. A heading's right click (or
+Delete with it focused) offers Remove from Problems. With nothing in it, it says so and what fills it.
+It is the main window's: a floating tileset's Check fills it too.
+**Search Results** lists what the last search found (a script's
+Find In Files, Find In Currently Open Scripts and References); its
+switch shows how many lines, and a click on one opens it. **Edit › Find
+Instance…** and **Edit › Find and Replace Text…** (Ctrl+H) open the dock
+on it too, with their form as the panel's header: see Areas › Find
+Instance and Modules › Find and Replace Text. A switch off
+opens the dock on its panel, one on closes the dock. Where nothing was
+chosen, the dock opens on the editor's own first panel (a script's
+Compiler), else on the log.
 
 Messages go to the log, in the Bottom Dock under the tabs: what was
 opened or saved, compiler errors, warnings about missing resources.
@@ -1285,7 +1489,8 @@ click it to open the log. A screen reader hears it as "Last log line:"
 and the line.
 
 While long work runs as a job (Build Module, Compile All Scripts,
-Verify Module, a hak saved, an NWSync publish, a project's or a
+Verify Module, Find Instance, Find and Replace Text, the Hak Pak Conflict
+Analysis, a hak saved, an NWSync publish, a project's or a
 plugin's command, among others), the right of the Status Bar shows its name and a bar: how much is done
 where the job says, a mark going to and fro where it does not. Rest the
 pointer on it for how far it is. One job runs at a time, in a window of
@@ -1294,8 +1499,14 @@ meanwhile waits (the log says so).
 
 ## The Status Bar
 
-The row along the window's foot. At its left, the **Log** switch (and,
-while the log is closed, its last line: see [The log](#the-log)); in
+The row along the window's foot. At its left, the Bottom Dock's
+switches: **Log**, **Problems** with its count, the editor's own (a
+script's **Compiler** and **Bookmarks**, a NUI window's **Checks** with its
+count) and **Search Results**, with its count (and, while the
+log is closed, its last line: see [The log](#the-log); beside a script
+whose check as you type found an error, that error in red in its
+place, whether the log is open or not, until a warning or an error is
+logged after it, which shows instead; information lines do not); in
 its middle the **hints**; at its right the counts, a running job, the
 module's name and the game's folder.
 
@@ -1328,7 +1539,12 @@ keys shown
 are yours: a command you gave another key in Options › Keyboard shows
 that key, and one you left without a key has no hint; on a Mac,
 Ctrl and Alt show as Cmd and Option. The Welcome page shows New module,
-Open module and Quick Open's keys; a script's tab its keys (Find, Find
+Open module and Quick Open's keys; the Appearance Gallery what a click,
+a right click, a drag and a double click on a picture do as things
+stand (a click gives the appearance where there is an object to give
+it to, takes a placeable to place where there is not; nothing where a
+click would do nothing), the arrow keys while its pictures have them,
+and its count at the right; a script's tab its keys (Find, Find
 next, Definition, References, Complete, Bookmark, Compile all,
 Replace); the Resources panel, while the pointer is over it or its list
 has the keys, its own (Up or Down to move in the list and Enter to open,
@@ -1348,7 +1564,8 @@ Properties"). A
 screen reader reads each hint as one label ("Shift, Right Drag:
 Turn"); the hints take no Tab stop.
 
-**Counts.** An area's tab shows its size and how many objects it holds
+**Counts.** A script's tab shows where its cursor is ("Line 17, column
+12"). An area's tab shows its size and how many objects it holds
 ("11 by 11 tiles", "192 objects"; the objects of the kinds shown), and
 before them what is selected ("1 selected", rest the pointer on it for
 the object's kind, tag, blueprint, place and facing, which a drag of it
@@ -1356,12 +1573,14 @@ shows among the hints as it moves; "3 selected";
 in Select Tiles "2 by 3 tiles selected" or "Tile (4, 4) selected") and,
 with a tile brush, the tile under the pointer. Another tab has none.
 
-**When it is short of room**, its parts give way in this order: the
-switches (Log) show their icons alone first, their names in their tips
-(always in a window under 1400 points); then the game folder goes
-(always under 1400); then the hints, the last one first, each whole
-(a note at their head is cut short with an ellipsis, its whole words in
-its tip); then the log's last line, cut short from its usual width (a
+**When it is short of room**, its parts give way in this order. In a
+window under 1400 points the switches (Log, Problems, Search Results and
+the editor's own) show their icons alone, their names in their tips, and
+the game folder goes, whatever the room. From 1400 the game folder goes
+first; then the hints, the last one first, each whole (a note at their
+head is cut short with an ellipsis, its whole words in its tip); then
+the switches show their icons alone, once no hint is left. Then the
+log's last line, cut short from its usual width (a
 short one beside an area's hints, a little more beside another tab's)
 down to a few words, then gone; then the counts, the last first; then a
 running job's name is cut short (its bar kept); and last the module's

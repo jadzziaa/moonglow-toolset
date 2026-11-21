@@ -24,24 +24,13 @@ use crate::{Action, Moonglow};
 pub(super) const PAGES: [&str; 7] =
     ["General", "Appearance", "Properties", "Variables", "Visuals", "Description", "Comments"];
 
-/// The width of the Appearance page's fields beside the model.
-const APPEARANCE_SIDE: f32 = 460.0;
-
 /// The width of a part's choice: a number, "Model 12", "7 (AC 5)".
 const PART_WIDTH: f32 = 110.0;
-
-/// The least height of the model shown beside the icon, in a window too
-/// narrow to have it beside the page's fields.
-const MODEL_SHORT: f32 = 220.0;
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
         "General" => general(f, ui),
-        "Appearance" => with_game(f, |f, game| {
-            let fields =
-                |f: &mut Form<'_>, ui: &mut Ui, beside: bool| appearance(f, ui, game, beside);
-            super::situated::beside_model(f, ui, APPEARANCE_SIDE, fields);
-        }),
+        "Appearance" => with_game(f, |f, game| appearance(f, ui, game)),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
         "Visuals" => super::visuals::page(f, ui, true),
         "Description" => description(f, ui),
@@ -111,7 +100,7 @@ pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, S
     let row = item.integer("BaseItem").unwrap_or(0).max(0) as usize;
     let value = ItemValue::from_gff(item);
     let cost = game.item_cost(&value);
-    let mut out = vec![("Total Cost", cost.to_string())];
+    let mut out = vec![("Total cost", cost.to_string())];
     let armor = game.is_armor(value.base_item);
     let ac = armor.then(|| game.armor_class(value.torso));
     let armor_table = game.table("armor").ok();
@@ -140,7 +129,7 @@ pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, S
             _ => "",
         };
         if !kind.is_empty() {
-            out.push(("Damage Type", kind.to_string()));
+            out.push(("Damage type", kind.to_string()));
         }
     }
     if let Some(ac) = ac {
@@ -152,7 +141,7 @@ pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, S
             out.push(("Arcane Spell Failure", format!("{v}%")));
         }
         if let Some(v) = armor_cell("DEXBONUS") {
-            out.push(("Max Dex Bonus", if ac == 0 { "-".to_string() } else { v.to_string() }));
+            out.push(("Max dex bonus", if ac == 0 { "-".to_string() } else { v.to_string() }));
         }
     } else if let Some(ac) = t.get_int(row, "BaseAC").filter(|&ac| ac > 0) {
         out.push(("Armor Class", ac.to_string()));
@@ -165,10 +154,10 @@ pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, S
             .find(|&r| t.get_int(r, col).is_some_and(|max| i64::from(max) >= i64::from(cost)))
     };
     if let Some(r) = first_fit("itemvalue", "MAXSINGLEITEMVALUE") {
-        out.push(("Required Level", (r + 1).to_string()));
+        out.push(("Required level", (r + 1).to_string()));
     }
     if let Some(r) = first_fit("skillvsitemcost", "DeviceCostMax") {
-        out.push(("Required Lore", r.to_string()));
+        out.push(("Required lore", r.to_string()));
     }
     out
 }
@@ -190,69 +179,63 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
             Some((name, t.get_int(row, "Stacking").unwrap_or(1).max(1)))
         })
         .unwrap_or_else(|| (format!("({})", f.int("BaseItem")), 1));
-    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+    mg_uikit::form::FormColumns::new(f.id("uti-general")).show(ui, 2, |ui, col| {
         if col == 0 {
-            egui::Grid::new(("uti-general", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
-                ui,
-                |ui| {
-                    crate::widgets::field_label(ui, "Item Name");
-                    f.locstring(ui, "Name", "LocalizedName");
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Tag");
-                    f.tag(ui, "Tag", "Tag");
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Blueprint ResRef");
-                    f.blueprint_resref(ui);
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Base Type Name");
-                    ui.label(&base_name);
-                    ui.end_row();
-                    f.model_warning(ui, mg_rules::ObjectKind::Item);
-                    crate::widgets::field_label(ui, "Category");
-                    f.category(ui, BlueprintKind::Item);
-                    ui.end_row();
-                    // Past the base item's stack size, as Aurora doesn't
-                    // allow: the game keeps the stack whole
-                    // (engine_ee_fields.rs).
-                    crate::widgets::field_label(ui, "Stack Size");
-                    ui.horizontal(|ui| {
-                        f.spin(ui, "Stack size", "StackSize", 1..=65_535);
-                        if f.int("StackSize") > i64::from(stacking) {
-                            ui.weak(format!("more than the base item's {stacking}"));
-                        }
-                    });
-                    ui.end_row();
-                    // The game reads at most 250 (engine_ee_fields.rs).
-                    crate::widgets::field_label(ui, "Charges");
-                    f.spin(ui, "Charges", "Charges", 0..=250);
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Additional Cost");
-                    f.spin(ui, "Additional cost", "AddCost", 0..=999_999_999);
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "");
-                    ui.horizontal(|ui| {
-                        f.check(ui, "Plot Item", "Plot");
-                        f.check(ui, "Stolen", "Stolen");
-                    });
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "");
-                    super::situated::preview_button(f, ui);
-                    ui.end_row();
-                },
-            );
-        } else {
-            egui::Grid::new(("uti-stats", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
-                ui,
-                |ui| {
-                    for (label, value) in
-                        f.app.game.as_deref().map(|g| statistics(g, &f.root)).unwrap_or_default()
-                    {
-                        crate::widgets::field_label(ui, label);
-                        ui.strong(value);
-                        ui.end_row();
+            super::form_grid(ui, ("uti-general", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+                crate::widgets::field_label(ui, "Item name");
+                f.locstring(ui, "Name", "LocalizedName");
+                ui.end_row();
+                crate::widgets::field_label(ui, "Tag");
+                f.tag(ui, "Tag", "Tag");
+                ui.end_row();
+                crate::widgets::field_label(ui, "Blueprint ResRef");
+                f.blueprint_resref(ui);
+                ui.end_row();
+                crate::widgets::field_label(ui, "Base type name");
+                ui.label(&base_name);
+                ui.end_row();
+                f.model_warning(ui, mg_rules::ObjectKind::Item);
+                crate::widgets::field_label(ui, "Category");
+                f.category(ui, BlueprintKind::Item);
+                ui.end_row();
+                // Past the base item's stack size, as Aurora doesn't
+                // allow: the game keeps the stack whole
+                // (engine_ee_fields.rs).
+                crate::widgets::field_label(ui, "Stack size");
+                super::row(ui, |ui| {
+                    f.spin(ui, "Stack size", "StackSize", 1..=65_535);
+                    if f.int("StackSize") > i64::from(stacking) {
+                        ui.weak(format!("more than the base item's {stacking}"));
                     }
-                },
-            );
+                });
+                ui.end_row();
+                // The game reads at most 250 (engine_ee_fields.rs).
+                crate::widgets::field_label(ui, "Charges");
+                f.spin(ui, "Charges", "Charges", 0..=250);
+                ui.end_row();
+                crate::widgets::field_label(ui, "Additional cost");
+                f.spin(ui, "Additional cost", "AddCost", 0..=999_999_999);
+                ui.end_row();
+                crate::widgets::field_label(ui, "");
+                super::row(ui, |ui| {
+                    f.check(ui, "Plot item", "Plot");
+                    f.check(ui, "Stolen", "Stolen");
+                });
+                ui.end_row();
+                crate::widgets::field_label(ui, "");
+                super::situated::preview_button(f, ui);
+                ui.end_row();
+            });
+        } else {
+            super::form_grid(ui, ("uti-stats", f.key)).spacing([12.0, 4.0]).show(ui, |ui| {
+                for (label, value) in
+                    f.app.game.as_deref().map(|g| statistics(g, &f.root)).unwrap_or_default()
+                {
+                    crate::widgets::field_label(ui, label);
+                    ui.strong(value);
+                    ui.end_row();
+                }
+            });
         }
     });
 }
@@ -404,14 +387,14 @@ const ARMOR_PARTS: [(&str, &[&str], &str); 13] = [
     ("Torso", &["ArmorPart_Torso"], "parts_chest"),
     ("Belt", &["ArmorPart_Belt"], "parts_belt"),
     ("Pelvis", &["ArmorPart_Pelvis"], "parts_pelvis"),
-    ("Right Shoulder", &["ArmorPart_RShoul"], "parts_shoulder"),
-    ("Left Shoulder", &["ArmorPart_LShoul"], "parts_shoulder"),
-    ("Right Bicep", &["ArmorPart_RBicep"], "parts_bicep"),
-    ("Left Bicep", &["ArmorPart_LBicep"], "parts_bicep"),
-    ("Right Forearm", &["ArmorPart_RFArm"], "parts_forearm"),
-    ("Left Forearm", &["ArmorPart_LFArm"], "parts_forearm"),
-    ("Right Hand", &["ArmorPart_RHand"], "parts_hand"),
-    ("Left Hand", &["ArmorPart_LHand"], "parts_hand"),
+    ("Right shoulder", &["ArmorPart_RShoul"], "parts_shoulder"),
+    ("Left shoulder", &["ArmorPart_LShoul"], "parts_shoulder"),
+    ("Right bicep", &["ArmorPart_RBicep"], "parts_bicep"),
+    ("Left bicep", &["ArmorPart_LBicep"], "parts_bicep"),
+    ("Right forearm", &["ArmorPart_RFArm"], "parts_forearm"),
+    ("Left forearm", &["ArmorPart_LFArm"], "parts_forearm"),
+    ("Right hand", &["ArmorPart_RHand"], "parts_hand"),
+    ("Left hand", &["ArmorPart_LHand"], "parts_hand"),
     ("Thighs", &["ArmorPart_LThigh", "ArmorPart_RThigh"], "parts_legs"),
 ];
 
@@ -447,8 +430,8 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     };
     let id = f.id("uti-part-colors");
     let mut part: usize = ui.data(|d| d.get_temp(id)).unwrap_or(7);
-    ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Part Colors");
+    super::row(ui, |ui| {
+        crate::widgets::field_label(ui, "Part colors");
         // (A part with colors of its own is marked.)
         let name = |f: &Form<'_>, p: usize| {
             if own(f, p) { format!("{} *", PARTS[p].1) } else { PARTS[p].1.to_string() }
@@ -464,43 +447,40 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     .response
     .on_hover_text("Parts without a color of their own take the armor's (*: has its own)");
     ui.data_mut(|d| d.insert_temp(id, part));
-    egui::Grid::new(("uti-part-colors", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
-        ui,
-        |ui| {
-            for channel in ArmorChannel::ALL {
-                let palette = channel.palette();
-                let what = format!("{} {}", PARTS[part].1, channel.name());
-                let label = armor_part_color_label(part, channel);
-                let color = armor_part_color(&f.root, part, channel);
-                ui.label(channel.name());
-                ui.horizontal(|ui| {
-                    f.mark_mixed(ui, &label);
-                    // Without one of its own: the armor's, as it shows.
-                    let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
-                    let text = color.is_none().then_some("Default");
-                    if let Some(v) = f.palette_pick(ui, game, &what, &label, palette, shown, text)
-                        && Some(v) != color
-                    {
-                        f.set(&what, &label, Value::Byte(v));
-                    }
-                    let reset = ui
-                        .add_enabled(color.is_some(), egui::Button::new("Reset").small())
-                        .on_hover_text("Use the armor's color");
-                    reset.widget_info(|| {
-                        egui::WidgetInfo::labeled(
-                            egui::WidgetType::Button,
-                            true,
-                            format!("Reset {what}"),
-                        )
-                    });
-                    if reset.clicked() {
-                        f.set_opt(&what, &label, None);
-                    }
+    super::form_grid(ui, ("uti-part-colors", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
+        for channel in ArmorChannel::ALL {
+            let palette = channel.palette();
+            let what = format!("{} {}", PARTS[part].1, channel.name());
+            let label = armor_part_color_label(part, channel);
+            let color = armor_part_color(&f.root, part, channel);
+            ui.label(channel.name());
+            super::row(ui, |ui| {
+                f.mark_mixed(ui, &label);
+                // Without one of its own: the armor's, as it shows.
+                let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
+                let text = color.is_none().then_some("Default");
+                if let Some(v) = f.palette_pick(ui, game, &what, &label, palette, shown, text)
+                    && Some(v) != color
+                {
+                    f.set(&what, &label, Value::Byte(v));
+                }
+                let reset = ui
+                    .add_enabled(color.is_some(), egui::Button::new("Reset").small())
+                    .on_hover_text("Use the armor's color");
+                reset.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        format!("Reset {what}"),
+                    )
                 });
-                ui.end_row();
-            }
-        },
-    );
+                if reset.clicked() {
+                    f.set_opt(&what, &label, None);
+                }
+            });
+            ui.end_row();
+        }
+    });
 }
 
 /// The item with another model number (and its EE twin, where it has one
@@ -719,14 +699,35 @@ fn armor_part_choices(game: &GameData, table: &str) -> Vec<Choice> {
 /// made.
 fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     const SIDE: f32 = 96.0;
-    const GAP: f32 = 4.0;
     let id = f.id("uti-part-gallery");
     let all: Vec<&(&str, &[&str], &str)> = ARMOR_PARTS.iter().chain(&LOWER_PARTS).collect();
     let mut at: usize = ui.data(|d| d.get_temp(id)).unwrap_or(1).min(all.len() - 1);
+    // (The Pickers board's flat toggles, the one shown in the accent fill.)
     ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
         crate::widgets::field_label(ui, "Pictures of");
         for (i, (text, ..)) in all.iter().enumerate() {
-            if ui.selectable_label(at == i, *text).clicked() {
+            // (On, the kit's toggle in the accent fill; off, flat, still
+            // said as a toggle that is off.)
+            let look = match at == i {
+                true => mg_uikit::ButtonLook::Toggle,
+                false => mg_uikit::ButtonLook::Flat,
+            };
+            // (A button's words in title case: "Right Shoulder".)
+            let title: Vec<String> = text
+                .split(' ')
+                .map(|w| {
+                    let mut c = w.chars();
+                    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+                })
+                .collect();
+            let title = title.join(" ");
+            let r = ui.add(mg_uikit::KitButton::new(None, &title).toggle(at == i).look(look));
+            let on = at == i;
+            r.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &title)
+            });
+            if r.clicked() {
                 at = i;
             }
         }
@@ -736,80 +737,116 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let choices = armor_part_choices(game, table);
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let (female, pieces) = (on_woman(f), PART_PIECES[at]);
-    let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
-    let (per_row, side) = crate::appearance_gallery::fitted(room, SIDE, GAP);
-    let tall = side + crate::widgets::tile_label_height(ui);
+    // (Its number as the name, a torso's armor class the detail under it:
+    // the board's "23" over "AC 8".)
+    let detailed = table == "parts_chest";
+    let label = mg_uikit::gallery::label_height(false, 1, detailed);
+    let tall = SIDE + label;
     let (mut keys, mut chosen) = (Vec::new(), None);
-    let rows = choices.len().div_ceil(per_row);
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(id.with(at))
-        .max_height(2.0 * tall + 3.0 * ui.spacing().item_spacing.y)
-        .auto_shrink([false, true]);
-    // Opened at the part the armor has (once for each part, once it is in
-    // sight: scrolled out of it, the offset was not kept).
-    let placed = id.with(("placed", at));
     let in_sight =
         ui.is_rect_visible(ui.available_rect_before_wrap().with_max_y(ui.cursor().top() + tall));
-    if in_sight && !ui.data(|d| d.get_temp::<bool>(placed).unwrap_or(false)) {
-        ui.data_mut(|d| d.insert_temp(placed, true));
-        if let Some(i) = choices.iter().position(|c| c.row as i64 == current) {
-            let height = tall + ui.spacing().item_spacing.y;
-            area = area.vertical_scroll_offset((i / per_row) as f32 * height);
+    let here = choices.iter().position(|c| c.row as i64 == current);
+    let keys_allowed = !crate::shell::keys_blocked(ui.ctx());
+    let grid = mg_uikit::gallery::GalleryGrid::new(id.with(("pictures", at)), choices.len(), SIDE)
+        .label(label)
+        .cursor(here)
+        .keys_allowed(keys_allowed)
+        .name(format!("Pictures of {text}"));
+    // (Two rows high, from the grid's own layout in the room it gets: the
+    // cells grow with the page, and a height from SIDE cut the second
+    // row's "AC N" on a wide one. Two rows wherever it is on the page:
+    // low on a long page, the room left in the page's view was all egui
+    // gave it, 64 high.)
+    // (The room the grid gets in the scroll: its width in sight, as
+    // `GalleryGrid::show` takes it. Its bar decided by the count, not by
+    // egui's state: a bar shown only where needed took the room that made
+    // the cells smaller, two rows then fitted, the bar went, the cells grew
+    // past the height, and it came back each frame. All in two rows at the
+    // whole room: no bar; else the bar's room taken off, still more than
+    // two rows with fewer columns.)
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let whole = ui.available_width().min(seen).max(1.0);
+    let full = grid.layout(whole);
+    let fits = choices.len() <= 2 * full.columns;
+    let layout = match fits {
+        true => full,
+        false => grid.layout((whole - ui.spacing().scroll.allocated_width()).max(1.0)),
+    };
+    let high = 2.0 * layout.cell.y + layout.gap.y;
+    // Opened at the part the armor has (once for each part, once it is in
+    // sight: scrolled out of it, the offset was not kept; and again where
+    // the page's width changes its columns, the offset being another row).
+    let placed = id.with(("placed", at, layout.columns));
+    let bar = match fits {
+        true => egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+        false => egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+    };
+    let area = egui::ScrollArea::vertical()
+        .id_salt(id.with(at))
+        .scroll_bar_visibility(bar)
+        .max_height(high)
+        .min_scrolled_height(high)
+        .auto_shrink([false, true]);
+    let shown = area.show(ui, |ui| {
+        let key_of = |f: &mut Form<'_>, n: u16| {
+            let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
+            f.app.thumbnails.item_part(&item, female, Some(pieces))
+        };
+        let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+            let c = &choices[i];
+            let n = c.row as u16;
+            let key = key_of(f, n);
+            let made = f.app.thumbnails.made(key);
+            let number = n.to_string();
+            let detail = (c.text.split_once(" (").map(|(_, d)| d.trim_end_matches(')')))
+                .filter(|_| detailed);
+            mg_uikit::gallery::GalleryCell::new(&number, crate::widgets::cell_picture(made))
+                .said(&c.text)
+                .detail(detail)
+                .lines(1)
+                .kind(mg_uikit::Icon::Item)
+                .selected(i64::from(n) == current)
+                .paint(ui, rect, tile, cell, r);
+            if r.clone().on_hover_text(format!("{text} {}", c.text)).clicked() {
+                chosen = Some(n);
+            }
+        });
+        // (Enter or Space on the keys' picture: its click.)
+        if let Some(i) = out.activated {
+            chosen = Some(choices[i].row as u16);
         }
-    }
-    area.show_rows(ui, tall, rows, |ui, lines| {
-        ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
-        for line in lines {
-            ui.horizontal(|ui| {
-                for c in choices.iter().skip(line * per_row).take(per_row) {
-                    let n = c.row as u16;
-                    let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
-                    let key = f.app.thumbnails.item_part(&item, female, Some(pieces));
-                    let made = f.app.thumbnails.made(key);
-                    let here = i64::from(n) == current;
-                    let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, here, made);
-                    if seen {
-                        keys.push(key);
-                    }
-                    if r.on_hover_text(format!("{text} {}", c.text)).clicked() {
-                        chosen = Some(n);
-                    }
-                }
-            });
-        }
+        keys.extend(out.ahead.clone().map(|i| key_of(f, choices[i].row as u16)));
+        out
     });
+    if in_sight && !ui.data(|d| d.get_temp::<bool>(placed).unwrap_or(false)) {
+        let done = match here {
+            Some(at) => crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at),
+            None => true,
+        };
+        ui.data_mut(|d| d.insert_temp(placed, done));
+    }
     f.app.thumbnails.show(keys);
     if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
         set_part(f, text, labels, i64::from(n));
     }
 }
 
-fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
+fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let Ok(t) = game.table("baseitems") else { return };
     let row = base_row(f);
     let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
-    // The item's inventory icon, as it is now.
+    // The item's inventory icon, as it is now. (Its model is the Preview
+    // panel's, M4's U11.)
     let root = f.root.clone();
     let layers = icon(f, ui, game, &root);
-    if beside {
-        crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon");
-    } else {
-        // (The page's visible width: see `situated::beside_model`.)
-        let seen = ui.available_width().min(ui.clip_rect().right() - ui.cursor().left());
-        ui.horizontal_top(|ui| {
-            let icon = crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon").rect;
-            let gap = ui.spacing().item_spacing.x;
-            let size = egui::vec2(seen - icon.width() - 2.0 * gap, icon.height().max(MODEL_SHORT));
-            ui.vertical(|ui| super::situated::inline_preview(f, ui, size));
-        });
-    }
+    crate::images::stacked_drawn(ui, &layers, (1.5, ICON_TALLEST), "Icon");
     // Who wears it in the model and the icon shown: armor, cloaks and the
     // items the game has an icon of for each have a man's and a woman's.
     // (Options › General has the choice too, kept: inventories and the
     // palette show the icons and models so.)
     let kind = t.get_int(row, "ModelType").unwrap_or(0);
     if worn_by_either(game, row) {
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             crate::widgets::field_label(ui, "Shown on");
             let on = &mut f.app.settings.armor_on_woman;
             ui.selectable_value(on, false, "Male");
@@ -893,17 +930,17 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             ui.columns(2, |cols| {
                 for (col, parts) in [(0, &ARMOR_PARTS[..]), (1, &LOWER_PARTS[..])] {
                     let ui = &mut cols[col];
-                    egui::Grid::new(("uti-armor", f.key, col))
-                        .num_columns(2)
-                        .spacing([12.0, 4.0])
-                        .show(ui, |ui| {
+                    super::form_grid(ui, ("uti-armor", f.key, col)).spacing([12.0, 4.0]).show(
+                        ui,
+                        |ui| {
                             for (text, labels, table) in parts {
                                 crate::widgets::field_label(ui, *text);
                                 let choices = armor_part_choices(game, table);
                                 pick_part(f, ui, text, labels, &choices);
                                 ui.end_row();
                             }
-                        });
+                        },
+                    );
                 }
                 colors(f, &mut cols[1], game);
                 cols[1].separator();
@@ -929,7 +966,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             } else {
                 icon_numbers(ui, game, load_order, &prefix).to_vec()
             };
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 crate::widgets::field_label(ui, "Appearance");
                 part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
             });
@@ -1068,7 +1105,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 |ui| {
                     mg_uikit::list_rows(ui);
                     for (i, a) in assigned.iter().enumerate() {
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             let text = game.property_text(&a.p);
                             if ui.selectable_label(selected == Some(i), text).clicked() {
                                 selected = Some(i);
@@ -1078,7 +1115,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                     }
                 },
             );
-            ui.horizontal(|ui| {
+            super::row(ui, |ui| {
                 let can_add = chosen.is_some();
                 if ui.add_enabled(can_add, egui::Button::new("Add")).clicked()
                     && let Some(t) = chosen.and_then(|c| available.iter().find(|t| t.row == c))
@@ -1105,11 +1142,12 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         }
     });
     ui.separator();
-    ui.horizontal(|ui| {
+    super::row(ui, |ui| {
         f.check(ui, "Identified", "Identified");
         f.check(ui, "Undroppable", "Cursed");
         let cost = game.item_cost(&ItemValue::from_gff(&f.root));
-        ui.label(format!("Total Cost: {cost}"));
+        crate::widgets::wrap_for(ui, 100.0);
+        ui.label(format!("Total cost: {cost}"));
     });
     if let Some((t, sub)) = add {
         let mut p = game.new_property(&t, base);
@@ -1186,71 +1224,64 @@ fn property_editor(
     let Some(t) = game.property_type(p.property) else { return };
     let path = here.item("PropertiesList", index);
     let mut changes: Vec<(&str, Value)> = Vec::new();
-    egui::Grid::new(("uti-prop", f.key, index)).num_columns(2).spacing([12.0, 6.0]).show(
-        ui,
-        |ui| {
-            crate::widgets::field_label(ui, "Item Property");
-            ui.strong(&t.name);
-            ui.end_row();
-            let subtypes = game.property_subtype_list(&t, base);
-            if !subtypes.is_empty() {
-                crate::widgets::field_label(ui, "Sub-Property");
-                if let Some(v) = super::situated::pick(
-                    ui,
-                    f.picks(),
-                    "prop-sub",
-                    &subtypes,
-                    i64::from(p.subtype),
-                ) {
-                    changes.push(("Subtype", Value::Word(v as u16)));
-                    // The parameter follows the subtype's table.
-                    let table = game.property_param_table(&t, v as u16);
-                    if table.unwrap_or(255) != p.param1 {
-                        let first = table
-                            .and_then(|tb| game.property_params(tb).first().map(|c| c.row as u8));
-                        changes.push(("Param1", Value::Byte(table.unwrap_or(255))));
-                        changes.push(("Param1Value", Value::Byte(first.unwrap_or(0))));
-                    }
+    super::form_grid(ui, ("uti-prop", f.key, index)).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Item property");
+        ui.strong(&t.name);
+        ui.end_row();
+        let subtypes = game.property_subtype_list(&t, base);
+        if !subtypes.is_empty() {
+            crate::widgets::field_label(ui, "Sub-Property");
+            if let Some(v) =
+                super::situated::pick(ui, f.picks(), "prop-sub", &subtypes, i64::from(p.subtype))
+            {
+                changes.push(("Subtype", Value::Word(v as u16)));
+                // The parameter follows the subtype's table.
+                let table = game.property_param_table(&t, v as u16);
+                if table.unwrap_or(255) != p.param1 {
+                    let first =
+                        table.and_then(|tb| game.property_params(tb).first().map(|c| c.row as u8));
+                    changes.push(("Param1", Value::Byte(table.unwrap_or(255))));
+                    changes.push(("Param1Value", Value::Byte(first.unwrap_or(0))));
                 }
-                ui.end_row();
-            }
-            let costs = game.property_cost_list(p.cost_table, base);
-            if !costs.is_empty() {
-                crate::widgets::field_label(ui, "Cost Parameter");
-                if let Some(v) = super::situated::pick_ordered(
-                    ui,
-                    f.picks(),
-                    "prop-cost",
-                    &costs,
-                    i64::from(p.cost_value),
-                ) {
-                    changes.push(("CostValue", Value::Word(v as u16)));
-                }
-                ui.end_row();
-            }
-            if p.param1 != 255 {
-                // In the table's order, as Aurora lists them (iprp_damagetype's
-                // Bludgeoning to Sonic: captured 2026-10-30).
-                let params = game.property_param_list(p.param1);
-                crate::widgets::field_label(ui, "Parameter 1");
-                if let Some(v) = super::situated::pick_ordered(
-                    ui,
-                    f.picks(),
-                    "prop-param",
-                    &params,
-                    i64::from(p.param1_value),
-                ) {
-                    changes.push(("Param1Value", Value::Byte(v as u8)));
-                }
-                ui.end_row();
-            }
-            crate::widgets::field_label(ui, "Chance of Appearing (%)");
-            if let Some(v) = spin_number(ui, i64::from(p.chance), 0..=100) {
-                changes.push(("ChanceAppear", Value::Byte(v as u8)));
             }
             ui.end_row();
-        },
-    );
+        }
+        let costs = game.property_cost_list(p.cost_table, base);
+        if !costs.is_empty() {
+            crate::widgets::field_label(ui, "Cost parameter");
+            if let Some(v) = super::situated::pick_ordered(
+                ui,
+                f.picks(),
+                "prop-cost",
+                &costs,
+                i64::from(p.cost_value),
+            ) {
+                changes.push(("CostValue", Value::Word(v as u16)));
+            }
+            ui.end_row();
+        }
+        if p.param1 != 255 {
+            // In the table's order, as Aurora lists them (iprp_damagetype's
+            // Bludgeoning to Sonic: captured 2026-10-30).
+            let params = game.property_param_list(p.param1);
+            crate::widgets::field_label(ui, "Parameter 1");
+            if let Some(v) = super::situated::pick_ordered(
+                ui,
+                f.picks(),
+                "prop-param",
+                &params,
+                i64::from(p.param1_value),
+            ) {
+                changes.push(("Param1Value", Value::Byte(v as u8)));
+            }
+            ui.end_row();
+        }
+        crate::widgets::field_label(ui, "Chance of appearing (%)");
+        if let Some(v) = spin_number(ui, i64::from(p.chance), 0..=100) {
+            changes.push(("ChanceAppear", Value::Byte(v as u8)));
+        }
+        ui.end_row();
+    });
     if !changes.is_empty() && f.several() {
         let k = lists::property_key(p);
         let labels: Vec<&str> = changes.iter().map(|(l, _)| *l).collect();
@@ -1279,9 +1310,9 @@ fn property_editor(
 }
 
 fn description(f: &mut Form<'_>, ui: &mut Ui) {
-    f.locstring_memo(ui, "Unidentified Description", "Description");
+    f.locstring_memo(ui, "Unidentified description", "Description");
     ui.separator();
-    f.locstring_memo(ui, "Identified Description", "DescIdentified");
+    f.locstring_memo(ui, "Identified description", "DescIdentified");
     ui.separator();
     if let Some(game) = f.app.game.as_deref() {
         let row = base_row(f);
@@ -1290,10 +1321,10 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
             .ok()
             .and_then(|t| game.cell_string(&t, row, t.column("Description")?))
             .unwrap_or_default();
-        crate::widgets::field_label(ui, "Item Type Description");
+        crate::widgets::field_label(ui, "Item type description");
         ui.weak(text);
         ui.separator();
-        crate::widgets::field_label(ui, "Item Statistics");
+        crate::widgets::field_label(ui, "Item statistics");
         for s in f.root.list("PropertiesList").unwrap_or(&[]) {
             ui.weak(game.property_text(&ItemProperty::from_gff(s)));
         }

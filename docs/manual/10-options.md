@@ -1,18 +1,28 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend and the editors' toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
+description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T12:48:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # Options
 
 **Tools › Options…** has Aurora's pages (and Moonglow's own Updates),
-in a window that docks and tabs with the others. Each page groups its
+in a window that docks and tabs with the others. Its pages are listed
+at the left, each with its icon; **OK** and **Cancel** sit at the right
+end of its header. Each page groups its
 options under headings, as this chapter does: Aurora's own first in
-each, in its order, then Moonglow's. **OK** applies the changes; the module stays open.
-**Cancel**, closing the window or Escape discards them. Only another game or user folder, the folder aliases, Workshop and userpatch switches or a language the game has installed (the Language page)
+each, in its order, then Moonglow's. The General page sets its headings
+in three columns where the window is wide (Editors to Testing; Windows
+and Tabs, Module Tree and Palettes, Appearance; Questions to
+Troubleshooting), each label in a column of its own beside its control,
+and in two or one where it is narrower: no control is ever cut. **OK**
+(or **Enter**, with the pointer over the window and nothing typed in)
+applies the changes of every page and writes the settings once; the
+module stays open. **Cancel**, closing the window or Escape sets back
+every page's changes, also those shown at once (the theme, the
+interface size). Only another game or user folder, the folder aliases, Workshop and userpatch switches or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
@@ -124,9 +134,8 @@ the module is opened again from its file.
 
 ### Graphics
 
-- **Shadows quality**: how the area view draws the game's shadows (its
-  **Shadows**; also chosen in that button's menu, see
-  [Areas](04-areas.md)). **Fast** (the default): a shadow map stands in
+- **Shadows quality**: how the area view draws the game's shadows (its **Shadows**; also chosen in the area header's Lighting popover, see
+  [Areas](04-areas.md#lighting)). **Fast** (the default): a shadow map stands in
   for the game's shadows, cheap in every area; in a large area seen out
   to its far side, its edges up close are a little soft and stepped.
   **High**: stencil shadow volumes, the game's own kind: each mesh
@@ -188,13 +197,17 @@ the module is opened again from its file.
   half changed is hard to see and to put right later (Undo does). See
   [Areas](04-areas.md#painting-terrain).
 
-### Toolbar
+### Header
 
-Which buttons the area's toolbar shows: a tick for each (the objects'
-filters as **Show Creatures**…, the button that plays placed sounds as
-**Play Sounds**), all of them shown at first; **Show All** puts back
-every one. A right click on the toolbar between its buttons opens the
-same list. Moonglow's own (a builder's ask: a toolbar of what is used).
+Which controls the area's header shows, on its row, in its popovers and
+in the wide row where they unfold: a tick for each (the objects'
+filters as **Show Creatures**…, the switch that plays placed sounds as
+**Play Sounds**, both walkmeshes as **Walkmesh…**; **Select Tiles** and
+**Paint** are the view's tool shelf's, **Reorient Camera** and **Go to
+Start Location** the buttons under its compass), all of them shown at
+first; **Show All** puts back every one. A right click anywhere on the
+header opens the same list. Moonglow's own (a builder's ask: a toolbar of
+what is used; see [Areas](04-areas.md#the-header)).
 
 ## General
 
@@ -209,8 +222,8 @@ same list. Moonglow's own (a builder's ask: a toolbar of what is used).
   with tabs; settings kept from before this switch keep floating windows.
   A kind of editor you have moved opens where you last put one, in either
   mode, until **View › Reset Layout** (see [The main window](02-main-window.md),
-  Tabs and windows). Tile Properties and a model's view open in a window of their
-  own in both. With the keyboard on the switch, Left and Right (or Home
+  Tabs and windows). A model's view opens in a window of its own in
+  both. With the keyboard on the switch, Left and Right (or Home
   and End) choose; Tab goes on past it.
 
 Under **Floating windows**, the three settings of editors' windows (a
@@ -282,65 +295,6 @@ window is one in As Tabs too, for a kind you moved to a window):
   off, the game's program is started on its own, without Steam's overlay
   or Workshop content (see [Build, verify and test](09-build-and-test.md)).
 
-### Appearance
-
-- **Interface size**: the whole interface, text and all, from 90% to 200%
-  of its usual size.
-- **Light theme**: the suite's light theme (light gray panels and bars,
-  dark text, the same blue for what is chosen) rather than its dark one,
-  which is the default. It changes when OK closes the Options window,
-  in every window, as Interface size does (Cancel leaves it as it was). What a 3D view, a model preview or a NUI window shows (the
-  game's own look) is the same in both, and so are the script editor's
-  colors where a Background of your own is set: a dark Background takes
-  the dark theme's colors and a light one the light theme's, so its text
-  stays readable whichever theme the window wears.
-- **Editors' toolbar buttons** (Icons and text): **Icons only** shows
-  the buttons of the area view's toolbar and of the editors' toolbars
-  (the script editor's, the conversation editor's, a model's view and
-  the NUI Creator's) as their icons alone, as Aurora's
-  toolbars are, to save room: the area view's toolbar takes about half
-  the rows it took. Rest the pointer on an icon and its tip names it,
-  with its key and what it does; a screen reader reads the button's
-  name, not its icon. With Icons only, the area view's Fade Geometry,
-  Snap and Turn dropdowns show an icon for what they set before their
-  choice. The
-  editors' buttons show their words alone with Icons and text, as they
-  always have; the palette's tile tools (Select Tiles, Eraser, Refine
-  Tile…) are rows of its list, named as in Aurora's palette, and keep
-  their names. It takes effect at once, when you choose OK. The Top
-  Bar's buttons are icons whatever it says (see [The main
-  window](02-main-window.md)). (It was named Toolbar buttons before the
-  Top Bar; it goes when the editors get their one-row headers.)
-- **Graphics backend** (Automatic): what the window, the area view and
-  the previews draw with. **Automatic** is the graphics library's
-  (wgpu's) choice, except that an AMD GPU on Windows draws through
-  Direct3D 12 rather than Vulkan, and it is **checked as Moonglow
-  starts**: before the window opens, a small scene is drawn offscreen
-  through Moonglow's own pipelines and compared with what it must look
-  like (under a tenth of a second here). Where it draws nothing, the same
-  GPU's other backend is checked and taken, and the backend that failed
-  is remembered: Automatic passes over it on this GPU until its driver
-  changes, or Moonglow is updated. Below the choice, the page lists the
-  backends found drawing wrong, with what found it and when: those
-  Automatic passes over, and those it draws with all the same where no
-  other backend is left (one backend on the platform, or every one
-  found wrong); **Try Again** forgets them (when you choose OK). It lists
-  too where the notice that the game's shaders draw wrong was hidden
-  (**Don't Show Again**); **Show Again** shows it from the next start.
-  See
-  [Troubleshooting](13-troubleshooting.md#an-area-draws-nothing-or-loses-its-tiles-on-an-amd-gpu-under-windows).
-  Or choose one: **Vulkan** or **Direct3D 12** on Windows, **Vulkan**
-  on Linux, **Metal** on macOS (the only one there); only the
-  platform's are offered. A backend chosen here is kept even where the
-  check finds it drawing nothing: a notice under the Top Bar says so and
-  offers the other. (Not OpenGL, which Moonglow draws with only where
-  nothing else is there: with one sample a pixel, no anti-aliasing.) It takes effect the next time
-  Moonglow starts, and the page says what this run draws with. A backend
-  with no adapter on this machine falls back to Automatic, and the log
-  says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,
-  `metal`), when set, decides over this setting (and is kept as the
-  setting is): a way out if the one chosen doesn't start.
-
 ### Windows and Tabs
 
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
@@ -365,7 +319,7 @@ window is one in As Tabs too, for a kind you moved to a window):
   does. Show in Module Tree on a tab's menu goes to it either way.
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
-  tree and the palettes). Areas are by name in Find Instance and the
+  tree and the palettes). Areas are by name in Find Instance's In Area and the
   area transition's destinations too.
 - **Show tags beside names in the module tree** (off): a blueprint's tag
   after what it is listed by, `Name (resref) (tag)`, and a placed
@@ -398,6 +352,55 @@ window is one in As Tabs too, for a kind you moved to a window):
 - **Set a creature's portrait with its appearance** (off): an
   appearance chosen brings the portrait its appearance.2da row names, in
   the same step ([Blueprints](05-blueprints.md)).
+
+### Appearance
+
+- **Interface size**: the whole interface, text and all, from 90% to 200%
+  of its usual size.
+- **Light theme**: the suite's light theme (light gray panels and bars,
+  dark text, the same blue for what is chosen) rather than its dark one,
+  which is the default. It changes when OK closes the Options window,
+  in every window, as Interface size does (Cancel leaves it as it was). What a 3D view, a model preview or a NUI window shows (the
+  game's own look) is the same in both, and so are the script editor's
+  colors where a Background of your own is set: a dark Background takes
+  the dark theme's colors and a light one the light theme's, so its text
+  stays readable whichever theme the window wears.
+- (**Editors' toolbar buttons**, Icons only or Icons and text, is
+  retired since the one-row headers: the Top Bar's buttons are icons
+  with tips, and each editor's header gives its words up to its width,
+  its icon buttons named for a screen reader and in their tips (see [The
+  main window](02-main-window.md), [Areas](04-areas.md#the-header)). A
+  settings file that still names it is read as it is, the setting left
+  out, and written back without it.)
+- **Graphics backend** (Automatic): what the window, the area view and
+  the previews draw with. **Automatic** is the graphics library's
+  (wgpu's) choice, except that an AMD GPU on Windows draws through
+  Direct3D 12 rather than Vulkan, and it is **checked as Moonglow
+  starts**: before the window opens, a small scene is drawn offscreen
+  through Moonglow's own pipelines and compared with what it must look
+  like (under a tenth of a second here). Where it draws nothing, the same
+  GPU's other backend is checked and taken, and the backend that failed
+  is remembered: Automatic passes over it on this GPU until its driver
+  changes, or Moonglow is updated. Below the choice, the page lists the
+  backends found drawing wrong, with what found it and when: those
+  Automatic passes over, and those it draws with all the same where no
+  other backend is left (one backend on the platform, or every one
+  found wrong); **Try Again** forgets them (when you choose OK). It lists
+  too where the notice that the game's shaders draw wrong was hidden
+  (**Don't Show Again**); **Show Again** shows it from the next start.
+  See
+  [Troubleshooting](13-troubleshooting.md#an-area-draws-nothing-or-loses-its-tiles-on-an-amd-gpu-under-windows).
+  Or choose one: **Vulkan** or **Direct3D 12** on Windows, **Vulkan**
+  on Linux, **Metal** on macOS (the only one there); only the
+  platform's are offered. A backend chosen here is kept even where the
+  check finds it drawing nothing: a notice under the Top Bar says so and
+  offers the other. (Not OpenGL, which Moonglow draws with only where
+  nothing else is there: with one sample a pixel, no anti-aliasing.) It takes effect the next time
+  Moonglow starts, and the page says what this run draws with. A backend
+  with no adapter on this machine falls back to Automatic, and the log
+  says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,
+  `metal`), when set, decides over this setting (and is kept as the
+  setting is): a way out if the one chosen doesn't start.
 
 ### Questions
 
@@ -475,7 +478,7 @@ outside Moonglow) always ask.
   which compiles again a script that has no debug file yet.
 - **Check for errors as you type**: on by default. The script is
   compiled a moment after you stop typing, and its first error shows
-  under the toolbar, its line underlined (see [Scripts](07-scripts.md)).
+  in the Status Bar, its line underlined (see [Scripts](07-scripts.md)).
   Off, there is no check and no line kept for it.
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and
@@ -567,8 +570,7 @@ outside Moonglow) always ask.
 ## Sounds
 
 - **Play placed sound objects in area**, **Play ambient sound in area**,
-  **Play ambient music in area**: what plays when an area view opens (the
-  area viewer's toolbar also turns each on and off).
+  **Play ambient music in area**: what plays when an area view opens (the area header's Audio popover also turns each on and off).
 - **Ambient music volume**.
 
 ## Verify
@@ -640,9 +642,12 @@ tree and the palettes). Every command of the menus
 is listed, in the menus' order, whether it has a key or not: give Build
 Module or Verify Module one here. **Find a command** narrows the list to
 what you type (a command's name, or its group's).
-- **Add a key** (the plus button) then the keys adds a key (Escape:
-  none); a key's own button (**Remove Ctrl+S from Save**, say) removes
-  it. A command can have several keys, or none.
+- **Add a key** (the plus button) then the keys adds a key; while it
+  waits for one, every key is the key to add, Enter too (Enter is not
+  OK then), and Escape gives up the waiting alone, Options staying open
+  with the changes made so far. A key's own button (**Remove Ctrl+S
+  from Save**, say) removes it. A command can have several keys, or
+  none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.
 - **Export…** writes the keys you chose as a file (a `.json`, named
@@ -652,7 +657,8 @@ what you type (a command's name, or its group's).
   the rest of Options, OK keeps them.
 - **Conflicts:** a key two commands share where both work is named above
   the list. (A key of the whole window wins over the editors' own.)
-- **NUI Creator** holds the keys of its Design page: Delete Element
+- **NUI Creator** holds the keys of its Design page (over its canvas, and
+  in its Layers while they have the arrow keys): Delete Element
   (Delete), Duplicate Element (Ctrl+D), Move Element Up and Down
   (Alt+Up, Alt+Down), Select Previous and Next Element (Up, Down). See
   [NUI Creator](18-nui-creator.md).

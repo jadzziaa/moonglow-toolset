@@ -72,11 +72,18 @@ fn facts(
         app.palette.tile_brush = Some(brush);
         app.palette.tile_choice = Some(tile);
         app.palette.selected = None;
-        // (Out of tile mode, which the brush would sit on top of.)
-        for view in app.area_views.values_mut() {
-            if view.terrain.as_ref().is_some_and(|t| t.tileset == tileset) {
-                view.tile_mode = false;
-            }
+        // (The tool in hand is Terrain, as the shelf takes it: out of
+        // Paint and of tile mode, which the brush would sit on top of.)
+        let areas: Vec<_> = (app.area_views.iter())
+            .filter(|(_, v)| v.terrain.as_ref().is_some_and(|t| t.tileset == tileset))
+            .map(|(a, _)| *a)
+            .collect();
+        for area in areas {
+            crate::area_view::tools::choose_in(
+                app,
+                area,
+                crate::area_view::tools::AreaTool::Terrain,
+            );
         }
     }
     ui.add_space(6.0);

@@ -102,13 +102,20 @@ fn resources_open_in_their_editors() {
     // Tab titles are drawn without accessible labels; check the dock and the
     // editor's content.
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
-    apart(&h, "Compile");
+    // (The script's header's: on its row, or in its More in a window this
+    // narrow, which is closed again.)
+    script_tool(&mut h, "Compile");
+    if h.query_by_label(SCRIPT_MORE).is_some() {
+        h.key_press(egui::Key::Escape);
+        h.run();
+    }
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(area).unwrap()));
     h.run();
-    // The area viewer, with its object filters.
+    // The area viewer, with its object filters (the header's Show popover:
+    // compact in a window this narrow).
     assert!(h.state().dock.find_tab(&Tab::Area(area.resref)).is_some());
-    area_tool(&h, "Show Placeables");
+    h.get_by_label(AREA_HEADER).get_by_label("Show");
 }
 
 /// The log is among Next Pane's panes (the module tree and the palettes'
@@ -1143,7 +1150,8 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     h.run_steps(6);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 36)]);
     assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
-    // A double click there: its Properties.
+    // A double click there: its Properties, in the Right Dock's panel
+    // (the coordinator's ruling at U6's review, as the view's: no window).
     h.run_steps(30);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -1152,9 +1160,10 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
         h.step();
     }
     h.run_steps(4);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "its Properties");
     let path = mg_edit::GffPath::root().item("WaypointList", 36);
-    let tab = h.state().dock.find_tab(&Tab::Instance { area, path });
-    h.state_mut().dock.remove_tab(tab.expect("its Properties"));
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
+    assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
     h.run_steps(3);
     // Another selected in the area, its row in view: the tree stays still.
     let row = h.get_by_label("WP_01").rect();
@@ -2586,14 +2595,14 @@ fn an_object_of_a_hidden_kind_gone_to_from_the_tree_shows_its_kind() {
     until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Waypoints (2)").is_empty());
     tree_rows_with(&h, "Waypoints (2)")[0].click();
     until_tree(&mut h, "its rows", |h| tree_rows_with(h, "NW_WAYPOINT001").len() == 2);
-    area_tool(&h, "Show Waypoints").click();
+    area_click(&mut h, "Show Waypoints");
     until_tree(&mut h, "hidden", |h| !shown(h));
     tree_rows_with(&h, "NW_WAYPOINT001")[0].click();
     until_tree(&mut h, "shown and selected", |h| {
         shown(h) && h.state().area_views[&area].selection.len() == 1
     });
     // With Ctrl.
-    area_tool(&h, "Show Waypoints").click();
+    area_click(&mut h, "Show Waypoints");
     until_tree(&mut h, "hidden again", |h| {
         !shown(h) && h.state().area_views[&area].selection.is_empty()
     });
@@ -2741,4 +2750,35 @@ fn the_module_tree_s_placed_objects_at_the_size_at_first() {
     h.step();
     h.key_press(egui::Key::Enter);
     until_tree(&mut h, "gone to", |h| h.state().area_views[&area].selection.len() == 1);
+}
+
+/// Beside a docked conversation the Outliner lists its bookmarks, not an
+/// area's objects, so the module tree follows an area's selection again,
+/// as where no Outliner is shown (M4's U15: `tree::follow_selection` read
+/// the Outliner's being there).
+#[test]
+fn the_module_tree_follows_the_selection_beside_a_docked_conversation() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-follows-beside-conversation") else { return };
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    h.state_mut().ws.as_mut().unwrap().view(key, mg_module::dialog::new_dialog());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let started = std::time::Instant::now();
+    while h.state().active_editor() != Some(&Tab::Dialog(key)) {
+        assert!(started.elapsed().as_secs() < 10, "never: the conversation in front");
+        h.step();
+    }
+    h.run_steps(4);
+    assert!(h.query_by_label(mg_ui::OUTLINER).is_some(), "the Outliner, its bookmarks");
+    assert!(h.query_all_by_label_contains("WAYPOINT").next().is_none(), "the area not opened out");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    let started = std::time::Instant::now();
+    while h.query_all_by_label_contains("WAYPOINT").next().is_none() {
+        assert!(started.elapsed().as_secs() < 10, "never: the tree opened out to the waypoint");
+        h.step();
+    }
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
 }

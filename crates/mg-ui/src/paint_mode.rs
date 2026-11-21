@@ -1,4 +1,4 @@
-//! The area view's placeable brush (Paint, on its toolbar): placeables
+//! The area view's placeable brush (Paint, on its tool shelf): placeables
 //! chosen in the palette (Ctrl + click for several) are painted onto the
 //! ground, as builders asked for trees, rocks and bushes.
 //!
@@ -175,7 +175,14 @@ pub(crate) fn keys(app: &Moonglow) -> Vec<ResKey> {
     if p.tiles || p.prefabs {
         return Vec::new();
     }
-    let mut keys: Vec<ResKey> = p.selected.into_iter().chain(p.chosen.iter().copied()).collect();
+    chosen_keys(p.selected, &p.chosen)
+}
+
+/// The placeables among the blueprint clicked in the palette
+/// (`selected`) and those chosen with Ctrl + click: what the brush
+/// paints with, where the palette shows placeables.
+pub(crate) fn chosen_keys(selected: Option<ResKey>, chosen: &[ResKey]) -> Vec<ResKey> {
+    let mut keys: Vec<ResKey> = selected.into_iter().chain(chosen.iter().copied()).collect();
     keys.retain(|k| k.restype == ResType::UTP);
     keys.dedup();
     keys
@@ -991,116 +998,367 @@ pub(crate) fn hints(app: &Moonglow, k: &crate::shell::HintKeys) -> Option<Vec<Hi
     Some(out)
 }
 
-/// A length kept in centimeters, edited in meters.
-fn meters(ui: &mut egui::Ui, cm: &mut i32, range: (f32, f32)) -> egui::Response {
+/// A length kept in centimeters, edited in meters, in a field `width`
+/// wide named `name` (its label is drawn apart).
+fn meters(
+    ui: &mut egui::Ui,
+    cm: &mut i32,
+    range: (f32, f32),
+    (name, width): (&str, f32),
+) -> egui::Response {
     let mut m = *cm as f32 / 100.0;
-    let r = ui.add(
-        egui::DragValue::new(&mut m)
-            .speed(0.05)
-            .range(range.0..=range.1)
-            .fixed_decimals(2)
-            .suffix(" m"),
-    );
+    let field = egui::DragValue::new(&mut m).speed(0.05).range(range.0..=range.1).fixed_decimals(2);
+    let r = number(ui, name, width, field.suffix(" m"));
     if r.changed() {
         *cm = (m * 100.0).round() as i32;
     }
     r
 }
 
-/// The strip of the brush's settings, above the view while Paint is on.
-pub(crate) fn strip(app: &mut Moonglow, ui: &mut egui::Ui) {
-    use crate::widgets::field_label;
-    let chosen = keys(app).len();
-    let s = &mut app.settings.paint;
-    ui.horizontal_wrapped(|ui| {
-        let mode = |s: &PaintSettings| (s.row && !s.erase, s.fill && !s.erase, s.erase);
-        for ((row, fill, erase), label, tip) in [
-            ((false, false, false), "Scatter", "Paint at random in a circle"),
-            (
-                (true, false, false),
-                "Row",
-                "Lay pieces end to end along a drag, such as fences and walls",
-            ),
-            (
-                (false, true, false),
-                "Fill",
-                "Fill the rectangle dragged with rows of pieces, such as floors",
-            ),
-            (
-                (false, false, true),
-                "Erase",
-                "Remove the chosen blueprints' placeables under the circle, except locked ones",
-            ),
-        ] {
-            let on = mode(s) == (row, fill, erase);
-            if ui.selectable_label(on, label).on_hover_text(tip).clicked() {
-                (s.row, s.fill, s.erase) = (row, fill, erase);
-            }
-        }
-        ui.separator();
-        if !s.by_drag() {
-            field_label(ui, "Radius");
-            let mut cm = i32::from(s.radius_cm);
+/// A number field `width` wide and a control high, named `name` for a
+/// screen reader (and tests): its words beside it are drawn, not a label
+/// of their own.
+fn number(ui: &mut egui::Ui, name: &str, width: f32, field: egui::DragValue<'_>) -> egui::Response {
+    let r = ui.add_sized([width, mg_uikit::metrics::CONTROL_HEIGHT], field);
+    ui.ctx().accesskit_node_builder(r.id, |node| node.set_label(name));
+    r
+}
+
+/// A field's words, `width` wide (its own where 0), in `color`: drawn,
+/// so that the field beside it is what its name names.
+fn words(ui: &mut egui::Ui, words: &str, width: f32, color: Color32) {
+    let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    let galley = ui.painter().layout_no_wrap(words.to_string(), font, color);
+    let w = if width > 0.0 { width } else { galley.size().x };
+    let size = egui::vec2(w, mg_uikit::metrics::CONTROL_HEIGHT);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let at = egui::pos2(rect.left(), rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(at, galley, color);
+}
+
+/// The width of `w` in the body's text.
+fn text_width(ui: &egui::Ui, w: &str) -> f32 {
+    let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    ui.painter().layout_no_wrap(w.to_string(), font, Color32::WHITE).size().x
+}
+
+/// The header's segmented control of how the brush paints (its group's
+/// name).
+pub(crate) const MODE: &str = "How the brush paints";
+/// The Brush popover's name and words.
+pub(crate) const BRUSH: &str = "Brush";
+/// The palette's Brush section's group (named apart from the popover).
+pub(crate) const BRUSH_SECTION: &str = "Brush blueprints";
+
+/// The modes, as `(row, fill, erase)`, with their words and tips.
+const MODES: [((bool, bool, bool), &str, &str); 4] = [
+    ((false, false, false), "Scatter", "Paint at random in a circle"),
+    ((true, false, false), "Row", "Lay pieces end to end along a drag, such as fences and walls"),
+    (
+        (false, true, false),
+        "Fill",
+        "Fill the rectangle dragged with rows of pieces, such as floors",
+    ),
+    (
+        (false, false, true),
+        "Erase",
+        "Remove the chosen blueprints' placeables under the circle, except locked ones",
+    ),
+];
+
+fn mode_of(s: &PaintSettings) -> (bool, bool, bool) {
+    (s.row && !s.erase, s.fill && !s.erase, s.erase)
+}
+
+/// The words of the mode `s` paints in (the Brush popover's title note).
+fn mode_words(s: &PaintSettings) -> &'static str {
+    MODES.iter().find(|(m, ..)| *m == mode_of(s)).map_or("Scatter", |(_, w, _)| w)
+}
+
+/// A header field's width (the AreaPaint board's `.hnum`).
+const HEADER_FIELD: f32 = 58.0;
+/// The gap between a header field's words and the field (`.grp`: 6).
+const HEADER_GAP: f32 = 6.0;
+/// The Brush popover's width, its label column and its fields' (the
+/// board's `.brush-pop`, `--lbl-w` and `.num`).
+const BRUSH_WIDTH: f32 = 286.0;
+const BRUSH_LABEL: f32 = 64.0;
+const BRUSH_FIELD: f32 = 76.0;
+/// The Brush popover's Spacing field (the board's, wider than the rest).
+const BRUSH_SPACING: f32 = 120.0;
+/// A Brush popover row's height inside its 1 point margins.
+const BRUSH_ROW: f32 = 26.0;
+
+/// Paint's options in the area header's left group while Paint is the
+/// tool in hand (the AreaPaint board; the proposal's section 6.1): the
+/// mode as a segmented control (Scatter, Row, Fill, Erase), Radius and
+/// Density where the mode takes them (Scatter both, Erase the radius
+/// alone), and the Brush popover with the rest: Count all, Spacing and
+/// By size, Flow, Turn, Scale (Scatter), Gap (Row and Fill), Height and
+/// Lock (all but Erase), the note on which mode takes which, and Snap and
+/// Turn "as with the Select tool". Each moves into More where the row
+/// has no room. `s` is the settings, written back by the caller after
+/// the header is drawn; `placing` the Select tool's Snap and Turn (none
+/// where both are hidden).
+pub(crate) fn header_items<'a>(
+    mut h: mg_uikit::header::EditorHeader<'a>,
+    ui: &egui::Ui,
+    s: &'a std::cell::Cell<PaintSettings>,
+    placing: Option<impl FnOnce(&mut egui::Ui) + 'a>,
+) -> mg_uikit::header::EditorHeader<'a> {
+    use mg_uikit::header::Item;
+    use mg_uikit::metrics::CONTROL_PADDING_X;
+    let now = s.get();
+    // The mode.
+    let seg_width =
+        MODES.iter().map(|(_, w, _)| text_width(ui, w) + 2.0 * CONTROL_PADDING_X).sum::<f32>()
+            + (MODES.len() - 1) as f32;
+    let seg_width = seg_width.ceil();
+    let seg = move |ui: &mut egui::Ui| {
+        let mut p = s.get();
+        let mut m = mode_of(&p);
+        let choices = MODES.map(|(m, w, t)| (m, w, t));
+        mg_uikit::segmented(ui, MODE, &mut m, &choices);
+        (p.row, p.fill, p.erase) = m;
+        s.set(p);
+    };
+    h = h.left(Item::custom(MODE, seg_width, seg).more(seg_width, move |ui| {
+        ui.horizontal(seg);
+    }));
+    // Radius and Density.
+    let t = mg_uikit::tokens(ui.ctx());
+    let label = t.text_2;
+    if !now.by_drag() {
+        let width = (text_width(ui, "Radius") + HEADER_GAP + HEADER_FIELD).ceil();
+        let radius = move |ui: &mut egui::Ui| {
+            ui.spacing_mut().item_spacing.x = HEADER_GAP;
+            words(ui, "Radius", 0.0, label);
+            let mut p = s.get();
+            let mut cm = i32::from(p.radius_cm);
             let (low, high) = (f32::from(RADIUS.0) / 100.0, f32::from(RADIUS.1) / 100.0);
-            meters(ui, &mut cm, (low, high)).on_hover_text("The circle's size (Shift+wheel)");
-            s.radius_cm = cm.clamp(i32::from(RADIUS.0), i32::from(RADIUS.1)) as u16;
-        }
-        if !s.by_drag() && !s.erase {
-            field_label(ui, "Density");
-            ui.add(egui::DragValue::new(&mut s.density).range(1..=400).suffix(" a tile"))
+            meters(ui, &mut cm, (low, high), ("Radius", HEADER_FIELD))
+                .on_hover_text("The circle's size (Shift+wheel)");
+            p.radius_cm = cm.clamp(i32::from(RADIUS.0), i32::from(RADIUS.1)) as u16;
+            s.set(p);
+        };
+        h = h.left(Item::custom("Radius", width, radius).more(width, move |ui| {
+            ui.horizontal(radius);
+        }));
+    }
+    if !now.by_drag() && !now.erase {
+        let width = (text_width(ui, "Density") + HEADER_GAP + HEADER_FIELD).ceil();
+        let density = move |ui: &mut egui::Ui| {
+            ui.spacing_mut().item_spacing.x = HEADER_GAP;
+            words(ui, "Density", 0.0, label);
+            let mut p = s.get();
+            let field = egui::DragValue::new(&mut p.density).range(1..=400).suffix(" a tile");
+            number(ui, "Density", HEADER_FIELD, field)
                 .on_hover_text("How many placeables a 10 by 10 m tile holds once painted");
-            ui.check_box(&mut s.count_all, "Count All").on_hover_text(
-                "Density counts every placeable in the circle, not only these blueprints'",
-            );
-            field_label(ui, "Spacing");
-            let mut cm = i32::from(s.spacing_cm);
-            meters(ui, &mut cm, (0.0, 20.0)).on_hover_text(
-                "The least distance between placeables, middle to middle (side to side with By \
-                 Size)",
-            );
-            s.spacing_cm = cm.clamp(0, 2000) as u16;
-            ui.check_box(&mut s.by_size, "By Size").on_hover_text(
-                "Keep spacing between the placeables' sides, so large ones stand further apart",
-            );
-            field_label(ui, "Flow");
-            ui.add(egui::DragValue::new(&mut s.flow).range(1..=100).suffix("%")).on_hover_text(
-                "How much of what the circle lacks each dab adds. 100% fills it at once.",
-            );
-            field_label(ui, "Turn");
-            ui.add(egui::DragValue::new(&mut s.turn_spread).range(0..=360).suffix("°"))
-                .on_hover_text("How far each facing strays from the brush's: 360° is any way");
-            field_label(ui, "Scale");
-            ui.add(egui::DragValue::new(&mut s.scale_min).range(10..=500).suffix("%"));
-            ui.label("to");
-            ui.add(egui::DragValue::new(&mut s.scale_max).range(10..=500).suffix("%"))
-                .on_hover_text(
+            s.set(p);
+        };
+        h = h.left(Item::custom("Density", width, density).more(width, move |ui| {
+            ui.horizontal(density);
+        }));
+    }
+    // The Brush popover.
+    let text = t.text;
+    let row = move |ui: &mut egui::Ui, label: &str| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        // (Rows 28 apart, the board's: 26 and the popover's 1 at each
+        // side.)
+        ui.set_min_height(BRUSH_ROW);
+        words(ui, label, BRUSH_LABEL, text);
+    };
+    let mut pop = mg_uikit::popover::Popover::new(BRUSH)
+        .title(Some(mg_uikit::Icon::Brush), BRUSH)
+        .title_note(mode_words(&now))
+        .min_width(BRUSH_WIDTH);
+    if !now.by_drag() && !now.erase {
+        pop = pop
+            .custom(move |ui| {
+                row(ui, "");
+                let mut p = s.get();
+                ui.check_box(&mut p.count_all, "Count all").on_hover_text(
+                    "Density counts every placeable in the circle, not only these blueprints'",
+                );
+                s.set(p);
+            })
+            .custom(move |ui| {
+                row(ui, "Spacing");
+                let mut p = s.get();
+                let mut cm = i32::from(p.spacing_cm);
+                meters(ui, &mut cm, (0.0, 20.0), ("Spacing", BRUSH_SPACING)).on_hover_text(
+                    "The least distance between placeables, middle to middle (side to side with \
+                     By size)",
+                );
+                p.spacing_cm = cm.clamp(0, 2000) as u16;
+                ui.check_box(&mut p.by_size, "By size").on_hover_text(
+                    "Keep spacing between the placeables' sides, so large ones stand further \
+                     apart",
+                );
+                s.set(p);
+            })
+            .custom(move |ui| {
+                row(ui, "Flow");
+                let mut p = s.get();
+                let field = egui::DragValue::new(&mut p.flow).range(1..=100).suffix(" %");
+                number(ui, "Flow", BRUSH_FIELD, field).on_hover_text(
+                    "How much of what the circle lacks each dab adds. 100% fills it at once.",
+                );
+                s.set(p);
+            })
+            .custom(move |ui| {
+                row(ui, "Turn");
+                let mut p = s.get();
+                let field = egui::DragValue::new(&mut p.turn_spread).range(0..=360).suffix("°");
+                number(ui, TURN_SPREAD, BRUSH_FIELD, field)
+                    .on_hover_text("How far each facing strays from the brush's: 360° is any way");
+                s.set(p);
+            })
+            .custom(move |ui| {
+                row(ui, "Scale");
+                let mut p = s.get();
+                let low = egui::DragValue::new(&mut p.scale_min).range(10..=500).suffix(" %");
+                number(ui, "Scale", BRUSH_FIELD, low);
+                ui.label(egui::RichText::new("to").color(t.text_2));
+                let high = egui::DragValue::new(&mut p.scale_max).range(10..=500).suffix(" %");
+                number(ui, "Scale to", BRUSH_FIELD, high).on_hover_text(
                     "Each one's scale, picked between these. Static placeables take none.",
                 );
-        }
-        if s.by_drag() {
-            field_label(ui, "Gap");
-            let mut cm = i32::from(s.gap_cm);
-            meters(ui, &mut cm, (-10.0, 10.0))
+                s.set(p);
+            });
+    }
+    if now.by_drag() {
+        pop = pop.custom(move |ui| {
+            row(ui, "Gap");
+            let mut p = s.get();
+            let mut cm = i32::from(p.gap_cm);
+            meters(ui, &mut cm, (-10.0, 10.0), ("Gap", BRUSH_FIELD))
                 .on_hover_text("Room between pieces, by their models' boxes (below 0, an overlap)");
-            s.gap_cm = cm.clamp(-1000, 1000) as i16;
-        }
-        if !s.erase {
-            field_label(ui, "Height");
-            let mut cm = i32::from(s.lift_cm);
-            meters(ui, &mut cm, (-10.0, 10.0))
-                .on_hover_text("How far above the ground they stand (below it, less than 0)");
-            s.lift_cm = cm.clamp(-1000, 1000) as i16;
-            ui.check_box(&mut s.lock, "Lock")
-                .on_hover_text("Lock what is painted, so later clicks and boxes pass through it");
-        }
-        ui.separator();
-        if chosen == 0 {
-            ui.weak("Choose placeables in the palette (Ctrl + click for several)");
-        } else {
-            ui.weak(format!("{chosen} chosen"))
-                .on_hover_text("Ctrl+click in the palette for more, or fewer");
-        }
+            p.gap_cm = cm.clamp(-1000, 1000) as i16;
+            s.set(p);
+        });
+    }
+    if !now.erase {
+        pop = pop
+            .custom(move |ui| {
+                row(ui, "Height");
+                let mut p = s.get();
+                let mut cm = i32::from(p.lift_cm);
+                meters(ui, &mut cm, (-10.0, 10.0), ("Height", BRUSH_FIELD))
+                    .on_hover_text("How far above the ground they stand (below it, less than 0)");
+                p.lift_cm = cm.clamp(-1000, 1000) as i16;
+                s.set(p);
+            })
+            .custom(move |ui| {
+                row(ui, "");
+                let mut p = s.get();
+                ui.check_box(&mut p.lock, "Lock").on_hover_text(
+                    "Lock what is painted, so later clicks and boxes pass through it",
+                );
+                s.set(p);
+            });
+    }
+    let note = t.text_3;
+    pop = pop.custom(move |ui| {
+        let width = ui.available_width();
+        ui.vertical(|ui| {
+            ui.set_width(width);
+            let words = "Row and Fill take Gap, Height and Lock, Erase the radius alone.";
+            ui.add(egui::Label::new(egui::RichText::new(words).color(note)).wrap());
+        });
     });
+    // (Snap and Turn, where the header shows them: no heading over none.)
+    if let Some(placing) = placing {
+        pop = pop.separator().heading("Placing, as with the Select tool").custom(placing);
+    }
+    let tip = "The brush's other settings, and Snap and Turn";
+    h.left(Item::popover(Some(mg_uikit::Icon::Brush), pop).words_icon(false).tip(tip))
+}
+
+/// The name of the Brush popover's Turn field (how far facings stray),
+/// apart from the Turn combo box under it (the angle turned objects snap
+/// to).
+pub(crate) const TURN_SPREAD: &str = "Turn spread";
+
+/// The palette's Brush section while Paint is on (the AreaPaint board):
+/// "Brush" with how many blueprints are chosen, a row for each of `keys`
+/// (its name by `names`, its ResRef) with × to take it out of the brush,
+/// and a note on choosing more; with none chosen, how to choose them. The
+/// blueprint whose × was clicked.
+pub(crate) fn brush_section(
+    ui: &mut egui::Ui,
+    keys: &[ResKey],
+    names: &dyn Fn(ResKey) -> Option<String>,
+) -> Option<ResKey> {
+    let t = mg_uikit::tokens(ui.ctx());
+    mg_uikit::name_group(ui, BRUSH_SECTION);
+    // (The board's `.sec-h`: its heading, the note beside it, a rule.)
+    ui.horizontal(|ui| {
+        mg_uikit::table_heading(ui, BRUSH);
+        let chosen = match keys.len() {
+            0 => "none chosen".to_string(),
+            n => format!("{n} chosen"),
+        };
+        ui.label(egui::RichText::new(chosen).color(t.text_3));
+    });
+    let (rule, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().hline(rule.x_range(), rule.center().y, Stroke::new(1.0, t.line_soft));
+    ui.add_space(mg_uikit::metrics::GAP_S);
+    let mut out = None;
+    for key in keys {
+        ui.horizontal(|ui| {
+            ui.set_min_height(mg_uikit::metrics::ROW_HEIGHT);
+            let square = egui::Vec2::splat(mg_uikit::metrics::ICON);
+            let (rect, _) = ui.allocate_exact_size(square, egui::Sense::hover());
+            crate::icons::object(mg_module::palette::BlueprintKind::Placeable).paint(
+                ui.painter(),
+                rect,
+                t.text_2,
+            );
+            let name = names(*key).unwrap_or_else(|| key.resref.to_string());
+            ui.label(egui::RichText::new(name).color(t.text));
+            // (The board's room between the name and the ResRef.)
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(key.resref.to_string()).monospace().color(t.text_3));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let x = mg_uikit::icon_button(ui, mg_uikit::Icon::Close, &take_out_name(*key));
+                if x.clicked() {
+                    out = Some(*key);
+                }
+            });
+        });
+    }
+    let words = match keys.len() {
+        0 => "Choose placeables in the palette (Ctrl + click for several).",
+        _ => {
+            "Ctrl + click in the palette for more, or fewer. The brush's numbers are in the \
+             header."
+        }
+    };
+    let width = ui.available_width();
+    ui.vertical(|ui| {
+        ui.set_width(width);
+        ui.add(egui::Label::new(egui::RichText::new(words).color(t.text_3)).wrap());
+    });
+    out
+}
+
+/// The accessible name and tip of a Brush row's ×: "Take x3_plc_bush001
+/// out of the brush (Ctrl+click it in the palette)".
+pub(crate) fn take_out_name(key: ResKey) -> String {
+    format!("Take {} out of the brush (Ctrl+click it in the palette)", key.resref)
+}
+
+/// `key` taken out of the brush: out of those chosen with Ctrl + click
+/// (`chosen`), or, the one clicked (`selected`), the next chosen in its
+/// place.
+pub(crate) fn take_out(selected: &mut Option<ResKey>, chosen: &mut Vec<ResKey>, key: ResKey) {
+    if *selected == Some(key) {
+        *selected = if chosen.is_empty() { None } else { Some(chosen.remove(0)) };
+    }
+    chosen.retain(|k| *k != key);
 }
 
 #[cfg(test)]

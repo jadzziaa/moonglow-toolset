@@ -274,32 +274,44 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         (screen.width() * 0.6).clamp(560.0, 960.0),
         (screen.height() * 0.75).clamp(440.0, 800.0),
     );
-    crate::widgets::modal(ctx, "Creature Wizard")
+    let last = w.page + 1 == PAGES.len();
+    let footed = crate::widgets::modal(ctx, "Creature Wizard")
         .resizable(true)
         .default_size(size)
         .min_width(480.0)
         .min_height(360.0)
-        .show(ctx, |ui| {
-            egui::Panel::bottom("cw-buttons").show(ui, |ui| {
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(w.page > 0, egui::Button::new("< Back")).clicked() {
-                        w.page -= 1;
-                    }
-                    let last = w.page + 1 == PAGES.len();
-                    if ui.add_enabled(!last && w.complete(), egui::Button::new("Next >")).clicked()
-                        || (!last && w.complete() && crate::widgets::enter(ui))
-                    {
-                        w.page += 1;
-                    }
-                    finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked()
-                        || (last && crate::widgets::enter(ui));
-                    cancel = crate::widgets::cancel(ui);
+        .flush()
+        .show_foot(ctx, |ui| {
+            // The step list at the left (the Dialogs board's), the page
+            // under its bar beside it.
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if crate::widgets::step_list_fits(ui) {
+                    steps(ui, &w);
+                }
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    mg_uikit::dialog::page_bar(ui, Some(PAGE_ICONS[w.page]), PAGES[w.page]);
+                    let pad = mg_uikit::dialog::PAGE_PADDING;
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(pad.x as i8, pad.y as i8))
+                        .show(ui, |ui| {
+                            ui.set_min_size(ui.available_size());
+                            page(ui, &mut loader, &mut w, &summary, &mut looks, &names);
+                        });
                 });
             });
-            ui.heading(PAGES[w.page]);
-            page(ui, &mut loader, &mut w, &summary, &mut looks, &names);
+            ((), wizard_foot(w.page > 0, !last && w.complete(), last))
         });
+    if let Some(f) = footed {
+        if f.pressed.clicked("< Back") {
+            w.page -= 1;
+        } else if f.pressed.main() && !last {
+            w.page += 1;
+        }
+        finish = last && f.pressed.main();
+        cancel = f.pressed.cancelled();
+    }
     // The appearances' pictures in sight: kept while they are, and those
     // still to make are made a few a frame.
     let shown = looks.shown;
@@ -309,6 +321,49 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     } else if !cancel {
         app.creature_wizard = Some(w);
     }
+}
+
+/// The icon of each page's bar (the Dialogs and Pickers boards draw Class
+/// and Level's and Appearance and Portrait's).
+const PAGE_ICONS: [mg_uikit::Icon; 9] = [
+    mg_uikit::Icon::Wizard,
+    mg_uikit::Icon::Creature,
+    mg_uikit::Icon::Class,
+    mg_uikit::Icon::Appearance,
+    mg_uikit::Icon::Faction,
+    mg_uikit::Icon::Tag,
+    mg_uikit::Icon::Palette,
+    mg_uikit::Icon::Statistics,
+    mg_uikit::Icon::CheckCircle,
+];
+
+/// The wizard's step list (the Dialogs board's `.steps`): the pages before
+/// the one shown done, it current, those after to come.
+fn steps(ui: &mut Ui, w: &CreatureWizard) {
+    use mg_uikit::dialog::{StepList, StepState};
+    let mut list = StepList::new(format!("Step {} of {}", w.page + 1, PAGES.len()));
+    for (i, name) in PAGES.iter().enumerate() {
+        let state = match i.cmp(&w.page) {
+            std::cmp::Ordering::Less => StepState::Done,
+            std::cmp::Ordering::Equal => StepState::Current,
+            std::cmp::Ordering::Greater => StepState::ToCome,
+        };
+        list = list.step(*name, state);
+    }
+    let _ = list.show(ui);
+}
+
+/// A wizard's footer (the Dialogs board's page bar of buttons): < Back
+/// (where `back`), Next > (where `next`) in the accent, Finish and Cancel;
+/// on the last page (`last`) Finish is the main action, Enter's, and Next
+/// stays off in its place.
+pub(crate) fn wizard_foot(back: bool, next: bool, last: bool) -> crate::widgets::Foot {
+    let foot = crate::widgets::Foot::new().button("< Back", back);
+    let foot = match last {
+        false => foot.main("Next >", next).button("Finish", false),
+        true => foot.button("Next >", false).main("Finish", true),
+    };
+    foot.cancel()
 }
 
 /// The pictures of creatures' looks the Appearance page shows: those made,
@@ -326,6 +381,388 @@ const NAMES_PAGE: usize = 5;
 struct Names {
     naming: mg_module::project_file::Naming,
     taken: std::collections::HashSet<ResRef>,
+}
+
+/// The most classes a creature is given.
+const MOST_CLASSES: usize = 8;
+
+/// The Class and Level page under its words (the Dialogs board's Creature
+/// Wizard): the classes not chosen in a well at the left (a click chooses
+/// one, a double-click adds it); at the right Add Class across the column,
+/// the classes added under small Class and Level headings, a row each (its
+/// name, its level and a × that takes it out, where it is not the only
+/// one), and how many of eight there are. The columns are the board's 280
+/// and 330 where the page has the room, shares of it where it is narrower
+/// (the least window), each row's name cut to its column.
+fn class_page(ui: &mut Ui, w: &mut CreatureWizard, names: &[Choice], name: &dyn Fn(u32) -> String) {
+    let gap = 12.0;
+    let room = ui.available_size();
+    let right = (room.x * 0.54).clamp(150.0, 330.0);
+    let list = (room.x - gap - right).clamp(80.0, 280.0);
+    let row = mg_uikit::row_pitch(ui);
+    let high = room.y.max(4.0 * row + 4.0);
+    // (A cell `width` wide holding what `add` puts in, at its left.)
+    fn cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+        let size = egui::vec2(width, ui.spacing().interact_size.y);
+        let layout = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(size, layout, |ui| {
+            ui.set_min_size(size);
+            add(ui)
+        })
+        .inner
+    }
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let well = egui::vec2(list, high);
+        let id = egui::Id::new("cw-classes");
+        crate::widgets::picture_well(ui, id, well, egui::Margin::ZERO, |ui| {
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                mg_uikit::list_rows(ui);
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                for c in names {
+                    let k = c.row as u32;
+                    if w.classes.iter().any(|(x, _)| *x == k) {
+                        continue;
+                    }
+                    let r = ui.selectable_label(w.chosen_class == Some(k), &c.text);
+                    if r.clicked() {
+                        w.chosen_class = Some(k);
+                    }
+                    if r.double_clicked() && w.classes.len() < MOST_CLASSES {
+                        w.classes.push((k, 1));
+                    }
+                }
+            });
+        });
+        ui.vertical(|ui| {
+            ui.set_width(right);
+            ui.spacing_mut().item_spacing.y = 8.0;
+            let can = w.chosen_class.is_some() && w.classes.len() < MOST_CLASSES;
+            let add =
+                mg_uikit::KitButton::new(Some(mg_uikit::Icon::Plus), "Add Class").at_least(right);
+            if ui.add_enabled(can, add).clicked()
+                && let Some(k) = w.chosen_class.take()
+            {
+                w.classes.push((k, 1));
+            }
+            // (The board's `.slots`: the name, a 72-point level and a
+            // 22-point ×, 10 apart.)
+            let (field, close, apart) = (72.0, 22.0, 10.0);
+            let named = (right - field - close - 2.0 * apart).max(40.0);
+            let t = mg_uikit::tokens(ui.ctx());
+            let small = |s: &str| {
+                egui::RichText::new(s).size(mg_uikit::metrics::SMALL_SIZE).color(t.text_2)
+            };
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = apart;
+                let size = egui::vec2(named, mg_uikit::metrics::SMALL_SIZE + 4.0);
+                ui.allocate_ui_with_layout(
+                    size,
+                    egui::Layout::left_to_right(egui::Align::Max),
+                    |ui| {
+                        ui.set_min_size(size);
+                        ui.label(small("Class"));
+                    },
+                );
+                ui.label(small("Level"));
+            });
+            // (The rows scroll where eight don't fit: the count stays under
+            // them.)
+            let count = ui.text_style_height(&egui::TextStyle::Body) + 8.0;
+            let rows = (ui.available_height() - count).max(row);
+            let mut remove = None;
+            egui::ScrollArea::vertical()
+                .id_salt("cw-slots")
+                .max_height(rows)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    let n = w.classes.len();
+                    for (i, (k, level)) in w.classes.iter_mut().enumerate() {
+                        let class = name(*k);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = apart;
+                            cell(ui, named, |ui| ui.add(egui::Label::new(&class).truncate()));
+                            ui.scope(|ui| {
+                                let arrows = crate::widgets::SPIN_ARROW_WIDTH + 3.0;
+                                ui.spacing_mut().interact_size.x = field - arrows;
+                                crate::widgets::name_next_number(ui, &class);
+                                crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
+                            });
+                            if n > 1
+                                && crate::widgets::icon_button(
+                                    ui,
+                                    mg_uikit::Icon::Close,
+                                    &format!("Remove {class}"),
+                                    "Remove this class",
+                                )
+                                .clicked()
+                            {
+                                remove = Some(i);
+                            }
+                        });
+                    }
+                });
+            if let Some(i) = remove {
+                w.classes.remove(i);
+            }
+            ui.weak(format!("{} of {MOST_CLASSES} classes", w.classes.len()));
+        });
+    });
+}
+
+/// The height the Appearance and Portrait page takes with its wells at
+/// their least: shorter, the page scrolls.
+const LOOK_ROOM: f32 = 380.0;
+
+/// The Appearance and Portrait page: `short`, in a scroll (the least
+/// window), its wells their least height, not shares of the room.
+fn look_page(
+    ui: &mut Ui,
+    loader: &mut Loader<'_>,
+    w: &mut CreatureWizard,
+    looks: &mut Looks,
+    short: bool,
+) {
+    let game = loader.game;
+    ui.label("Please choose an Appearance and Portrait for this creature.");
+    egui::Grid::new("cw-look").num_columns(2).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Gender");
+        let before = w.gender;
+        let name = |g: &u8| if *g == 1 { "Female" } else { "Male" };
+        crate::widgets::dropdown("cw-gender").selected_text(name(&w.gender)).show(
+            ui,
+            &mut w.gender,
+            &[0, 1],
+            name,
+        );
+        if w.gender != before {
+            w.portrait = None;
+        }
+        ui.end_row();
+    });
+    // The appearances as pictures (a plain body of each), narrowed by
+    // Find: the list of names alone is long, and many are alike.
+    let appearances =
+        crate::widgets::table_choices(Some(game), "appearance", Some("STRING_REF"), Some("LABEL"));
+    let appearances = crate::blueprint::by_name_kept(ui.ctx(), "creature-wizard", &appearances);
+    let chosen = appearances
+        .iter()
+        .find(|c| c.row == usize::from(w.appearance))
+        .map_or(String::new(), |c| c.text.clone());
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Appearance");
+        // (The name cut where the row is short of room, the field kept
+        // in the window: the least window.)
+        let find = 160.0f32.min(ui.available_width() * 0.5);
+        let named = (ui.available_width() - find - ui.spacing().item_spacing.x).max(0.0);
+        let size = egui::vec2(named, ui.spacing().interact_size.y);
+        let layout = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(size, layout, |ui| {
+            ui.add(egui::Label::new(chosen).truncate());
+        });
+        crate::widgets::SearchField::new(
+            egui::Id::new("creature-wizard-appearance-find"),
+            &mut w.appearance_find,
+        )
+        .hint("Find an appearance")
+        .width(find)
+        .find_over()
+        .show(ui);
+    });
+    let found =
+        crate::blueprint::found_kept(ui.ctx(), "creature-wizard", &appearances, &w.appearance_find);
+    let shown: Vec<&Choice> = found.iter().map(|&i| &appearances[i]).collect();
+    // (Pictures from 96 points, grown to share the width.)
+    let side = 96.0;
+    let tall = side + mg_uikit::gallery::label_height(false, 2, false);
+    let gender = w.gender;
+    // (Where the one chosen is among those found, once for them.)
+    let current = crate::blueprint::kept_for(
+        ui.ctx(),
+        egui::Id::new("cw-appearance-at"),
+        &found,
+        &w.appearance,
+        || shown.iter().position(|c| usize::from(w.appearance) == c.row),
+    );
+    // (In a well with its drawn scroll bar: the Pickers board's,
+    // half the page's room left.)
+    let well = egui::vec2(
+        ui.available_width(),
+        match short {
+            true => tall + 8.0 + 2.0,
+            false => (ui.available_height() * 0.5).max(tall + 8.0 + 2.0),
+        },
+    );
+    let pad = egui::Margin { left: 8, right: 8, top: 4, bottom: 4 };
+    let shown_area =
+        crate::widgets::picture_well(ui, egui::Id::new("cw-appearances"), well, pad, |ui| {
+            let id = egui::Id::new("cw-appearance-pictures");
+            let keys = !egui::Popup::is_any_open(ui.ctx());
+            let grid = mg_uikit::gallery::GalleryGrid::new(id, shown.len(), side)
+                .cursor(current)
+                .keys_allowed(keys)
+                .name("Appearances");
+            let look_of = |c: &Choice| {
+                let mut look = mg_preview::CreatureLook::new(c.row as u16);
+                look.gender = gender;
+                look
+            };
+            let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                let c = shown[i];
+                let made = looks.ready.made(crate::model_view::Pictured::Look(look_of(c)));
+                let on = usize::from(w.appearance) == c.row;
+                let picture = crate::widgets::cell_picture(made);
+                mg_uikit::gallery::GalleryCell::new(&c.text, picture)
+                    .kind(mg_uikit::Icon::Creature)
+                    .selected(on)
+                    .paint(ui, rect, tile, cell, r);
+                if r.clone().on_hover_text(format!("{} (row {})", c.text, c.row)).clicked() {
+                    w.appearance = c.row as u16;
+                }
+            });
+            // (The keys choose as they move: a picker's.)
+            if let Some(i) = out.moved.or(out.activated) {
+                w.appearance = shown[i].row as u16;
+            }
+            looks.shown.extend(out.ahead.clone().map(|i| look_of(shown[i])));
+            out
+        });
+    // (The well's room taken: the page's rows go on under it.)
+    // (Opened at the appearance chosen, once each time the page is
+    // shown: a pass missed is the page left.)
+    let placed_id = egui::Id::new("cw-appearances-placed");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let (last, placed) = ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
+    let fresh = last + 1 < pass;
+    // (The page just shown: its appearances' grid given the keys, so
+    // the one chosen is ringed in the accent as on the board, and the
+    // arrows move it, as Select Portrait's.)
+    if fresh {
+        ui.memory_mut(|m| m.request_focus(egui::Id::new("cw-appearance-pictures")));
+    }
+    let placed = placed && !fresh;
+    let placed = placed
+        || match current {
+            Some(at) => {
+                crate::widgets::open_gallery_at(ui.ctx(), &shown_area, &shown_area.inner, at)
+            }
+            None => true,
+        };
+    ui.data_mut(|d| d.insert_temp(placed_id, (pass, placed)));
+    ui.separator();
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Portrait");
+        if ui
+            .check_box(&mut w.all_portraits, "All portraits")
+            .on_hover_text("Every creature's portrait, not this race's and gender's alone")
+            .changed()
+        {
+            w.portrait = None;
+        }
+    });
+    {
+        // The race's and gender's portraits as pictures, the chosen one
+        // large beside them (as Select Portrait shows them).
+        let list = portraits_kept(ui.ctx(), game, loader.ws, w);
+        w.no_portraits = list.is_empty();
+        if list.is_empty() {
+            ui.weak(
+                "This racial type has no portraits: choose one in Creature Properties \
+             (Portraits…) afterwards.",
+            );
+        }
+        // The first chosen until another is, so the page opens with one.
+        if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
+            w.portrait = list.first().map(|(r, _)| *r);
+        }
+        // As many to a row as the window's width holds, beside the
+        // chosen one's large picture.
+        let preview = 140.0;
+        let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
+            .max(crate::images::PORTRAIT_THUMB + 40.0);
+        ui.horizontal_top(|ui| {
+            // (In a well with its drawn scroll bar, justified rows of
+            // 54 by 84 that reach it, as Select Portrait's.)
+            let id = egui::Id::new(("cw-portraits", w.race, w.gender, w.all_portraits));
+            let at = crate::blueprint::kept_for(
+                ui.ctx(),
+                egui::Id::new("cw-portrait-at"),
+                &list,
+                &w.portrait,
+                || list.iter().position(|(r, _)| Some(*r) == w.portrait),
+            );
+            let keys = !egui::Popup::is_any_open(ui.ctx());
+            let (tile, gaps) = (crate::images::PORTRAIT_TILE, crate::images::PORTRAIT_GAPS);
+            let grid = mg_uikit::gallery::GalleryGrid::new(id.with("grid"), list.len(), tile.x)
+                .justified(tile, gaps.0)
+                .row_gap(gaps.1)
+                .label(0.0)
+                .cursor(at)
+                .keys_allowed(keys)
+                .name("Portraits");
+            let high = match short {
+                true => tile.y + 12.0,
+                false => ui.available_height().max(tile.y + 12.0),
+            };
+            let size = egui::vec2(width, high);
+            let pad = egui::Margin { left: 6, right: 6, top: 4, bottom: 4 };
+            let shown = crate::widgets::picture_well(ui, id, size, pad, |ui| {
+                let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
+                    let (row, base) = &list[i];
+                    let base = base.to_lowercase();
+                    let picture = loader.portrait_cell(ui.ctx(), &base);
+                    mg_uikit::gallery::GalleryCell::new("", picture)
+                        .said(&format!("po_{base}"))
+                        .lines(0)
+                        .radius(3)
+                        .kind(mg_uikit::Icon::Creature)
+                        .selected(w.portrait == Some(*row))
+                        .paint(ui, rect, tile, cell, r);
+                    if r.clone().on_hover_text(&base).clicked() {
+                        w.portrait = Some(*row);
+                    }
+                });
+                for i in out.drawn.end..out.ahead.end {
+                    loader.portrait_cell(ui.ctx(), &list[i].1.to_lowercase());
+                }
+                // (The keys choose as they move: a picker's.)
+                if let Some(i) = out.moved.or(out.activated) {
+                    w.portrait = Some(list[i].0);
+                }
+                out
+            });
+            // (Opened at the portrait chosen, once each time the page
+            // or the list is shown, as Select Portrait opens.)
+            let placed_id = id.with("placed");
+            let pass = ui.ctx().cumulative_pass_nr();
+            let (last, placed) =
+                ui.data(|d| d.get_temp::<(u64, bool)>(placed_id)).unwrap_or((0, false));
+            let placed = (placed && last + 1 >= pass)
+                || match at {
+                    Some(at) => crate::widgets::open_gallery_at(ui.ctx(), &shown, &shown.inner, at),
+                    None => true,
+                };
+            ui.data_mut(|d| d.insert_temp(placed_id, (pass, placed)));
+            ui.vertical(|ui| {
+                ui.set_width(preview);
+                let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
+                if let Some((_, base)) = chosen {
+                    let base = base.to_lowercase();
+                    let large = loader.picture(ui.ctx(), &format!("po_{base}l")).is_some();
+                    let size = if large { 'l' } else { 'm' };
+                    // (As large as the room under it holds, its name
+                    // too.)
+                    let name = ui.text_style_height(&egui::TextStyle::Body) + 8.0;
+                    let left = if short { high } else { ui.available_height() };
+                    let fits = (left - name) * 64.0 / 100.0;
+                    let wide = fits.clamp(48.0, 128.0);
+                    loader.portrait(ui, &base, size, wide, egui::Sense::hover());
+                    ui.label(base);
+                }
+            });
+        });
+    }
 }
 
 fn page(
@@ -367,251 +804,21 @@ fn page(
             let name = |k: u32| {
                 names.iter().find(|c| c.row == k as usize).map_or(String::new(), |c| c.text.clone())
             };
-            ui.horizontal_top(|ui| {
-                // A list down the left (a scroll area takes the layout of
-                // the row it is in: classes side by side, drawn over each
-                // other).
-                ui.vertical(|ui| {
-                    ui.set_width(160.0);
-                    egui::ScrollArea::vertical().id_salt("cw-classes").show(ui, |ui| {
-                        ui.set_width(160.0);
-                        mg_uikit::list_rows(ui);
-                        for c in names.iter() {
-                            let k = c.row as u32;
-                            if w.classes.iter().any(|(x, _)| *x == k) {
-                                continue;
-                            }
-                            let r = ui.selectable_label(w.chosen_class == Some(k), &c.text);
-                            if r.clicked() {
-                                w.chosen_class = Some(k);
-                            }
-                            if r.double_clicked() && w.classes.len() < 8 {
-                                w.classes.push((k, 1));
-                            }
-                        }
-                    });
-                });
-                ui.vertical(|ui| {
-                    if ui
-                        .add_enabled(
-                            w.chosen_class.is_some() && w.classes.len() < 8,
-                            egui::Button::new("Add Class"),
-                        )
-                        .clicked()
-                        && let Some(k) = w.chosen_class.take()
-                    {
-                        w.classes.push((k, 1));
-                    }
-                    let mut remove = None;
-                    mg_uikit::with_table_rows(ui, |ui| {
-                        egui::Grid::new("cw-slots").num_columns(3).show(ui, |ui| {
-                            ui.strong("Class");
-                            ui.strong("Level");
-                            ui.end_row();
-                            let n = w.classes.len();
-                            for (i, (k, level)) in w.classes.iter_mut().enumerate() {
-                                let class = name(*k);
-                                ui.label(&class);
-                                crate::widgets::name_next_number(ui, &class);
-                                crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
-                                if n > 1
-                                    && crate::widgets::icon_button(
-                                        ui,
-                                        mg_uikit::Icon::Close,
-                                        &format!("Remove {class}"),
-                                        "Remove this class",
-                                    )
-                                    .clicked()
-                                {
-                                    remove = Some(i);
-                                }
-                                ui.end_row();
-                            }
-                        })
-                    });
-                    if let Some(i) = remove {
-                        w.classes.remove(i);
-                    }
-                });
-            });
+            class_page(ui, w, &names, &name);
         }
         3 => {
-            ui.label("Please choose an Appearance and Portrait for this creature.");
-            egui::Grid::new("cw-look").num_columns(2).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Gender");
-                let before = w.gender;
-                let name = |g: &u8| if *g == 1 { "Female" } else { "Male" };
-                crate::widgets::dropdown("cw-gender").selected_text(name(&w.gender)).show(
-                    ui,
-                    &mut w.gender,
-                    &[0, 1],
-                    name,
-                );
-                if w.gender != before {
-                    w.portrait = None;
-                }
-                ui.end_row();
-            });
-            // The appearances as pictures (a plain body of each), narrowed by
-            // Find: the list of names alone is long, and many are alike.
-            let appearances = crate::widgets::table_choices(
-                Some(game),
-                "appearance",
-                Some("STRING_REF"),
-                Some("LABEL"),
-            );
-            let appearances =
-                crate::blueprint::by_name_kept(ui.ctx(), "creature-wizard", &appearances);
-            let chosen = appearances
-                .iter()
-                .find(|c| c.row == usize::from(w.appearance))
-                .map_or(String::new(), |c| c.text.clone());
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Appearance");
-                ui.label(chosen);
-                crate::widgets::SearchField::new(
-                    egui::Id::new("creature-wizard-appearance-find"),
-                    &mut w.appearance_find,
-                )
-                .hint("Find an appearance")
-                .width(160.0)
-                .find_over()
-                .show(ui);
-            });
-            let found = crate::blueprint::found_kept(
-                ui.ctx(),
-                "creature-wizard",
-                &appearances,
-                &w.appearance_find,
-            );
-            let shown: Vec<&Choice> = found.iter().map(|&i| &appearances[i]).collect();
-            let gap = 4.0;
-            let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
-            let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);
-            let tall = side + crate::widgets::tile_label_height(ui);
-            let gender = w.gender;
-            egui::ScrollArea::vertical()
-                .id_salt("cw-appearances")
-                .max_height((ui.available_height() * 0.5).max(tall + 8.0))
-                .auto_shrink([false, false])
-                .show_rows(ui, tall, shown.len().div_ceil(per_row), |ui, lines| {
-                    ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                    for line in lines {
-                        ui.horizontal(|ui| {
-                            for c in shown.iter().skip(line * per_row).take(per_row) {
-                                let mut look = mg_preview::CreatureLook::new(c.row as u16);
-                                look.gender = gender;
-                                let made =
-                                    looks.ready.made(crate::model_view::Pictured::Look(look));
-                                let on = usize::from(w.appearance) == c.row;
-                                let (r, seen) =
-                                    crate::widgets::picture_tile(ui, side, &c.text, on, made);
-                                if seen {
-                                    looks.shown.push(look);
-                                }
-                                if r.on_hover_text(format!("{} (row {})", c.text, c.row)).clicked()
-                                {
-                                    w.appearance = c.row as u16;
-                                }
-                            }
-                        });
-                    }
-                });
-            ui.separator();
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Portrait");
-                if ui
-                    .check_box(&mut w.all_portraits, "All portraits")
-                    .on_hover_text("Every creature's portrait, not this race's and gender's alone")
-                    .changed()
-                {
-                    w.portrait = None;
-                }
-            });
-            {
-                // The race's and gender's portraits as pictures, the chosen one
-                // large beside them (as Select Portrait shows them).
-                let list = portraits_kept(ui.ctx(), game, loader.ws, w);
-                w.no_portraits = list.is_empty();
-                if list.is_empty() {
-                    ui.weak(
-                        "This racial type has no portraits: choose one in Creature Properties \
-                     (Portraits…) afterwards.",
-                    );
-                }
-                // The first chosen until another is, so the page opens with one.
-                if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
-                    w.portrait = list.first().map(|(r, _)| *r);
-                }
-                // As many to a row as the window's width holds, beside the
-                // chosen one's large picture.
-                let preview = 140.0;
-                let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
-                    .max(crate::images::PORTRAIT_THUMB + 40.0);
-                let (per_row, row_height) = crate::images::portrait_grid(ui, width);
-                ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(width);
-                        egui::ScrollArea::vertical()
-                            .id_salt(("cw-portraits", w.race, w.gender, w.all_portraits))
-                            .auto_shrink([false, false])
-                            .show_rows(
-                                ui,
-                                row_height,
-                                list.len().div_ceil(per_row),
-                                |ui, lines| {
-                                    for line in lines {
-                                        ui.horizontal(|ui| {
-                                            for (row, base) in
-                                                list.iter().skip(line * per_row).take(per_row)
-                                            {
-                                                let base = base.to_lowercase();
-                                                let r = loader
-                                                    .portrait(
-                                                        ui,
-                                                        &base,
-                                                        'm',
-                                                        crate::images::PORTRAIT_THUMB,
-                                                        egui::Sense::click(),
-                                                    )
-                                                    .on_hover_text(&base);
-                                                if w.portrait == Some(*row) {
-                                                    ui.painter().rect_stroke(
-                                                        r.rect.expand(1.0),
-                                                        2.0,
-                                                        egui::Stroke::new(
-                                                            1.0,
-                                                            mg_uikit::tokens(ui.ctx()).accent,
-                                                        ),
-                                                        egui::StrokeKind::Outside,
-                                                    );
-                                                }
-                                                if r.clicked() {
-                                                    w.portrait = Some(*row);
-                                                }
-                                            }
-                                        });
-                                    }
-                                },
-                            );
-                    });
-                    ui.vertical(|ui| {
-                        ui.set_width(preview);
-                        let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
-                        if let Some((_, base)) = chosen {
-                            let base = base.to_lowercase();
-                            let large = loader.picture(ui.ctx(), &format!("po_{base}l")).is_some();
-                            let size = if large { 'l' } else { 'm' };
-                            // (As large as the room under it holds, its name
-                            // too.)
-                            let name = ui.text_style_height(&egui::TextStyle::Body) + 8.0;
-                            let fits = (ui.available_height() - name) * 64.0 / 100.0;
-                            let wide = fits.clamp(48.0, 128.0);
-                            loader.portrait(ui, &base, size, wide, egui::Sense::hover());
-                            ui.label(base);
-                        }
-                    });
-                });
+            // (Where the page is short of the room its wells take, the
+            // least window, the page scrolls, its wells a row of pictures
+            // high.)
+            let room = ui.available_height();
+            if room < LOOK_ROOM {
+                egui::ScrollArea::vertical()
+                    .id_salt("cw-look-page")
+                    .max_height(room)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| look_page(ui, loader, w, looks, true));
+            } else {
+                look_page(ui, loader, w, looks, false);
             }
         }
         4 => {

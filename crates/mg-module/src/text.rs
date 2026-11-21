@@ -383,11 +383,28 @@ fn replace_value_by(
 /// in resource order (none for a regular expression that isn't one:
 /// [`Finder::new`] says why).
 pub fn find(module: &Module, query: &str, o: Options, kinds: &[TextKind]) -> Vec<Hit> {
-    let Ok(f) = Finder::new(query, o) else { return Vec::new() };
+    find_with(module, query, o, kinds, &mut |_, _| true).unwrap_or_default()
+}
+
+/// [`find`], a resource at a time, `step` told how many of how many are
+/// done before each and whether to go on: `None` where it said no (a job
+/// called off).
+pub fn find_with(
+    module: &Module,
+    query: &str,
+    o: Options,
+    kinds: &[TextKind],
+    step: &mut dyn FnMut(usize, usize) -> bool,
+) -> Option<Vec<Hit>> {
+    let Ok(f) = Finder::new(query, o) else { return Some(Vec::new()) };
     let mut out = Vec::new();
     let mut keys: Vec<ResKey> = module.keys().copied().filter(|k| k.restype.is_gff()).collect();
     keys.sort();
-    for key in keys {
+    let total = keys.len();
+    for (n, key) in keys.into_iter().enumerate() {
+        if !step(n, total) {
+            return None;
+        }
         // Palettes are rebuilt from the blueprints.
         if key.restype == mg_core::ResType::ITP {
             continue;
@@ -402,7 +419,8 @@ pub fn find(module: &Module, query: &str, o: Options, kinds: &[TextKind]) -> Vec
             }
         });
     }
-    out
+    step(total, total);
+    Some(out)
 }
 
 /// What a field holds of the text, if it is of the kinds asked for: its
@@ -510,6 +528,38 @@ mod tests {
 
     fn o(match_case: bool, whole_word: bool) -> Options {
         Options { match_case, whole_word, ..Default::default() }
+    }
+
+    /// M4's U28: Find and Replace Text's search, as its job runs it, says
+    /// how far it is a resource at a time and ends where Cancel says so,
+    /// with nothing found.
+    #[test]
+    fn a_search_says_how_far_it_is_and_stops_when_called_off() {
+        let mut m = Module::new();
+        for n in 0..4 {
+            let key = ResKey::parse(&format!("camp_{n}"), ResType::UTW).unwrap();
+            let mut g = Gff::new(*b"UTW ");
+            let name = LocString::from_text(Language::ENGLISH, Gender::Male, "Orc camp");
+            g.root.set("LocalizedName", Value::LocString(name));
+            m.set_gff(key, &g).unwrap();
+        }
+        m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"// orc".to_vec());
+        let kinds = TextKind::PLAYERS;
+        let mut steps = Vec::new();
+        let hits = find_with(&m, "orc", Options::default(), &kinds, &mut |done, total| {
+            steps.push((done, total));
+            true
+        })
+        .expect("not called off");
+        assert_eq!(hits.len(), 4, "the GFFs' strings, not the script's");
+        assert_eq!(steps, [(0, 4), (1, 4), (2, 4), (3, 4), (4, 4)], "a resource at a time");
+        let mut asked = 0;
+        let off = find_with(&m, "orc", Options::default(), &kinds, &mut |done, _| {
+            asked += 1;
+            done < 2
+        });
+        assert!(off.is_none(), "called off");
+        assert_eq!(asked, 3, "no resource read after it was called off");
     }
 
     #[test]

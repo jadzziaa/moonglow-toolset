@@ -206,9 +206,13 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
     let categories: Vec<(i32, String)> =
         FEAT_CATEGORIES.iter().map(|(c, n)| (*c, n.to_string())).collect();
+    // (In a narrow room, the Properties panel's, Find on a row of its own:
+    // a combo box beside it is not wrapped under it.)
+    let narrow = super::narrow(ui);
+    let found = narrow.then(|| filter(ui, id));
     let (needle, category) = ui
         .horizontal_wrapped(|ui| {
-            let t = filter(ui, id);
+            let t = found.unwrap_or_else(|| filter(ui, id));
             let c = category_filter(ui, id.with("category"), &categories);
             ui.check_box(&mut assigned_only, "Assigned only");
             if total > 1 {
@@ -225,7 +229,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         })
     };
     ui.data_mut(|d| d.insert_temp(id.with("only"), assigned_only));
-    let mut toggle = None;
+    let toggle = std::cell::Cell::new(None);
     // The feats to choose from, and beside them those the creature has
     // (as the Special Abilities page lists its own): a click on one there
     // takes it away.
@@ -250,9 +254,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 && in_category(c.row)
         })
         .collect();
-    ui.columns(2, |columns| {
-        let ui = &mut columns[0];
+    // (Side by side; in a narrow room, the list over those assigned, each
+    // its own height.)
+    let list_part = |ui: &mut Ui| {
         let area = egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false);
+        let area = if narrow { area.max_height(320.0) } else { area };
         mg_uikit::show_rows(area, ui, shown.len(), |ui, rows| {
             for &(c, n) in &shown[rows] {
                 // (Half-ticked where some have it: ticked, it is given
@@ -261,56 +267,63 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 let some = n > 0 && n < total;
                 let r = ui.add(mg_uikit::Checkbox::new(&mut v, &c.text).indeterminate(some));
                 if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed() {
-                    toggle = Some((c.row, v || some));
+                    toggle.set(Some((c.row, v || some)));
                 }
             }
         });
-        let ui = &mut columns[1];
+    };
+    let assigned_part = |ui: &mut Ui| {
         ui.strong("Assigned");
-        egui::ScrollArea::vertical().id_salt(("utc-feat-assigned", key)).auto_shrink(false).show(
-            ui,
-            |ui| {
-                mg_uikit::list_rows(ui);
-                // By name, as the list beside it; one the table has no
-                // name for by its row.
-                let mut assigned: Vec<(String, usize, usize)> = merged
-                    .iter()
-                    .filter_map(|m| Some((usize::try_from(m.key).ok()?, m.having.len())))
-                    .map(|(row, n)| {
-                        let name = all
-                            .iter()
-                            .find(|c| c.row == row)
-                            .map_or_else(|| format!("Feat {row}"), |c| c.text.clone());
-                        (name, row, n)
-                    })
-                    .collect();
-                assigned.sort_by_key(|(name, _, _)| name.to_lowercase());
-                if assigned.is_empty() {
-                    ui.weak("None: tick a feat to give it to the creature.");
-                }
-                for (name, row, n) in assigned {
-                    ui.horizontal(|ui| {
-                        let tip = "Take this feat away";
-                        let named = format!("Remove {name}");
-                        if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
-                            .clicked()
-                        {
-                            toggle = Some((row, false));
-                        }
-                        let r = ui.label(name);
-                        described(r, described_by.as_deref(), "feat", "DESCRIPTION", row);
-                        super::entry_mark(ui, n, total);
-                        if n < total
-                            && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
-                        {
-                            toggle = Some((row, true));
-                        }
-                    });
-                }
-            },
-        );
-    });
-    match toggle {
+        let area = egui::ScrollArea::vertical().id_salt(("utc-feat-assigned", key));
+        let area = if narrow { area.max_height(240.0) } else { area };
+        area.auto_shrink(false).show(ui, |ui| {
+            mg_uikit::list_rows(ui);
+            // By name, as the list beside it; one the table has no
+            // name for by its row.
+            let mut assigned: Vec<(String, usize, usize)> = merged
+                .iter()
+                .filter_map(|m| Some((usize::try_from(m.key).ok()?, m.having.len())))
+                .map(|(row, n)| {
+                    let name = all
+                        .iter()
+                        .find(|c| c.row == row)
+                        .map_or_else(|| format!("Feat {row}"), |c| c.text.clone());
+                    (name, row, n)
+                })
+                .collect();
+            assigned.sort_by_key(|(name, _, _)| name.to_lowercase());
+            if assigned.is_empty() {
+                ui.weak("None: tick a feat to give it to the creature.");
+            }
+            for (name, row, n) in assigned {
+                super::row(ui, |ui| {
+                    let tip = "Take this feat away";
+                    let named = format!("Remove {name}");
+                    if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip).clicked()
+                    {
+                        toggle.set(Some((row, false)));
+                    }
+                    let r = ui.label(name);
+                    described(r, described_by.as_deref(), "feat", "DESCRIPTION", row);
+                    super::entry_mark(ui, n, total);
+                    if n < total && ui.small_button("Give to All").on_hover_text(GIVE_TIP).clicked()
+                    {
+                        toggle.set(Some((row, true)));
+                    }
+                });
+            }
+        });
+    };
+    if narrow {
+        list_part(ui);
+        assigned_part(ui);
+    } else {
+        ui.columns(2, |columns| {
+            list_part(&mut columns[0]);
+            assigned_part(&mut columns[1]);
+        });
+    }
+    match toggle.get() {
         Some((row, true)) => {
             let out = lists::add_feat(&targets, row as u16);
             f.apply_each("Add feat", out, "Added to");
@@ -454,7 +467,7 @@ fn class_name(game: &GameData, classes: &mg_2da::TwoDa, row: usize) -> String {
 /// The Spells page's Spell Level row: all, or one of 0 to 9.
 fn level_row(ui: &mut Ui, level: &mut Option<usize>) {
     ui.horizontal_wrapped(|ui| {
-        crate::widgets::field_label(ui, "Spell Level");
+        crate::widgets::field_label(ui, "Spell level");
         ui.selectable_value(level, None, "All");
         for l in 0..=9 {
             ui.selectable_value(level, Some(l), l.to_string());
@@ -554,7 +567,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let meta_name = |m: &u8| if *m == 0 { "None".to_string() } else { metamagic_name(game, *m) };
     let prepares_spells = casters[which].3.prepares;
     ui.add_enabled_ui(prepares_spells, |ui| {
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             crate::widgets::field_label(ui, "Meta-Magic");
             crate::widgets::dropdown(id.with("metamagic-list"))
                 .selected_text(meta_name(&metamagic))
@@ -606,7 +619,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         };
         list.iter().enumerate().filter(|(_, s)| of(s)).map(|(i, _)| i).collect()
     };
-    ui.columns(2, |columns| {
+    super::list_beside(ui, |columns| {
         // The class's spells, to choose from: a click on one gives it to the
         // creature (prepares one more of it).
         let ui = &mut columns[0];
@@ -719,7 +732,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                         .collect();
                     rows.sort_by_key(|(name, _)| name.to_lowercase());
                     for (name, g) in rows {
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             let tip = if prepares { "Prepare none of it" } else { "Forget it" };
                             let named = format!("Remove {name}");
                             if crate::widgets::icon_button(ui, mg_uikit::Icon::Close, &named, tip)
@@ -984,7 +997,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
     }
     let meta_name = |m: &u8| if *m == 0 { "None".to_string() } else { metamagic_name(game, *m) };
     ui.add_enabled_ui(prepares, |ui| {
-        ui.horizontal(|ui| {
+        super::row(ui, |ui| {
             crate::widgets::field_label(ui, "Meta-Magic");
             crate::widgets::dropdown(id.with("metamagic-list"))
                 .selected_text(meta_name(&metamagic))
@@ -1021,7 +1034,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         c.list(&list_of(l)).iter().filter(|e| spell_key(e) == k).count()
     };
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
-    ui.columns(2, |columns| {
+    super::list_beside(ui, |columns| {
         let ui = &mut columns[0];
         egui::ScrollArea::vertical()
             .id_salt(("utc-spell-list", key, which))
@@ -1131,14 +1144,15 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                     let differ = lens.iter().any(|x| *x != lens[0])
                         || casters.iter().any(|c| c.slots.max[l] != first.max[l]);
                     ui.add_space(4.0);
-                    ui.horizontal(|ui| {
+                    super::row(ui, |ui| {
                         if over {
                             ui.colored_label(warn, egui::RichText::new(text).strong());
                         } else {
                             ui.label(egui::RichText::new(text).strong());
                         }
                         if differ {
-                            ui.colored_label(warn, super::MIXED).on_hover_text(
+                            super::mixed_mark(
+                                ui,
                                 "The creatures differ here. This shows the first one's.",
                             );
                         }
@@ -1155,7 +1169,7 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                     for (name, m) in rows {
                         let k = m.key;
                         let is = move |e: &Struct| spell_key(e) == k;
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             let tip = if prepares {
                                 "Prepare none of it, on each"
                             } else {
@@ -1173,7 +1187,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                                     class_targets.iter().map(|c| count(c, l, k)).collect();
                                 let shown = counts[m.having[0]] as i64;
                                 if counts.iter().any(|c| *c as i64 != shown) {
-                                    ui.colored_label(warn, super::MIXED).on_hover_text(
+                                    super::mixed_mark(
+                                        ui,
                                         "Counts differ: this shows the first one's. A count typed \
                                          is set on each.",
                                     );
@@ -1399,7 +1414,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         let having: Vec<lists::Target> =
                             m.having.iter().map(|&i| targets[i].clone()).collect();
                         let first = &targets[m.having[0]];
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             let r = ui.label(name_of(k.0));
                             let row = usize::try_from(k.0).unwrap_or(usize::MAX);
                             described(r, described_by.as_deref(), "spells", "SpellDesc", row);
@@ -1878,6 +1893,12 @@ pub(super) fn equip_edits(
     e
 }
 
+/// The width under which a creature's Inventory page stands its item
+/// palette over its slots rather than beside them: the palette's least
+/// (200), the slots with their names whole (at 440, in a column of pages
+/// side by side, "Creature Wea…") and the gap between.
+const INVENTORY_SIDE_BY_SIDE: f32 = 540.0;
+
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     if f.several() {
         super::inventory_together::page(f, ui, super::inventory_together::Holder::Creature);
@@ -1937,9 +1958,20 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         .collect();
     let mut options = OptionsOut::default();
     let mut pick_item = None;
-    ui.horizontal_top(|ui| {
-        // (Narrower in a narrow window, leaving the slots room.)
-        let palette = (ui.available_width() * 0.4).clamp(200.0, 240.0);
+    // (Side by side; in a room too narrow for both, the Properties panel
+    // at the Right Dock's 280 to 400, the palette over the slots.)
+    let stacked = ui.available_width() < INVENTORY_SIDE_BY_SIDE;
+    let layout = match stacked {
+        true => egui::Layout::top_down(egui::Align::Min),
+        false => egui::Layout::left_to_right(egui::Align::Min),
+    };
+    ui.with_layout(layout, |ui| {
+        // (Narrower in a narrow window, leaving the slots room; the whole
+        // width where they are stacked.)
+        let palette = match stacked {
+            true => ui.available_width(),
+            false => (ui.available_width() * 0.4).clamp(200.0, 240.0),
+        };
         ui.vertical(|ui| {
             ui.set_width(palette);
             // (The item chosen stays in sight under the tree, and Aurora's
@@ -2316,30 +2348,36 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             MissingFeats::Ask => {
                 // (Escape is its No.)
                 let always_id = ask.with("always");
-                let always = ui.data(|d| d.get_temp::<bool>(always_id)).unwrap_or(false);
+                let (on, tip) = crate::widgets::always_now(
+                    ui.ctx(),
+                    always_id,
+                    &format!("{} › Equipping without the feats", crate::widgets::QUESTIONS_AT),
+                );
                 let window = crate::widgets::modal(ui.ctx(), "Missing Feats").id(ask.with("modal"));
-                let mut escaped = false;
-                window.show(ui.ctx(), |ui| {
+                let footed = window.show_foot(ui.ctx(), |ui| {
                     ui.set_max_width(360.0);
                     crate::widgets::field_label(ui, text);
-                    ui.horizontal(|ui| {
-                        yes = ui.button("Yes").clicked();
-                        no = ui.button("No").clicked();
-                    });
-                    crate::widgets::always_box(
-                        ui,
-                        always_id,
-                        "Always do this",
-                        &format!("{} › Equipping without the feats", crate::widgets::QUESTIONS_AT),
-                    );
-                    escaped = crate::widgets::escape_here(ui) && !yes && !no;
+                    (
+                        (),
+                        crate::widgets::Foot::new()
+                            .check("Always do this", on, Some(tip))
+                            .main("Yes", true)
+                            .leave("No"),
+                    )
                 });
+                let mut always = false;
+                let mut said_no = false;
+                if let Some(fd) = footed {
+                    said_no = fd.pressed.clicked("No");
+                    always = crate::widgets::always_kept(ui.ctx(), always_id, fd.pressed.checked);
+                    yes = fd.pressed.main();
+                    no = fd.pressed.cancelled();
+                }
                 // (Always so: Options' choice, from now on; not Escape's.)
-                if always && (yes || no) {
+                if always && (yes || said_no) {
                     f.app.settings.missing_feats =
                         if yes { MissingFeats::Add } else { MissingFeats::Refuse };
                 }
-                no |= escaped;
             }
         }
         if yes {

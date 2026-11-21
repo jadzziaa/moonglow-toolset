@@ -190,7 +190,7 @@ fn open_setup(h: &mut Harness<'_, Moonglow>, tab: Tab, area: Option<&str>) {
 fn show_target_area(h: &mut Harness<'_, Moonglow>, name: &str) {
     // (Not one of the area toolbar's boxes behind the window on the same
     // row, where M3 T14's flush editor area moved the toolbar's rows.)
-    let label = h.get_by_label("Target Area").rect();
+    let label = h.get_by_label("Target area").rect();
     let combo = h
         .get_all_by_role(Role::ComboBox)
         .find(|n| {
@@ -200,7 +200,7 @@ fn show_target_area(h: &mut Harness<'_, Moonglow>, name: &str) {
                 && !in_group(n, "Area toolbar")
         })
         .unwrap_or_else(|| {
-            let label = h.get_by_label("Target Area").rect();
+            let label = h.get_by_label("Target area").rect();
             let all: Vec<String> = h
                 .get_all_by_role(Role::ComboBox)
                 .map(|n| format!("{:?} {:?}", n.rect(), n.accesskit_node().value()))

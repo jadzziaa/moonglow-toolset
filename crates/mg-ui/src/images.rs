@@ -484,6 +484,14 @@ impl Loader<'_> {
 
 impl Moonglow {
     /// The image loader, while there is game data.
+    /// How many portraits' cells were asked for in `ctx`'s last frame
+    /// that asked for any ([`Loader::portrait_cell`]): for the tests of
+    /// what asks for them (only those in sight and a row ahead).
+    #[doc(hidden)]
+    pub fn portraits_now(ctx: &egui::Context) -> usize {
+        ctx.data(|d| d.get_temp::<(u64, usize)>(portraits_asked_id())).map_or(0, |n| n.1)
+    }
+
     pub(crate) fn loader(&mut self) -> Option<Loader<'_>> {
         let game = self.game.as_deref()?;
         Some(Loader {
@@ -555,13 +563,42 @@ pub(crate) fn has_portrait(game: &GameData, ws: Option<&mg_edit::Workspace>, bas
 /// Creature Wizard), points; it is 100/64 of that tall.
 pub(crate) const PORTRAIT_THUMB: f32 = 54.0;
 
-/// A grid of portrait thumbnails `width` points wide (a scroll bar
-/// included): how many to a row, and each row's height.
-pub(crate) fn portrait_grid(ui: &Ui, width: f32) -> (usize, f32) {
-    let gap = ui.spacing().item_spacing;
-    let usable = width - ui.spacing().scroll.bar_width - gap.x;
-    let per_row = ((usable + gap.x) / (PORTRAIT_THUMB + gap.x)).floor().max(1.0) as usize;
-    (per_row, PORTRAIT_THUMB * 100.0 / 64.0 + gap.y)
+/// A portrait's cell in a grid of them (the Pickers board's 54 by 84, M4's
+/// U26: its 84.375 rounded so rows stand on whole points).
+pub(crate) const PORTRAIT_TILE: egui::Vec2 = egui::vec2(54.0, 84.0);
+
+/// The least gap between portraits across a row, and between rows (the
+/// Pickers board's 8 and 3).
+pub(crate) const PORTRAIT_GAPS: (f32, f32) = (8.0, 3.0);
+
+impl Loader<'_> {
+    /// A portrait's picture for a gallery cell: the part a portrait uses
+    /// (the upper 100/128 of its canvas) filling the tile; none: Missing.
+    pub(crate) fn portrait_cell(
+        &mut self,
+        ctx: &egui::Context,
+        base: &str,
+    ) -> mg_uikit::gallery::Picture {
+        use mg_uikit::gallery::Picture;
+        // (Counted for the frame, as the thumbnails' `shown_now`: the tests
+        // of a long portraits table ask that only those in sight and a row
+        // ahead are asked for.)
+        let pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| {
+            let n = d.get_temp_mut_or_default::<(u64, usize)>(portraits_asked_id());
+            *n = if n.0 == pass { (pass, n.1 + 1) } else { (pass, 1) };
+        });
+        let used = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
+        match self.picture(ctx, &format!("po_{base}m")) {
+            Some(p) => Picture::Fill(p.texture.id(), used),
+            None => Picture::Missing,
+        }
+    }
+}
+
+/// Where [`Moonglow::portraits_now`]'s count is kept.
+fn portraits_asked_id() -> egui::Id {
+    egui::Id::new("portrait-cells-asked")
 }
 
 /// Draws an icon's layers over each other, `scale` times their size (the

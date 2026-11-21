@@ -5,7 +5,13 @@
    mockups of 2026-11-10); the second part, the stylesheet's fixed colors
    (the mockup spec, section 12) and its two-part --shadow given tokens of
    their own, with their light values from the light theme's component
-   rules. */
+   rules; then the 3D view's compass (M4's U4), and the area view's handles
+   and their chips (the proposal's sections 11.3 and 11.5, M4's U7 and U8:
+   the handles keep one value in both themes, the chips follow the
+   theme); and a tree's indent guides (the Conversation board's --guide,
+   M4's U15: its light value made as far from the light panel); and a
+   table's cells chosen together (the Table board's `.c.rng`, M4's U16:
+   its light value made as far from the light panel). */
 
 .mg {
   --base: #15171a;
@@ -72,8 +78,34 @@
   --switch-off: #3b414a;
   --switch-knob: #aab0ba;
   --slider-thumb: #aab0ba;
+  --guide: #2c3036;
+  --guide-hover: #3a3f47;
+  --guide-on-fill: rgba(255, 255, 255, 0.18);
+  --cell-range: rgba(29, 84, 136, 0.45);
   --slider-thumb-ring: transparent;
   --select-ring: transparent;
+  --compass-north: #e5484d;
+  --compass-south: #aab0ba;
+  /* The area view's handles (the proposal's section 11.3): the 3D picture
+     is the same in both themes, so they keep one value. */
+  --handle-x: #f0566a;
+  --handle-x-lit: #ff9aa6;
+  --handle-y: #86d13a;
+  --handle-y-lit: #c4f08c;
+  --handle-z: #4d9bff;
+  --handle-z-lit: #a6ccff;
+  --handle-turn: #ffb02e;
+  --handle-turn-lit: #ffd48a;
+  --handle-scale: #eef0f3;
+  --handle-scale-lit: #ffffff;
+  --handle-edge: rgba(0, 0, 0, 0.55);
+  --handle-start-ring: #4682ff;
+  --handle-start-ring-lit: #a6c2ff;
+  --handle-start-arrow: #eb2828;
+  --handle-start-arrow-lit: #ff8f8f;
+  /* The handles' readout and name chips (section 11.5), theme-aware. */
+  --chip: rgba(12, 13, 15, 0.86);
+  --chip-rim: transparent;
 }
 
 .mg.light {
@@ -141,6 +173,32 @@
   --switch-off: #a9b0b9;
   --switch-knob: #ffffff;
   --slider-thumb: #ffffff;
+  --guide: #cdd2d8;
+  --guide-hover: #bcc2ca;
+  --guide-on-fill: rgba(255, 255, 255, 0.18);
+  --cell-range: rgba(39, 101, 161, 0.22);
   --slider-thumb-ring: #8d949e;
   --select-ring: #a35c00;
+  --compass-north: #b4232b;
+  --compass-south: #4c535b;
+  /* The area view's handles (the proposal's section 11.3): the 3D picture
+     is the same in both themes, so they keep one value. */
+  --handle-x: #f0566a;
+  --handle-x-lit: #ff9aa6;
+  --handle-y: #86d13a;
+  --handle-y-lit: #c4f08c;
+  --handle-z: #4d9bff;
+  --handle-z-lit: #a6ccff;
+  --handle-turn: #ffb02e;
+  --handle-turn-lit: #ffd48a;
+  --handle-scale: #eef0f3;
+  --handle-scale-lit: #ffffff;
+  --handle-edge: rgba(0, 0, 0, 0.55);
+  --handle-start-ring: #4682ff;
+  --handle-start-ring-lit: #a6c2ff;
+  --handle-start-arrow: #eb2828;
+  --handle-start-arrow-lit: #ff8f8f;
+  /* The handles' readout and name chips (section 11.5), theme-aware. */
+  --chip: rgba(232, 235, 239, 0.92);
+  --chip-rim: rgba(20, 23, 27, 0.18);
 }

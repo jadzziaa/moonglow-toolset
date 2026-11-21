@@ -1,0 +1,551 @@
+//! Options as the Options board has it (M4's U23): its pages listed with
+//! their icons, OK and Cancel at its header's right end, the General page
+//! in three columns that fold to fewer where it is narrow; OK setting
+//! the settings once, Cancel and Escape setting back every page's
+//! changes; and Options at rest on every page.
+
+use crate::common::*;
+
+/// The pages, as the page list names them, with their icons.
+const PAGES: [(&str, mg_uikit::Icon); 10] = [
+    ("Folders", mg_uikit::Icon::Folder),
+    ("Area", mg_uikit::Icon::Area),
+    ("General", mg_uikit::Icon::Settings),
+    ("Script Editor", mg_uikit::Icon::Script),
+    ("Conversation Editor", mg_uikit::Icon::Conversation),
+    ("Sounds", mg_uikit::Icon::Sound),
+    ("Verify", mg_uikit::Icon::Verify),
+    ("Language", mg_uikit::Icon::TalkTable),
+    ("Keyboard", mg_uikit::Icon::Command),
+    ("Updates", mg_uikit::Icon::ArrowDown),
+];
+
+/// The window `width` by 900 in `mode`, no module open, Options open on
+/// `page`.
+fn options(mode: Mode, width: f32, page: &str) -> Harness<'static, Moonglow> {
+    let mut h = harness(app_in(mode, Vec::new()), width, 900.0);
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    page_row(&h, page).click();
+    settle(&mut h);
+    h
+}
+
+/// The page list's row of `page` (the list is the leftmost of the names:
+/// the menus and the Status Bar have some of them too).
+fn page_row<'h>(h: &'h Harness<'_, Moonglow>, page: &'h str) -> egui_kittest::Node<'h> {
+    let header = options_header(h);
+    (h.get_all_by_label(page))
+        .filter(|n| n.rect().top() > header.bottom() && n.rect().left() < header.left() + 200.0)
+        .min_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap_or_else(|| panic!("{page} in the page list"))
+}
+
+/// The row Options' header stands in.
+fn options_header(h: &Harness<'_, Moonglow>) -> egui::Rect {
+    mg_uikit::header::records(&h.ctx, "Options header").first().expect("Options' header").row
+}
+
+/// The pointer over Options where nothing is under it: the page list's
+/// room under its rows.
+fn over_options(h: &mut Harness<'_, Moonglow>) {
+    let last = page_row(h, "Updates").rect();
+    h.hover_at(egui::pos2(last.center().x, last.bottom() + 120.0));
+    settle(h);
+}
+
+/// The page list lists the ten pages, each with its icon drawn in its
+/// row, the one chosen shown under its bar; OK and Cancel stand at the
+/// header's right end, Cancel last; the window has no Right Dock beside
+/// Options ("None on this screen").
+#[test]
+fn options_lists_its_pages_with_icons_and_ok_and_cancel_end_its_header() {
+    let mut h = options(Mode::Tabs, 1600.0, "Folders");
+    for (page, icon) in PAGES {
+        let row = page_row(&h, page).rect();
+        assert!(icon_drawn(&h, icon, row), "{page}'s icon in {row:?}");
+        page_row(&h, page).click();
+        settle(&mut h);
+        let chosen = h.state().options.as_ref().map(|o| format!("{:?}", o.page));
+        assert_eq!(chosen, Some(page.replace(' ', "")), "{page} chosen");
+        // (The page's bar: its icon at its left, over the page.)
+        let header = options_header(&h);
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(row.right(), header.bottom()),
+            egui::pos2(row.right() + 60.0, header.bottom() + 40.0),
+        );
+        assert!(icon_drawn(&h, icon, bar), "{page}'s bar with its icon");
+    }
+    let header = options_header(&h);
+    let ok = h.get_by_label("Options header").get_by_label("OK").rect();
+    let cancel = h.get_by_label("Options header").get_by_label("Cancel").rect();
+    assert!(ok.right() <= cancel.left(), "OK before Cancel: {ok:?} {cancel:?}");
+    assert!(header.right() - cancel.right() <= 12.0, "at the right end: {cancel:?} {header:?}");
+    assert!(h.state().right_dock_shows().is_none(), "no Right Dock beside Options");
+}
+
+/// One control changed on each of the ten pages (General's interface
+/// size and theme too, which show at once once set), as [`changed`] reads
+/// them back.
+fn change_every_page(h: &mut Harness<'_, Moonglow>) {
+    page_row(h, "Folders").click();
+    settle(h);
+    click_in_sight(h, "Read userpatch.ini's haks");
+    page_row(h, "Area").click();
+    settle(h);
+    click_in_sight(h, "Middle drag moves the view");
+    page_row(h, "General").click();
+    settle(h);
+    click_in_sight(h, "Light theme");
+    let size = (h.get_all_by_label("Interface size"))
+        .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap();
+    size.click();
+    settle(h);
+    h.get_by_label("125%").click();
+    settle(h);
+    page_row(h, "Script Editor").click();
+    settle(h);
+    click_in_sight(h, "Check for errors as you type");
+    page_row(h, "Conversation Editor").click();
+    settle(h);
+    click_in_sight(h, "Show speaker name before text");
+    page_row(h, "Sounds").click();
+    settle(h);
+    click_in_sight(h, "Play ambient music in area");
+    page_row(h, "Verify").click();
+    settle(h);
+    click_in_sight(h, mg_module::doctor::Group::ALL[0].title());
+    page_row(h, "Language").click();
+    settle(h);
+    click_in_sight(h, "Specified Language:");
+    page_row(h, "Keyboard").click();
+    settle(h);
+    // (What was typed in its Find field stays, Options opened again.)
+    if h.query_by_label("Remove F1 from User Manual").is_none() {
+        type_into_hint(h, "Find a command", "manual");
+        h.run();
+    }
+    // (Its cross shows with the pointer over its row.)
+    click_in_sight(h, "Remove F1 from User Manual");
+    settle(h);
+    page_row(h, "Updates").click();
+    settle(h);
+    click_in_sight(h, "Include pre-releases");
+}
+
+/// Which of [`change_every_page`]'s ten changes `now` has against
+/// `before`, by page.
+fn changed(before: &mg_ui::Settings, now: &mg_ui::Settings) -> Vec<(&'static str, bool)> {
+    let manual = now.key_bindings.get("manual").is_some_and(|k| k.is_empty());
+    vec![
+        ("Folders", now.read_userpatch != before.read_userpatch),
+        ("Area", now.middle_drag_moves != before.middle_drag_moves),
+        ("General", now.light_theme != before.light_theme && now.ui_scale == Some(125)),
+        ("Script Editor", now.no_live_check != before.no_live_check),
+        ("Conversation Editor", now.dialog_hide_names != before.dialog_hide_names),
+        ("Sounds", now.ambient_music != before.ambient_music),
+        ("Verify", now.verify_skip != before.verify_skip),
+        ("Language", now.edit_language != before.edit_language),
+        ("Keyboard", manual),
+        ("Updates", now.update_prereleases != before.update_prereleases),
+    ]
+}
+
+/// Frames run until Options comes to rest: how many changed the settings
+/// (each frame's settings against the frame's before).
+fn writes_while_settling(h: &mut Harness<'_, Moonglow>) -> usize {
+    let mut last = h.state().settings.clone();
+    let mut writes = 0;
+    for _ in 0..30 {
+        h.step();
+        if h.state().settings != last {
+            writes += 1;
+            last = h.state().settings.clone();
+        }
+    }
+    writes
+}
+
+/// Options' changes, one on each of its ten pages: OK sets every one, in
+/// one apply and one change of the settings, and shows the theme and the
+/// interface size at once; Cancel, Escape and its tab's × set nothing,
+/// in no apply and no change of the settings, the theme and the size as
+/// they were (M4's U23 fix: the counts and the ten pages). A number typed
+/// and not yet left is set by OK; the Status Bar's Enter OK is there with
+/// the pointer over Options and nothing typed in, and not while a field
+/// is typed in.
+#[test]
+fn options_ok_sets_the_settings_once_and_cancel_and_esc_set_every_page_back() {
+    for mode in MODES {
+        ok_and_cancel(mode);
+    }
+}
+
+fn ok_and_cancel(mode: Mode) {
+    let mut h = options(mode, 1600.0, "Folders");
+    let before = h.state().settings.clone();
+    let none = |h: &Harness<'_, Moonglow>| -> Vec<&'static str> {
+        (changed(&before, &h.state().settings).into_iter()).filter(|c| c.1).map(|c| c.0).collect()
+    };
+    let shown_as_before = |h: &Harness<'_, Moonglow>, how: &str| {
+        assert_eq!(mg_uikit::applied(&h.ctx), Some(mg_uikit::Theme::Dark), "{mode:?} {how}");
+        assert_eq!(h.ctx.zoom_factor(), 1.0, "{mode:?} {how}: the size as it was");
+    };
+    for how in ["Cancel", "Escape", "×"] {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        change_every_page(&mut h);
+        assert_eq!(h.state().settings, before, "{mode:?} {how}: nothing set while open");
+        match how {
+            "Cancel" => h.get_by_label("Options header").get_by_label("Cancel").click(),
+            "Escape" => {
+                over_options(&mut h);
+                h.key_press(egui::Key::Escape);
+            }
+            _ => click_tab_close(&mut h, &Tab::Options),
+        }
+        let writes = writes_while_settling(&mut h);
+        assert!(h.state().options.is_none(), "{mode:?}: {how} closed it");
+        assert_eq!(none(&h), Vec::<&str>::new(), "{mode:?}: {how} sets nothing back");
+        assert_eq!(h.state().settings, before, "{mode:?}: {how}");
+        assert_eq!(writes, 0, "{mode:?}: {how} changes no setting");
+        assert_eq!(h.state().options_applied(), 0, "{mode:?}: {how} applies nothing");
+        shown_as_before(&h, how);
+    }
+    // OK: each change set, in one apply and one change, with a number
+    // typed and not left.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    change_every_page(&mut h);
+    page_row(&h, "General").click();
+    settle(&mut h);
+    let minutes = number_beside(&h, "Keep a recovery copy of unsaved work every", 0);
+    minutes.click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("17".into()));
+    h.run();
+    // (Typing: no Enter OK, which would be the field's.)
+    over_options(&mut h);
+    let said = h.state().status_said();
+    assert!(!said.iter().any(|l| l.starts_with("Enter")), "typing: {said:?}");
+    h.get_by_label("Options header").get_by_label("OK").click();
+    let writes = writes_while_settling(&mut h);
+    let all = changed(&before, &h.state().settings);
+    assert!(all.iter().all(|c| c.1), "{mode:?}: every page's change set on OK: {all:?}");
+    assert_eq!(h.state().settings.autosave_every(), 17, "the number typed and not left");
+    assert_eq!(h.state().options_applied(), 1, "{mode:?}: one apply");
+    assert_eq!(writes, 1, "{mode:?}: one change of the settings");
+    h.run_steps(5);
+    assert_eq!(h.state().options_applied(), 1, "and not again");
+    assert_eq!(mg_uikit::applied(&h.ctx), Some(mg_uikit::Theme::Light), "the theme at once");
+    assert_eq!(h.ctx.zoom_factor(), 1.25, "the size at once");
+    // Enter OK, with the pointer over Options and nothing typed in.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    over_options(&mut h);
+    let said = h.state().status_said();
+    assert!(said.iter().any(|l| l == "Enter: OK"), "{said:?}");
+    assert!(!said.iter().any(|l| l.contains("Save")), "no Save: {said:?}");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(h.state().options.is_none(), "Enter is OK");
+    assert_eq!(h.state().options_applied(), 2);
+}
+
+/// The main window closed with Options open and changed (its X, then
+/// Close Moonglow at its question; File › Exit, which does not ask): the
+/// changes go with the window, unset, as at the tip, where the draft was
+/// dropped unapplied (M4's U23 fix: tested).
+#[test]
+fn closing_the_window_with_options_changed_sets_nothing() {
+    for how in ["X", "Exit"] {
+        let mut h = options(Mode::Tabs, 1600.0, "Folders");
+        let before = h.state().settings.clone();
+        change_every_page(&mut h);
+        match how {
+            "X" => {
+                h.state_mut().actions.push(mg_ui::Action::CloseWindow);
+                h.run_steps(3);
+                h.get_by_label("Close Moonglow").click();
+            }
+            _ => h.state_mut().actions.push(mg_ui::Action::Quit),
+        }
+        h.run_steps(3);
+        assert!(h.state().quit_requested, "{how}: quits");
+        let set: Vec<_> = (changed(&before, &h.state().settings).into_iter())
+            .filter(|c| c.1)
+            .map(|c| c.0)
+            .collect();
+        assert_eq!(set, Vec::<&str>::new(), "{how}: nothing of Options' set");
+        assert_eq!(h.state().options_applied(), 0, "{how}: no apply");
+        assert_eq!(mg_uikit::applied(&h.ctx), Some(mg_uikit::Theme::Dark), "{how}");
+    }
+}
+
+/// Every way Options opens lands on the page it means (M4's U23 fix):
+/// Tools › Options… and the Welcome page's Options… under "No game data"
+/// on Folders, the first page, where the installation is chosen (the
+/// tabs kept from the last session open it on their page:
+/// `windows::side_editors_and_tools_open_again_with_the_module`).
+#[test]
+fn every_way_options_opens_lands_on_its_page() {
+    let installation = "Neverwinter Nights installation";
+    // Tools › Options…, after another page was left in front last time.
+    let mut h = options(Mode::Tabs, 1600.0, "Sounds");
+    h.get_by_label("Options header").get_by_label("Cancel").click();
+    settle(&mut h);
+    menu_command(&mut h, "Tools", "Options…");
+    settle(&mut h);
+    assert_eq!(h.state().options.as_ref().map(|o| o.page), Some(mg_ui::OptionsPage::Folders));
+    assert!(h.query_by_label(installation).is_some(), "Folders drawn");
+    // The Welcome page's, with no game data.
+    let mut h = harness(app_in(Mode::Tabs, Vec::new()), 1600.0, 900.0);
+    settle(&mut h);
+    assert!(h.state().game.is_none());
+    h.get_by_label("Options…").click();
+    settle(&mut h);
+    assert_eq!(h.state().options.as_ref().map(|o| o.page), Some(mg_ui::OptionsPage::Folders));
+    assert!(h.query_by_label(installation).is_some(), "Folders drawn");
+}
+
+/// While Options › Keyboard waits for a key (its plus clicked), Enter is
+/// the key taken, not OK, and the Status Bar offers no Enter OK (one rule
+/// for both, M4's U23 fix); Escape there gives up the waiting alone,
+/// Options staying open with nothing changed.
+#[test]
+fn enter_and_escape_while_a_key_is_awaited_are_the_keyboard_page_s() {
+    let mut h = options(Mode::Tabs, 1600.0, "Keyboard");
+    type_into_hint(&mut h, "Find a command", "manual");
+    h.run();
+    let manual =
+        |h: &Harness<'_, Moonglow>| h.state().options.as_ref().unwrap().keymap.keys_of("manual");
+    let before = manual(&h);
+    h.get_by_label("Add a key for User Manual").click();
+    settle(&mut h);
+    over_options(&mut h);
+    let said = h.state().status_said();
+    assert!(!said.iter().any(|l| l.starts_with("Enter")), "no Enter OK while waiting: {said:?}");
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    assert!(h.state().options.is_some(), "Enter was not OK");
+    assert_eq!(h.state().options_applied(), 0);
+    let enter = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Enter);
+    assert!(manual(&h).contains(&enter), "Enter taken as the key: {:?}", manual(&h));
+    assert!(h.state().options.as_ref().unwrap().recording.is_none(), "waiting no more");
+    // Escape: the waiting given up, nothing else.
+    let keys = manual(&h);
+    h.get_by_label("Add a key for User Manual").click();
+    settle(&mut h);
+    over_options(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    let draft = h.state().options.as_ref().expect("Escape left Options open");
+    assert!(draft.recording.is_none(), "Escape gave up the waiting");
+    assert_eq!(manual(&h), keys, "no key added by Escape");
+    assert_ne!(keys, before);
+    assert_eq!(h.state().options_applied(), 0);
+    // And Enter is OK again once nothing waits.
+    let said = h.state().status_said();
+    assert!(said.iter().any(|l| l == "Enter: OK"), "{said:?}");
+}
+
+/// At the board's setup (1600 wide, a module open, the Left Dock showing
+/// its tree) Questions' labels stand beside their dropdowns, each choice
+/// whole, as the board's (M4's U23 fix); the first column's widest row
+/// (Keep a recovery copy … minutes) within its 380, the board's. Labels go
+/// over their dropdowns only where the column cannot hold both.
+#[test]
+fn questions_stand_beside_their_dropdowns_at_the_board_s_width() {
+    let dir = mg_testkit::scratch_dir("ui-u23-questions");
+    let path = sample_module(&dir);
+    let mut app = app_in(Mode::Tabs, Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // (The window 1600 wide as the app is drawn: the harness puts the app
+    // in a panel with egui's 8-point margin, which the app's own window
+    // has not: `Moonglow::ui` is flush.)
+    let mut h = harness(app, 1616.0, 916.0);
+    settle(&mut h);
+    assert!(h.state().left_dock_shows().is_some(), "the Left Dock open");
+    assert_eq!(h.state().editor_area_rect().map(|r| r.right() - r.left() + 260.0), Some(1600.0));
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    page_row(&h, "General").click();
+    settle(&mut h);
+    // Flush in its pane, as the board: the page list from the pane's left
+    // edge (no tab margin).
+    let pages = page_row(&h, "Folders").rect();
+    let pane = h.state().editor_area_rect().expect("the editor area");
+    assert_eq!(
+        pages.left(),
+        pane.left(),
+        "the page list at the pane's edge: {pages:?} in {pane:?}"
+    );
+    let beside = |h: &Harness<'_, Moonglow>| -> Vec<bool> {
+        let questions = [
+            "A .mod with its folder beside it",
+            "Exporting to an archive there",
+            "Files there already",
+            "Equipping without the feats",
+        ];
+        questions
+            .iter()
+            .map(|q| {
+                let all: Vec<egui::Rect> = h.get_all_by_label(q).map(|n| n.rect()).collect();
+                let label = all.iter().min_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
+                let combo = all.iter().max_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
+                (label.center().y - combo.center().y).abs() < 4.0 && label.right() <= combo.left()
+            })
+            .collect()
+    };
+    assert_eq!(beside(&h), [true; 4], "beside at 1600 with the Left Dock");
+    // (Each dropdown has its longest choice's room whole: its text, the
+    // box's padding and its chevron.)
+    let font = egui::FontId::proportional(13.0);
+    let text = h.ctx.fonts_mut(|f| {
+        f.layout_no_wrap("Ask: replace or skip them".into(), font, egui::Color32::WHITE).size().x
+    });
+    for q in ["A .mod with its folder beside it", "Files there already"] {
+        let combo = (h.get_all_by_label(q).map(|n| n.rect()))
+            .max_by(|a, b| a.left().total_cmp(&b.left()))
+            .unwrap();
+        assert!(combo.width() >= text + 36.0, "{q}'s dropdown {} for {text}", combo.width());
+    }
+    // The first column's widest row within the board's 380.
+    let minutes = h.get_by_label("minutes").rect();
+    let column_two = h.get_by_label("Windows and Tabs").rect().left();
+    assert!(minutes.right() <= column_two - 24.0 + 0.5, "{minutes:?} past 380: {column_two}");
+    // At the harness's own 1600 (the app 16 narrower) the label column
+    // gives up its spare room to the longest label, and they stay beside.
+    h.set_size(egui::vec2(1600.0, 916.0));
+    settle(&mut h);
+    assert_eq!(beside(&h), [true; 4], "beside, the label column narrower");
+    let label = (h.get_all_by_label("A .mod with its folder beside it").map(|n| n.rect()))
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap();
+    let words = h.ctx.fonts_mut(|f| {
+        let font = egui::FontId::proportional(13.0);
+        f.layout_no_wrap("A .mod with its folder beside it".into(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    assert!(label.width() + 0.5 >= words, "the longest label whole: {} for {words}", label.width());
+    // Narrower, where three columns still stand but the third cannot hold
+    // a label and a whole choice: over.
+    h.set_size(egui::vec2(1586.0, 916.0));
+    settle(&mut h);
+    let left = |h: &Harness<'_, Moonglow>, s: &str| h.get_by_label(s).rect().left();
+    assert!(left(&h, "Questions") > left(&h, "Windows and Tabs"), "three columns at 1570");
+    assert_eq!(beside(&h), [false; 4], "over at 1570");
+}
+
+/// The General page stands in three columns where the window has the
+/// room (the board's), in two and then one where it is narrower, in the
+/// code's order; at every width from 640 to 1900 and at three text sizes
+/// no control of it is cut (each inside the page's width, the page not
+/// scrolling sideways) and each has its name for a screen reader, and the
+/// page is never taller where it is wider.
+#[test]
+fn the_general_page_folds_its_columns_never_cut_never_taller_where_wider() {
+    use egui::accesskit::Role;
+    let mut h = options(Mode::Tabs, 1600.0, "General");
+    let order = ["Editors", "Saving and Exporting", "Opening Modules", "Testing"];
+    let tops: Vec<f32> = order.iter().map(|s| h.get_by_label(s).rect().top()).collect();
+    assert!(tops.windows(2).all(|t| t[0] < t[1]), "column 1 in the code's order: {tops:?}");
+    let left = |h: &Harness<'_, Moonglow>, s: &str| h.get_by_label(s).rect().left();
+    let columns = |h: &Harness<'_, Moonglow>| {
+        let mut xs: Vec<f32> =
+            ["Editors", "Windows and Tabs", "Questions"].iter().map(|s| left(h, s)).collect();
+        xs.dedup_by(|a, b| (*a - *b).abs() < 1.0);
+        xs.len()
+    };
+    assert_eq!(columns(&h), 3, "three columns at 1600");
+    let controls = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
+        let ppp = h.ctx.pixels_per_point();
+        let roles = [Role::CheckBox, Role::ComboBox, Role::SpinButton, Role::RadioButton];
+        let mut all = Vec::new();
+        for role in roles {
+            for n in h.get_all_by_role(role) {
+                let Some(b) = n.accesskit_node().bounding_box() else { continue };
+                let r = egui::Rect::from_min_max(
+                    egui::pos2(b.x0 as f32 / ppp, b.y0 as f32 / ppp),
+                    egui::pos2(b.x1 as f32 / ppp, b.y1 as f32 / ppp),
+                );
+                let name = n.accesskit_node().label().unwrap_or_default();
+                all.push((name, r));
+            }
+        }
+        all
+    };
+    for scale in [1.0_f32, 1.25, 1.5] {
+        h.ctx.set_zoom_factor(scale);
+        settle(&mut h);
+        let mut seen: Vec<(f32, f32, usize)> = Vec::new();
+        for width in (640..=1900).step_by(20) {
+            // (Tall enough for the whole page in sight at one column: what
+            // is out of sight has no box.)
+            h.set_size(egui::vec2(width as f32, 3200.0));
+            settle(&mut h);
+            settle(&mut h);
+            let page = options_header(&h);
+            let all = controls(&h);
+            assert!(all.len() >= 30, "the General page's controls at {width} x{scale}");
+            let unnamed: Vec<_> = all.iter().filter(|(n, _)| n.is_empty()).collect();
+            assert!(unnamed.is_empty(), "controls with no name at {width} x{scale}: {unnamed:?}");
+            for (name, r) in &all {
+                assert!(
+                    r.right() <= page.right() + 0.5,
+                    "{name} cut at {width} x{scale}: {r:?} in {page:?}"
+                );
+            }
+            let top = all.iter().map(|(_, r)| r.top()).fold(f32::INFINITY, f32::min);
+            let bottom = all.iter().map(|(_, r)| r.bottom()).fold(f32::NEG_INFINITY, f32::max);
+            let tall = bottom - top;
+            for (w, t, _) in &seen {
+                assert!(tall <= t + 0.5, "taller at {width} ({tall}) than at {w} ({t}) x{scale}");
+            }
+            seen.push((width as f32, tall, columns(&h)));
+        }
+        let counts: Vec<usize> = seen.iter().map(|s| s.2).collect();
+        assert!(
+            counts.contains(&1) && counts.contains(&3),
+            "one to three columns x{scale}: {counts:?}"
+        );
+        assert!(counts.windows(2).all(|c| c[0] <= c[1]), "more columns where wider: {counts:?}");
+    }
+}
+
+/// Options comes to rest on each of its ten pages, while a field is
+/// typed in, after a theme and a zoom change, and after Cancel, docked and
+/// floating; the last check that Cancel closed it.
+#[test]
+fn options_comes_to_rest_on_every_page() {
+    for mode in MODES {
+        comes_to_rest(mode);
+    }
+}
+
+fn comes_to_rest(mode: Mode) {
+    let mut h = options(mode, 1600.0, "Folders");
+    for (page, _) in PAGES {
+        page_row(&h, page).click();
+        rest(&mut h);
+        h.run_steps(3);
+        rest(&mut h);
+    }
+    page_row(&h, "General").click();
+    settle(&mut h);
+    number_beside(&h, "Keep a recovery copy of unsaved work every", 0).click();
+    h.event(egui::Event::Text("3".into()));
+    rest(&mut h);
+    h.state_mut().settings.light_theme = true;
+    rest(&mut h);
+    h.ctx.set_zoom_factor(1.25);
+    rest(&mut h);
+    h.get_by_label("Options header").get_by_label("Cancel").click();
+    rest(&mut h);
+    assert!(h.state().options.is_none(), "Cancel closed it");
+}

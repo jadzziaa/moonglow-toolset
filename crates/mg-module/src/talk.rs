@@ -309,6 +309,14 @@ pub struct Table {
     /// since the table was saved: they are the module's changes, outside
     /// the table's own history, and make it unsaved.
     typed_unsaved: bool,
+    /// The last change, made by typing, may take the next typed into the
+    /// same field of the same line ([`Table::set_line`]): ended by
+    /// [`Table::end_typing`], an undo or redo, a save.
+    typing_open: bool,
+    /// The game's number of its first line: a custom table's from
+    /// [`CUSTOM`] (16777216), the game's own `dialog.tlk` from 0
+    /// ([`Table::of_game`]). Find by number takes the table's own.
+    first_strref: u32,
     /// The lines as they are now ([`Table::revision`]).
     revision: u64,
 }
@@ -370,6 +378,8 @@ impl Table {
             saved: Some(0),
             game: None,
             typed_unsaved: false,
+            typing_open: false,
+            first_strref: CUSTOM,
             revision: next_revision(),
         })
     }
@@ -393,6 +403,8 @@ impl Table {
             saved: None,
             game: None,
             typed_unsaved: false,
+            typing_open: false,
+            first_strref: CUSTOM,
             revision: next_revision(),
         }
     }
@@ -723,6 +735,7 @@ impl Table {
         }
         let depth = self.undo.len();
         if let Some(last) = self.undo.last_mut()
+            && self.typing_open
             && typing.is_some()
             && last.typing == typing
             && last.row == row
@@ -735,7 +748,15 @@ impl Table {
         }
         let before = self.current(row);
         self.apply(Change { row, before, after, typing, batch: 0, grew_from: None });
+        self.typing_open = typing.is_some();
         Ok(())
+    }
+
+    /// Ends a burst of typing: what is typed next is a step of its own,
+    /// even into the same field of the same line (another line chosen
+    /// meanwhile, the field left).
+    pub fn end_typing(&mut self) {
+        self.typing_open = false;
     }
 
     /// Adds a line at the end; returns its row.
@@ -789,6 +810,9 @@ impl Table {
     }
 
     pub fn undo(&mut self) {
+        // (Typing after an undo begins a step of its own: it never joins
+        // the step now last.)
+        self.typing_open = false;
         while let Some(c) = self.undo.pop() {
             self.put(c.row, c.before.clone());
             // (The empty lines it was reached with go too, unless a line
@@ -811,6 +835,7 @@ impl Table {
     }
 
     pub fn redo(&mut self) {
+        self.typing_open = false;
         while let Some(c) = self.redo.pop() {
             self.put(c.row, c.after.clone());
             let batch = c.batch;
@@ -1020,8 +1045,35 @@ impl Table {
     /// The lines whose text (either table's) has every word, ignoring case,
     /// or whose StrRef or row number is the query.
     pub fn find(&self, query: &str) -> Vec<usize> {
+        self.find_in(0..self.len(), query)
+    }
+
+    /// [`find`](Self::find) among the lines `rows` alone: a long table
+    /// looked through a part at a time (the talk table editor's Find, a
+    /// slice a frame).
+    pub fn find_in(&self, rows: std::ops::Range<usize>, query: &str) -> Vec<usize> {
         let sought = Sought::new(query);
-        (0..self.len()).filter(|&row| self.has(row, &sought)).collect()
+        let rows = rows.start.min(self.len())..rows.end.min(self.len());
+        rows.filter(|&row| self.has(row, &sought)).collect()
+    }
+
+    /// A table only looked at (`dialog.tlk`, as the game data read it): its
+    /// lines `tlk`, its source `source` (a layer's, which no Save writes).
+    pub fn of_game(name: &str, source: Source, tlk: Tlk) -> Table {
+        Table {
+            name: name.to_string(),
+            source,
+            tlk,
+            feminine: None,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            saved: Some(0),
+            game: None,
+            typed_unsaved: false,
+            typing_open: false,
+            first_strref: 0,
+            revision: next_revision(),
+        }
     }
 
     /// Whether line `row` is one [`find`](Self::find) finds for `query`:
@@ -1033,7 +1085,7 @@ impl Table {
 
     fn has(&self, row: usize, sought: &Sought) -> bool {
         if let Some(n) = sought.number
-            && (n == row as u64 || n == u64::from(Self::strref(row).0))
+            && (n == row as u64 || n == u64::from(self.first_strref) + row as u64)
         {
             return true;
         }
@@ -1095,6 +1147,34 @@ impl Table {
 
 #[cfg(test)]
 mod tests {
+    /// Typing into a line is one step a burst: ended by `end_typing` (another
+    /// line chosen, the field left) and by an undo or a redo, so that what is
+    /// typed after is a step of its own, never joined to an older one.
+    #[test]
+    fn a_burst_of_typing_ends_where_it_is_ended() {
+        let dir = mg_testkit::scratch_dir("talk-bursts");
+        let mut t = Table::create("bursts", &dir, Language::ENGLISH, false);
+        let line = |text: &str| Line {
+            text: text.into(),
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        t.add_line(&line("")).unwrap();
+        let steps = t.steps().0;
+        t.set_line(0, &line("a"), Some(0)).unwrap();
+        t.set_line(0, &line("ab"), Some(0)).unwrap();
+        assert_eq!(t.steps().0, steps + 1, "one burst, one step");
+        t.end_typing();
+        t.set_line(0, &line("abc"), Some(0)).unwrap();
+        assert_eq!(t.steps().0, steps + 2, "ended: a step of its own");
+        t.undo();
+        assert_eq!(t.line(0).text, "ab");
+        t.set_line(0, &line("abd"), Some(0)).unwrap();
+        t.undo();
+        assert_eq!(t.line(0).text, "ab", "typed after an undo: not joined to the older step");
+    }
+
     use super::*;
     use mg_resman::{LayerClass, MemContainer, priority};
 

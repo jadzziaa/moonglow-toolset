@@ -37,6 +37,10 @@ fn items_pasted_into_a_store_share_the_page_they_make() {
     h.run();
     h.get_by_label("Inventory…").click();
     h.run();
+    // (The store's page that holds the item: the Inventory page was in
+    // view, and chose its first, before the store was set up.)
+    h.get_by_label_contains("Miscellaneous (").click();
+    h.run();
     let rows: Vec<egui::Rect> = h.get_all_by_label_contains(" gp").map(|n| n.rect()).collect();
     let row = *rows.iter().max_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
     h.hover_at(row.center());
@@ -189,17 +193,17 @@ fn placeable_editor_fills_its_inventory() {
     assert_eq!(held(&mut h)[0], "nw_it_torch001", "one undo puts it back");
     // An older blueprint's portrait is a resref (po_ and the portraits.2da
     // base resref); without a repute.fac, the standard factions.
-    h.get_by_label("Advanced").click();
+    page(&mut h, "Advanced");
     h.run();
     assert!(h.query_by_value("PLC_A08_").is_some());
     assert!(h.query_by_value("Hostile").is_some());
     // A static placeable holds nothing: Has Inventory is disabled.
-    h.get_by_label("Basic").click();
+    page(&mut h, "Basic");
     h.run();
     h.get_by_label("Static").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Static"), Some(1));
-    assert!(h.get_by_label("Has Inventory").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Has inventory").accesskit_node().is_disabled());
 }
 
 #[test]
@@ -278,7 +282,7 @@ fn equipping_without_the_feat_asks_to_add_it() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("no feats", vec![edit])));
     h.run();
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run();
     assert!(h.query_by_label_contains("The game may unequip items").is_some(), "the notice");
     type_into_hint(&mut h, "Find", "nw_waxbt001");
@@ -378,7 +382,7 @@ fn find_in_palette_chooses_an_item_s_blueprint() {
     h.set_size(egui::vec2(1000.0, 1600.0));
     h.run();
     own_window(&mut h, &Tab::Blueprint(key), egui::pos2(20.0, 40.0), egui::vec2(960.0, 1500.0));
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     settle(&mut h);
     // The equipped item, and the name its slot shows.
     let worn =
@@ -521,7 +525,7 @@ fn what_the_game_takes_off_is_marked() {
         h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("feats", vec![e])));
         h.run();
     };
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run();
     // (Marked off with a warning icon before its name.)
     let marked = |h: &Harness<'_, Moonglow>| {
@@ -543,7 +547,7 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
         return;
     };
     h.run();
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run();
     let flag = |h: &mut Harness<'_, Moonglow>, label: &str| {
         field(h, &key).list("Equip_ItemList").unwrap()[0].integer(label)
@@ -829,7 +833,7 @@ fn a_held_item_s_properties_follow_the_item() {
     open(&mut h, 1);
     assert_eq!(held_window(&h, area, "ITEM_B"), at(1));
     // Changed in its window (for its Cancel, below).
-    h.get_by_label("Plot Item").click();
+    h.get_by_label("Plot item").click();
     h.run_steps(3);
     assert_eq!(held(&mut h)[1].integer("Plot"), Some(1));
     // The one before it removed: the window follows it up the list.
@@ -889,7 +893,7 @@ fn a_placed_object_s_properties_closed_cancel_when_asked() {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
         h.run_steps(4);
         held_window(h, area, "ITEM_B");
-        h.get_by_label("Plot Item").click();
+        h.get_by_label("Plot item").click();
         h.run_steps(3);
         click_tab_close(h, &tab);
         h.run_steps(4);
@@ -1038,7 +1042,10 @@ fn a_placed_creature_s_equipment_is_in_sight_in_a_narrow_window() {
             .unwrap()
             .rect();
         assert!(name.right() < window.right(), "{item} at {name:?}, in a window at {window:?}");
-        assert!(name.left() > window.left() + 200.0, "{item}: right of the palette");
+        // (Beside the page list's rail, the room is under the 440 the
+        // palette and the slots stand side by side from: the slots under
+        // the palette, whole.)
+        assert!(name.left() > window.left(), "{item}: in the window");
     }
 }
 
@@ -1051,6 +1058,9 @@ fn bandit_holding(
     area: ResRef,
     held: &dyn Fn(&mg_rules::GameData) -> Vec<mg_gff::Struct>,
 ) -> mg_edit::GffPath {
+    // (The windows' forms alone, laid side by side by their sizes: no
+    // Preview pane beside them in their windows, M4's U11.)
+    h.state_mut().palette_dock = false;
     use mg_edit::{Command, Edit, GffPath};
     use mg_module::instances::{Placement, Placing, instance};
     let game = h.state().game.clone().unwrap();
@@ -1499,7 +1509,7 @@ fn a_creature_s_inventory_shows_the_icons_of_its_gender() {
     };
     assert!(!h.state().settings.armor_on_woman, "on a man, by default");
     h.run();
-    h.get_by_label("Inventory").click();
+    page(&mut h, "Inventory");
     h.run_steps(4);
     let his = drawn(&mut h);
     assert!(!his.is_empty() && his.iter().all(|n| n.starts_with("ipm_")), "{his:?}");

@@ -216,8 +216,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
 
     // Take Rows from the other hak's copy (the first offered): its row 0,
     // changed in both against the game's, ticked and taken.
-    h.get_by_label("Take Rows…").click();
-    h.run_steps(3);
+    table_click(&mut h, "Take Rows…");
     // (mg_top's copy has one row: nothing new.)
     h.get_by_label_contains("0 new, 0 changed there, 1 changed in both");
     h.get_by_label("Row 0").click();
@@ -325,7 +324,10 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     h.run();
     assert_eq!(h.query_all_by_label_contains(", overridden by ").count(), 0);
     h.get_by_label("hak:mg_top");
-    h.get_by_label_contains("1 of ");
+    // (The panel's count, and the Status Bar's while the panel is in use.)
+    assert_eq!(h.query_all_by_label_contains("1 of ").count(), 2);
+    let said = h.state().status_said().to_vec();
+    assert!(said.iter().any(|c| c.starts_with("1 of ")), "{said:?}");
 }
 
 /// The resource browser's Preview shows an overridden copy as its layer
@@ -566,7 +568,7 @@ fn an_older_module_s_single_hak_is_layered_and_said() {
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "the hak is layered");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     h.get_by_label("Hak Files (0)");
     h.get_by_label_contains("names its hak, older, in the older single field (Mod_Hak)");
@@ -609,7 +611,7 @@ fn a_hak_s_name_is_its_file_s_bytes() {
     assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     h.get_by_label("Hak Files (1)");
     h.get_by_label("mg_ñhak");
@@ -666,7 +668,7 @@ fn a_hak_named_in_another_case_is_not_found_on_linux() {
     assert!(said.contains("exact name") && said.contains("mg_plain.hak"), "{said}");
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     h.get_by_label("not found: the file is mg_plain.hak");
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
@@ -734,7 +736,7 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     let chosen = |h: &Harness<'_, Moonglow>| -> Vec<usize> {
         h.state().hak_list.selected.iter().copied().collect()
     };
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     set(&mut h, &["alpha", "bravo", "charlie", "gone"]);
     h.get_by_label("Hak Files (4)");
@@ -888,7 +890,7 @@ fn content_downloaded_as_7z_or_rar_is_attached_from_the_archive() {
         h.get_by_label("Add Haks and Talk Table…").click();
         h.run();
     };
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
 
     // The 7z: listed from it, the second hak moved up, attached.
@@ -948,7 +950,7 @@ fn add_hak_takes_the_arrow_keys() {
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let add = |h: &Harness<'_, Moonglow>| {
@@ -1010,7 +1012,7 @@ fn add_hak_filters_a_long_list() {
     let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run_steps(3);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let add = |h: &Harness<'_, Moonglow>| {
@@ -1127,7 +1129,7 @@ fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1199,7 +1201,7 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     let app = Moonglow::new(None, Box::new(dialogs));
     let mut h = harness(app, 1100.0, 760.0);
     mg_ui::hak_view::new_hak(h.state_mut());
-    h.run();
+    settle(&mut h);
     let sizes = |h: &Harness<'_, Moonglow>| -> Vec<(String, u64)> {
         let mut items: Vec<(String, u64)> =
             h.state().haks[0].hak.items().iter().map(|i| (i.key.to_string(), i.size)).collect();
@@ -1209,32 +1211,34 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     let (was, now) = (table("old").len() as u64, table("new one").len() as u64);
     // Nothing of the name there yet: added without a word.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
     assert!(h.query_by_label("Files Already in the Hak").is_none());
     // One of the two chosen is there: asked. Cancel adds nothing.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Files Already in the Hak");
     assert!(h.query_by_label_contains("already has 1 of the 2 files").is_some());
     assert_eq!(sizes(&h).len(), 1, "nothing added before the answer");
     // (The question's, not the hak editor's own.)
     h.get_all_by_label("Cancel").last().unwrap().click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
     // Skip Those: the other is added, the hak's own stays.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label("Skip Those").click();
-    h.run();
+    // (Settled: the floating hak editor's hints come back with the
+    // pointer over it the frame after the question closes, M4's U23 fix.)
+    settle(&mut h);
     let two = table("two").len() as u64;
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was), ("mg_two.2da".to_string(), two)]);
     // Replace: the chosen files take their place.
     h.get_by_label("Add Files…").click();
-    h.run();
+    settle(&mut h);
     assert!(h.query_by_label_contains("already has 2 of the 2 files").is_some());
     h.get_by_label("Replace 2").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
 }
 
@@ -1269,11 +1273,15 @@ fn a_hak_row_s_remove_takes_that_row_alone() {
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
     h.get_by_label("mg_a.2da").click_secondary();
     h.run();
-    h.get_by_label("Remove").click();
+    // (The row's menu's Remove, drawn after the header's.)
+    h.get_all_by_label("Remove").last().unwrap().click();
     h.run();
     assert_eq!(names(&h), ["mg_b.2da", "mg_c.2da"]);
     assert!(h.query_by_label("mg_a.2da").is_none(), "the row is gone from the list");
-    apart(&h, "Undo").click();
+    // (Undo: the Top Bar's since M4's U21, its keys over the editor.)
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
     assert_eq!(names(&h), ["mg_a.2da", "mg_b.2da", "mg_c.2da"]);
 }
@@ -1523,8 +1531,9 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
     // Edit › Undo is the hak's, the pointer gone from the editor to the
-    // menu, and names its step; so is the toolbar's.
-    h.get_by_label("Edit").click();
+    // menu, and names its step; so is Redo's key (the editor's own Undo
+    // and Redo are the Top Bar's since M4's U21).
+    menu(&h, "Edit").click();
     h.run();
     h.get_by_label_contains("Undo Add files").click();
     h.run();
@@ -1532,9 +1541,9 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
     assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
-    apart(&h, "Redo").click();
+    h.key_press_modifiers(ctrl | egui::Modifiers::SHIFT, egui::Key::Z);
     h.run();
-    assert_eq!(items(&h), 1, "redone by the toolbar's Redo");
+    assert_eq!(items(&h), 1, "redone by Redo's keys");
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
     h.key_press_modifiers(ctrl, egui::Key::Z);
@@ -1628,6 +1637,7 @@ fn the_hak_editor_shows_pictures_sounds_and_tables() {
     h.run();
     mg_ui::hak_view::open_at(h.state_mut(), &path);
     h.run();
+    // (The row's menu's View: the Preview shows it, M4's U21.)
     let view = |h: &mut Harness<'_, Moonglow>, name: &str| {
         h.get_by_label(name).click_secondary();
         h.run();
@@ -1650,9 +1660,9 @@ fn the_hak_editor_shows_pictures_sounds_and_tables() {
     h.get_by_label("second");
     assert_eq!(view(&mut h, "mg_note.txt"), "plain");
     h.get_by_label_contains("just a note");
-    h.get_by_label("Close").click();
+    h.get_by_label(mg_ui::hak_view::PREVIEW_CLOSE).click();
     h.run();
-    assert!(h.state().haks[0].viewing().is_none());
+    assert!(h.state().haks[0].preview_key().is_none(), "put away");
 }
 
 /// The hak editor's Compile Models compiles the hak's models kept as
@@ -1794,7 +1804,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();
     h.run();
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     h.run();
     h.get_by_label("Add Haks and Talk Table…").click();
     h.run();
@@ -1819,14 +1829,19 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     h.get_by_label("mg_ui_test.2da").click();
     h.run();
-    h.get_by_label("Remove (1)").click();
+    // (The header's Remove, Undo and Redo the Top Bar's keys over the
+    // editor, the header's Save: M4's U21.)
+    let header = mg_ui::hak_view::HAK_HEADER;
+    h.get_by_label(header).get_by_label("Remove").click();
     h.run();
     assert!(h.state().haks[0].hak.is_dirty());
-    apart(&h, "Undo").click();
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run();
-    apart(&h, "Redo").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
-    apart(&h, "Save").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run();
+    h.get_by_label(header).get_by_label("Save").click();
     h.run();
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
@@ -1848,8 +1863,10 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     assert_eq!(have, ["mg_ui_new.2da", "mg_ui_other.2da", "mg_ui_test.2da"]);
     // (One step to undo, not two.)
     assert_eq!(h.state().haks[0].hak.undo_label(), Some("Update from Folder"));
-    // By size, the largest is listed first.
+    // By size, the largest is listed first (as a click on Size's head
+    // sorts it at first, M4's U21).
     h.state_mut().haks[0].sort = mg_ui::hak_view::Sort::Size;
+    h.state_mut().haks[0].descending = true;
     h.run();
     let first = |h: &Harness<'_, Moonglow>| {
         let rows: Vec<_> = h.query_all_by_label_contains(".2da").collect();
@@ -1858,9 +1875,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
             .fold((f32::MAX, None), |best, row| if row.0 < best.0 { row } else { best })
     };
     assert_eq!(first(&h).1.as_deref(), Some("mg_ui_new.2da"));
-    // View (or a double click) shows a resource under the list: a table
+    // View (or a double click) shows a resource in the Preview: a table
     // as its rows and columns.
-    assert!(h.state().haks[0].viewing().is_none());
     h.get_by_label("mg_ui_new.2da").click_secondary();
     h.run();
     // (The row's View: the menu bar has a View too.)
@@ -1869,9 +1885,9 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert_eq!(h.state().haks[0].viewing().map(|v| v.1), Some("table"));
     assert!(h.query_by_label("Label").is_some(), "its column is shown");
-    h.get_by_label("Close").click();
+    h.get_by_label(mg_ui::hak_view::PREVIEW_CLOSE).click();
     h.run();
-    assert!(h.state().haks[0].viewing().is_none());
+    assert!(h.state().haks[0].preview_key().is_none(), "put away");
     // A model of the hak the game reads (the module's hak, saved) is
     // drawn in the model viewer; changed and not saved, it is its text.
     let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
@@ -1879,7 +1895,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     std::fs::write(content.join("mg_ui_box.mdl"), &bytes).unwrap();
     h.get_by_label("Update from Folder").click();
     h.run();
-    apart(&h, "Save").click();
+    h.get_by_label(header).get_by_label("Save").click();
     h.run();
     let shown_as = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("mg_ui_box.mdl").click_secondary();

@@ -153,7 +153,8 @@ pub(super) fn keys(
         || !ui.is_enabled()
         || !ui.rect_contains_pointer(ui.max_rect())
         || ui.memory(|m| m.focused().is_some())
-        || egui::Popup::is_any_open(ui.ctx())
+        || crate::shell::keys_blocked(ui.ctx())
+        || mg_uikit::popover::Popover::any_open(ui.ctx())
         || ui.ctx().egui_is_using_pointer()
     {
         return;

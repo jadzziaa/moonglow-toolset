@@ -82,7 +82,7 @@ fn a_name_typed_becomes_a_line_of_the_talk_table_and_undo_takes_both() {
     let Some((mut h, user, path)) = typed_harness("ui-typed-name", true) else { return };
     // The range, set in Module Properties › Custom Content, goes into the
     // project's file beside the .mod.
-    h.get_by_label("Custom Content").click();
+    page(&mut h, "Custom Content");
     settle(&mut h);
     h.get_by_label_contains("Next: line 1 (StrRef 16777217), at the table's end");
     type_into_hint(&mut h, "from", "10");

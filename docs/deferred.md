@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T14:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -257,7 +257,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - the area editor: every object selected and dragged, and so with
     Adjust Location or the context menu open (A16); Paint at radius 25
     m and density 50, the pointer still (A17); Update Instances with
-    30,000 listed, Edit Areas Together with 3,000 areas (A18's rest);
+    30,000 listed (A18's rest: Edit Areas Together with 3,000 areas has
+    its view since M4's U29, `frame_perf::edit_areas_together_3000`);
     2,000 placeables with the Position menu open (A20); a light placed
     with 30,000 more rows in placeables.2da (A21); a 2,000-tile set's
     Tiles page, its last tile chosen (A22); a hill tileset's 32 by 32
@@ -360,13 +361,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
 - **A preview shown twice in a frame, the owner's call:** a 3D view
-  shown in two places in one frame (the Right Dock's Preview panel and
-  the model's tab, which keeps it: the panel's body is drawn after the
-  editor area since M3 T6, as the Preview window was) is drawn in the
-  first, and the second says "The preview is shown elsewhere in the
-  window." (the review's B19), rather than
-  getting targets of its own. The wording, and whether the second
-  should draw too, are asked. (S) (the review of November 2026, B19)
+  shown in two places in one frame (the Right Dock's Preview of the
+  palette's choice beside an area, and the same model's tab, or since
+  M4's U11 the same blueprint's editor floating in a window with its own
+  Preview in the window's pane: the tab or window keeps it, the panel's
+  body being drawn after the editor area since M3 T6, as the Preview
+  window was; or, more rarely, two forms of one blueprint open at once,
+  several edited together whose first it is and the blueprint alone,
+  whose own Previews show one view) is drawn in the first, and the
+  second says "The preview is shown elsewhere in the window." (the
+  review's B19), rather than
+  getting targets of its own. A blueprint's own Preview no longer meets
+  it beside its model's tab (Pop Out): it says "The preview is in a
+  window of its own." with Bring Back, as its Appearance page did. The
+  wording, and whether the second should draw too, are asked. (S) (the
+  review of November 2026, B19; restated by M4's U11, still the
+  owner's call)
 
 ## Bulk editing
 
@@ -501,7 +511,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `engine_custom_light.rs`), and the client answered the proposal's two
   questions (2026-10-29, the third client batch): a `LightColor` light
   and a model's light node light creatures and placeables as they light
-  tiles, so the window's "Lights creatures and placeables too" starts
+  tiles, so the Custom Light section's "Lights creatures and placeables too" starts
   ticked; a draw takes as many lights as the client's Max Lights (32 by
   default). Not built: a flicker (the node's color or multiplier keyed in
   the model's `default` animation). Read for it (2026-10-30, the fourth
@@ -512,7 +522,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the area view holds a static placeable still since, and plays a
   dynamic one's light node keys and its meshes' self-illumination keys
   since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
-  client batch). Left: the window's flicker itself (Custom Light…
+  client batch). Left: the flicker itself in the Custom Light section (Custom Light…
   writing the keyed `default` and a dynamic placeable). (S) (from
   builders' reports after 1.16.2)
 - **A drag when a key changes the mode, the owner's call:** a drag under
@@ -904,10 +914,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
-- **The light theme's own colors:** it is egui's light theme; the script
+- **The light theme's own colors:** it is the redesign's Light theme
+  (`mg-uikit`'s tokens, since its M2; this entry said egui's); the script
   editor's syntax colors and the conversation editor's line colors
-  follow it, the Factions' sliders keep Aurora's red and blue (legible
-  on both: `conversation_and_factions_in_both_themes`), and the area
+  follow it, the Faction Editor's sliders keep Aurora's red and blue
+  (legible on both: `conversation_and_factions_in_both_themes`, which
+  shows Basic's chart), and so do its matrix cells' frames and the
+  Reactions panel's bars (legible on both: `screens.rs`'s
+  `board_factions` in the light theme, Advanced with Reactions beside
+  it, shows the red and blue cells and a friendly bar), and the area
   view's overlays are drawn over the 3D view, whatever the theme. What
   else a builder who uses it finds wanting waits on such a pass. (S) (a
   senior builder's review, October 2026)
@@ -1429,13 +1444,17 @@ log.
   system: his word that it places would settle it. (a builder's report,
   October 2026)
 - **Creature Properties' overlapping elements:** reported, not
-  reproduced: every page is checked for widgets drawn over each other at
-  four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
-  and none are. A screenshot, or the page and the interface size, would
-  find it. (S) (a senior builder's review, October 2026)
+  reproduced: every page of every kind is walked whole, top to bottom on
+  the window's one scroll, at four window sizes at 100% interface size
+  (`blueprint_editor_pages_draw_nothing_over_anything_else`, since M4's
+  U9) and none draws over another. A screenshot, or the page and the
+  interface size, would find it. (S) (a senior builder's review, October
+  2026)
 - **A drag on a number field moving objects in the area behind:**
   reported, not reproduced
-  (`a_drag_in_a_window_over_the_area_moves_nothing_there`). (needs the
+  (`a_drag_in_a_window_over_the_area_moves_nothing_there`; with the
+  Properties panel beside the area since M4's U6,
+  `a_drag_on_a_number_field_in_the_panel_moves_nothing_in_the_area`). (needs the
   steps) (a second builder's review, October 2026)
 - **"It kept randomly exiting"** on a persistent world's module (ten
   times before it stayed open), reported without a log. One cause was
@@ -1926,8 +1945,10 @@ is not taken for a new gap.
   found (or not readable) falls back on the tileset's flags, which say
   every light and loop; a tile model's `animloop` animations from a
   supermodel are not looked for (the game's tile models have none).
-  Aurora's ✕ discards without asking (seen on the oracle); Moonglow asks,
-  as the builder asked. (S) (from Jasperre's tile feedback, October 2026) (Settled in the triage of 2026-10-28.)
+  (Its discard question is gone since Tile Properties became the Right
+  Dock's panel, M4's U5: there is no OK, Cancel or close to ask about.)
+  (S) (from Jasperre's tile feedback, October 2026) (Settled in the
+  triage of 2026-10-28; restated by M4's U5 review, 2026-11-15.)
 - **Uniforms a script sets:** a custom shader's uniform that a module's
   scripts set in the game (`SetMaterialShaderUniformInt`,
   `SetMaterialShaderUniformVec4` on an object that isn't static) shows
@@ -1981,13 +2002,6 @@ is not taken for a new gap.
 - **A picture of a model that emits** is drawn four seconds in, framed
   with its particles (a flame is small under its smoke). (S)
   (from builders' reports after 1.10.1) (Settled in the triage of 2026-10-28.)
-- **The palette's header, not as drawn in the issue:** "More" is a
-  word, and the clear button "×" and the Gallery's "⊞" are the glyphs
-  egui's fonts have (the mock-up's were boxes); the icons are the
-  toolbar's glyphs, not a drawn set; the tile palette and the prefabs
-  keep their own bodies under the same two top rows. Seen in one
-  rendered picture, with the dropdown (not with the row of icons). (S)
-  (GitHub issue 16) (Settled in the triage of 2026-10-28.)
 - **Inventory lists:** a store page or inventory lays out the rows in
   sight and builds their icons only (the persistent world's store, 449
   items on its first page: 30 ms to show where it took 0.4 s, 0.5 ms a
@@ -2092,8 +2106,8 @@ is not taken for a new gap.
   `mg replace` changes text in names; a name in one language would
   need a language to be given), nor list fields one by one (an ARE's
   tiles and `Expansion_List`: a tile's own lights aren't set;
-  variables are `--var`'s, in the GIT where the game reads them). Give
-  Every Area This Page's Visual Settings gives an area of another
+  variables are `--var`'s, in the GIT where the game reads them). Copy
+  This Page to Every Area (Visual's) gives an area of another
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)
@@ -2297,14 +2311,19 @@ is not taken for a new gap.
   Sets window is open and a rename is put back by renaming it (neither
   is in Edit › Undo, the module's), and `variable-sets` has no folders
   inside it. (Settled by the owner, 2026-10-29: the triage's proposals.)
-- **Tile Properties on several tiles** writes only the controls set
-  into every tile chosen. Aurora's OK writes every value shown, the
-  first tile's, into all of them, and the source lights and loops it
-  shows disabled as 0 (captured 2026-10-30, `captures/wave2/tiles-one.mod`:
-  Main Light 1 changed alone on two tiles of lights 5, 6, 1, 2 and 10,
-  11, 3, 4 left both 27, 6, 0, 0, their loops 0); Moonglow keeps its own,
-  as the owner's report on Tile Properties asked. (Settled by the
-  owner, 2026-10-30.)
+- **Tile Properties on several tiles** writes only the control changed
+  into every tile chosen: since Tile Properties became the Right Dock's
+  panel (M4's U5) there is no OK, and "set" means changed in the panel,
+  each change written at once as its own step (a control chosen, even
+  to the value the first tile shows, goes to every tile that has it; a
+  control not touched writes nothing). Aurora's OK writes every value
+  shown, the first tile's, into all of them, and the source lights and
+  loops it shows disabled as 0 (captured 2026-10-30,
+  `captures/wave2/tiles-one.mod`: Main Light 1 changed alone on two
+  tiles of lights 5, 6, 1, 2 and 10, 11, 3, 4 left both 27, 6, 0, 0,
+  their loops 0); Moonglow keeps its own, as the owner's report on Tile
+  Properties asked. (Settled by the owner, 2026-10-30; restated by M4's
+  U5, 2026-11-15.)
 - **The game's text in the language edited, and the feminine talk
   table:** the install is read as that language when its
   `lang/<code>/data/dialog.tlk` is there (its talk table, and the rest

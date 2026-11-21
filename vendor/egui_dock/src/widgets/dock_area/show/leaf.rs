@@ -266,6 +266,23 @@ impl<Tab> DockArea<'_, Tab> {
             available_width -= Style::TAB_COLLAPSE_BUTTON_SIZE;
         }
 
+        // (Moonglow's patch: the collapse arrow made before the tabs, so
+        // that Tab reaches a window's bar left to right: the arrow at its
+        // left, the tabs, the close all. Made after them, as egui_dock
+        // does, it came last, after the close all at the bar's other end.
+        // Where it is drawn is unchanged: its rect is the bar's left end.)
+        if show_collapse {
+            self.tab_collapse(
+                ui,
+                path,
+                tabbar_outer_rect,
+                fade_style,
+                collapsed,
+                tab_viewer,
+            )
+        }
+        let style = fade_style.unwrap_or_else(|| self.style.as_ref().unwrap());
+
         let (actual_width, tab_hovered) = {
             let leaf = self
                 .dock_state
@@ -364,17 +381,6 @@ impl<Tab> DockArea<'_, Tab> {
                     fade_style,
                     disabled,
                     close_window_disabled,
-                    tab_viewer,
-                )
-            }
-
-            if show_collapse {
-                self.tab_collapse(
-                    ui,
-                    path,
-                    tabbar_outer_rect,
-                    fade_style,
-                    collapsed,
                     tab_viewer,
                 )
             }

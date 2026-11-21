@@ -187,18 +187,18 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                     ui.end_row();
                     for m in &merged {
                         let r = m.key;
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             ui.label(name_of(r)).on_hover_text(r.to_string());
                             super::entry_mark(ui, m.having.len(), total);
                         });
                         let counts = holdings.held(r);
                         let first = counts[m.having[0]];
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             if counts.iter().any(|c| *c != first && *c > 0) {
-                                ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
-                                    .on_hover_text(
-                                        "They hold other numbers of it: this is the first's",
-                                    );
+                                super::mixed_mark(
+                                    ui,
+                                    "They hold other numbers of it: this is the first's",
+                                );
                             }
                             ui.label(format!("×{first}"));
                         });
@@ -218,7 +218,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                                 ));
                             }
                         }
-                        ui.horizontal(|ui| {
+                        super::row(ui, |ui| {
                             if ui
                                 .small_button("Remove")
                                 .on_hover_text("Take every one of it from each")
@@ -410,8 +410,12 @@ fn equipment(
 ) {
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let fits = chosen.map_or(0, |r| item_slots(f, r, None));
+    // (In a narrow room, the Properties panel's: the buttons on a row under
+    // the slot's item.)
+    let narrow = super::narrow(ui);
     mg_uikit::with_rows(ui, |ui| {
-        egui::Grid::new(("equipment-together", f.key)).num_columns(3).striped(true).show(ui, |ui| {
+        let grid = egui::Grid::new(("equipment-together", f.key, narrow));
+        grid.num_columns(if narrow { 2 } else { 3 }).striped(true).show(ui, |ui| {
             for (bit, slot) in SLOTS {
                 let worn: Vec<Option<ResRef>> = targets
                     .iter()
@@ -421,22 +425,25 @@ fn equipment(
                     })
                     .collect();
                 ui.label(slot);
-                ui.horizontal(|ui| {
+                super::row(ui, |ui| {
                     if worn.iter().any(|w| *w != worn[0]) {
                         let n = worn.iter().filter(|w| w.is_some()).count();
                         let tip = format!(
                             "{n} of the {} wear something here, not all the same",
                             worn.len()
                         );
-                        ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
-                            .on_hover_text(tip);
+                        super::mixed_mark(ui, tip);
                     }
                     match worn[0] {
                         Some(r) => ui.label(name_of(r)),
                         None => ui.weak("(none)"),
                     };
                 });
-                ui.horizontal(|ui| {
+                if narrow {
+                    ui.end_row();
+                    ui.label("");
+                }
+                super::row(ui, |ui| {
                     let can = chosen.is_some() && fits & bit != 0;
                     if ui
                         .add_enabled(can, egui::Button::new("Equip").small())

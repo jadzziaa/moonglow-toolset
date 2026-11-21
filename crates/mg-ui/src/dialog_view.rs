@@ -1,8 +1,12 @@
-//! The Conversation Editor (`.dlg`), laid out like Aurora's: the tree of
-//! NPC lines (red, `[OWNER]` or the speaker's tag) and PC lines (blue), links
-//! in grey; Add, Copy, Cut, Paste, Paste As Link, Delete, Expand/Collapse
-//! All; the selected line's speaker and text; and the tabs Text Appears
-//! When…, Actions Taken, Other Actions, Comments and Current File. Each
+//! The Conversation Editor (`.dlg`), as the Conversation board draws it
+//! (M4's U14): the tree of NPC lines (red, `[OWNER]` or the speaker's tag)
+//! and PC lines (blue), links in gray, under its header (Add, Copy, Cut,
+//! Paste, Paste As Link, Delete, Move Up and Down, Expand and Collapse
+//! All, the highlights, Scripts, Export, Import Lines…, Test, OK and
+//! Cancel); the selected line's fields (its text, Text Appears When…,
+//! Actions Taken, Other Actions, Comments) and the conversation's Search
+//! in the Right Dock's Node section, its own settings in the Conversation
+//! panel under it, or in its window's right pane where it floats. Each
 //! change is one undoable command.
 
 use mg_uikit::Controls as _;
@@ -31,28 +35,15 @@ pub struct Row {
     pub pos: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DataTab {
-    #[default]
-    Condition,
-    Action,
-    Other,
-    Comments,
-    File,
-}
-
 /// The editor's state for one conversation.
 #[derive(Debug, Clone, Default)]
 pub struct DialogView {
     pub selected: Option<Row>,
     pub collapsed: HashSet<(Kind, u32)>,
-    pub tab: DataTab,
     /// Highlight lines with a comment, an action, a quest, an animation or a
     /// sound (Aurora's filter buttons).
     pub highlight: [bool; 5],
     pub token_picker: bool,
-    /// Aurora's bottom tabs: Data, Bookmarks, Search.
-    pub bottom: Bottom,
     /// Bookmarked lines.
     pub bookmarks: Vec<(Kind, u32)>,
     pub search: DialogSearch,
@@ -65,7 +56,7 @@ pub struct DialogView {
     /// The Input Text popup's new line, while it is open.
     pub input: Option<NewLine>,
     /// What a line's right-click menu asked for, done on the next frame
-    /// as the toolbar's button of that name does it.
+    /// as the header's command of that name does it.
     pub menu: Option<Asked>,
     /// Save Set's name beside a script's parameters, while it is being
     /// typed: where (the tab and the line or link) and the name so far.
@@ -103,6 +94,23 @@ pub struct DialogView {
     /// what is kept by line number (bookmarks, folded lines) follows its
     /// lines across a delete and its undo and redo.
     changes: Vec<Change>,
+    /// What its panels, drawn before the editor in the frame, asked for:
+    /// set by the editor, for its Cancel ([`ui`]).
+    from_panels: Vec<Action>,
+    /// The conversation as the workspace's revision had it, shared by the
+    /// editor and its panels until the next revision ([`begin`]).
+    copy: Option<(u64, std::sync::Arc<Gff>)>,
+    /// Its Data drawn last: the pass, and the line chosen it showed
+    /// ([`follow_panels`]).
+    data_drawn: Option<(u64, Option<Row>)>,
+    /// Its Node section's bar drawn last: the pass, and whether Bookmark
+    /// could be pressed ([`node_tools_enabled`]).
+    bar_drawn: std::cell::Cell<Option<(u64, bool)>>,
+    /// What its keys did as the editor was drawn last, for the Status
+    /// Bar's hints (`shell::shown`): its commands' keys (Add, Move up,
+    /// Find: the pointer over it or its tree with the keys, nothing typed
+    /// in), and its tree's own (`*`: the tree with the keys).
+    pub(crate) keys_took: (bool, bool),
 }
 
 /// A change of a conversation, from one fingerprint to another: how it
@@ -130,7 +138,8 @@ const CHANGES: usize = 256;
 /// module's tabs, so it is the same whatever the toolchain: SipHash-1-3
 /// with zero keys (`siphasher`), which is what Rust's `DefaultHasher`
 /// gave the records written before, and may not give later.
-pub(crate) fn fingerprint(g: &Gff) -> u64 {
+#[doc(hidden)]
+pub fn fingerprint(g: &Gff) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = siphasher::sip::SipHasher13::new();
     g.to_bytes().unwrap_or_default().hash(&mut h);
@@ -785,14 +794,6 @@ struct Drop {
     before: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Bottom {
-    #[default]
-    Data,
-    Bookmarks,
-    Search,
-}
-
 /// Find / Replace in conversations.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DialogSearch {
@@ -836,18 +837,19 @@ pub(crate) fn follow_unseen(app: &mut Moonglow) {
         return;
     }
     let Some(mut view) = app.dialog_views.remove(&key) else { return };
-    let followed = match app.ws.as_mut() {
+    // (What is typed in the line chosen's fields follows too, as it would
+    // as the editor begins: the renumbering is taken here once.)
+    let changed = match app.ws.as_mut() {
         Some(ws) if view.seen.is_some_and(|(r, _)| r != ws.revision()) => {
             let revision = ws.revision();
-            match ws.doc(&key) {
-                Ok(g) => view.follow(key, g, revision),
-                Err(_) => Vec::new(),
-            }
+            ws.doc(&key).ok().map(|g| (g.clone(), revision))
         }
-        _ => Vec::new(),
+        _ => None,
     };
+    if let Some((g, revision)) = changed {
+        follow_view(app, None, key, &g, revision, &mut view);
+    }
     app.dialog_views.insert(key, view);
-    follow_outside(app, key, &followed);
 }
 
 /// Has what is kept by a line's number outside conversation `key`'s view
@@ -876,6 +878,82 @@ fn follow_outside(app: &mut Moonglow, key: ResKey, followed: &[Renumbering]) {
                 Some(n) => w.target.path.0[0] = mg_edit::Step::Item(kind.list().into(), n as usize),
                 None => app.loc_edit = None,
             }
+        }
+    }
+}
+
+/// The ids of the fields the Data panel shows for conversation `key`'s
+/// row `row` showing the line `line`, by which what is typed in them is
+/// kept until the keyboard leaves them (`widgets::commit_text`,
+/// `resref_field`): the text, the speaker's tag, the comment and the
+/// link's, the sound, the condition's and the action's scripts; and the
+/// two scripts' parameters being typed (kept apart, in the context's
+/// data).
+fn row_fields(key: ResKey, row: Row, (kind, index): (Kind, u32)) -> ([egui::Id; 7], [egui::Id; 2]) {
+    let (link, own) = (link_path(row).to_string(), node_path(kind, index).to_string());
+    let typed = [
+        egui::Id::new(("dlg-text", key, kind, index)),
+        egui::Id::new(("dlg-speaker", key, index)),
+        egui::Id::new(("dlg-comment", key, kind, index, "Comment")),
+        egui::Id::new(("dlg-comment", key, kind, index, "LinkComment")),
+        egui::Id::new(("dlg-sound", key, kind, index)),
+        egui::Id::new(("dlg-script", key, "cond", link.clone())),
+        egui::Id::new(("dlg-script", key, "act", own.clone())),
+    ];
+    let params = [
+        egui::Id::new(("dlg-params-buf", key, "cond", link)),
+        egui::Id::new(("dlg-params-buf", key, "act", own)),
+    ];
+    (typed, params)
+}
+
+/// What is typed in the line chosen's fields follows it when the lines are
+/// numbered anew under it (a delete, its undo, a change made elsewhere):
+/// its fields' ids are its row's and line's numbers ([`row_fields`]), so
+/// what was typed, the text's cursor and the keyboard's focus move to its
+/// new ones (`after`), and typing goes on there; where it is gone (no
+/// `after`), what was typed goes with it. Never set on the line that took
+/// its number (M4's U14: the Node panel's ids follow its line). Only the
+/// line chosen's fields are drawn, so only theirs hold what is typed.
+fn follow_typed(
+    app: &mut Moonglow,
+    ctx: Option<&egui::Context>,
+    key: ResKey,
+    before: Option<(Row, (Kind, u32))>,
+    after: Option<(Row, (Kind, u32))>,
+) {
+    let Some((row, line)) = before else { return };
+    let (typed, params) = row_fields(key, row, line);
+    let to = after.map(|(row, line)| row_fields(key, row, line));
+    let focused = ctx.and_then(|c| c.memory(|m| m.focused()));
+    // (All taken first, then put back: a line may move to a number another
+    // field of it had.)
+    let state = |id: egui::Id| ctx.and_then(|c| egui::text_edit::TextEditState::load(c, id));
+    let moved: Vec<_> = typed.iter().map(|id| (app.buffers.remove(id), state(*id))).collect();
+    // (The parameters being typed are kept in the context's data: without
+    // the context, String Edit following while the editor is behind, none
+    // is being typed, and the field drops what it kept there unset when it
+    // is drawn again without the keyboard.)
+    type Pairs = Vec<(String, String)>;
+    let pairs: Vec<Option<Pairs>> = params
+        .iter()
+        .map(|id| ctx.and_then(|c| c.data_mut(|d| d.remove_temp::<Pairs>(*id))))
+        .collect();
+    let Some((typed_to, params_to)) = to else { return };
+    for ((from, (text, state)), to) in typed.iter().zip(moved).zip(typed_to) {
+        if let Some(text) = text {
+            app.buffers.insert(to, text);
+        }
+        if let (Some(state), Some(ctx)) = (state, ctx) {
+            state.store(ctx, to);
+        }
+        if let Some(ctx) = ctx.filter(|_| focused == Some(*from)) {
+            ctx.memory_mut(|m| m.request_focus(to));
+        }
+    }
+    for (pairs, to) in pairs.into_iter().zip(params_to) {
+        if let (Some(pairs), Some(ctx)) = (pairs, ctx) {
+            ctx.data_mut(|d| d.insert_temp(to, pairs));
         }
     }
 }
@@ -969,55 +1047,336 @@ fn params_value(pairs: &[(String, String)]) -> Value {
     mg_module::dialog::params_value_in(pairs, crate::text::game_codepage())
 }
 
-/// The conversation editor, over its OK and Cancel
-/// (`blueprint::ok_cancel`).
-pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
-    // The editor's text at its own size (Options › Conversation Editor):
-    // every kind of text in it, each as much larger as its lines are; and
-    // in the lists and menus opened from it, which take the window's
-    // style, for as long as the editor is drawn.
+/// The conversation editor's header's name (`mg_uikit::header`; a screen
+/// reader's and the tests' group).
+pub const CONVERSATION_HEADER: &str = "Conversation header";
+
+/// The name of the Right Dock's section of a conversation's Data and
+/// Search, before their tabs (the Conversation board's `.docktab.title`).
+pub(crate) const NODE: &str = "Node";
+
+/// The editor's text at its own size (Options › Conversation Editor) on
+/// `ui`: every kind of text in it, each as much larger as its lines are;
+/// and in the lists and menus opened from it, which take the window's
+/// style, until [`usual_text`] puts the window's back. The window's style
+/// as it was, where it was changed.
+fn larger_text(app: &Moonglow, ui: &mut Ui) -> Option<std::sync::Arc<egui::Style>> {
+    let size = app.settings.dialog_font_size?;
     let usual = ui.ctx().global_style();
-    if let Some(size) = app.settings.dialog_font_size {
-        let by = f32::from(size.clamp(6, 48)) / egui::TextStyle::Body.resolve(ui.style()).size;
-        let mut style = (**ui.style()).clone();
-        for font in style.text_styles.values_mut() {
-            font.size *= by;
-        }
-        style.spacing.interact_size.y *= by;
-        style.spacing.icon_width *= by;
-        ui.set_style(style.clone());
-        ui.ctx().set_global_style(style);
+    let by = f32::from(size.clamp(6, 48)) / egui::TextStyle::Body.resolve(ui.style()).size;
+    let mut style = (**ui.style()).clone();
+    for font in style.text_styles.values_mut() {
+        font.size *= by;
     }
-    let targets = [(key, mg_edit::GffPath::root())];
-    let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
-    let pending = app.actions.len();
-    editor(app, ui, key);
-    let tab = crate::Tab::Dialog(key);
-    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed.flatten());
-    if app.settings.dialog_font_size.is_some() {
+    style.spacing.interact_size.y *= by;
+    style.spacing.icon_width *= by;
+    ui.set_style(style.clone());
+    ui.ctx().set_global_style(style);
+    Some(usual)
+}
+
+/// The window's style back after [`larger_text`].
+fn usual_text(ui: &Ui, usual: Option<std::sync::Arc<egui::Style>>) {
+    if let Some(usual) = usual {
         ui.ctx().set_global_style(usual);
     }
 }
 
-fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
-    let Some(ws) = &mut app.ws else { return };
-    let g = match ws.doc(&key) {
-        Ok(g) => g.clone(),
-        Err(e) => {
-            ui.colored_label(ui.visuals().error_fg_color, e.to_string());
-            return;
-        }
-    };
+/// Whether conversation `key` is only looked at: one of the game's,
+/// opened to read (`Workspace::is_viewed`), or held by another builder
+/// (`blueprint::looked_at`). Its header's commands that change it and its
+/// panels' fields are then read-only, and Close alone ends it.
+pub(crate) fn looked_at(app: &Moonglow, key: &ResKey) -> bool {
+    let (held, viewed) = crate::blueprint::looked_at(app, key);
+    held.is_some() || viewed
+}
+
+/// The conversation editor (M4's U14, the Conversation board): its header
+/// (OK and Cancel at its end, `blueprint::ok_cancel`'s meaning) over its
+/// tree. Its line's fields, its Search and its own settings are the Right
+/// Dock's Node and Conversation panels, or its window's right pane where
+/// it floats ([`node_data`], [`node_search`], [`conversation_panel`]),
+/// drawn before it: what they asked for this frame is set here, after the
+/// editor's Cancel starts noting, so that Cancel sets it back too.
+pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    let usual = larger_text(app, ui);
+    let targets = [(key, mg_edit::GffPath::root())];
+    let pending = app.actions.len();
+    if let Some(view) = app.dialog_views.get_mut(&key) {
+        app.actions.append(&mut view.from_panels);
+    }
+    let pressed = editor(app, ui, key);
+    let tab = crate::Tab::Dialog(key);
+    crate::blueprint::window_drawn(app, pending, &tab, &targets, pressed);
+    usual_text(ui, usual);
+    // (Its window's Outliner unfolded from its strip, over the tree: drawn
+    // after the editor, whose view is back in its place by then, at the
+    // window's text size, as the Outliner is.)
+    crate::outliner::over(app, ui, crate::outliner::Owner::Dialog(key));
+}
+
+/// The conversation `key` as it is now, and its view with what is kept
+/// by line number followed to its lines ([`follow_view`]): as the editor
+/// and each of its panels begin, whichever is drawn first in the frame (a
+/// panel, in the Right Dock, before the editor). The view is taken from
+/// `Moonglow::dialog_views`, to be put back. The conversation is copied
+/// once a revision of the workspace (`DialogView::copy`): the editor and
+/// its panels drawn in a frame share the copy, and a frame where nothing
+/// changed copies nothing.
+fn begin(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    key: ResKey,
+) -> Result<(std::sync::Arc<Gff>, DialogView), String> {
+    let Some(ws) = &mut app.ws else { return Err(String::new()) };
     let revision = ws.revision();
     // (Taken for the frame and put back at its end, not copied.)
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
-    // The bookmarks, folded lines and selection follow their lines, if a
-    // delete (or its undo) numbered them anew since the last frame.
-    let followed = view.follow(key, &g, revision);
+    let g = match view.copy.take().filter(|(r, _)| *r == revision) {
+        Some((_, g)) => g,
+        None => match ws.doc(&key) {
+            Ok(g) => std::sync::Arc::new(g.clone()),
+            Err(e) => {
+                app.dialog_views.insert(key, view);
+                return Err(e.to_string());
+            }
+        },
+    };
+    view.copy = Some((revision, g.clone()));
+    follow_view(app, Some(ctx), key, &g, revision, &mut view);
+    Ok((g, view))
+}
+
+/// The bookmarks, folded lines and selection of `view` follow their lines,
+/// if a delete (or its undo, a change made elsewhere) numbered them anew
+/// since it was last looked at ([`DialogView::follow`]), and what is kept
+/// by number outside it ([`follow_outside`]) and what is typed in the
+/// line chosen's fields ([`follow_typed`]) with them; a selection the
+/// conversation no longer has (undone) is let go. Wherever a renumbering
+/// is followed (as the editor or a panel begins, or for String Edit while
+/// the editor is behind, [`follow_unseen`]): the view takes each but once.
+fn follow_view(
+    app: &mut Moonglow,
+    ctx: Option<&egui::Context>,
+    key: ResKey,
+    g: &Gff,
+    revision: u64,
+    view: &mut DialogView,
+) {
+    let before = view.selected.zip(view.selected_line);
+    let followed = view.follow(key, g, revision);
     follow_outside(app, key, &followed);
+    view.selected = view.selected.filter(|r| r.pos < links(g, r.parent).len());
+    if followed.is_empty() {
+        return;
+    }
+    let after = view.selected.and_then(|r| {
+        let line = links(g, r.parent).get(r.pos).map(|l| (r.parent.child_kind(), link_index(l)));
+        Some(r).zip(line)
+    });
+    // (The line drawn last, as followed, is the selection's line now.)
+    view.selected_line = after.map(|(_, line)| line);
+    if after != before {
+        follow_typed(app, ctx, key, before, after);
+        // (Save Set's name, kept by the place it was typed at.)
+        view.param_set_name = None;
+    }
+}
+
+/// What the header asked for that the editor does ([`header`]).
+#[derive(Default)]
+struct HeaderAsked {
+    add: bool,
+    copy: bool,
+    cut: bool,
+    paste: bool,
+    paste_link: bool,
+    delete: bool,
+    up: bool,
+    down: bool,
+    expand: bool,
+    collapse: bool,
+    export: Option<mg_module::dialog_io::Format>,
+    import: bool,
+    test: bool,
+    /// OK, Cancel or Close, at the header's end.
+    pressed: Option<crate::blueprint::Pressed>,
+}
+
+/// What the header's commands may do now ([`header`]).
+struct HeaderCan {
+    add: bool,
+    selected: bool,
+    paste: bool,
+    paste_link: bool,
+    up: bool,
+    down: bool,
+    /// The conversation is only looked at ([`looked_at`]).
+    viewed: bool,
+}
+
+/// The conversation editor's header (M4's U14, the Conversation board's
+/// `.editor-header`): at the left Add with its word, then Copy, Cut,
+/// Paste, Paste As Link and Delete, Move Up and Move Down, Expand All and
+/// Collapse All as icons; at the right the five highlights (one joined
+/// group of icon toggles), the Scripts toggle with its word, a line,
+/// Export and its formats, Import Lines… and Test; then OK and Cancel in
+/// the end slot (the proposal's ruling 10 of section 15.2), Close alone
+/// for a conversation only looked at. What has no room loses its words,
+/// then goes into More (`mg_uikit::header`). The highlights and Scripts it
+/// sets itself; the rest it asks the editor to do.
+fn header(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    highlight: &mut [bool; 5],
+    can: HeaderCan,
+) -> HeaderAsked {
+    use crate::icons::editor as icon;
+    use mg_uikit::header::{EditorHeader, Item, Joined};
+    let ctx = ui.ctx().clone();
+    let keymap = &app.keymap;
+    let add_tip = keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, &ctx);
+    let delete_tip =
+        keymap.titled("Delete the line and its branch", crate::keys::Cmd::DeleteLine, &ctx);
+    let edits = !can.viewed;
+    let mut scripts = !app.settings.dialog_hide_scripts;
+    let mut export = None;
+    let [comments, actions, quests, animations, sounds] = highlight;
+    let highlights = vec![
+        Joined::toggle(icon::COMMENTS, "Comments", comments).tip("Highlight lines with comments"),
+        Joined::toggle(icon::ACTIONS, "Actions", actions).tip("Highlight lines with actions"),
+        Joined::toggle(icon::QUESTS, "Quests", quests).tip("Highlight lines with quests"),
+        Joined::toggle(icon::ANIMATIONS, "Animations", animations)
+            .tip("Highlight lines with animations"),
+        Joined::toggle(icon::SOUNDS, "Sounds", sounds).tip("Highlight lines with sounds"),
+    ];
+    let formats = |ui: &mut Ui| {
+        mg_uikit::menu_rows(ui);
+        for f in mg_module::dialog_io::Format::ALL {
+            if ui.button(format!("{}…", f.name())).clicked() {
+                export = Some(f);
+                ui.close();
+            }
+        }
+    };
+    // OK and Cancel at the end, with the tips they had at the foot; Close
+    // alone for a conversation only looked at.
+    let tips = crate::blueprint::OK_CANCEL_TIPS;
+    let buttons: Vec<mg_uikit::KitButton> = match can.viewed {
+        true => vec![mg_uikit::KitButton::new(None, "Close").tip("Close the conversation")],
+        false => vec![
+            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
+            mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
+        ],
+    };
+    let gap = mg_uikit::header::HEADER_GAP;
+    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len().saturating_sub(1)) as f32;
+    let out = EditorHeader::new(CONVERSATION_HEADER)
+        .left(Item::button(icon::ADD, "Add").primary().enabled(edits && can.add).tip(add_tip))
+        .left(
+            Item::icon(icon::COPY, "Copy")
+                .enabled(can.selected)
+                .tip("Copy the line and its branch"),
+        )
+        .left(
+            Item::icon(icon::CUT, "Cut")
+                .enabled(edits && can.selected)
+                .tip("Cut the line and its branch"),
+        )
+        .left(
+            Item::icon(icon::PASTE, "Paste")
+                .enabled(edits && can.paste)
+                .tip("Paste the lines copied under the selection"),
+        )
+        .left(
+            Item::icon(icon::PASTE_LINK, "Paste As Link")
+                .enabled(edits && can.paste_link)
+                .tip("Link the selected line and the line copied"),
+        )
+        .left(Item::icon(icon::DELETE, "Delete").enabled(edits && can.selected).tip(delete_tip))
+        .left(Item::separator())
+        .left(
+            Item::icon(mg_uikit::Icon::ArrowUp, "Move Up")
+                .enabled(edits && can.up)
+                .tip("Move the line up among its parent's (Alt+Up)"),
+        )
+        .left(
+            Item::icon(mg_uikit::Icon::ArrowDown, "Move Down")
+                .enabled(edits && can.down)
+                .tip("Move the line down among its parent's (Alt+Down)"),
+        )
+        .left(Item::separator())
+        .left(Item::icon(icon::EXPAND_ALL, "Expand All").tip("Show every line under its parent"))
+        .left(
+            Item::icon(icon::COLLAPSE_ALL, "Collapse All")
+                .tip("Fold every line with lines under it"),
+        )
+        .right(Item::joined("Highlight", highlights))
+        .right(
+            Item::toggle(Some(icon::SCRIPTS), "Scripts", &mut scripts)
+                .tip("Show each line's condition, action, journal update and sound"),
+        )
+        .right(Item::separator())
+        .right(
+            Item::menu(Some(icon::EXPORT), "Export", formats)
+                .words_icon(true)
+                .tip("Export the lines as plain text, CSV, Twine or Ink"),
+        )
+        .right(
+            Item::button(icon::IMPORT, "Import Lines…")
+                .enabled(edits)
+                .tip("Read back the text, speakers and comments of a CSV export"),
+        )
+        .right(Item::button(mg_uikit::Icon::Test, "Test").tip(TEST_TIP))
+        .show_with_end(ui, end_width, |ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            let mut pressed = None;
+            for b in buttons {
+                let words = b.accessible_name().to_string();
+                if ui.add(b).clicked() {
+                    pressed = Some(match words.as_str() {
+                        "Cancel" => crate::blueprint::Pressed::Cancel,
+                        _ => crate::blueprint::Pressed::Ok,
+                    });
+                }
+            }
+            pressed
+        });
+    if scripts == app.settings.dialog_hide_scripts {
+        app.settings.dialog_hide_scripts = !scripts;
+    }
+    HeaderAsked {
+        add: out.clicked("Add"),
+        copy: out.clicked("Copy"),
+        cut: out.clicked("Cut"),
+        paste: out.clicked("Paste"),
+        paste_link: out.clicked("Paste As Link"),
+        delete: out.clicked("Delete"),
+        up: out.clicked("Move Up"),
+        down: out.clicked("Move Down"),
+        expand: out.clicked("Expand All"),
+        collapse: out.clicked("Collapse All"),
+        export,
+        import: out.clicked("Import Lines…"),
+        test: out.clicked("Test"),
+        pressed: out.end,
+    }
+}
+
+/// The editor: its header and its tree; OK, Cancel or Close pressed in
+/// the header's end slot.
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::blueprint::Pressed> {
+    let (g, mut view) = match begin(app, ui.ctx(), key) {
+        Ok(begun) => begun,
+        Err(e) if e.is_empty() => return None,
+        Err(e) => {
+            ui.colored_label(ui.visuals().error_fg_color, e);
+            return None;
+        }
+    };
+    let viewed = looked_at(app, &key);
     let folds = view.collapsed.len();
-    // A selection the conversation no longer has (undo) is dropped.
-    view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
     // Opened or brought to the front: the keys are its tree's.
     if app.dialog_keys == Some(key) {
         app.dialog_keys = None;
@@ -1030,12 +1389,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let keys_here = has_keys(ui.ctx(), key);
     let typing = ui.ctx().text_edit_focused();
     let choosing = crate::widgets::choice_has_keys(ui.ctx());
-    if keys_here
+    let tree_has_keys = keys_here
         && !typing
         && !choosing
         && view.input.is_none()
         && !egui::Popup::is_any_open(ui.ctx())
-    {
+        && !mg_uikit::popover::Popover::any_open(ui.ctx());
+    if tree_has_keys {
         // Escape hands them back (to the area's view, as the module tree's
         // does), unless it took the keyboard from a field or closes a
         // window over the editor.
@@ -1069,9 +1429,15 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     ];
 
     // Keys, with the pointer over the editor or its tree having the keys
-    // (Aurora's control with the focus has them), and no text being typed:
-    // Options › Keyboard's, and the platform's Copy, Cut and Paste.
-    let here = (ui.ui_contains_pointer() || keys_here) && !typing;
+    // (Aurora's control with the focus has them; a press in its panels
+    // gives them to it too), and no text being typed: Options ›
+    // Keyboard's, and the platform's Copy, Cut and Paste.
+    // (Not with the pointer alone while another list holds the keys, the
+    // Outliner's bookmarks or the module tree: the list keeps them, and
+    // Delete there never deletes a line here. M4's U15 review.)
+    let other_list = crate::palette_view::a_list_has_the_keys(ui.ctx());
+    let here = ((ui.ui_contains_pointer() && !other_list) || keys_here) && !typing;
+    view.keys_took = (here, tree_has_keys);
     let keymap = &app.keymap;
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
     let asked = view.menu.take();
@@ -1088,430 +1454,217 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         key_cut || asked == Some(Asked::Cut),
         key_paste || asked == Some(Asked::Paste),
     );
-    let add_hint =
-        keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
-
-    // Toolbar. (With Icons only, each icon alone, its name in its tip.)
-    let tools = crate::icons::Tools::of(&app.settings);
-    use crate::icons::editor as icon;
-    let button = |ui: &mut Ui, enabled: bool, g: crate::icons::Icon, name: &str, tip: &str| {
-        let r = ui.add_enabled(enabled, tools.word_widget(g, name));
-        tools.named(r, name, tip)
+    // (Alt + the arrow keys: up and down among the lines of its parent.)
+    let key_move = |up: bool| {
+        let arrow = if up { egui::Key::ArrowUp } else { egui::Key::ArrowDown };
+        here && ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, arrow))
     };
-    ui.horizontal_wrapped(|ui| {
-        // (Its buttons found within it: the module tree and the palettes
-        // have an Expand All and a Collapse All too.)
-        mg_uikit::name_group(ui, "Conversation toolbar");
-        let sel = view.selected;
-        let add_parent = match sel {
-            None => Some(Parent::Root),
-            Some(r) if !is_link(&links(&g, r.parent)[r.pos]) => {
-                let (k, i) = target_of(r);
-                Some(Parent::Node(k, i))
+    let (key_up, key_down) = (key_move(true), key_move(false));
+
+    // What the header's commands may do.
+    let sel = view.selected;
+    let add_parent = match sel {
+        None => Some(Parent::Root),
+        Some(r) if !is_link(&links(&g, r.parent)[r.pos]) => {
+            let (k, i) = target_of(r);
+            Some(Parent::Node(k, i))
+        }
+        Some(_) => None,
+    };
+    let clip = app.dialog_clip.clone();
+    let fits = |p: Parent| clip.as_ref().is_some_and(|c| c.branch.kind == p.child_kind());
+    let can_paste = add_parent.is_some_and(fits);
+    // Paste As Link: by default the selected line gets a link to the
+    // copied one (Link Destination To Source); the other way round, the
+    // copied line gets a link to the selected one.
+    let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
+    let copied = clip.as_ref().filter(|c| c.from == key).and_then(|c| c.target);
+    let pair = match (selected_line, copied) {
+        (Some(dest), Some(copied)) => {
+            let (from, to) = if paste_source_first { (copied, dest) } else { (dest, copied) };
+            (from.0.child() == to.0).then_some((from, to))
+        }
+        _ => None,
+    };
+    let siblings = sel.map_or(0, |r| links(&g, r.parent).len());
+    let can = HeaderCan {
+        add: add_parent.is_some(),
+        selected: sel.is_some(),
+        paste: can_paste,
+        paste_link: pair.is_some(),
+        up: sel.is_some_and(|r| r.pos > 0),
+        down: sel.is_some_and(|r| r.pos + 1 < siblings),
+        viewed,
+    };
+    let mut highlight = view.highlight;
+    let h = header(app, ui, &mut highlight, can);
+    view.highlight = highlight;
+    // (Nothing that changes it, where it is only looked at: the commands
+    // set the conversation whole, which the workspace does not refuse.)
+    let edits = !viewed;
+
+    if edits
+        && (h.add || key_add)
+        && let Some(p) = add_parent
+    {
+        if popup {
+            view.input = Some(NewLine { parent: p, text: placeholder.clone(), shown: false });
+        } else {
+            // The new line is selected, its text edited in place.
+            let mut ng = Gff::clone(&g);
+            add_node(&mut ng, p, "");
+            view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
+            if let Parent::Node(k, i) = p {
+                view.collapsed.remove(&(k, i));
             }
-            Some(_) => None,
-        };
-        if (button(ui, add_parent.is_some(), icon::ADD, "Add", &add_hint).clicked() || key_add)
-            && let Some(p) = add_parent
+            actions.push(replace(key, "Add line", &ng));
+        }
+    }
+    let copy = |r: Row| {
+        copy_branch(&g, r.parent, r.pos).map(|b| DialogClip {
+            from: key,
+            branch: b,
+            target: Some(target_of(r)),
+        })
+    };
+    if (h.copy || key_copy) && sel.is_some() {
+        app.dialog_clip = sel.and_then(copy);
+        if app.dialog_clip.is_some() {
+            crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
+        }
+    }
+    let mut delete = false;
+    if edits && (h.cut || key_cut) && sel.is_some() {
+        app.dialog_clip = sel.and_then(copy);
+        if app.dialog_clip.is_some() {
+            crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
+        }
+        delete = true;
+    }
+    if edits
+        && (h.paste || key_paste)
+        && can_paste
+        && let (Some(p), Some(c)) = (add_parent, clip.as_ref())
+    {
+        let mut ng = Gff::clone(&g);
+        if paste_branch(&mut ng, p, &c.branch, c.from == key) {
+            view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
+            // (Under a folded line: opened, so that what was pasted
+            // shows.)
+            if let Parent::Node(k, i) = p {
+                view.collapsed.remove(&(k, i));
+            }
+            actions.push(replace(key, "Paste lines", &ng));
+        }
+    }
+    if edits
+        && (h.paste_link || asked == Some(Asked::PasteLink))
+        && let Some((from, to)) = pair
+    {
+        let mut ng = Gff::clone(&g);
+        if link_lines(&mut ng, from, to) {
+            actions.push(replace(key, "Paste as link", &ng));
+        }
+    }
+    if edits && (h.delete || key_delete) {
+        delete = true;
+    }
+    if delete && let Some(r) = sel {
+        let mut ng = Gff::clone(&g);
+        let renumbered = remove(&mut ng, r.parent, r.pos);
+        view.selected = None;
+        // (Followed as the conversation becomes it.)
+        if let Some((_, before)) = view.seen {
+            view.remember(Change {
+                before,
+                after: fingerprint(&ng),
+                renumbered: Some(renumbered),
+                found: false,
+                bookmarks: Vec::new(),
+                collapsed: Vec::new(),
+            });
+        }
+        actions.push(replace(key, "Delete line", &ng));
+    }
+    // Up and down among the lines of its parent: the order the game tries
+    // them in (Alt + the arrow keys, too).
+    for (up, asked) in [(true, h.up || key_up), (false, h.down || key_down)] {
+        let can = sel.is_some_and(|r| if up { r.pos > 0 } else { r.pos + 1 < siblings });
+        if edits
+            && asked
+            && can
+            && let Some(r) = sel
         {
-            if popup {
-                view.input = Some(NewLine { parent: p, text: placeholder.clone(), shown: false });
-            } else {
-                // The new line is selected, its text edited in place.
-                let mut ng = g.clone();
-                add_node(&mut ng, p, "");
-                view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
-                if let Parent::Node(k, i) = p {
-                    view.collapsed.remove(&(k, i));
-                }
-                actions.push(replace(key, "Add line", &ng));
+            let mut ng = Gff::clone(&g);
+            if let Some(pos) = shift_link(&mut ng, r.parent, r.pos, up) {
+                view.selected = Some(Row { parent: r.parent, pos });
+                let what = if up { "Move line up" } else { "Move line down" };
+                actions.push(replace(key, what, &ng));
             }
         }
-        let copy = |r: Row| {
-            copy_branch(&g, r.parent, r.pos).map(|b| DialogClip {
-                from: key,
-                branch: b,
-                target: Some(target_of(r)),
-            })
-        };
-        if button(ui, sel.is_some(), icon::COPY, "Copy", "").clicked()
-            || (key_copy && sel.is_some())
+    }
+    if h.expand {
+        view.collapsed.clear();
+    }
+    if h.collapse {
+        for k in [Kind::Entry, Kind::Reply] {
+            for i in 0..mg_module::dialog::nodes(&g, k).len() as u32 {
+                view.collapsed.insert((k, i));
+            }
+        }
+    }
+    // Export and import (dialog_io): the lines back by CSV.
+    if let Some(f) = h.export {
+        let suggested = std::path::PathBuf::from(crate::dialog_export::file_name(key, f));
+        if let Some(path) =
+            app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
         {
-            app.dialog_clip = sel.and_then(copy);
-            if app.dialog_clip.is_some() {
-                crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
-            }
-        }
-        let mut delete = false;
-        if (button(ui, sel.is_some(), icon::CUT, "Cut", "").clicked() || key_cut) && sel.is_some() {
-            app.dialog_clip = sel.and_then(copy);
-            if app.dialog_clip.is_some() {
-                crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
-            }
-            delete = true;
-        }
-        let paste_parent = add_parent;
-        let clip = app.dialog_clip.as_ref();
-        let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
-        let can_paste = paste_parent.is_some_and(fits);
-        if (button(ui, can_paste, icon::PASTE, "Paste", "").clicked() || key_paste)
-            && can_paste
-            && let (Some(p), Some(c)) = (paste_parent, clip)
-        {
-            let mut ng = g.clone();
-            if paste_branch(&mut ng, p, &c.branch, c.from == key) {
-                view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
-                // (Under a folded line: opened, so that what was pasted
-                // shows.)
-                if let Parent::Node(k, i) = p {
-                    view.collapsed.remove(&(k, i));
-                }
-                actions.push(replace(key, "Paste lines", &ng));
-            }
-        }
-        // Paste As Link: by default the selected line gets a link to the
-        // copied one (Link Destination To Source); the other way round,
-        // the copied line gets a link to the selected one.
-        let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
-        let copied = clip.filter(|c| c.from == key).and_then(|c| c.target);
-        let pair = match (selected_line, copied) {
-            (Some(dest), Some(copied)) => {
-                let (from, to) = if paste_source_first { (copied, dest) } else { (dest, copied) };
-                (from.0.child() == to.0).then_some((from, to))
-            }
-            _ => None,
-        };
-        if (button(ui, pair.is_some(), icon::PASTE_LINK, "Paste As Link", "").clicked()
-            || asked == Some(Asked::PasteLink))
-            && let Some((from, to)) = pair
-        {
-            let mut ng = g.clone();
-            if link_lines(&mut ng, from, to) {
-                actions.push(replace(key, "Paste as link", &ng));
-            }
-        }
-        if button(ui, sel.is_some(), icon::DELETE, "Delete", "").clicked() || key_delete {
-            delete = true;
-        }
-        if delete && let Some(r) = sel {
-            let mut ng = g.clone();
-            let renumbered = remove(&mut ng, r.parent, r.pos);
-            view.selected = None;
-            // (Followed as the conversation becomes it.)
-            if let Some((_, before)) = view.seen {
-                view.remember(Change {
-                    before,
-                    after: fingerprint(&ng),
-                    renumbered: Some(renumbered),
-                    found: false,
-                    bookmarks: Vec::new(),
-                    collapsed: Vec::new(),
-                });
-            }
-            actions.push(replace(key, "Delete line", &ng));
-        }
-        // Up and down among the lines of its parent: the order the game
-        // tries them in (Alt + the arrow keys, too).
-        let siblings = sel.map_or(0, |r| links(&g, r.parent).len());
-        use mg_uikit::Icon;
-        for (icon, label, up, arrow, hint) in [
-            (
-                Icon::ArrowUp,
-                "Move Up",
-                true,
-                egui::Key::ArrowUp,
-                "Move the line up among its parent's (Alt+Up)",
-            ),
-            (
-                Icon::ArrowDown,
-                "Move Down",
-                false,
-                egui::Key::ArrowDown,
-                "Move the line down among its parent's (Alt+Down)",
-            ),
-        ] {
-            let can = sel.is_some_and(|r| if up { r.pos > 0 } else { r.pos + 1 < siblings });
-            let key_move = here && ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, arrow));
-            let clicked = ui
-                .add_enabled(can, crate::widgets::icon_only(icon, label))
-                .on_hover_text(hint)
-                .on_disabled_hover_text(hint)
-                .clicked();
-            if (clicked || key_move)
-                && can
-                && let Some(r) = sel
-            {
-                let mut ng = g.clone();
-                if let Some(pos) = shift_link(&mut ng, r.parent, r.pos, up) {
-                    view.selected = Some(Row { parent: r.parent, pos });
-                    let what = if up { "Move line up" } else { "Move line down" };
-                    actions.push(replace(key, what, &ng));
-                }
-            }
-        }
-        ui.separator();
-        if button(ui, true, icon::EXPAND_ALL, "Expand All", "").clicked() {
-            view.collapsed.clear();
-        }
-        if button(ui, true, icon::COLLAPSE_ALL, "Collapse All", "").clicked() {
-            for k in [Kind::Entry, Kind::Reply] {
-                for i in 0..mg_module::dialog::nodes(&g, k).len() as u32 {
-                    view.collapsed.insert((k, i));
-                }
-            }
-        }
-        ui.separator();
-        for (i, (g, label)) in [
-            (icon::COMMENTS, "Comments"),
-            (icon::ACTIONS, "Actions"),
-            (icon::QUESTS, "Quests"),
-            (icon::ANIMATIONS, "Animations"),
-            (icon::SOUNDS, "Sounds"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let tip = format!("Highlight lines with {}", label.to_lowercase());
-            tools.toggle_word(ui, &mut view.highlight[i], g, label, &tip);
-        }
-        ui.separator();
-        // Export and import (dialog_io): the lines back by CSV.
-        let mut export = None;
-        let menu = tools.word_widget(icon::EXPORT, "Export").menu(ui, |ui| {
-            mg_uikit::menu_rows(ui);
-            for f in mg_module::dialog_io::Format::ALL {
-                if ui.button(format!("{}…", f.name())).clicked() {
-                    export = Some(f);
-                    ui.close();
-                }
-            }
-        });
-        tools.named(menu.response, "Export", "The lines out: plain text, CSV, Twine or Ink");
-        if let Some(f) = export {
-            let suggested = std::path::PathBuf::from(crate::dialog_export::file_name(key, f));
-            if let Some(path) =
-                app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
-            {
-                // (As the module tree's Export as Ink… and the rest write
-                // each of several.)
-                let text = crate::dialog_export::text_of(&g, key, f);
-                match std::fs::write(&path, text) {
-                    Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
-                    Err(e) => app.log.error(format!("{}: {e}", path.display())),
-                }
-            }
-        }
-        if button(
-            ui,
-            true,
-            icon::IMPORT,
-            "Import Lines…",
-            "Read back the text, speakers and comments of a CSV export",
-        )
-        .clicked()
-            && let Some(path) = app.dialogs.open_file(
-                crate::dialogs::FileKind::Conversation(mg_module::dialog_io::Format::Csv),
-                None,
-            )
-        {
-            let mut ng = g.clone();
-            let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
-            let game = crate::text::game_table();
-            match read.and_then(|csv| mg_module::dialog_io::update_from_csv_in(&mut ng, &csv, game))
-            {
-                Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
-                Ok(n) => {
-                    app.log.info(format!("{}: {n} line(s) changed", path.display()));
-                    actions.push(replace(key, "Import lines", &ng));
-                }
+            // (As the module tree's Export as Ink… and the rest write each
+            // of several.)
+            let text = crate::dialog_export::text_of(&g, key, f);
+            match std::fs::write(&path, text) {
+                Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
                 Err(e) => app.log.error(format!("{}: {e}", path.display())),
             }
         }
-        ui.separator();
-        let mut scripts = !app.settings.dialog_hide_scripts;
-        let tip = "Show each line's condition, action, journal update and sound";
-        if tools.toggle_word(ui, &mut scripts, icon::SCRIPTS, "Scripts", tip).changed() {
-            app.settings.dialog_hide_scripts = !scripts;
+    }
+    if edits
+        && h.import
+        && let Some(path) = app.dialogs.open_file(
+            crate::dialogs::FileKind::Conversation(mg_module::dialog_io::Format::Csv),
+            None,
+        )
+    {
+        let mut ng = Gff::clone(&g);
+        let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+        let game = crate::text::game_table();
+        match read.and_then(|csv| mg_module::dialog_io::update_from_csv_in(&mut ng, &csv, game)) {
+            Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
+            Ok(n) => {
+                app.log.info(format!("{}: {n} line(s) changed", path.display()));
+                actions.push(replace(key, "Import lines", &ng));
+            }
+            Err(e) => app.log.error(format!("{}: {e}", path.display())),
         }
-    });
-    ui.separator();
+    }
+    if h.test {
+        view.test = Some(Vec::new());
+    }
+    // Find and Replace, and Find Next (Options › Keyboard): the Node
+    // section's Search, brought to the front (`search_forward`).
+    if key_find || key_find_next {
+        view.search.focus = key_find;
+        view.search.again = key_find_next;
+        app.dialog_search_forward = Some(key);
+    }
 
-    // The fields of the selection.
-    // (At most seven tenths of the editor: the lines keep their room.)
-    let most = (ui.available_height() * 0.7).max(80.0);
-    let fields = egui::Panel::bottom(egui::Id::new(("dlg-data", key)))
-        .resizable(true)
-        .default_size(260.0f32.min(most))
-        .max_size(most);
-    fields.show(ui, |ui| {
-        // As tall as it was dragged to, whatever is in it: a panel is as
-        // tall as its content, and the pane went back to it (shorter, for
-        // a line with less to show) after it was dragged taller.
-        ui.set_min_height(ui.max_rect().height());
-        let words = g.root.dword("NumWords").unwrap_or(0);
-        // Find and Replace, and Find Next (Options › Keyboard): the
-        // Search pane.
-        if key_find || key_find_next {
-            view.bottom = Bottom::Search;
-            view.search.focus = key_find;
-            view.search.again = key_find_next;
-        }
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut view.bottom, Bottom::Data, "Data");
-            ui.selectable_value(&mut view.bottom, Bottom::Bookmarks, "Bookmarks");
-            ui.selectable_value(&mut view.bottom, Bottom::Search, "Search");
-            ui.separator();
-            let sel = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
-            if ui.add_enabled(sel.is_some(), egui::Button::new("Bookmark").small()).clicked()
-                && let Some(r) = sel
-            {
-                let t = target_of(r);
-                if let Some(i) = view.bookmarks.iter().position(|b| *b == t) {
-                    view.bookmarks.remove(i);
-                } else {
-                    view.bookmarks.push(t);
-                }
-            }
-            if ui.button("Test").on_hover_text("Click through the conversation").clicked() {
-                view.test = Some(Vec::new());
-            }
-        });
-        ui.separator();
-        // (Shorter or narrower than what it shows, it scrolls: the window
-        // fits its pane, `TabViewer::scroll_bars`.)
-        let body = egui::ScrollArea::both().id_salt(("dlg-data-body", key)).auto_shrink(false);
-        body.show(ui, |ui| {
-            if view.bottom == Bottom::Bookmarks {
-                mg_uikit::list_rows(ui);
-                for (kind, index) in view.bookmarks.clone() {
-                    let Some(n) = node(&g, kind, index) else { continue };
-                    if ui
-                        .selectable_label(
-                            false,
-                            format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
-                        )
-                        .clicked()
-                    {
-                        go_to_line(&mut view, &g, kind, index);
-                    }
-                }
-                return;
-            }
-            if view.bottom == Bottom::Search {
-                search_pane(app, ui, key, &g, &mut view, &mut actions);
-                return;
-            }
-            // A row added this frame appears once the command has run.
-            match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
-                None => {
-                    ui.weak(format!("Root. {words} words in the file. Add adds an NPC greeting."));
-                    file_tab(app, ui, key, &g, &mut actions);
-                }
-                Some(r) => {
-                    let (kind, index) = target_of(r);
-                    let link = links(&g, r.parent)[r.pos].clone();
-                    let Some(n) = node(&g, kind, index).cloned() else { return };
-                    let line = text(&n);
-                    ui.weak(format!(
-                        "Line: {} letters, {} words. File: {words} words.{}",
-                        line.chars().count(),
-                        line.split_whitespace().count(),
-                        if is_link(&link) {
-                            " This row is a link: the line is edited where it is owned."
-                        } else {
-                            ""
-                        }
-                    ));
-                    ui.columns(2, |cols| {
-                        text_panel(
-                            app,
-                            &mut cols[0],
-                            key,
-                            kind,
-                            index,
-                            &n,
-                            &mut view,
-                            &mut actions,
-                        );
-                        let ui = &mut cols[1];
-                        // (Wrapped where the column is narrower: a row
-                        // wider than the column widened it past the
-                        // pane's edge, and the rows under it with it,
-                        // the parameters' buttons out of sight.)
-                        ui.horizontal_wrapped(|ui| {
-                            for (t, label) in [
-                                (DataTab::Condition, "Text Appears When…"),
-                                (DataTab::Action, "Actions Taken"),
-                                (DataTab::Other, "Other Actions"),
-                                (DataTab::Comments, "Comments"),
-                                (DataTab::File, "Current File"),
-                            ] {
-                                ui.selectable_value(&mut view.tab, t, label);
-                            }
-                        });
-                        ui.separator();
-                        egui::ScrollArea::vertical().id_salt(("dlg-tab", key)).show(ui, |ui| {
-                            match view.tab {
-                                DataTab::Condition => script_with_params(
-                                    app,
-                                    ui,
-                                    key,
-                                    link_path(r),
-                                    true,
-                                    &link,
-                                    &mut view,
-                                    &mut actions,
-                                ),
-                                DataTab::Action => script_with_params(
-                                    app,
-                                    ui,
-                                    key,
-                                    node_path(kind, index),
-                                    false,
-                                    &n,
-                                    &mut view,
-                                    &mut actions,
-                                ),
-                                DataTab::Other => {
-                                    other_tab(app, ui, key, kind, index, &n, &mut actions)
-                                }
-                                DataTab::Comments => {
-                                    let (path, label, value) = if is_link(&link) {
-                                        (
-                                            link_path(r),
-                                            "LinkComment",
-                                            decode(link.string("LinkComment").unwrap_or_default()),
-                                        )
-                                    } else {
-                                        (
-                                            node_path(kind, index),
-                                            "Comment",
-                                            decode(n.string("Comment").unwrap_or_default()),
-                                        )
-                                    };
-                                    let id =
-                                        egui::Id::new(("dlg-comment", key, kind, index, label));
-                                    if let Some(v) =
-                                        commit_text(app, ui, id, &value, true, f32::INFINITY)
-                                    {
-                                        actions.push(set(
-                                            key,
-                                            "Comment",
-                                            path,
-                                            label,
-                                            Value::String(encode(&v)),
-                                        ));
-                                    }
-                                }
-                                DataTab::File => file_tab(app, ui, key, &g, &mut actions),
-                            }
-                        });
-                    });
-                }
-            }
-        });
-    });
-
+    // A floating conversation's Outliner folded to a strip at the tree's
+    // left, under the header (M4's U15 review: the pane gives way before
+    // the header does), where its window has not the room for its pane.
+    let owner = crate::outliner::Owner::Dialog(key);
+    if app.outliner.strips_now.contains(&owner) {
+        crate::outliner::strip(app, ui, owner);
+    }
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
@@ -1525,7 +1678,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.scroll_with_delta(egui::vec2(0.0, -(view.scroll as f32) * pitch));
             view.scroll = 0;
         }
+        let fill_at = ui.painter().add(egui::Shape::Noop);
         let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
+        if view.selected.is_none() {
+            fill_row(ui, fill_at, root.rect);
+        }
         if root.clicked() {
             view.selected = None;
         }
@@ -1551,6 +1708,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             &mut dropped,
         );
     });
+
     let pitch = mg_uikit::row_metrics(ui).1;
     view.page = ((shown.inner_rect.height() / pitch) as usize).saturating_sub(1).max(1);
     // A line folded over the selection (its − button, the keypad's −,
@@ -1568,8 +1726,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // on, or above it if that is a line of its own kind (the player's on
     // the player's); with Ctrl it links them instead, by default the dragged line to
     // the other (Link Source To Destination).
-    if let Some(d) = dropped {
-        let mut ng = g.clone();
+    // (Not where it is only looked at: a conversation set whole is not one
+    // the workspace refuses.)
+    if edits && let Some(d) = dropped {
+        let mut ng = Gff::clone(&g);
         let source = target_of(d.from);
         let done = match d.onto {
             Parent::Node(k, i) if d.link => {
@@ -1601,7 +1761,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let (mut ok, mut cancel) = (false, false);
         let window =
             crate::widgets::modal(ui.ctx(), "Input Text").id(egui::Id::new(("dlg-input", key)));
-        window.show(ui.ctx(), |ui| {
+        let footed = window.show_foot(ui.ctx(), |ui| {
             ui.set_width(340.0);
             ui.label(prompt.as_str());
             let id = egui::Id::new(("dlg-input-text", key));
@@ -1619,14 +1779,17 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 out.response.request_focus();
                 input.shown = true;
             }
-            ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
-                    || crate::widgets::enter(ui);
-                cancel = crate::widgets::cancel_discard(ui);
-            });
+            (
+                (),
+                crate::widgets::Foot::new().main("OK", true).tip("Accept changes").cancel_discard(),
+            )
         });
+        if let Some(footed) = &footed {
+            ok = footed.pressed.main();
+            cancel = footed.pressed.cancelled();
+        }
         if ok {
-            let mut ng = g.clone();
+            let mut ng = Gff::clone(&g);
             let kind = input.parent.child_kind();
             let i = add_node(&mut ng, input.parent, "");
             // (With plain line ends, as Aurora writes a line's text.)
@@ -1671,8 +1834,652 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     view.selected_line = view.selected.and_then(|r| {
         links(&g, r.parent).get(r.pos).map(|l| (r.parent.child_kind(), link_index(l)))
     });
+    follow_panels(app, ui.ctx(), key, &view);
     app.dialog_views.insert(key, view);
     app.actions.extend(actions);
+    h.pressed
+}
+
+/// A tool of the Node section's bar (the Conversation board's, at its
+/// end): Bookmark and Test ([`node_tools`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NodeTool {
+    Bookmark,
+    Test,
+}
+
+/// The Node section's Bookmark's tip.
+pub(crate) const BOOKMARK_TIP: &str = "Bookmark the line chosen, or take its bookmark off";
+
+/// Test's tip, on the header and on the Node section's bar: one name,
+/// "Test", on both (the coordinator's ruling at U14's review: the board's
+/// "Test: click through the conversation" reads as a name and a tip).
+const TEST_TIP: &str = "Click through the conversation.";
+
+/// The conversation an editor's panel draws for: its tab's.
+fn dialog_of(editor: Option<&Tab>) -> Option<ResKey> {
+    match editor {
+        Some(Tab::Dialog(key)) => Some(*key),
+        _ => None,
+    }
+}
+
+/// The name of a floating editor's window's Outliner's strip (its fold
+/// strip's dock, for a screen reader and the tests): a conversation's
+/// (M4's U15) and a table's (U16), `outliner::strip`.
+pub const OUTLINER_STRIP: &str = "Window's Outliner";
+
+/// The width of the Node section's tools ([`node_tools`]).
+pub(crate) fn node_tools_width(ui: &Ui) -> f32 {
+    2.0 * mg_uikit::IconButton::new(mg_uikit::Icon::Bookmark, "").icon_only(true).width(ui)
+}
+
+/// Whether the Node section's Bookmark can be pressed for `editor`'s
+/// conversation: a line is chosen. (Noted with the pass for the editor's
+/// redraw: [`follow_panels`].)
+pub(crate) fn node_tools_enabled(app: &Moonglow, editor: Option<&Tab>, pass: u64) -> bool {
+    let Some(view) = dialog_of(editor).and_then(|k| app.dialog_views.get(&k)) else {
+        return false;
+    };
+    let chosen = view.selected.is_some();
+    view.bar_drawn.set(Some((pass, chosen)));
+    chosen
+}
+
+/// The Node section's tools at its bar's end (the Conversation board's
+/// `.panel-tabs .tools`): Bookmark (where a line is chosen, `bookmark`)
+/// and Test; the one clicked.
+pub(crate) fn node_tools(ui: &mut Ui, bookmark: bool) -> Option<NodeTool> {
+    let icon = |icon, name: &str| mg_uikit::IconButton::new(icon, name).icon_only(true);
+    let marked = ui
+        .add_enabled(bookmark, icon(mg_uikit::Icon::Bookmark, "Bookmark"))
+        .on_hover_text(BOOKMARK_TIP)
+        .on_disabled_hover_text(BOOKMARK_TIP);
+    let test = ui.add(icon(mg_uikit::Icon::Test, "Test")).on_hover_text(TEST_TIP);
+    if marked.clicked() {
+        Some(NodeTool::Bookmark)
+    } else if test.clicked() {
+        Some(NodeTool::Test)
+    } else {
+        None
+    }
+}
+
+/// What a Node section's tool does for `editor`'s conversation: Bookmark
+/// puts a bookmark on the line chosen, or takes it off; Test opens the
+/// Conversation Test.
+pub(crate) fn node_tool(app: &mut Moonglow, editor: Option<&Tab>, tool: NodeTool) {
+    let Some(key) = dialog_of(editor) else { return };
+    let target = match &mut app.ws {
+        Some(ws) => ws.doc(&key).ok().and_then(|g| {
+            let r = app.dialog_views.get(&key)?.selected?;
+            let link = links(g, r.parent).get(r.pos)?;
+            Some((r.parent.child_kind(), link_index(link)))
+        }),
+        None => None,
+    };
+    let Some(view) = app.dialog_views.get_mut(&key) else { return };
+    match tool {
+        NodeTool::Bookmark => {
+            if let Some(t) = target {
+                match view.bookmarks.iter().position(|b| *b == t) {
+                    Some(i) => _ = view.bookmarks.remove(i),
+                    None => view.bookmarks.push(t),
+                }
+            }
+        }
+        NodeTool::Test => view.test = Some(Vec::new()),
+    }
+}
+
+/// What a conversation's panels asked for in a frame its editor was not
+/// drawn after them (its tab closed meanwhile, its window folded): set as
+/// the frame ends, with the frame's other actions, before anything can
+/// number its lines anew under it; never kept for a later frame, where it
+/// could land on another line. Its Cancel does not set it back: no window
+/// drew it. Called as each frame's actions are run.
+pub(crate) fn flush_panels(app: &mut Moonglow) {
+    for view in app.dialog_views.values_mut() {
+        if !view.from_panels.is_empty() {
+            app.actions.append(&mut view.from_panels);
+        }
+    }
+}
+
+/// Find (Ctrl+F) or Find Next (F3) pressed in a conversation
+/// (`Moonglow::dialog_search_forward`): its Search brought to the front,
+/// acted on as the frame begins, before the docks are drawn (the editor,
+/// drawn inside the dock area, cannot see the active editor, as a
+/// script's Help, `shell::help_forward`). Where it floats, its window's
+/// right pane shows it (`Moonglow::window_rights`, for each of the
+/// window's tabs: the pane is drawn for the one in front), the main
+/// window's Right Dock left as it was; docked, its group takes the focus
+/// where another group had it (the keys fired over it), and Search is the
+/// Right Dock's panel, the dock unfolded where the builder had folded it.
+/// Nothing kept in the settings.
+pub(crate) fn search_forward(app: &mut Moonglow) {
+    let Some(key) = app.dialog_search_forward.take() else { return };
+    let search = crate::shell::Panel::NodeSearch;
+    let tab = Tab::Dialog(key);
+    let Some(at) = app.dock.find_tab(&tab) else { return };
+    if !at.surface.is_main() {
+        let tabs: Vec<Tab> = (app.dock.iter_leaves())
+            .filter(|(p, _)| p.surface == at.surface)
+            .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
+            .collect();
+        for t in tabs {
+            app.window_rights.insert(t, search);
+        }
+        return;
+    }
+    // (Docked in a group without the focus, the pointer over it: its
+    // group takes the focus, as a click there gives it, and the Right
+    // Dock is its.)
+    if app.active_editor() != Some(&tab) {
+        app.show_tab(tab.clone());
+    }
+    if app.active_editor() == Some(&tab) {
+        if crate::shell::right_folded(app) {
+            app.show_dock_panel(search);
+        } else {
+            crate::shell::focus_right(app, search);
+        }
+    } else if let Some(view) = app.dialog_views.get_mut(&key) {
+        // (Nowhere to show it: nothing left asked, to take the keyboard
+        // later.)
+        view.search.focus = false;
+        view.search.again = false;
+    }
+}
+
+/// After the editor `view` is drawn: where one of its panels drawn in
+/// this pass (before the editor) showed another line chosen than the one
+/// it ends with (a click in the tree, its keys), or the Node section's
+/// Bookmark another state, or its Search is to come to the front, the
+/// next frame is asked for, once; a panel not drawn asks for nothing (the
+/// endless redraw of M4's U12 review must not come back through them).
+fn follow_panels(app: &Moonglow, ctx: &egui::Context, key: ResKey, view: &DialogView) {
+    let pass = ctx.cumulative_pass_nr();
+    let data = view.data_drawn.is_some_and(|(p, was)| p == pass && was != view.selected);
+    let bar =
+        (view.bar_drawn.get()).is_some_and(|(p, was)| p == pass && was != view.selected.is_some());
+    if data || bar || app.dialog_search_forward == Some(key) {
+        ctx.request_repaint();
+    }
+}
+
+/// Whether F6 came to the panel of `keys` (`Moonglow::dialog_panel_focus`):
+/// taken by that panel alone, so that another drawn before it leaves it.
+fn take_focus(app: &mut Moonglow, keys: crate::palette_view::Keys) -> bool {
+    let to = app.dialog_panel_focus == Some(keys);
+    if to {
+        app.dialog_panel_focus = None;
+    }
+    to
+}
+
+/// What [`begin_panel`] gives a conversation's panel: its key, the
+/// conversation, its view, the window's style to put back and whether it
+/// is only looked at.
+type Begun = (ResKey, std::sync::Arc<Gff>, DialogView, Option<std::sync::Arc<egui::Style>>, bool);
+
+/// What a conversation's panel begins with, for `editor`'s conversation:
+/// its key, the conversation, its view ([`begin`]), the editor's larger
+/// text on `ui` (the window's style to put back, [`usual_text`]), and
+/// whether it is only looked at; a press in it gives the conversation's
+/// tree the keys (Delete, Find and the rest are the conversation's, as
+/// they were from its bottom pane); F6 there (`keys`) outlined.
+fn begin_panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    editor: Option<&Tab>,
+    keys: crate::palette_view::Keys,
+) -> Option<Begun> {
+    let key = dialog_of(editor)?;
+    let (g, view) = begin(app, ui.ctx(), key).ok()?;
+    crate::palette_view::keys_outline(ui, ui.max_rect(), keys);
+    if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
+        take_keys(ui.ctx(), key);
+    }
+    let usual = larger_text(app, ui);
+    let viewed = looked_at(app, &key);
+    Some((key, g, view, usual, viewed))
+}
+
+/// A conversation's panel ends: what it asked for kept for the editor to
+/// set (its Cancel's: [`ui`]), or, where it is only looked at (`viewed`),
+/// refused and said in the log; the view put back, the window's style
+/// back.
+fn end_panel(
+    app: &mut Moonglow,
+    ui: &Ui,
+    (key, viewed): (ResKey, bool),
+    mut view: DialogView,
+    actions: Vec<Action>,
+    usual: Option<std::sync::Arc<egui::Style>>,
+) {
+    match viewed {
+        true if !actions.is_empty() => {
+            app.log.warn(format!("{key} is only looked at: nothing in it was changed"));
+        }
+        true => {}
+        false => view.from_panels.extend(actions),
+    }
+    app.dialog_views.insert(key, view);
+    usual_text(ui, usual);
+}
+
+/// The room round a conversation's panel's body (the board's `.content`:
+/// 8 at its left, top and foot, 4 at its right before its scroll bar's 8).
+const PANEL_MARGIN: egui::Margin = egui::Margin { left: 8, right: 12, top: 8, bottom: 8 };
+
+/// The words of the readout over a conversation's Data (the board's
+/// `.readout`: 11 points, `text-3`).
+fn readout(ui: &mut Ui, words: String) {
+    let size = egui::TextStyle::Small.resolve(ui.style()).size;
+    ui.add(egui::Label::new(RichText::new(words).size(size).weak()).wrap());
+}
+
+/// The conversation's Data (M4's U14, the Right Dock's Node section's
+/// first tab, or its window's right pane): the line chosen, as the
+/// Conversation board draws it, its sections on one scroll: Text (Speaker
+/// tag, the text with its languages button and Token…), Text Appears
+/// When… and Actions Taken (each its Script Wizard…, script, parameters
+/// and preview), Other Actions (animation, sound, journal) and Comments;
+/// over them how many letters and words the line's text shown has (the
+/// talk table's where its text is, the proposal's finding 13.2) and the
+/// file's. With Root chosen, what Add adds. Its fields' ids are the
+/// line's, so a field typed in never writes to another line as the
+/// selection moves.
+pub(crate) fn node_data(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
+    let keys = crate::palette_view::Keys::NodeData;
+    let Some((key, g, mut view, usual, viewed)) = begin_panel(app, ui, editor, keys) else {
+        return;
+    };
+    let focus = take_focus(app, keys);
+    view.data_drawn = Some((ui.ctx().cumulative_pass_nr(), view.selected));
+    let mut actions = Vec::new();
+    let scroll = egui::ScrollArea::vertical().id_salt(("dlg-node-data", key)).auto_shrink(false);
+    scroll.show(ui, |ui| {
+        egui::Frame::new().inner_margin(PANEL_MARGIN).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            crate::blueprint::read_only_if(ui, viewed, |ui| {
+                data_body(app, ui, key, &g, &mut view, &mut actions, (focus, viewed));
+            });
+        });
+    });
+    end_panel(app, ui, (key, viewed), view, actions, usual);
+}
+
+/// [`node_data`]'s sections.
+fn data_body(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    g: &Gff,
+    view: &mut DialogView,
+    actions: &mut Vec<Action>,
+    (focus, viewed): (bool, bool),
+) {
+    let words = g.root.dword("NumWords").unwrap_or(0);
+    let Some(r) = view.selected else {
+        readout(ui, format!("Root. File: {words} words. Add adds an NPC greeting."));
+        return;
+    };
+    let link = links(g, r.parent)[r.pos].clone();
+    let (kind, index) = (r.parent.child_kind(), link_index(&link));
+    let Some(n) = node(g, kind, index).cloned() else { return };
+    // (The text shown: the talk table's where the line's is there, as
+    // its field's note shows it; finding 13.2.)
+    let line = line_text(app.game.as_deref(), &n);
+    readout(
+        ui,
+        format!(
+            "Line: {} letters, {} words. File: {words} words.{}",
+            line.chars().count(),
+            line.split_whitespace().count(),
+            if is_link(&link) {
+                " This row is a link: the line is edited where it is owned."
+            } else {
+                ""
+            }
+        ),
+    );
+    ui.add_space(2.0);
+    // (Save Set's name of another line's, forgotten: the places of this
+    // line's condition and action, as `script_with_params` makes them.)
+    let places = [format!("cond {}", link_path(r)), format!("act {}", node_path(kind, index))];
+    if view.param_set_name.as_ref().is_some_and(|(p, _)| !places.contains(p)) {
+        view.param_set_name = None;
+    }
+    panel_heading(ui, "Text", None);
+    text_panel(app, ui, key, kind, index, &n, view, actions, focus);
+    for (condition, heading) in [(true, "Text Appears When…"), (false, "Actions Taken")] {
+        ui.add_space(mg_uikit::form::SECTION_GAP);
+        // (Its Script Wizard… at the heading's end, where the panel has
+        // room for both; else on a line of its own under it.)
+        // (Measured at the editor's text size, as the heading is drawn;
+        // off where the conversation is only looked at: it writes a script
+        // and sets it.)
+        let mut wizard = false;
+        let tip = "Write a new script from a few choices";
+        let room = heading_width(ui, heading)
+            + mg_uikit::metrics::GAP_M
+            + button_room(ui, "Script Wizard…");
+        let mut button = |ui: &mut Ui| {
+            let b = egui::Button::new("Script Wizard…");
+            wizard = ui.add_enabled(!viewed, b).on_hover_text(tip).clicked();
+        };
+        if room <= ui.available_width() {
+            panel_heading(ui, heading, Some(&mut button));
+        } else {
+            panel_heading(ui, heading, None);
+            button(ui);
+        }
+        let (path, s, label) = match condition {
+            true => (link_path(r), &link, "Active"),
+            false => (node_path(kind, index), &n, "Script"),
+        };
+        if wizard && !viewed {
+            app.open_script_wizard(key, path.clone(), label, condition);
+        }
+        script_with_params(app, ui, key, path, condition, s, view, actions);
+    }
+    ui.add_space(mg_uikit::form::SECTION_GAP);
+    panel_heading(ui, "Other Actions", None);
+    other_tab(app, ui, key, kind, index, &n, actions);
+    ui.add_space(mg_uikit::form::SECTION_GAP);
+    panel_heading(ui, "Comments", None);
+    let (path, label, value) = if is_link(&link) {
+        (link_path(r), "LinkComment", decode(link.string("LinkComment").unwrap_or_default()))
+    } else {
+        (node_path(kind, index), "Comment", decode(n.string("Comment").unwrap_or_default()))
+    };
+    let id = egui::Id::new(("dlg-comment", key, kind, index, label));
+    let width = ui.available_width();
+    if let Some(v) = commit_text(app, ui, id, &value, true, width) {
+        actions.push(set(key, "Comment", path, label, Value::String(encode(&v))));
+    }
+}
+
+/// The conversation's Search (M4's U14, the Node section's second tab):
+/// Find and Replace in this conversation or the module's, its results a
+/// click going to their lines. (Its bookmarks are the Outliner's since
+/// M4's U15: [`bookmark_rows`].)
+pub(crate) fn node_search(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
+    let keys = crate::palette_view::Keys::NodeSearch;
+    let Some((key, g, mut view, usual, viewed)) = begin_panel(app, ui, editor, keys) else {
+        return;
+    };
+    if take_focus(app, keys) {
+        view.search.focus = true;
+    }
+    let mut actions = Vec::new();
+    let scroll = egui::ScrollArea::vertical().id_salt(("dlg-node-search", key)).auto_shrink(false);
+    scroll.show(ui, |ui| {
+        egui::Frame::new().inner_margin(PANEL_MARGIN).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            search_pane(app, ui, key, &g, &mut view, &mut actions, viewed);
+        });
+    });
+    end_panel(app, ui, (key, viewed), view, actions, usual);
+}
+
+/// Conversation `key`'s bookmarks as the Outliner lists them (M4's U15,
+/// the Conversation board's): each line's kind and number, and its row's
+/// words, "Entry 40: Welcome, <FullName>. …" (its kind, its number and the
+/// first line of its text shown, the talk table's where the line's is
+/// there), in the order they were set; followed to their lines first
+/// ([`begin`]: across a delete, its undo, a change made elsewhere). None
+/// where the conversation cannot be read. (No stamp for the editor's
+/// redraw: what changes them after the Outliner is drawn, the Node bar's
+/// Bookmark, is a click, after which egui draws a frame anyway; an edit
+/// and an outside change ask for their own. M4's U15 review.)
+pub(crate) fn bookmark_rows(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    key: ResKey,
+) -> Option<Vec<((Kind, u32), String)>> {
+    let (g, view) = begin(app, ctx, key).ok()?;
+    let rows = (view.bookmarks.iter())
+        .filter_map(|&(kind, index)| {
+            let n = node(&g, kind, index)?;
+            let text = line_text(app.game.as_deref(), n);
+            let first = text.lines().next().unwrap_or_default();
+            Some(((kind, index), format!("{kind:?} {index}: {first}")))
+        })
+        .collect();
+    app.dialog_views.insert(key, view);
+    Some(rows)
+}
+
+/// A bookmark of conversation `key` chosen in the Outliner (a click on its
+/// row, Enter): its line selected in the tree, the lines over it opened
+/// out, and scrolled to ([`go_to_line`]), as the old Bookmarks list did.
+pub(crate) fn go_to_bookmark(
+    app: &mut Moonglow,
+    ctx: &egui::Context,
+    key: ResKey,
+    (kind, index): (Kind, u32),
+) {
+    let Ok((g, mut view)) = begin(app, ctx, key) else { return };
+    go_to_line(&mut view, &g, kind, index);
+    app.dialog_views.insert(key, view);
+    ctx.request_repaint();
+}
+
+/// The Conversation panel's header's detail (the board's "3834 words in
+/// the file"): its words, as the file counts them.
+pub(crate) fn words_detail(app: &Moonglow, editor: Option<&Tab>) -> Option<String> {
+    let words = file_words(app, dialog_of(editor)?)?;
+    Some(format!("{words} words in the file"))
+}
+
+/// Conversation `key`'s words, as the file counts them (`NumWords`): the
+/// Conversation panel's header and the Status Bar's count.
+pub(crate) fn file_words(app: &Moonglow, key: ResKey) -> Option<u32> {
+    let ws = app.ws.as_ref()?;
+    let g = ws.loaded(&key).or_else(|| ws.viewed_doc(&key))?;
+    Some(g.root.dword("NumWords").unwrap_or(0))
+}
+
+/// The Conversation panel (M4's U14, under the Node section): the
+/// conversation's own settings, Normal end, Aborted and Stop camera zoom
+/// in (today's Current File page); its word count in its header
+/// ([`words_detail`]), or, sharing the Right Dock's one tab bar under
+/// 1400, at its own top.
+pub(crate) fn conversation_panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    editor: Option<&Tab>,
+    titled: bool,
+) {
+    let keys = crate::palette_view::Keys::Conversation;
+    let Some((key, g, view, usual, viewed)) = begin_panel(app, ui, editor, keys) else {
+        return;
+    };
+    let focus = take_focus(app, keys);
+    let mut actions = Vec::new();
+    let scroll = egui::ScrollArea::vertical().id_salt(("dlg-file-panel", key)).auto_shrink(false);
+    let shown = scroll.show(ui, |ui| {
+        egui::Frame::new().inner_margin(PANEL_MARGIN).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            if !titled {
+                let words = g.root.dword("NumWords").unwrap_or(0);
+                readout(ui, format!("{words} words in the file"));
+            }
+            crate::blueprint::read_only_if(ui, viewed, |ui| {
+                file_tab(app, ui, key, &g, &mut actions, focus);
+            });
+        });
+    });
+    // (Its height as drawn, for its section's least height from the next
+    // frame, `conversation_least`: a frame more where it changed, once.)
+    let high = shown.content_size.y.ceil();
+    if titled && (high - app.dialog_conversation_height).abs() > 0.5 {
+        app.dialog_conversation_height = high;
+        ui.ctx().request_repaint();
+    }
+    end_panel(app, ui, (key, viewed), view, actions, usual);
+}
+
+/// The Conversation panel's least height in a stacked Right Dock (or
+/// window's pane) section: its bar and its three rows (Normal end,
+/// Aborted, Stop camera zoom in) at the editor's text size, with its
+/// margins: nothing of it cut at rest (the coordinator's ruling at U14's
+/// review; `shell::section_least`).
+pub(crate) fn conversation_least(app: &Moonglow) -> f32 {
+    let body = mg_uikit::metrics::BODY_SIZE;
+    let by = app.settings.dialog_font_size.map_or(1.0, |s| f32::from(s.clamp(6, 48)) / body);
+    let row = mg_uikit::metrics::CONTROL_HEIGHT * by.max(1.0) + 6.0;
+    let margins = f32::from(PANEL_MARGIN.top + PANEL_MARGIN.bottom);
+    let rows = (mg_uikit::metrics::DOCK_TABS + 3.0 * row + margins + 4.0).ceil();
+    // (Or as tall as it was drawn last, where its rows stood their labels
+    // over their fields: the narrow dock at the larger text.)
+    let drawn = mg_uikit::metrics::DOCK_TABS + app.dialog_conversation_height + 2.0;
+    rows.max(drawn.ceil())
+}
+
+/// The least width of a field beside its label in a conversation's panel
+/// ([`form_row`]): under it the label stands over the field.
+const FIELD_LEAST: f32 = 120.0;
+/// A field label's width in a conversation's panel (the board's
+/// `--lbl-w: 96px`), or its words' where they are wider (the editor's
+/// larger text).
+const LABEL_WIDTH: f32 = 96.0;
+
+/// How much larger than the kit's body the text of `ui` is (the
+/// conversation editor's larger text, Options › Conversation Editor), at
+/// least 1.
+fn text_scale(ui: &Ui) -> f32 {
+    let body = egui::TextStyle::Body.resolve(ui.style()).size;
+    (body / mg_uikit::metrics::BODY_SIZE).max(1.0)
+}
+
+/// The width a field needs to show 16 characters of a name (a resref, a
+/// tag) in the text size of `ui`: 16 of the letters, digits and underscore
+/// a name is written in, as wide as they average, with the field's
+/// margins and the cursor's room.
+fn name_least(ui: &Ui) -> f32 {
+    const CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789_";
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let all = ui.painter().layout_no_wrap(CHARS.to_string(), font, Color32::WHITE).size().x;
+    let margin = mg_uikit::controls::FIELD_MARGIN;
+    (all / CHARS.len() as f32 * 16.0 + f32::from(margin.left) + f32::from(margin.right) + 2.0)
+        .ceil()
+}
+
+/// The room `widgets::resref_field` keeps for its `…` button beside the
+/// field, and the gaps.
+fn picker_room(ui: &Ui) -> f32 {
+    // (A square as high as the field, after the gap.)
+    ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.x + 2.0
+}
+
+/// A row of a resref field (a script's, a sound's) labeled `label`, with
+/// `trailing` points kept after its picker for what follows it (Edit,
+/// Play): the field as wide as the row leaves it, never narrower than 16
+/// characters of a name need ([`name_least`]); where the row beside the
+/// label has not that room, the label stands over the row
+/// ([`form_row_least`]). `add` lays out the field (`widgets::resref_field`,
+/// given its width) and what follows it.
+fn resref_row<R>(ui: &mut Ui, label: &str, trailing: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let slack = ui.spacing().item_spacing.x;
+    let need = name_least(ui) + picker_room(ui) + trailing + slack;
+    form_row_least(ui, label, need, |ui| {
+        let room = ui.available_width();
+        let field = (room - picker_room(ui) - trailing - slack).max(name_least(ui));
+        // (Where even the whole row has not room for what follows the
+        // field, at the larger text in the narrow dock, it goes onto the
+        // next line: the field keeps its 16 characters.)
+        match field + picker_room(ui) + trailing + slack <= room + 0.5 {
+            true => crate::widgets::with_resref_width(ui, field, add),
+            false => {
+                let field = (room - picker_room(ui) - slack).max(name_least(ui));
+                ui.horizontal_wrapped(|ui| crate::widgets::with_resref_width(ui, field, add)).inner
+            }
+        }
+    })
+}
+
+/// The width of a button reading `words` after the gap before it.
+fn button_room(ui: &Ui, words: &str) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let text = ui.painter().layout_no_wrap(words.to_string(), font, Color32::WHITE).size().x;
+    text + 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x + 1.0
+}
+
+/// A row of a conversation's panel's form (the board's `.node-form`):
+/// `label` in a column of [`LABEL_WIDTH`] at the left, `add` beside it;
+/// where the panel is too narrow for the field beside it, the label over
+/// it (a row that goes onto two lines when short of room).
+fn form_row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    // (A field's least room grows with the editor's larger text.)
+    let least = FIELD_LEAST * text_scale(ui);
+    form_row_least(ui, label, least, add)
+}
+
+/// [`form_row`] whose field and what follows it need `least` points
+/// beside the label.
+fn form_row_least<R>(ui: &mut Ui, label: &str, least: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let words = ui.painter().layout_no_wrap(label.to_string(), font, Color32::WHITE).size().x;
+    let width = LABEL_WIDTH.max((words + 8.0).ceil());
+    // (The room the field is given beside the label: the row's, less the
+    // label's column and the gap the row puts after it. Tested with the
+    // gap left out, the field had 4 points less than was tested, and a
+    // resref row then put its Edit onto a line of its own: Data taller
+    // where wider, which never came to rest beside its scroll bar. M4's
+    // U15 review.)
+    let beside = ui.available_width() - width - ui.spacing().item_spacing.x;
+    if beside < least {
+        if !label.is_empty() {
+            crate::widgets::field_label(ui, label);
+        }
+        return ui.horizontal(add).inner;
+    }
+    ui.horizontal(|ui| {
+        let high = ui.spacing().interact_size.y;
+        let layout = egui::Layout::left_to_right(egui::Align::Center);
+        ui.allocate_ui_with_layout(egui::vec2(width, high), layout, |ui| {
+            ui.set_min_width(width);
+            crate::widgets::field_label(ui, label);
+        });
+        add(ui)
+    })
+    .inner
+}
+
+/// A section's heading in a conversation's panel (the board's `.sec-h`:
+/// bold, larger than its labels, a `line-soft` rule under it), at the
+/// editor's text size as its labels are (panel content, not chrome: the
+/// coordinator's ruling at U14's review), `end` at its right end where
+/// given (Script Wizard…).
+fn panel_heading(ui: &mut Ui, words: &str, end: Option<&mut dyn FnMut(&mut Ui)>) {
+    let t = mg_uikit::tokens(ui.ctx());
+    let size = mg_uikit::metrics::HEADING_SIZE * text_scale(ui);
+    let mut text = RichText::new(words).size(size).color(t.text);
+    if ui.fonts(|f| f.families().contains(&mg_uikit::fonts::bold())) {
+        text = text.family(mg_uikit::fonts::bold());
+    }
+    ui.horizontal(|ui| {
+        ui.label(text);
+        if let Some(end) = end {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| end(ui));
+        }
+    });
+    ui.add_space(mg_uikit::metrics::GAP_S - ui.spacing().item_spacing.y);
+    let (rule, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().hline(rule.x_range(), rule.center().y, egui::Stroke::new(1.0, t.line_soft));
+    ui.add_space(mg_uikit::metrics::GAP_M - ui.spacing().item_spacing.y);
+}
+
+/// The width of a section's heading's words in `ui` ([`panel_heading`]).
+fn heading_width(ui: &Ui, words: &str) -> f32 {
+    let size = mg_uikit::metrics::HEADING_SIZE * text_scale(ui);
+    let font = egui::FontId::new(size, mg_uikit::fonts::bold());
+    ui.painter().layout_no_wrap(words.into(), font, Color32::WHITE).size().x
 }
 
 fn highlighted(n: &Struct, hl: [bool; 5]) -> bool {
@@ -1756,6 +2563,58 @@ fn link_key(ui: &Ui) -> bool {
     ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd)
 }
 
+/// How far a line of the conversation tree stands in from the one it is
+/// under.
+const INDENT: f32 = 16.0;
+/// The room a row with no lines under it keeps where another has its
+/// arrow.
+const ARROW_ROOM: f32 = 18.0;
+
+/// The indent guides of a row `depth` levels under Root drawn at `row`
+/// (the Conversation board's `.gd`): a 1 px line in the theme's `guide`
+/// down the middle of the arrow of each line it is under, Root's place
+/// too, as high as the row and the room between rows, so that a branch's
+/// lines join; lighter on the selected row (`guide_on_fill`) and on the
+/// row under the pointer (`guide_hover`). Only where the row is in sight: the tree lays out every
+/// open row, and what is out of sight costs nothing more.
+fn guides(ui: &Ui, row: egui::Rect, depth: usize, selected: bool) {
+    let half = ui.spacing().item_spacing.y / 2.0;
+    let span = egui::Rangef::new(row.top() - half, row.bottom() + half);
+    if depth == 0 || !ui.is_rect_visible(row.expand2(egui::vec2(0.0, half))) {
+        return;
+    }
+    // (Lighter on the selected row's fill, the board's; on a row under
+    // the pointer, its own, so that they stay in sight there too.)
+    let t = mg_uikit::tokens(ui.ctx());
+    let color = match (selected, ui.rect_contains_pointer(row)) {
+        (true, _) => t.guide_on_fill,
+        (false, true) => t.guide_hover,
+        (false, false) => t.guide,
+    };
+    let stroke = egui::Stroke::new(1.0, color);
+    let painter = ui.painter();
+    for level in 0..depth {
+        // (Down the middle of the arrow of the line at `level`; on a whole
+        // pixel, so that it stays 1 px.)
+        let x = row.left() + level as f32 * INDENT + mg_uikit::metrics::ICON_BUTTON / 2.0;
+        let x = painter.round_to_pixel_center(x);
+        painter.vline(x, span, stroke);
+    }
+}
+
+/// The selected row's fill (the board's `.dl-row.sel`: `accent-fill` the
+/// tree's whole width, from its left edge to what is in sight at its
+/// right, the room between rows halved into it), at `at`, under the row.
+fn fill_row(ui: &Ui, at: egui::layers::ShapeIdx, row: egui::Rect) {
+    let half = ui.spacing().item_spacing.y / 2.0;
+    let right = ui.clip_rect().right().max(row.right());
+    let x = egui::Rangef::new(ui.max_rect().left(), right);
+    let full =
+        egui::Rect::from_x_y_ranges(x, egui::Rangef::new(row.top() - half, row.bottom() + half));
+    let fill = mg_uikit::tokens(ui.ctx()).accent_fill;
+    ui.painter().set(at, egui::Shape::rect_filled(full, 0.0, fill));
+}
+
 /// Draws the rows under a parent of conversation `key`; `path` stops
 /// cycles through owning links.
 #[allow(clippy::too_many_arguments)]
@@ -1802,8 +2661,11 @@ fn tree(
             let found = mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3);
             rich = rich.background_color(found);
         }
-        ui.horizontal(|ui| {
-            ui.add_space(depth as f32 * 16.0);
+        // (The selected row filled the whole width of the tree, the board's
+        // `.dl-row.sel`, under what the row draws.)
+        let fill_at = ui.painter().add(egui::Shape::Noop);
+        let row_shown = ui.horizontal(|ui| {
+            ui.add_space(depth as f32 * INDENT);
             if children {
                 // (Named with its line, said open or not: a screen reader's
                 // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
@@ -1822,7 +2684,7 @@ fn tree(
                     }
                 }
             } else {
-                ui.add_space(18.0);
+                ui.add_space(ARROW_ROOM);
             }
             let r =
                 ui.selectable_label(view.selected == Some(row), rich).interact(egui::Sense::drag());
@@ -1901,12 +2763,25 @@ fn tree(
             if look.scripts {
                 let marks = markers(l, n);
                 if !marks.is_empty() {
-                    ui.label(RichText::new(marks.join("  ")).weak().small());
+                    // (On the selected row's fill, `on-fill`, the board's.)
+                    let words = RichText::new(marks.join("  ")).small();
+                    let words = match view.selected == Some(row) {
+                        true => {
+                            words.color(mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85))
+                        }
+                        false => words.weak(),
+                    };
+                    ui.label(words);
                 }
             } else if cond.is_some() {
                 ui.weak("?");
             }
         });
+        let chosen = view.selected == Some(row);
+        if chosen {
+            fill_row(ui, fill_at, row_shown.response.rect);
+        }
+        guides(ui, row_shown.response.rect, depth, chosen);
         // (Once, as `shown_rows` has it.)
         if children && open && path.insert((kind, index)) {
             let under = Parent::Node(kind, index);
@@ -1955,18 +2830,27 @@ fn text_panel(
     n: &Struct,
     view: &mut DialogView,
     actions: &mut Vec<Action>,
+    focus: bool,
 ) {
     let path = node_path(kind, index);
-    // Within its column, however narrow the window: a row too wide for it
-    // wraps, rather than push the text under the script's side.
+    // Within its panel, however narrow: a row too wide for it goes onto
+    // two lines.
     let width = ui.available_width();
     ui.set_max_width(width);
     if kind == Kind::Entry {
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Speaker Tag");
-            let speaker = decode(n.string("Speaker").unwrap_or_default());
+        let speaker = decode(n.string("Speaker").unwrap_or_default());
+        // (One combo, the board's: the field and its list's chevron joined,
+        // the field never narrower than a tag of 16 characters needs.)
+        let arrow = 24.0 + ui.spacing().icon_width + 2.0 * ui.spacing().button_padding.x;
+        let least = name_least(ui) + arrow;
+        form_row_least(ui, "Speaker tag", least, |ui| {
             let id = egui::Id::new(("dlg-speaker", key, index));
-            let mut chosen = commit_text(app, ui, id, &speaker, false, 160.0);
+            if focus {
+                ui.memory_mut(|m| m.request_focus(id));
+            }
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let width = (ui.available_width() - arrow - 2.0).max(name_least(ui));
+            let mut chosen = commit_text(app, ui, id, &speaker, false, width);
             // The tags of the creatures placed in the module's areas (read
             // only while the list is open: it takes every area's objects).
             let r = crate::widgets::dropdown(("dlg-speaker-tags", key, index))
@@ -1999,12 +2883,15 @@ fn text_panel(
                     Value::String(encode(&v)),
                 ));
             }
-            ui.weak("(empty: the conversation's owner)");
+        });
+        form_row(ui, "", |ui| {
+            ui.add(
+                egui::Label::new(RichText::new("(empty: the conversation's owner)").weak()).wrap(),
+            )
         });
     }
     let ls = n.locstring("Text").cloned().unwrap_or_default();
-    ui.horizontal(|ui| {
-        ui.label("Text");
+    form_row(ui, "Text", |ui| {
         if crate::widgets::languages_button(ui) {
             app.loc_edit = Some(LocStringEdit::new(
                 FieldTarget::new(key, path.clone(), "Text"),
@@ -2012,8 +2899,7 @@ fn text_panel(
                 &ls,
             ));
         }
-        if ui.small_button("Token…").on_hover_text("Insert a token such as <FirstName>").clicked()
-        {
+        if ui.button("Token…").on_hover_text("Insert a token such as <FirstName>").clicked() {
             view.token_picker = true;
         }
     });
@@ -2022,6 +2908,10 @@ fn text_panel(
         .map(|t| t.into_owned())
         .unwrap_or_default();
     let id = egui::Id::new(("dlg-text", key, kind, index));
+    // (F6 to the panel: its first field, a player's line's text.)
+    if focus && kind != Kind::Entry {
+        ui.memory_mut(|m| m.request_focus(id));
+    }
     // Text from the talk table shows under the field; text typed in the
     // field is the line's own, said instead.
     let from_tlk = (english.is_empty() && !ls.strref.is_none())
@@ -2032,15 +2922,20 @@ fn text_panel(
     let other =
         (english.is_empty() && ls.strref.is_none()).then(|| crate::text::elsewhere(&ls)).flatten();
     let shown = other.as_ref().map_or(english, |(_, text)| text.clone());
+    // (The board's memo, two lines high, growing with what it holds.)
+    let memo = |app: &mut Moonglow, ui: &mut Ui| {
+        let width = ui.available_width();
+        crate::widgets::commit_loc_text_in(&mut app.buffers, ui, id, &shown, Some(2), width, None)
+    };
     let typed = match &other {
         Some((language, _)) => crate::widgets::borrowed_field(
             ui,
             language.name().unwrap_or("another language"),
             "This line's text is in another language: it has none in the language edited \
              (Options › Language). Typing here gives it text in that language",
-            |ui| crate::widgets::commit_loc_text(app, ui, id, &shown, true, width),
+            |ui| memo(app, ui),
         ),
-        None => crate::widgets::commit_loc_text(app, ui, id, &shown, true, width),
+        None => memo(app, ui),
     };
     if let Some(v) = typed {
         // (Put in the module's talk table first, where Options › Language
@@ -2057,7 +2952,8 @@ fn text_panel(
         actions.push(Action::ApplyTyped(Command::new("Line text", edits)));
     }
     if let Some(t) = from_tlk {
-        ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));
+        let note = format!("From the talk table (string {}): {t}", ls.strref.0);
+        ui.add(egui::Label::new(RichText::new(note).weak()).wrap());
     }
     if view.token_picker {
         // (Those of the language edited: Options › General.)
@@ -2067,10 +2963,8 @@ fn text_panel(
         let window = crate::widgets::modal(&ctx, "Select Token");
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(260.0, 340.0))
             .min_size([180.0, 160.0]);
-        window.show(&ctx, |ui| {
-            // The list takes the room above Cancel.
-            let cancel = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
-            let height = (ui.available_height() - cancel).max(60.0);
+        let footed = window.show_foot(&ctx, |ui| {
+            let height = ui.available_height().max(60.0);
             let list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             list.show(ui, |ui| {
                 mg_uikit::list_rows(ui);
@@ -2081,10 +2975,11 @@ fn text_panel(
                     }
                 }
             });
-            if crate::widgets::cancel(ui) {
-                close = true;
-            }
+            ((), crate::widgets::Foot::new().cancel())
         });
+        if footed.is_some_and(|f| f.pressed.cancelled()) {
+            close = true;
+        }
         if let Some(v) = with_token {
             let now = with_edited_text(ls.clone(), &v);
             let words = words_edit(app, key, &ls, &now);
@@ -2130,12 +3025,12 @@ fn script_with_params(
     let current = s.resref(label).unwrap_or(ResRef::EMPTY);
     // The script as it is this frame (one typed is set as the frame ends).
     let mut script_now = current;
-    ui.horizontal(|ui| {
-        ui.label("Script");
+    let edit = button_room(ui, "Edit");
+    resref_row(ui, "Script", edit, |ui| {
         let id = egui::Id::new(("dlg-script", key, salt, path.to_string()));
-        if let Some(v) =
-            resref_field(app, ui, id, current, "Select a script", &[ResType::NSS, ResType::NCS])
-        {
+        let types = [ResType::NSS, ResType::NCS];
+        let picked = resref_field(app, ui, id, current, "Select a script", &types);
+        if let Some(v) = picked {
             actions.push(set(key, "Script", path.clone(), label, Value::resref(v)));
             script_now = v;
         }
@@ -2146,14 +3041,6 @@ fn script_with_params(
     // (As wide as they are, not as the page: the page stretches what is
     // put in it, which squeezed the parameters' fields to a few letters.)
     let own_width = egui::Layout::top_down(egui::Align::Min);
-    let wizard = ui
-        .with_layout(own_width, |ui| {
-            ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices")
-        })
-        .inner;
-    if wizard.clicked() {
-        app.open_script_wizard(key, path.clone(), label, condition);
-    }
     // The pairs being edited live in a buffer until a field loses focus or a
     // row is added or removed; with no field focused the file's pairs show.
     let stored = params(s, list);
@@ -2188,10 +3075,23 @@ fn script_with_params(
         script: Some(script).filter(|s| !s.is_empty()),
         parameters: pairs.iter().filter(|(n, _)| !n.trim().is_empty()).cloned().collect(),
     };
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Parameters");
-        ui.separator();
-        mg_uikit::menu_button(ui, "Add Set", |ui| {
+    // Parameters: Add Parameter, Add Set and the sets' other commands in a
+    // menu (the board's `+`, Add Set and `…`).
+    let mut add = false;
+    form_row(ui, "Parameters", |ui| {
+        let tip = "Add a parameter (EE: read with GetScriptParam)";
+        add = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Add Parameter", tip).clicked();
+        // (The board's Add Set and its ⌄: a button that opens a menu.)
+        let popup = egui::Id::new(("dlg-add-set", key, salt, path.to_string()));
+        let open = egui::Popup::is_id_open(ui.ctx(), popup);
+        let tip = "Add a saved set's parameters and script. Same names take its values.";
+        // (At the editor's text size, as its neighbors: panel content, the
+        // coordinator's ruling at U14's review.)
+        let size = egui::TextStyle::Button.resolve(ui.style()).size;
+        let add_set = mg_uikit::KitButton::new(None, "Add Set").opens(open).tip(tip);
+        let add_set = ui.add(add_set.text_size(size));
+        let menu = egui::Popup::menu(&add_set).id(popup).style(mg_uikit::menu_style);
+        menu.show(|ui| {
             mg_uikit::menu_rows(ui);
             match crate::widgets::sets_menu(ui, &mut app.log, &PARAMETER_SETS, dir.as_deref()) {
                 Some(SetChoice::Add(set)) => chosen.push(set),
@@ -2201,45 +3101,52 @@ fn script_with_params(
                 }
                 None => {}
             }
-        })
-        .response
-        .on_hover_text("Add a saved set's parameters and script. Same names take its values.");
+        });
         let naming = view.param_set_name.as_ref().is_some_and(|(p, _)| *p == place);
-        if !naming
-            && ui
-                .add_enabled(dir.is_some() && something, egui::Button::new("Save Set…"))
-                .on_hover_text("Keep the script and these parameters under a name, for other lines")
-                .clicked()
-        {
-            view.param_set_name = Some((place.clone(), String::new()));
-        }
-        if ui
-            .add_enabled(something, egui::Button::new("Copy Set"))
-            .on_hover_text(
-                "Copy the script and these parameters, for Paste Set in any conversation",
-            )
-            .clicked()
-        {
-            ui.ctx().copy_text(param_sets::to_text(&set_of(&pairs, script_now)));
-        }
-        if ui
-            .button("Paste Set")
-            .on_hover_text("Add the set on the clipboard. Same names take its values.")
-            .clicked()
-        {
-            crate::widgets::ask_paste(ui.ctx(), paste_id);
-        }
-        to_file = ui
-            .add_enabled(something, egui::Button::new("Save to File…"))
-            .on_hover_text("Save the script and these parameters as a .params.json file, to share")
-            .clicked();
+        let more = mg_uikit::IconButton::new(mg_uikit::Icon::MoreHorizontal, SET_COMMANDS)
+            .icon_only(true)
+            .menu(ui, |ui| {
+                mg_uikit::menu_rows(ui);
+                let save = !naming && dir.is_some() && something;
+                if ui
+                    .add_enabled(save, egui::Button::new("Save Set…"))
+                    .on_hover_text("Keep the script and these parameters under a name")
+                    .on_disabled_hover_text("Keep the script and these parameters under a name")
+                    .clicked()
+                {
+                    view.param_set_name = Some((place.clone(), String::new()));
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(something, egui::Button::new("Copy Set"))
+                    .on_hover_text("Copy the script and these parameters, for Paste Set")
+                    .clicked()
+                {
+                    ui.ctx().copy_text(param_sets::to_text(&set_of(&pairs, script_now)));
+                    ui.close();
+                }
+                if ui
+                    .button("Paste Set")
+                    .on_hover_text("Add the set on the clipboard. Same names take its values.")
+                    .clicked()
+                {
+                    crate::widgets::ask_paste(ui.ctx(), paste_id);
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(something, egui::Button::new("Save to File…"))
+                    .on_hover_text("Save the script and these parameters as a file, to share")
+                    .clicked()
+                {
+                    to_file = true;
+                    ui.close();
+                }
+            });
+        more.response.on_hover_text("Save Set…, Copy Set, Paste Set and Save to File…");
     });
-    // Save Set's name, typed in place (that of another tab or line is
-    // forgotten).
-    if view.param_set_name.as_ref().is_some_and(|(p, _)| *p != place) {
-        view.param_set_name = None;
-    }
-    if let Some((_, name)) = view.param_set_name.as_mut() {
+    // Save Set's name, typed in place (that of another line is forgotten
+    // as the line's Data is drawn, `data_body`).
+    if let Some((_, name)) = view.param_set_name.as_mut().filter(|(p, _)| *p == place) {
         let (save, cancel) = crate::widgets::set_name_row(ui, name);
         crate::widgets::replaced_note(ui, &param_sets::SHELF, dir.as_deref(), name);
         if save && let Some(dir) = &dir {
@@ -2257,10 +3164,10 @@ fn script_with_params(
     let mut remove_at = None;
     // A name's field and a value's, sharing the page's width: the value
     // the wider.
-    let room = (ui.available_width() - 110.0).max(250.0);
-    let name_width = (room * 0.35).clamp(110.0, 260.0);
-    let value_width = (room - name_width).clamp(140.0, 520.0);
-    let mut add = false;
+    // (Within the panel: the remove button and the gaps out of its width.)
+    let room = (ui.available_width() - 56.0).max(120.0);
+    let name_width = (room * 0.4).clamp(50.0, 260.0);
+    let value_width = (room - name_width).clamp(60.0, 520.0);
     ui.with_layout(own_width, |ui| {
         // (A table of names and values: rows 22 apart, a line between.)
         mg_uikit::with_table_rows(ui, |ui| {
@@ -2288,8 +3195,6 @@ fn script_with_params(
                 });
             }
         });
-        let tip = "Add a parameter (EE: read with GetScriptParam)";
-        add = crate::widgets::icon_button(ui, mg_uikit::Icon::Plus, "Add Parameter", tip).clicked();
     });
     if let Some(i) = remove_at {
         pairs.remove(i);
@@ -2367,24 +3272,55 @@ fn script_with_params(
     }
     if !current.is_empty() {
         let source = app.script_source(&ResKey::new(current, ResType::NSS));
-        ui.separator();
-        ui.label("Script Preview");
-        match source {
+        // (The board's `.preview`: its first lines, on the inset ground,
+        // scrolled for the rest.)
+        form_row(ui, "Script preview", |ui| match source {
             Some(src) => {
-                egui::ScrollArea::both().id_salt(("dlg-preview", salt)).max_height(140.0).show(
-                    ui,
-                    |ui| {
-                        ui.monospace(src);
-                    },
-                );
+                let lines = 4.0 * ui.text_style_height(&egui::TextStyle::Monospace);
+                let inset = mg_uikit::tokens(ui.ctx()).inset;
+                // (The board's `.preview`: a gutter of line numbers, then the
+                // code, which scrolls sideways under its own bar, its last
+                // line above the bar; both down together.)
+                let numbers: String = (1..=src.lines().count().max(1))
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
+                egui::Frame::new().fill(inset).inner_margin(4).show(ui, |ui| {
+                    let down = egui::ScrollArea::vertical().id_salt(("dlg-preview", salt));
+                    down.max_height(lines).auto_shrink([false, true]).show(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            let gutter = RichText::new(numbers).monospace().weak();
+                            ui.add(egui::Label::new(gutter).selectable(false));
+                            let across = egui::ScrollArea::horizontal()
+                                .id_salt(("dlg-preview-code", salt))
+                                .auto_shrink([false, true]);
+                            across.show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    // (Each line on one row, as the gutter
+                                    // numbers them: never wrapped.)
+                                    let code = RichText::new(src).monospace();
+                                    ui.add(egui::Label::new(code).extend());
+                                    ui.add_space(bar);
+                                });
+                            });
+                        });
+                    });
+                });
             }
             None => {
                 ui.weak("No source for this script.");
             }
-        }
+        });
     }
 }
 
+/// The name of the menu of a script's parameter sets' commands beside Add
+/// Set (the board's `…`): Save Set…, Copy Set, Paste Set, Save to File….
+pub const SET_COMMANDS: &str = "Set Commands";
+
+/// A line's Other Actions (the board's section): the animation played,
+/// the sound played (and Play), the journal's category and entry.
 fn other_tab(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -2395,136 +3331,153 @@ fn other_tab(
     actions: &mut Vec<Action>,
 ) {
     let path = node_path(kind, index);
-    egui::Grid::new(("dlg-other", key, kind, index)).num_columns(2).spacing([10.0, 6.0]).show(
-        ui,
-        |ui| {
-            crate::widgets::field_label(ui, "Play Animation");
-            let anim = n.dword("Animation").unwrap_or(0);
-            let shown = ANIMATIONS
-                .iter()
-                .find(|a| a.1 == anim)
-                .map_or_else(|| anim.to_string(), |a| a.0.to_string());
-            let mut pick = anim;
-            let values = ANIMATIONS.map(|a| a.1);
-            crate::widgets::dropdown(("dlg-anim", key, kind, index)).selected_text(shown).show(
-                ui,
-                &mut pick,
-                &values,
-                |v| ANIMATIONS.iter().find(|a| a.1 == *v).map_or("", |a| a.0),
-            );
-            if pick != anim {
-                actions.push(set(key, "Animation", path.clone(), "Animation", Value::Dword(pick)));
-            }
-            ui.end_row();
-
-            crate::widgets::field_label(ui, "Play Sound");
-            let sound = n.resref("Sound").unwrap_or(ResRef::EMPTY);
-            let id = egui::Id::new(("dlg-sound", key, kind, index));
-            ui.horizontal(|ui| {
-                if let Some(v) = resref_field(app, ui, id, sound, "Select a sound", &[ResType::WAV])
-                {
-                    actions.push(set(key, "Sound", path.clone(), "Sound", Value::resref(v)));
-                }
-                if ui.add_enabled(!sound.is_empty(), egui::Button::new("Play")).clicked() {
-                    app.play_sound(crate::audio::Channel::Preview, sound, 1.0, false);
-                }
+    // (A list as wide as the row's room, its own frame within it.)
+    let wide = |ui: &Ui| (ui.available_width() - ui.spacing().item_spacing.x - 2.0).max(60.0);
+    form_row(ui, "Play animation", |ui| {
+        let anim = n.dword("Animation").unwrap_or(0);
+        let shown = ANIMATIONS
+            .iter()
+            .find(|a| a.1 == anim)
+            .map_or_else(|| anim.to_string(), |a| a.0.to_string());
+        let mut pick = anim;
+        let values = ANIMATIONS.map(|a| a.1);
+        crate::widgets::dropdown(("dlg-anim", key, kind, index))
+            .selected_text(shown)
+            .width(wide(ui))
+            .show(ui, &mut pick, &values, |v| {
+                ANIMATIONS.iter().find(|a| a.1 == *v).map_or("", |a| a.0)
             });
-            ui.end_row();
-
-            // Journal categories and entries of the module.
-            let journal: Vec<Struct> = app
-                .ws
-                .as_mut()
-                .and_then(|w| w.doc(&ResKey::parse("module", ResType::JRL)?).ok())
-                .map(|g| g.root.items(&jrl::CATEGORIES).to_vec())
-                .unwrap_or_default();
-            let quest = decode(n.string("Quest").unwrap_or_default());
-            ui.label("Journal");
-            // (The row of none is the empty tag.)
-            let tags: Vec<String> = std::iter::once(String::new())
-                .chain(journal.iter().map(|c| decode(c.read(&jrl::categories::TAG).as_bytes())))
-                .collect();
-            let mut pick = quest.clone();
-            crate::widgets::dropdown(("dlg-quest", key, kind, index))
-                .selected_text(if quest.is_empty() { "(none)".into() } else { quest.clone() })
-                .show(ui, &mut pick, &tags, |t| {
-                    if t.is_empty() { "(none)".to_string() } else { t.clone() }
-                });
-            if pick.is_empty() && !quest.is_empty() {
-                actions.push(set(key, "Journal", path.clone(), "Quest", Value::String(Vec::new())));
-            } else if pick != quest
-                && let Some(c) = (journal.iter())
-                    .find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == pick)
-            {
-                let mut edits = vec![Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: "Quest".into(),
-                    value: Some(Value::String(encode(&pick))),
-                }];
-                let first = mg_module::journal::entries(c)
-                    .first()
-                    .map(|e| e.read(&jrl::categories::entry_list::ID));
-                edits.push(Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: "QuestEntry".into(),
-                    value: Some(Value::Dword(first.unwrap_or(0))),
-                });
-                actions.push(Action::Apply(Command::new("Journal", edits)));
+        if pick != anim {
+            actions.push(set(key, "Animation", path.clone(), "Animation", Value::Dword(pick)));
+        }
+    });
+    let play = button_room(ui, "Play");
+    resref_row(ui, "Play sound", play, |ui| {
+        let sound = n.resref("Sound").unwrap_or(ResRef::EMPTY);
+        let id = egui::Id::new(("dlg-sound", key, kind, index));
+        let picked = resref_field(app, ui, id, sound, "Select a sound", &[ResType::WAV]);
+        if let Some(v) = picked {
+            actions.push(set(key, "Sound", path.clone(), "Sound", Value::resref(v)));
+        }
+        if ui.add_enabled(!sound.is_empty(), egui::Button::new("Play")).clicked() {
+            app.play_sound(crate::audio::Channel::Preview, sound, 1.0, false);
+        }
+    });
+    // Journal categories and entries of the module.
+    let journal: Vec<Struct> = app
+        .ws
+        .as_mut()
+        .and_then(|w| w.doc(&ResKey::parse("module", ResType::JRL)?).ok())
+        .map(|g| g.root.items(&jrl::CATEGORIES).to_vec())
+        .unwrap_or_default();
+    let quest = decode(n.string("Quest").unwrap_or_default());
+    form_row(ui, "Journal", |ui| {
+        // (The row of none is the empty tag.)
+        let tags: Vec<String> = std::iter::once(String::new())
+            .chain(journal.iter().map(|c| decode(c.read(&jrl::categories::TAG).as_bytes())))
+            .collect();
+        let mut pick = quest.clone();
+        crate::widgets::dropdown(("dlg-quest", key, kind, index))
+            .selected_text(if quest.is_empty() { "(none)".into() } else { quest.clone() })
+            .width(wide(ui))
+            .show(ui, &mut pick, &tags, |t| {
+                if t.is_empty() { "(none)".to_string() } else { t.clone() }
+            });
+        if pick.is_empty() && !quest.is_empty() {
+            actions.push(set(key, "Journal", path.clone(), "Quest", Value::String(Vec::new())));
+        } else if pick != quest
+            && let Some(c) =
+                (journal.iter()).find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == pick)
+        {
+            let mut edits = vec![Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "Quest".into(),
+                value: Some(Value::String(encode(&pick))),
+            }];
+            let first = mg_module::journal::entries(c)
+                .first()
+                .map(|e| e.read(&jrl::categories::entry_list::ID));
+            edits.push(Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "QuestEntry".into(),
+                value: Some(Value::Dword(first.unwrap_or(0))),
+            });
+            actions.push(Action::Apply(Command::new("Journal", edits)));
+        }
+    });
+    if !quest.is_empty() {
+        form_row(ui, "Journal entry", |ui| {
+            let entry = n.dword("QuestEntry").unwrap_or(0);
+            let category =
+                journal.iter().find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == quest);
+            let entries = category.map(mg_module::journal::entries).unwrap_or(&[]);
+            let ids: Vec<u32> =
+                entries.iter().map(|e| e.read(&jrl::categories::entry_list::ID)).collect();
+            let mut pick = entry;
+            crate::widgets::dropdown(("dlg-quest-entry", key, kind, index))
+                .selected_text(entry.to_string())
+                .width(wide(ui))
+                .show_with(
+                    ui,
+                    &mut pick,
+                    || ids.clone(),
+                    |ui, pick| {
+                        for e in entries {
+                            let id = e.read(&jrl::categories::entry_list::ID);
+                            let t = e.read(&jrl::categories::entry_list::TEXT);
+                            let t = crate::text::shown_text(&t);
+                            ui.selectable_value(pick, id, format!("{id}: {t}"));
+                        }
+                    },
+                );
+            if pick != entry {
+                let id = Value::Dword(pick);
+                actions.push(set(key, "Journal entry", path.clone(), "QuestEntry", id));
             }
-            ui.end_row();
-            if !quest.is_empty() {
-                ui.label("Journal entry");
-                let entry = n.dword("QuestEntry").unwrap_or(0);
-                let category = journal
-                    .iter()
-                    .find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == quest);
-                let entries = category.map(mg_module::journal::entries).unwrap_or(&[]);
-                let ids: Vec<u32> =
-                    entries.iter().map(|e| e.read(&jrl::categories::entry_list::ID)).collect();
-                let mut pick = entry;
-                crate::widgets::dropdown(("dlg-quest-entry", key, kind, index))
-                    .selected_text(entry.to_string())
-                    .show_with(
-                        ui,
-                        &mut pick,
-                        || ids.clone(),
-                        |ui, pick| {
-                            for e in entries {
-                                let id = e.read(&jrl::categories::entry_list::ID);
-                                let t = e.read(&jrl::categories::entry_list::TEXT);
-                                let t = crate::text::shown_text(&t);
-                                ui.selectable_value(pick, id, format!("{id}: {t}"));
-                            }
-                        },
-                    );
-                if pick != entry {
-                    let id = Value::Dword(pick);
-                    actions.push(set(key, "Journal entry", path.clone(), "QuestEntry", id));
-                }
-                ui.end_row();
-            }
-        },
-    );
+        });
+    }
 }
 
-fn file_tab(app: &mut Moonglow, ui: &mut Ui, key: ResKey, g: &Gff, actions: &mut Vec<Action>) {
-    egui::Grid::new(("dlg-file", key)).num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-        for (label, field) in [("Normal end", "EndConversation"), ("Aborted", "EndConverAbort")] {
-            crate::widgets::field_label(ui, label);
+/// The conversation's own settings (the Conversation panel's form):
+/// the scripts run at its normal end and when it is aborted, and Stop
+/// camera zoom in. `focus`: F6 gives Normal end the keyboard's focus.
+fn file_tab(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    g: &Gff,
+    actions: &mut Vec<Action>,
+    focus: bool,
+) {
+    for (label, field) in [("Normal end", "EndConversation"), ("Aborted", "EndConverAbort")] {
+        resref_row(ui, label, 0.0, |ui| {
             let current = g.root.resref(field).unwrap_or(ResRef::EMPTY);
             let id = egui::Id::new(("dlg-end", key, field));
-            if let Some(v) =
-                resref_field(app, ui, id, current, "Select a script", &[ResType::NSS, ResType::NCS])
-            {
+            if focus && field == "EndConversation" {
+                ui.memory_mut(|m| m.request_focus(id));
+            }
+            let types = [ResType::NSS, ResType::NCS];
+            let picked = resref_field(app, ui, id, current, "Select a script", &types);
+            if let Some(v) = picked {
                 actions.push(set(key, label, GffPath::root(), field, Value::resref(v)));
             }
-            ui.end_row();
-        }
-        let mut zoom = g.root.byte("PreventZoomIn").unwrap_or(0) != 0;
-        ui.label("");
-        if ui.check_box(&mut zoom, "Stop camera zoom in").changed() {
+        });
+    }
+    let mut zoom = g.root.byte("PreventZoomIn").unwrap_or(0) != 0;
+    // (Under the fields where it fits there; else from the panel's edge.)
+    let words = "Stop camera zoom in";
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let wide = ui.painter().layout_no_wrap(words.into(), font, Color32::WHITE).size().x
+        + ui.spacing().icon_width
+        + ui.spacing().icon_spacing;
+    let changed = match ui.available_width() - LABEL_WIDTH >= wide {
+        true => form_row(ui, "", |ui| ui.check_box(&mut zoom, words).changed()),
+        false => ui.check_box(&mut zoom, words).changed(),
+    };
+    {
+        if changed {
             actions.push(set(
                 key,
                 "Camera zoom",
@@ -2533,8 +3486,7 @@ fn file_tab(app: &mut Moonglow, ui: &mut Ui, key: ResKey, g: &Gff, actions: &mut
                 Value::Byte(u8::from(zoom)),
             ));
         }
-        ui.end_row();
-    });
+    }
 }
 
 /// A new, empty conversation's bytes.
@@ -2583,11 +3535,12 @@ fn search_pane(
     g: &Gff,
     view: &mut DialogView,
     actions: &mut Vec<Action>,
+    viewed: bool,
 ) {
     let s = &mut view.search;
-    egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Find What");
-        let field = ui.add(mg_uikit::text_field(&mut s.find));
+    form_row(ui, "Find What", |ui| {
+        let width = ui.available_width();
+        let field = ui.add(mg_uikit::text_field(&mut s.find).desired_width(width));
         crate::widgets::autofocus(ui, &field);
         if std::mem::take(&mut s.focus) {
             field.request_focus();
@@ -2599,12 +3552,12 @@ fn search_pane(
         {
             s.again = true;
         }
-        ui.end_row();
-        crate::widgets::field_label(ui, "Replace With");
-        ui.add(mg_uikit::text_field(&mut s.replace));
-        ui.end_row();
     });
-    ui.horizontal(|ui| {
+    form_row(ui, "Replace With", |ui| {
+        let width = ui.available_width();
+        ui.add(mg_uikit::text_field(&mut s.replace).desired_width(width));
+    });
+    ui.horizontal_wrapped(|ui| {
         ui.check_box(&mut s.options.match_case, "Match Case");
         ui.check_box(&mut s.options.whole_word, "Match Whole Word Only");
         ui.check_box(&mut s.all_files, "All Files in Module");
@@ -2615,7 +3568,10 @@ fn search_pane(
         find = ui.add_enabled(!s.find.is_empty(), egui::Button::new("Find")).clicked();
         find |= std::mem::take(&mut s.again) && !s.find.is_empty();
         replace_all = ui
-            .add_enabled(!s.find.is_empty() && !s.all_files, egui::Button::new("Replace All"))
+            .add_enabled(
+                !viewed && !s.find.is_empty() && !s.all_files,
+                egui::Button::new("Replace All"),
+            )
             .clicked();
     });
     if find {
@@ -2661,7 +3617,7 @@ fn search_pane(
         s.results = results;
     }
     if replace_all {
-        let mut ng = g.clone();
+        let mut ng = Gff::clone(g);
         let mut n = 0;
         for kind in [Kind::Entry, Kind::Reply] {
             if let Some(list) = ng.root.list_mut(kind.list()) {
@@ -2723,6 +3679,14 @@ fn search_pane(
 }
 
 impl Moonglow {
+    /// Brings conversation `key`'s Search to the front as Find (Ctrl+F)
+    /// does, from the next frame ([`search_forward`]). For the window's
+    /// tests.
+    #[doc(hidden)]
+    pub fn show_conversation_search(&mut self, key: ResKey) {
+        self.dialog_search_forward = Some(key);
+    }
+
     /// Reads a Twine or Ink story as a new conversation of the module,
     /// named after the file (made unique), and opens it; its name.
     pub fn import_conversation(&mut self, path: &std::path::Path) -> Option<ResKey> {
@@ -2826,12 +3790,12 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
         let mut path = view.test.clone().unwrap_or_default();
         let mut assume = view.assume.clone();
         let title = format!("Conversation Test: {key}");
-        let mut close = crate::widgets::escape_closes(ui.ctx(), &title);
+        let mut close = false;
         let ctx = ui.ctx().clone();
         let window = crate::widgets::modal(&ctx, title);
         let window = crate::widgets::resizable(&ctx, window, egui::vec2(480.0, 420.0))
             .min_size([300.0, 200.0]);
-        window.show(&ctx, |ui| {
+        let footed = window.show_foot(&ctx, |ui| {
             // What was said so far, taking the room the window has over the
             // turn under it (that turn's height the frame before).
             let under_id = ui.id().with("test-under-history");
@@ -2850,28 +3814,38 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                 });
-            let from = ui.min_rect().bottom();
-            ui.scope(|ui| turn(ui, &g, game, &mut path, &mut assume, &mut close));
-            let under = ui.min_rect().bottom() - from + ui.spacing().item_spacing.y;
+            // (The cursor, not the ui's rectangle: the body is as tall as
+            // the room the footer leaves.)
+            let from = ui.cursor().top();
+            ui.scope(|ui| turn(ui, &g, game, &mut path, &mut assume));
+            let under = ui.cursor().top() - from;
             if under_was.is_none_or(|was| (was - under).abs() > 0.5) {
                 ui.data_mut(|d| d.insert_temp(under_id, under));
                 ui.ctx().request_repaint();
             }
+            // (Back: a turn, the reply and the NPC line before it.)
+            ((), crate::widgets::Foot::new().button("<-- Back", !path.is_empty()).leave("Done"))
         });
+        if let Some(footed) = &footed {
+            if footed.pressed.clicked("<-- Back") {
+                path.pop();
+                path.pop();
+            }
+            close = footed.pressed.cancelled();
+        }
         view.test = if close { None } else { Some(path) };
         view.assume = assume;
     }
 }
 
 /// Conversation Test's turn: the NPC's line (those passed over shown), the
-/// player's replies to it, and Back and Done.
+/// player's replies to it (Back and Done are the footer's).
 fn turn(
     ui: &mut Ui,
     g: &Gff,
     game: Option<&mg_rules::GameData>,
     path: &mut Vec<(Kind, u32)>,
     assume: &mut std::collections::BTreeMap<String, bool>,
-    close: &mut bool,
 ) {
     ui.separator();
     // The NPC's turn: from the root, or after the last reply.
@@ -2909,7 +3883,6 @@ fn turn(
         } else {
             "[END DIALOGUE: no NPC line's condition passes]"
         });
-        footer(ui, path, close);
         return;
     };
     ui.separator();
@@ -2946,21 +3919,6 @@ fn turn(
             }
         });
     }
-    footer(ui, path, close);
-}
-
-/// Back (a turn: the reply and the NPC line before it) and Done.
-fn footer(ui: &mut Ui, path: &mut Vec<(Kind, u32)>, close: &mut bool) {
-    ui.separator();
-    ui.horizontal(|ui| {
-        if ui.add_enabled(!path.is_empty(), egui::Button::new("<-- Back")).clicked() {
-            path.pop();
-            path.pop();
-        }
-        if ui.button("Done").clicked() {
-            *close = true;
-        }
-    });
 }
 
 #[cfg(test)]
@@ -2968,6 +3926,22 @@ mod tests {
     use super::*;
     use egui::Key;
     use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// What a conversation's panel asked for in a frame its editor was not
+    /// drawn after it is set with that frame's actions, never kept for a
+    /// later frame, where the lines may have been numbered anew under it
+    /// (M4's U14 review, item 8).
+    #[test]
+    fn a_panel_s_edit_its_editor_did_not_take_is_set_with_its_frame() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let key = ResKey::parse("talk", ResType::DLG).unwrap();
+        let mut view = DialogView::default();
+        view.from_panels.push(Action::Undo);
+        app.dialog_views.insert(key, view);
+        flush_panels(&mut app);
+        assert!(matches!(app.actions.as_slice(), [Action::Undo]), "set with the frame");
+        assert!(app.dialog_views[&key].from_panels.is_empty(), "nothing kept");
+    }
 
     /// The light theme's text colors stand out against its white as the
     /// web asks of text (a contrast of 4.5 or more), and more than the dark

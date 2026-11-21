@@ -611,6 +611,10 @@ pub(crate) enum Target {
     Command(Choice),
     /// A recent module, opened as File › Recent Modules opens it.
     Module(PathBuf),
+    /// The game's own `dialog.tlk`, read-only in the Talk Table tab (M4's
+    /// U17): no resource of the load order (a hak's own `dialog.tlk` is
+    /// one, and opens as the Resources panel opens it).
+    GameTalk,
 }
 
 /// A row of the popover.
@@ -1158,6 +1162,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::FindReferences
         | Id::AdvancedSearch
         | Id::GoToStart
+        | Id::ReorientCamera
         | Id::Factions
         | Id::Journal
         | Id::TalkTable
@@ -1178,6 +1183,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::ViewPalettes
         | Id::ViewLog
         | Id::CopyLog
+        | Id::CloseReport
         | Id::SaveLog
         | Id::HidePanels => true,
         Id::NewModule
@@ -1858,6 +1864,30 @@ fn results(app: &mut Moonglow, ctx: &egui::Context) -> Found {
     let room = MOST.saturating_sub(hits.len());
     hits.extend(found.iter().take(room).map(|&i| command_hit(app, ctx, &commands[i].row)));
     if !commands_only {
+        // (The game's own dialog.tlk, no resource of the load order: read
+        // only in its tab, M4's U17. First of the load order's, as the
+        // talk table the game reads.)
+        if let Some(game) = app.game.as_deref()
+            && q.restype.is_none_or(|t| t == ResType::TLK)
+        {
+            let named = fold("dialog.tlk");
+            let found = tier_of(&named, &query).is_some() || needle.finds_in(&[&named]);
+            if found {
+                total += 1;
+            }
+            // (Within the rows shown, as every hit.)
+            if found && hits.len() < MOST {
+                hits.push(Hit {
+                    target: Target::GameTalk,
+                    name: "dialog.tlk".into(),
+                    detail: crate::browser::game_talk_layer(game.language),
+                    icon: Icon::TalkTable,
+                    key: String::new(),
+                    enabled: true,
+                    why: String::new(),
+                });
+            }
+        }
         total += qo.narrowed.game_found;
         let room = MOST.saturating_sub(hits.len());
         let best = qo.narrowed.game_best.iter().take(room);
@@ -1931,6 +1961,7 @@ fn choose(app: &mut Moonglow, ctx: &egui::Context, target: Target) {
         Target::Command(choice) => commands::run_choice(app, ctx, choice),
         // (Asked about unsaved work first, as File › Recent Modules is.)
         Target::Module(path) => app.actions.push(Action::OpenModule(path)),
+        Target::GameTalk => app.actions.push(Action::ShowGameTalk),
     }
 }
 
@@ -2736,7 +2767,7 @@ mod tests {
         let group = |t: &Target| match t {
             Target::Resource(_) | Target::Module(_) => 0,
             Target::Command(_) => 1,
-            Target::Game(_) => 2,
+            Target::Game(_) | Target::GameTalk => 2,
         };
         let groups: Vec<u8> = found.hits.iter().map(|h| group(&h.target)).collect();
         assert!(groups.windows(2).all(|w| w[0] <= w[1]), "{groups:?}");

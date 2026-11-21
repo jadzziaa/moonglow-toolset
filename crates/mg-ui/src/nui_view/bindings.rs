@@ -86,6 +86,13 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     if keys.is_empty() {
         return;
     }
+    // (A bound property's chip clicked: its property shown here, the
+    // section opened and brought into sight, M4's U19.)
+    let asked_id = form::chip_asked(ui.ctx());
+    let asked = ui.ctx().data_mut(|d| d.remove_temp::<String>(asked_id));
+    if let Some(key) = asked.as_ref().filter(|k| keys.contains(k)) {
+        state.binding_property = key.clone();
+    }
     if !keys.contains(&state.binding_property) {
         state.binding_property = ["value", "label", "title"]
             .into_iter()
@@ -93,26 +100,32 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             .unwrap_or(&keys[0])
             .into();
     }
-    egui::CollapsingHeader::new("Property binding")
-        .icon(mg_uikit::collapsing_icon)
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.weak("A bound property takes its value from a bind, which a script can change.");
-            let property = widgets::field_label(ui, "Property");
-            widgets::dropdown("bind-property")
-                .selected_text(label(&state.binding_property, &ty))
-                .width(ui.available_width().max(0.0))
-                .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
-                .labelled_by(property.id);
-            let key = state.binding_property.clone();
-            let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
-            let bound = current["bind"].as_str().map(str::to_owned);
-            let rows = row_count(doc, &path, settings);
-            ui.push_id((&path, &key), |ui| {
+    let tip = "A bound property takes its value from a bind, which a script can change";
+    let open = asked.is_some().then_some(true);
+    let section = form::section(
+        ui,
+        "nui-property-binding",
+        "Property Binding",
+        true,
+        open,
+        Some(tip),
+        |ui| {
+            {
+                form::row(ui, "Property", None, |ui, lead| {
+                    widgets::dropdown("bind-property")
+                        .selected_text(label(&state.binding_property, &ty))
+                        .width(ui.available_width().max(0.0))
+                        .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
+                        .labelled_by(lead.id);
+                });
+                let key = state.binding_property.clone();
+                let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
+                let bound = current["bind"].as_str().map(str::to_owned);
+                let rows = row_count(doc, &path, settings);
+                ui.push_id((&path, &key), |ui| {
                 let draft_id = ui.make_persistent_id("property-bind-draft");
                 let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
                 let mut chosen = bound.clone().unwrap_or_default();
-                widgets::field_label(ui, "Value from");
                 // Checked only while the list is used (open, or with the keys).
                 let choices = || -> Vec<String> {
                     (settings.bindings.iter())
@@ -121,19 +134,47 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         .collect()
                 };
                 let options = || std::iter::once(String::new()).chain(choices()).collect();
-                widgets::dropdown("property-bind-source")
-                    .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
-                    .width(ui.available_width().max(0.0))
-                    .show_with(ui, &mut chosen, options, |ui, chosen| {
-                        let choices = choices();
-                        ui.selectable_value(chosen, String::new(), "Constant (no bind)");
-                        for name in &choices {
-                            ui.selectable_value(chosen, name.clone(), name);
-                        }
-                        if choices.is_empty() {
-                            ui.weak("No bind holds a value of this kind: make one below.");
-                        }
+                // Source: a compatible bind or Constant, and beside it the
+                // board's plus that makes a new bind of the property's value.
+                let can_new = draft.is_none() && rows.is_none_or(|n| n <= 10000);
+                let tip = "A compatible bind, or Constant (no bind)";
+                let new_bind = form::row(ui, "Source", Some(tip), |ui, lead| {
+                    // (The dropdown the room the plus leaves, the plus at
+                    // the row's right.)
+                    let plus =
+                        mg_uikit::IconButton::new(mg_uikit::Icon::Plus, "New Bind for Property")
+                            .icon_only(true)
+                            .framed(true);
+                    let room = ui.spacing().interact_size.y.max(mg_uikit::metrics::ICON)
+                        + ui.spacing().item_spacing.x;
+                    // (A long bind's name cut short, not the row widened.)
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                    let size = egui::vec2(
+                        (ui.available_width() - room).max(0.0),
+                        ui.spacing().interact_size.y,
+                    );
+                    ui.allocate_ui(size, |ui| {
+                        widgets::dropdown("property-bind-source")
+                            .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
+                            .width(ui.available_width())
+                            .show_with(ui, &mut chosen, options, |ui, chosen| {
+                                let choices = choices();
+                                ui.selectable_value(chosen, String::new(), "Constant (no bind)");
+                                for name in &choices {
+                                    ui.selectable_value(chosen, name.clone(), name);
+                                }
+                                if choices.is_empty() {
+                                    ui.weak(
+                                        "No bind holds a value of this kind: make one with the plus.",
+                                    );
+                                }
+                            })
+                            .labelled_by(lead.id);
                     });
+                    ui.add_enabled(can_new, plus)
+                        .on_hover_text("New Bind for Property: named and valued from the control")
+                        .clicked()
+                });
                 if chosen != bound.clone().unwrap_or_default() {
                     let Some(node) = doc.pointer_mut(&path) else { return };
                     let target = &mut node[&key];
@@ -160,14 +201,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     "For more than 10000 rows, write the bind in Binding JSON and choose it here.",
                 );
                 }
-                if draft.is_none()
-                    && ui
-                        .add_enabled(
-                            rows.is_none_or(|n| n <= 10000),
-                            egui::Button::new("+ New Bind for Property"),
-                        )
-                        .clicked()
-                {
+                if new_bind {
                     let source = resolved(&current, settings).clone();
                     let source = if source.is_null() {
                         property_default(&ty, &key).unwrap_or(json!(""))
@@ -198,7 +232,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     let window = widgets::dialog(ui.ctx(), "New Bind for a Property", &mut open)
                         .collapsible(false)
                         .resizable(false);
-                    window.show(ui.ctx(), |ui| {
+                    let footed = window.show_foot(ui.ctx(), |ui| {
                         let heading = widgets::field_label(ui, "Bind name");
                         let field =
                             ui.add(mg_uikit::text_field(&mut draft.name)).labelled_by(heading.id);
@@ -227,30 +261,32 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         if let Some(error) = error {
                             ui.weak(error);
                         }
-                        ui.horizontal(|ui| {
-                            if (ui
-                            .add_enabled(error.is_none(), egui::Button::new("Create"))
-                            .on_hover_text("Makes the bind and binds the property to it")
-                            .clicked()
-                            || (error.is_none() && widgets::enter(ui)))
+                        let foot = widgets::Foot::new()
+                            .main("Create", error.is_none())
+                            .tip("Makes the bind and binds the property to it")
+                            .cancel();
+                        (name.to_string(), foot)
+                    });
+                    if let Some(footed) = footed {
+                        if footed.pressed.main()
+                            && let Some(name) = footed.inner
                             // (Asked once more as it is made: the window
                             // may have changed under the open dialog.)
                             && compatible(doc, &path, &key, settings, &draft.value)
-                            {
-                                settings.bindings.insert(
-                                    name.into(),
-                                    Binding { value: draft.value.clone(), ..Default::default() },
-                                );
-                                if let Some(node) = doc.pointer_mut(&path) {
-                                    node[&key] = json!({"bind":name});
-                                }
-                                finish = true;
+                        {
+                            settings.bindings.insert(
+                                name.as_str().into(),
+                                Binding { value: draft.value.clone(), ..Default::default() },
+                            );
+                            if let Some(node) = doc.pointer_mut(&path) {
+                                node[&key] = json!({"bind":name});
                             }
-                            if widgets::cancel(ui) {
-                                finish = true;
-                            }
-                        });
-                    });
+                            finish = true;
+                        }
+                        if footed.pressed.cancelled() {
+                            finish = true;
+                        }
+                    }
                     finish |= !open;
                 }
                 ui.ctx().data_mut(|d| {
@@ -269,8 +305,11 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     doc.pointer(&path).and_then(|n| n[&key]["bind"].as_str()).map(str::to_owned)
                 {
                     if let Some(binding) = settings.bindings.get_mut(&name) {
-                        widgets::field_label(ui, "Initial value");
-                        ui.weak("Shared by the controls that use this bind.");
+                        form::label(
+                            ui,
+                            "Initial value",
+                            Some("Shared by the controls that use this bind"),
+                        );
                         fields::value(ui, &mut binding.value, 0);
                     } else {
                         ui.colored_label(
@@ -278,14 +317,23 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                             "There is no such bind: make it, or choose another above.",
                         );
                     }
+                    // (Its Bind Formatting, under its row before M4's U19,
+                    // where its chip is now.)
+                    if let Some(bound) = doc.pointer_mut(&path).map(|n| &mut n[&key]) {
+                        fields::binding_options(ui, bound);
+                    }
                 }
             });
-        });
-    ui.separator();
+            }
+        },
+    );
+    if asked.is_some() {
+        section.scroll_to_me(Some(egui::Align::TOP));
+    }
 }
 
 pub(super) fn watch(ui: &mut Ui, name: &str, doc: &Value, s: &mut Settings, state: &mut State) {
-    egui::CollapsingHeader::new("When this value changes")
+    egui::CollapsingHeader::new("When This Value Changes")
         .icon(mg_uikit::collapsing_icon)
         .default_open(true)
         .show(ui, |ui| {

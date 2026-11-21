@@ -1,11 +1,9 @@
 //! The drawn icons (`mg_uikit::Icon`) that label the object types (in the
-//! palette and the area view's toolbar), the area view's toggles and the
-//! toolbars' buttons, and [`Tools`], which labels a toolbar's buttons as
-//! Options › General › Editors' toolbar buttons says (the Top Bar's, icons
-//! alone, whatever it says).
+//! palette and the area view's header), the area view's toggles and the
+//! editors' header buttons, and [`Tools`], which labels the Top Bar's quick
+//! actions (icons alone, or icons and words as its width lets them be).
 
 use mg_area::ObjectKind;
-use mg_uikit::Controls as _;
 pub(crate) use mg_uikit::Icon;
 use mg_uikit::{IconButton, Label};
 
@@ -51,7 +49,7 @@ icons! {
     WALKMESH = Walkmesh;
     SELECT_TILES = SelectTiles;
     PAINT = Paint;
-    /// The area view's Area Properties (the main toolbar's Module Properties
+    /// The area header's Area Properties (the Module panel header's Module Properties
     /// is `module`: `area-properties` and `properties` are one drawing).
     AREA_PROPERTIES = AreaProperties;
     /// A palette's Gallery and List (its pictures or its names).
@@ -62,7 +60,8 @@ icons! {
     SHOW_NONE = EyeOff;
     /// Together (turning several as one), To Scratch, Onto Objects (what is
     /// placed goes onto the placeable or door under the pointer), and the
-    /// dropdowns' icons with Icons only (Fade Geometry, Snap, Turn).
+    /// dropdowns' icons where the header shows them alone (Fade Geometry,
+    /// Snap, Turn).
     TOGETHER = Together;
     TO_SCRATCH = ToScratch;
     ONTO_OBJECTS = OntoObjects;
@@ -113,9 +112,10 @@ pub(crate) fn object(kind: ObjectKind) -> Icon {
     }
 }
 
-/// The editors' toolbars' icons, with Icons only (beside the others,
-/// their words alone): the script editor's, the conversation editor's,
-/// the model view's and the NUI Creator's.
+/// The editors' header buttons' icons, shown where a header yields to
+/// icons alone by its width (M4's U23 retired the setting that chose
+/// it): the script editor's, the conversation editor's and the NUI
+/// Creator's, and the model view's header row's (M4's U11).
 pub(crate) mod editor {
     use super::Icon;
     icons! {
@@ -154,29 +154,24 @@ pub(crate) mod editor {
         FRAME = Frame;
         LIGHTS = Light;
         POP_OUT = OpenInTab;
-        BUILD = Hammer;
-        HOW_TO_OPEN = Help;
     }
 }
 
-/// How a toolbar's buttons are labelled (Options › General › Editors'
-/// toolbar buttons): a glyph and its name, or, with Icons only, the glyph
-/// alone and its name in its tip (and as its name for a screen reader),
-/// as Aurora's toolbars have them. The area view's toolbar takes it from
-/// the settings each frame; the editors' toolbars show their words alone
-/// beside them ([`Tools::word`]); the Top Bar's quick actions are icons
-/// alone ([`Tools::icons_alone`]).
+/// How the Top Bar's quick actions are labelled: a glyph and its name, or
+/// the glyph alone and its name in its tip (and as its name for a screen
+/// reader) ([`Tools::icons_alone`]). The setting that once chose it for
+/// the editors' toolbars too (Options › General › Toolbar buttons) is
+/// retired (M4's U23, ruling R4): each editor has the kit's header, which
+/// yields by its width.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Tools {
     pub(crate) icons_only: bool,
-    /// The area toolbar's buttons left out ([`AREA_TOOLS`], a bit each by
-    /// its place there; none on other toolbars).
-    hidden: u64,
 }
 
-/// The area view's toolbar's buttons that can be hidden (Options › Area ›
-/// Toolbar, the toolbar's right-click menu), by the names they give
-/// [`Tools`]; the objects' filters are [`area_tool_kind`]'s.
+/// The area header's controls that can be hidden (Options › Area ›
+/// Header, the header's right-click menu), by the names the retired area
+/// toolbar gave them, kept so that a stored list keeps its meaning
+/// (`area_view::header`); the objects' filters are [`area_tool_kind`]'s.
 pub(crate) const AREA_TOOLS: [&str; 29] = [
     "Start",
     "All",
@@ -209,89 +204,35 @@ pub(crate) const AREA_TOOLS: [&str; 29] = [
     "To Scratch",
 ];
 
-/// The name an objects' filter of the area toolbar is hidden by: "Show
+/// The name an objects' filter of the area header is hidden by: "Show
 /// Creatures" (the play-sounds button is "Sounds").
 pub(crate) fn area_tool_kind(label: &str) -> String {
     format!("Show {label}")
 }
 
 impl Tools {
-    pub(crate) fn of(settings: &crate::Settings) -> Tools {
-        Tools { icons_only: settings.toolbar_icons_only, hidden: 0 }
-    }
-
-    /// Icons alone, whatever the settings say (the Top Bar's quick
-    /// actions: Options › General › Editors' toolbar buttons is the
-    /// editors' toolbars' alone), or icons and words.
+    /// Icons alone (`only`), or icons and words: the Top Bar's quick
+    /// actions as its width lets them be.
     pub(crate) fn icons_alone(only: bool) -> Tools {
-        Tools { icons_only: only, hidden: 0 }
+        Tools { icons_only: only }
     }
 
-    /// The same, with the icons alone where `buttons` with their words
-    /// would not fit in one row of `ui`'s width (the design's rule: a
-    /// header's words yield to icons before it wraps; what still has no
-    /// room wraps to the next row).
-    pub(crate) fn fitted(self, ui: &egui::Ui, buttons: &[IconButton]) -> Tools {
-        self.fitted_after(ui, 0.0, buttons)
-    }
-
-    /// [`Tools::fitted`] for a row that begins with `before` points of
-    /// something else (the hak editor's count of what it holds, and the
-    /// room after it).
-    pub(crate) fn fitted_after(self, ui: &egui::Ui, before: f32, buttons: &[IconButton]) -> Tools {
-        let gaps = ui.spacing().item_spacing.x * buttons.len().saturating_sub(1) as f32;
-        let words: f32 = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gaps;
-        Tools { icons_only: self.icons_only || before + words > ui.available_width(), ..self }
-    }
-
-    /// The area view's toolbar's: those its settings hide left out.
-    pub(crate) fn of_area(settings: &crate::Settings) -> Tools {
-        let hidden = (AREA_TOOLS.iter().enumerate())
-            .filter(|(_, n)| settings.hidden_area_tools.iter().any(|h| h == *n))
-            .fold(0, |m, (i, _)| m | 1 << i);
-        Tools { icons_only: settings.toolbar_icons_only, hidden }
-    }
-
-    /// Whether the button named `name` is left out.
-    pub(crate) fn hides(self, name: &str) -> bool {
-        AREA_TOOLS.iter().position(|n| *n == name).is_some_and(|i| self.hidden & 1 << i != 0)
-    }
-
-    /// The same, hiding nothing (the objects' filters, named as buttons
-    /// that may be hidden).
-    pub(crate) fn showing_all(self) -> Tools {
-        Tools { hidden: 0, ..self }
-    }
-
-    /// How a button of the main or the area toolbar is labelled: its icon
+    /// How a Top Bar quick action is labelled: its icon
     /// and its name, or its icon alone.
     pub(crate) fn look(self) -> Label {
         if self.icons_only { Label::IconOnly } else { Label::Both }
     }
 
-    /// How an editor's toolbar button is labelled: its words alone, or with
-    /// Icons only its icon alone.
-    pub(crate) fn word_look(self) -> Label {
-        if self.icons_only { Label::IconOnly } else { Label::WordsOnly }
-    }
-
-    /// A button of the main or the area toolbar: `icon` and `name`, or the
+    /// A Top Bar quick action: `icon` and `name`, or the
     /// icon alone ([`Tools::look`]), named `name` either way.
     pub(crate) fn widget(self, icon: Icon, name: &str) -> IconButton {
-        // (4 px between the icon and the words, not the mock's 6: the area
-        // toolbar's forty buttons took a row more with 6, in today's
-        // layout, until M3 moves its switches into popovers.)
+        // (4 px between the icon and the words, not the mock's 6: the retired
+        // area toolbar's forty buttons took a row more with 6.)
         IconButton::new(icon, name).label(self.look()).gap(mg_uikit::metrics::GAP_S)
     }
 
-    /// An editor's toolbar button: its words, or its icon alone
-    /// ([`Tools::word_look`]), named `name` either way.
-    pub(crate) fn word_widget(self, icon: Icon, name: &str) -> IconButton {
-        IconButton::new(icon, name).label(self.word_look())
-    }
-
     /// A button's tip from `tip` (with its key, where it has one; empty:
-    /// none): as it is beside the name; with Icons only, the name first
+    /// none): as it is beside the name; with icons alone, the name first
     /// (unless the tip begins with it), or the name alone.
     pub(crate) fn tip(self, name: &str, tip: &str) -> Option<String> {
         let begins = tip.get(..name.len()).is_some_and(|t| t.eq_ignore_ascii_case(name));
@@ -302,95 +243,6 @@ impl Tools {
             (true, false) if begins => Some(tip.to_string()),
             (true, false) => Some(format!("{name}\n{tip}")),
         }
-    }
-
-    /// A button: `icon`, named `name`, with `tip`.
-    pub(crate) fn button(
-        self,
-        ui: &mut egui::Ui,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        if self.hides(name) {
-            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-        }
-        self.add(ui, self.widget(icon, name), name, tip)
-    }
-
-    /// A button that stays down while `on`, and turns it on and off.
-    pub(crate) fn toggle(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        self.toggle_as(ui, on, icon, name, name, tip)
-    }
-
-    /// [`Tools::toggle`] showing `words` (by which it is hidden) and named
-    /// `name` for a screen reader and in its tip: the area toolbar's
-    /// "Sounds" filter named "Show Sounds", its "Sounds" switch "Play
-    /// Sounds".
-    pub(crate) fn toggle_as(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        words: &str,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        if self.hides(words) {
-            return ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-        }
-        let r = toggled(ui.add(self.widget(icon, words).name(name).selectable(*on)), on);
-        self.with_tip(r, name, tip)
-    }
-
-    /// An editor's toolbar toggle: its words, or its icon ([`Tools::word_look`]).
-    pub(crate) fn toggle_word(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on);
-        self.with_tip(r, name, tip)
-    }
-
-    /// An editor's toolbar tick: a check box and its words, or with Icons
-    /// only its icon as a toggle (on in the accent), named `name` either
-    /// way.
-    pub(crate) fn checkbox_word(
-        self,
-        ui: &mut egui::Ui,
-        on: &mut bool,
-        icon: Icon,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = match self.icons_only {
-            true => toggled(ui.add(self.word_widget(icon, name).selectable(*on)), on),
-            false => ui.check_box(on, name),
-        };
-        self.with_tip(r, name, tip)
-    }
-
-    /// `button` (an [`IconButton`], named by its words) added, with its tip.
-    pub(crate) fn add(
-        self,
-        ui: &mut egui::Ui,
-        button: impl egui::Widget,
-        name: &str,
-        tip: &str,
-    ) -> egui::Response {
-        let r = ui.add(button);
-        self.with_tip(r, name, tip)
     }
 
     /// `r`, a button, with its tip.
@@ -407,8 +259,8 @@ impl Tools {
         }
     }
 
-    /// Every icon the toolbars, the palettes and the module tree show: the
-    /// main toolbar's, the object types', and every one declared here
+    /// Every icon the bars and headers, the palettes and the module tree show:
+    /// the Top Bar's, the object types', and every one declared here
     /// ([`ALL`], [`editor::ALL`]).
     #[cfg(test)]
     pub(crate) fn icons() -> Vec<Icon> {
@@ -433,17 +285,15 @@ pub(crate) fn toggled(mut r: egui::Response, on: &mut bool) -> egui::Response {
 mod tests {
     use super::*;
 
-    /// With Icons only, the icon alone and the name in the tip: first,
+    /// With icons alone, the name is in the tip: first,
     /// unless the tip begins with it, or alone; beside the name, the tip
     /// as it was.
     #[test]
     fn icons_only_moves_the_name_into_the_tip() {
-        let both = Tools { icons_only: false, hidden: 0 };
-        let icons = Tools { icons_only: true, hidden: 0 };
+        let both = Tools { icons_only: false };
+        let icons = Tools { icons_only: true };
         assert_eq!(both.look(), Label::Both);
         assert_eq!(icons.look(), Label::IconOnly);
-        assert_eq!(both.word_look(), Label::WordsOnly);
-        assert_eq!(icons.word_look(), Label::IconOnly);
         assert_eq!(both.tip("Reorient Camera", ""), None);
         assert_eq!(icons.tip("Reorient Camera", "").as_deref(), Some("Reorient Camera"));
         assert_eq!(both.tip("Grid", "Display Grid").as_deref(), Some("Display Grid"));
@@ -456,7 +306,7 @@ mod tests {
     }
 
     /// An icon is one command's across the main window's bars (the Top
-    /// Bar, the Module panel's header) and the area view's toolbar (Module
+    /// Bar, the Module panel's header) and the area header (Module
     /// Properties `module`, Area Properties `area-properties`; the area's
     /// Grid `grid`, a palette's Gallery `gallery`): they share none (the
     /// start location's, which the area view's Start shows, left the main
@@ -564,7 +414,9 @@ mod tests {
                 e::SCRIPTS,
             ],
             &[e::PLAY, e::PAUSE, e::FRAME, e::LIGHTS, SHADOWS, SHADERS, e::POP_OUT, e::EXPORT],
-            &[e::IMPORT, e::EXPORT, e::BUILD, e::HOW_TO_OPEN],
+            // (The NUI designer's header, M4's U18: Build & Compile,
+            // Export…, Import…, How to Open It…, Interact, Reset.)
+            &[e::IMPORT, e::EXPORT, Icon::Compile, Icon::Help, e::PLAY, Icon::Restart],
         ];
         for icons in editors {
             assert_eq!(alike(icons), [], "one icon for two of an editor's buttons");
@@ -573,7 +425,7 @@ mod tests {
 
     /// Every icon the application names is one of the set's
     /// (`Icon::ALL`), and each paints strokes at 16 px: those declared
-    /// here, the main toolbar's, and every icon named (`Icon::` and its name) in the
+    /// here, the Top Bar's, and every icon named (`Icon::` and its name) in the
     /// application's source.
     #[test]
     fn every_icon_used_is_drawn() {

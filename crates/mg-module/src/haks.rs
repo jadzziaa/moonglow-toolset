@@ -71,10 +71,29 @@ impl HakReport {
 
 /// Analyses the given haks (in `Mod_HakList` order) against the base game.
 pub fn hak_report(install: &GameInstall, names: &[String]) -> Result<HakReport, ModuleError> {
+    Ok(hak_report_with(install, names, &mut |_, _| true)?.unwrap_or_default())
+}
+
+/// [`hak_report`], saying how far it is: `step(done, total)` before each
+/// hak is read (and once at the end, `total` of `total`), the report
+/// called off (`Ok(None)`) where it says `false`, the haks after it not
+/// read.
+pub fn hak_report_with(
+    install: &GameInstall,
+    names: &[String],
+    step: &mut dyn FnMut(usize, usize) -> bool,
+) -> Result<Option<HakReport>, ModuleError> {
+    let total = names.len();
+    if !step(0, total) {
+        return Ok(None);
+    }
     let base = ResMan::for_game(&install.as_player())
         .map_err(|e| ModuleError::Archive { path: install.root.clone(), message: e.to_string() })?;
     let mut report = HakReport::default();
-    for name in names {
+    for (n, name) in names.iter().enumerate() {
+        if !step(n, total) {
+            return Ok(None);
+        }
         let path = install.find_hak(name);
         report.haks.push((name.clone(), path.clone()));
         let Some(path) = path else {
@@ -92,7 +111,8 @@ pub fn hak_report(install: &GameInstall, names: &[String]) -> Result<HakReport, 
     };
     report.overrides =
         report.resources.iter().filter(|(k, _)| in_base(k)).map(|(k, v)| (*k, v.clone())).collect();
-    Ok(report)
+    step(total, total);
+    Ok(Some(report))
 }
 
 #[cfg(test)]
@@ -148,5 +168,38 @@ mod tests {
         assert_eq!(priority("hak:shared"), Some(mg_resman::priority::HAK_USER));
         assert_eq!(priority("hak:mine"), Some(mg_resman::priority::HAK_USER));
         assert_eq!(priority("hak:stock"), Some(mg_resman::priority::HAK));
+    }
+
+    /// The report says how far it is, a hak at a time, and stops where it
+    /// is called off: the haks after it are not read (one that could not
+    /// be opened stops it with an error where it is read).
+    #[test]
+    fn the_report_says_how_far_it_is_and_stops_when_called_off() {
+        let lib = mg_testkit::scratch_dir("haks-called-off");
+        let root = lib.join("nwn");
+        let user = lib.join("user");
+        std::fs::create_dir_all(root.join("data/hk")).unwrap();
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        for name in ["a", "b"] {
+            let key = ResKey::parse(name, ResType::TWODA).unwrap();
+            let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+            w.add(key.resref, key.restype, b"2DA V2.0\n".to_vec()).unwrap();
+            std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+        }
+        // (Not a hak: reading it fails.)
+        std::fs::write(user.join("hak/c.hak"), b"not an erf").unwrap();
+        let install = GameInstall::new(&root, Some(user), "en");
+        let names = ["a", "b", "c"].map(String::from);
+        let mut said = Vec::new();
+        let mut stop_at = |n: usize, total: usize| {
+            said.push((n, total));
+            n < 2
+        };
+        let r = hak_report_with(&install, &names, &mut stop_at).expect("called off before c");
+        assert!(r.is_none(), "called off");
+        assert_eq!(said, [(0, 3), (0, 3), (1, 3), (2, 3)], "a hak at a time, c not read");
+        assert!(hak_report(&install, &names).is_err(), "c read, whole: an error");
+        let two = hak_report_with(&install, &names[..2], &mut |_, _| true).unwrap().unwrap();
+        assert_eq!(two.resources.len(), 2);
     }
 }

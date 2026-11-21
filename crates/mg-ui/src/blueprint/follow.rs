@@ -288,7 +288,8 @@ pub(crate) struct Followed {
     places: HashMap<Place, Option<Place>>,
     /// The structs of the journal (its categories and entries, which its
     /// editor deletes by setting their list whole) that String Edit
-    /// holds, likewise.
+    /// holds, and the journal editor's (its selection, the categories open,
+    /// its panels' fields' ids: M4's U22), likewise.
     journal: HashMap<GffPath, Option<GffPath>>,
 }
 
@@ -303,23 +304,41 @@ impl Followed {
 }
 
 /// The journal's structs that String Edit (or a Variables window) holds,
-/// where `edits` move them.
+/// and those the journal editor holds (`journal_view::held_places`), where
+/// `edits` move them.
 fn followed_journal(app: &mut Moonglow, edits: &[Edit]) -> HashMap<GffPath, Option<GffPath>> {
     let key = crate::journal_view::key();
     let mut out = HashMap::new();
-    if !edits.iter().any(|e| moves_items(e) && *e.key() == key) {
+    // (The journal written whole, by a plugin, a module-wide Find and
+    // Replace, a rename of what it refers to: the last such write.)
+    let whole = edits.iter().rev().find_map(|e| match e {
+        Edit::SetResource { key: k, data } if *k == key => Some(data.as_deref()),
+        _ => None,
+    });
+    if whole.is_none() && !edits.iter().any(|e| moves_items(e) && *e.key() == key) {
         return out;
     }
     let targets =
         [app.var_edit.as_ref().map(|w| &w.target), app.loc_edit.as_ref().map(|w| &w.target)];
-    let places: Vec<(ResKey, GffPath)> = (targets.into_iter().flatten())
+    let mut places: Vec<(ResKey, GffPath)> = (targets.into_iter().flatten())
         .filter(|t| t.key == key)
         .map(|t| (key, t.path.clone()))
         .collect();
+    places.extend(crate::journal_view::held_places(app).into_iter().map(|p| (key, p)));
     let Some(Ok(doc)) = app.ws.as_mut().filter(|_| !places.is_empty()).map(|ws| ws.doc(&key))
     else {
         return out;
     };
+    if let Some(data) = whole {
+        let new = data.and_then(|d| mg_gff::Gff::read(d).ok());
+        for (_, path) in &places {
+            let now = by_identity(&doc.root, new.as_ref().map(|g| &g.root), path);
+            if now.as_ref() != Some(path) {
+                out.insert(path.clone(), now);
+            }
+        }
+        return out;
+    }
     let docs = HashMap::from([(key, doc.root.clone())]);
     for ((_, path), now) in places.iter().zip(follow(docs, &places, edits)) {
         let now = now.map(|(_, p)| p);
@@ -328,6 +347,55 @@ fn followed_journal(app: &mut Moonglow, edits: &[Edit]) -> HashMap<GffPath, Opti
         }
     }
     out
+}
+
+/// Where the journal's struct at `path` in `old` is in `new` (the
+/// journal written whole: its places can't be followed by its edits), by
+/// what names it in the game: a category by its Tag, an entry by its
+/// category's and its own ID (each unique in both, the entry's within its
+/// category); `None` where it can't be told so, or is gone. What is
+/// typed into it is then dropped, never set on another (M4's U22 review).
+fn by_identity(old: &Struct, new: Option<&Struct>, path: &GffPath) -> Option<GffPath> {
+    use mg_schema::{StructExt, jrl};
+    let new = new?;
+    let cats_label = jrl::CATEGORIES.label;
+    let entries_label = jrl::categories::ENTRY_LIST.label;
+    let (Some(Step::Item(l, c)), rest) = (path.0.first(), &path.0[1.min(path.0.len())..]) else {
+        return None;
+    };
+    if l != cats_label {
+        return None;
+    }
+    let (old_cats, new_cats) = (old.items(&jrl::CATEGORIES), new.items(&jrl::CATEGORIES));
+    let tag = |s: &Struct| s.read(&jrl::categories::TAG);
+    let only = |list: &[Struct], want: &dyn Fn(&Struct) -> bool| {
+        let mut found = list.iter().enumerate().filter(|(_, s)| want(s)).map(|(i, _)| i);
+        match (found.next(), found.next()) {
+            (Some(i), None) => Some(i),
+            _ => None,
+        }
+    };
+    let was = old_cats.get(*c)?;
+    let t = tag(was);
+    only(old_cats, &|s| tag(s) == t)?;
+    let c2 = only(new_cats, &|s| tag(s) == t)?;
+    let mut to = GffPath::root().item(cats_label, c2);
+    let mut rest = rest.iter();
+    match rest.next() {
+        None => return Some(to),
+        Some(Step::Item(m, e)) if m == entries_label => {
+            let id = |s: &Struct| s.read(&jrl::categories::entry_list::ID);
+            let old_entries = mg_module::journal::entries(was);
+            let new_entries = mg_module::journal::entries(&new_cats[c2]);
+            let want = id(old_entries.get(*e)?);
+            only(old_entries, &|s| id(s) == want)?;
+            let e2 = only(new_entries, &|s| id(s) == want)?;
+            to = to.item(entries_label, e2);
+        }
+        Some(_) => return None,
+    }
+    to.0.extend(rest.cloned());
+    Some(to)
 }
 
 /// Whether `e` may move what is in a list: an item inserted or removed,
@@ -435,20 +503,27 @@ fn moved_target(
         Some(None) => return false,
         None => {}
     }
-    t.also = std::mem::take(&mut t.also)
-        .into_iter()
-        .filter_map(|(k, p)| match now(&k, &p) {
-            Some(to) => to,
-            None => Some((k, p)),
-        })
-        .collect();
+    t.also = std::sync::Arc::new(
+        t.also
+            .iter()
+            .cloned()
+            .filter_map(|(k, p)| match now(&k, &p) {
+                Some(to) => to,
+                None => Some((k, p)),
+            })
+            .collect(),
+    );
     true
 }
 
 /// The edits of `edits` that [`followed`] reads (an Undo's or a Redo's,
 /// taken from the history without the rest).
 pub(crate) fn list_edits(edits: &[Edit]) -> Vec<Edit> {
-    edits.iter().filter(|e| moves_items(e)).cloned().collect()
+    // (And the journal written whole: its places found by what names them,
+    // `by_identity`.)
+    let journal =
+        |e: &Edit| matches!(e, Edit::SetResource { key, .. } if *key == crate::journal_view::key());
+    edits.iter().filter(|e| moves_items(e) || journal(e)).cloned().collect()
 }
 
 /// The id of the Properties window of the object at `path` in `area`'s
@@ -499,6 +574,7 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         return;
     }
     crate::area_view::objects_moved(app, &moved);
+    crate::journal_view::retarget(app, &moved.journal);
     let mut closed = Vec::new();
     for (_, tab) in app.dock.iter_all_tabs_mut() {
         let was = tab.clone();
@@ -529,8 +605,15 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
         }
     }
     app.window_ids.extend(taken);
-    // (Those of windows closed since, forgotten.)
+    // (Those of windows closed since, forgotten; those of objects selected
+    // in an area, the Properties panel's, kept: its fields follow their
+    // object as a window's do.)
     let mut open = std::collections::HashSet::new();
+    for (&area, view) in &app.area_views {
+        for &(kind, index) in &view.selection {
+            open.insert((area, GffPath::root().item(kind.list(), index)));
+        }
+    }
     for (_, tab) in app.dock.iter_all_tabs() {
         match tab {
             Tab::Instance { area, path } | Tab::InstanceModel { area, path } => {

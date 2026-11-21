@@ -5,8 +5,8 @@
 //! hand, why a stroke was refused), and the counts at the bar's right
 //! (what is selected, the tile under a brush, the area's tiles and
 //! objects). It replaces the line of words that stood under the area's
-//! toolbar. Made once a frame, after the editor area is drawn, from the
-//! view's state as that left it (`shell::update_shown`), and drawn by the
+//! toolbar before M3's T12. Made once a frame, after the editor area is
+//! drawn, from the view's state as that left it (`shell::update_shown`), and drawn by the
 //! next frame's Status Bar (drawn before the editor area); `Moonglow::ui`
 //! asks for that frame where what the bar says changed.
 
@@ -31,7 +31,7 @@ pub(crate) fn status(app: &Moonglow, view: &AreaView, ctx: &egui::Context) -> Sh
         counts.push(Count::new(format!("{} by {} tiles", m.width, m.height)));
         counts.push(Count::new(format!("{n} objects")));
     }
-    Shown { hints, counts }
+    Shown { hints, counts, note: None }
 }
 
 /// "Right Click / Esc: Stop": what drops a tool in hand.
@@ -56,7 +56,10 @@ fn hints(
     let ctrl = k.ctrl();
     let turn = || k.either(Cmd::TurnLeft, Cmd::TurnRight, "Turn");
     let mut out = Vec::new();
-    if let Some(paint) = crate::paint_mode::hints(app, k) {
+    // (Paint's, where it is the tool in hand: not in a read-only area,
+    // whose header shows the Select tool's.)
+    let paint = view.read_only.is_none().then(|| crate::paint_mode::hints(app, k)).flatten();
+    if let Some(paint) = paint {
         let more = match view.paint.more {
             0 => None,
             more => Some(Hint::note(format!("{more} more are laid than are drawn"))),
@@ -190,7 +193,32 @@ fn hints(
                 out.extend(k.either(Cmd::SurfaceAbove, Cmd::SurfaceBelow, surface));
             }
         }
+        // (Chosen in the palette's Gallery, which has the keys: its arrows
+        // go on choosing another picture to place. Its click is not said:
+        // a click in the area places.)
+        if crate::palette_view::gallery_has_the_keys(app, ctx) {
+            out.push(Hint::either(["Up", "Down"], "Row of pictures"));
+            out.push(Hint::either(["Left", "Right"], "One picture"));
+        }
         out.push(stop());
+    } else if crate::palette_view::gallery_has_the_keys(app, ctx) {
+        // The palette's Gallery with the keys and no blueprint held to place
+        // (the GalleryPalette board's bar): what its pictures take, and the
+        // area's turn and view (its selection's turn only where something
+        // selected turns; placing not in a read-only area). With one held,
+        // placing's hints, above.
+        if view.read_only.is_none() {
+            out.push(Hint::keys(["Drag"], "Place"));
+        }
+        out.push(Hint::either(["Up", "Down"], "Row of pictures"));
+        out.push(Hint::either(["Left", "Right"], "One picture"));
+        out.push(Hint::keys(["Click"], "Select"));
+        let model = view.model.as_ref();
+        let turnable = model.is_some_and(|m| view.chosen(m).any(|o| turns(o.kind)));
+        if turnable && view.read_only.is_none() {
+            out.push(Hint::keys([k.alt(), "Right Drag"], "Turn"));
+        }
+        out.push(Hint::keys([ctrl, "Drag"], "Move view"));
     } else if let Some(visual) = view.wheel_scale.as_ref().and(view.scaled().first()) {
         out.extend([
             Hint::note(format!("Scale {:.2}", visual.1.scale.x)),
@@ -231,14 +259,27 @@ fn hints(
         });
         let (grid, angle) = view.snap;
         match drag {
-            Drag::Turn { .. } | Drag::Spin { .. } | Drag::FaceSpawn { .. } => {
+            // (Each drag that snaps says how: the turns and the tilt by
+            // the Turn snap's angle, the start location's turn too.)
+            Drag::Turn { .. }
+            | Drag::Spin { .. }
+            | Drag::FaceSpawn { .. }
+            | Drag::Tilt { .. }
+            | Drag::Start { turn: true, .. } => {
                 if let Some(a) = angle {
                     let at = Hint::new(format!("Turn {a}°"));
                     out.push(at.part(HintPart::Icon(mg_uikit::Icon::Rotate)));
                 }
             }
-            Drag::Start { turn: true, .. } => {}
-            Drag::Tilt { .. } | Drag::Scale { .. } => {}
+            // (A scale goes in steps of 0.05 while the grid snaps.)
+            Drag::Scale { .. } => {
+                if grid.is_some() {
+                    let at = Hint::new("Snap 0.05");
+                    out.push(at.part(HintPart::Icon(mg_uikit::Icon::Magnet)));
+                }
+            }
+            // (Up and down take no snap: the up arrow and Alt + drag.)
+            Drag::Slide { axis: 2, .. } | Drag::Lift { .. } => {}
             _ => {
                 if let Some(m) = grid {
                     let at = Hint::new(format!("Snap {m} m"));
@@ -306,7 +347,8 @@ fn hints(
 /// (a drag, or Q and E's turning: the view's posed model, which the drag
 /// has moved), else as the area has it: its kind, tag, blueprint, place
 /// and facing ("Waypoint WP_A (nw_waypoint001) at 20.00, 20.00, 0.00,
-/// facing 17°"), the readout the line under the toolbar had.
+/// facing 17°"), the readout the line under the area's toolbar had (before
+/// M3's T12).
 fn readout(view: &AreaView) -> Option<Hint> {
     let [(kind, index)] = view.selection.as_slice() else { return None };
     let moving = view.drag.is_some() || view.key_turn.is_some();
@@ -358,7 +400,7 @@ fn selection_counts(view: &AreaView) -> Vec<Count> {
         [(kind, index)] => {
             let tip = view.model.as_ref().and_then(|m| m.object(*kind, *index));
             let tip = tip.map(|o| describe(*kind, o));
-            vec![Count { text: "1 selected".into(), tip }]
+            vec![Count { text: "1 selected".into(), tip, warn: false }]
         }
         many => vec![Count::new(format!("{} selected", many.len()))],
     }

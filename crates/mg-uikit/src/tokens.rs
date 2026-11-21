@@ -134,6 +134,9 @@ tokens! {
     cell_line: "cell-line" = hex(0x25292e), hex(0xd3d7dc);
     /// A table's selected cell, under an accent outline (`#1a2a3a`).
     cell_select: "cell-select" = hex(0x1a2a3a), hex(0xd3e2f2);
+    /// A table's cells chosen together (the Table board's `.c.rng`,
+    /// `accent-fill` at 45% over the panel; light, as far from its panel).
+    cell_range: "cell-range" = rgba(29, 84, 136, 0.45), rgba(39, 101, 161, 0.22);
     /// Text on a status badge (error, warn, ok, info fills; dark
     /// `#15171a`, light white).
     on_status: "on-status" = hex(0x15171a), hex(0xffffff);
@@ -165,11 +168,68 @@ tokens! {
     switch_knob: "switch-knob" = hex(0xaab0ba), hex(0xffffff);
     /// A slider's thumb (dark: [`Tokens::text_2`]).
     slider_thumb: "slider-thumb" = hex(0xaab0ba), hex(0xffffff);
+    /// A tree's indent guides: the 1 px lines down the column of each
+    /// level's arrow (the Conversation board's `--guide`, `#2c3036`; the
+    /// light theme's not on a board, made as far from its panel).
+    guide: "guide" = hex(0x2c3036), hex(0xcdd2d8);
+    /// The same on a hovered row, over [`Tokens::hover_row`] (on no board:
+    /// made as far from it as `guide` is from the panel, so a guide stays
+    /// in sight under the pointer).
+    guide_hover: "guide-hover" = hex(0x3a3f47), hex(0xbcc2ca);
+    /// The same on the selected row, over [`Tokens::accent_fill`] (the
+    /// Conversation board's `rgba(255, 255, 255, 0.18)`).
+    guide_on_fill: "guide-on-fill" = rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.18);
     /// The ring around a slider's thumb (none in the dark theme).
     slider_thumb_ring: "slider-thumb-ring" = Color32::TRANSPARENT, hex(0x8d949e);
     /// The ring that carries the modified dot ([`Tokens::select`]) on a
     /// light bar (none in the dark theme).
     select_ring: "select-ring" = Color32::TRANSPARENT, hex(0xa35c00);
+    /// The compass's north half over a 3D view (the Main board's `#e5484d`;
+    /// light: the light board's `cp-n`, [`Tokens::error`]).
+    compass_north: "compass-north" = hex(0xe5484d), hex(0xb4232b);
+    /// The compass's south half (the Main board's `#aab0ba`, dark
+    /// [`Tokens::text_2`]; light: the light board's `cp-s`,
+    /// [`Tokens::text_3`]).
+    compass_south: "compass-south" = hex(0xaab0ba), hex(0x4c535b);
+
+    // --- the area view's handles (the proposal's section 11.3; the 3D
+    // picture is the same in both themes, so these keep one value)
+    /// The X arrow and the red tilt ring (about the model's X).
+    handle_x: "handle-x" = hex(0xf0566a), hex(0xf0566a);
+    /// The same, lit (hovered or held).
+    handle_x_lit: "handle-x-lit" = hex(0xff9aa6), hex(0xff9aa6);
+    /// The Y arrow and the green tilt ring (about the model's Y).
+    handle_y: "handle-y" = hex(0x86d13a), hex(0x86d13a);
+    /// The same, lit.
+    handle_y_lit: "handle-y-lit" = hex(0xc4f08c), hex(0xc4f08c);
+    /// The up arrow.
+    handle_z: "handle-z" = hex(0x4d9bff), hex(0x4d9bff);
+    /// The same, lit.
+    handle_z_lit: "handle-z-lit" = hex(0xa6ccff), hex(0xa6ccff);
+    /// The turning ring and the selection's box: the dark theme's
+    /// [`Tokens::select`] in both, as the 3D picture is.
+    handle_turn: "handle-turn" = hex(0xffb02e), hex(0xffb02e);
+    /// The same, lit.
+    handle_turn_lit: "handle-turn-lit" = hex(0xffd48a), hex(0xffd48a);
+    /// The scale square and its stalk; the pivot dot.
+    handle_scale: "handle-scale" = hex(0xeef0f3), hex(0xeef0f3);
+    /// The same, lit.
+    handle_scale_lit: "handle-scale-lit" = hex(0xffffff), hex(0xffffff);
+    /// The dark edge under every line, head and square of a handle.
+    handle_edge: "handle-edge" = rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.55);
+    /// The start location's ring (Aurora's blue, (70, 130, 255)).
+    handle_start_ring: "handle-start-ring" = hex(0x4682ff), hex(0x4682ff);
+    /// The start location's ring lit (toward white, as the other handles'
+    /// lit colors).
+    handle_start_ring_lit: "handle-start-ring-lit" = hex(0xa6c2ff), hex(0xa6c2ff);
+    /// The start location's arrow (Aurora's red, (235, 40, 40)).
+    handle_start_arrow: "handle-start-arrow" = hex(0xeb2828), hex(0xeb2828);
+    /// The same, lit.
+    handle_start_arrow_lit: "handle-start-arrow-lit" = hex(0xff8f8f), hex(0xff8f8f);
+    /// Under a handle's readout or name chip (section 11.5).
+    chip: "chip" = rgba(12, 13, 15, 0.86), rgba(232, 235, 239, 0.92);
+    /// The chip's 1 px rim (none in the dark theme).
+    chip_rim: "chip-rim" = Color32::TRANSPARENT, rgba(20, 23, 27, 0.18);
 
     // --- the script editor's present colors (Options › Script Editor)
     /// Script text.

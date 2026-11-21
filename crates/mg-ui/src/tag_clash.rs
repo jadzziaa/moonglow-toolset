@@ -288,10 +288,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(clash) = app.tag_clash.take() else { return };
     let mut open = true;
     let (mut retag_them, mut retag_all, mut keep) = (false, false, false);
-    crate::widgets::dialog(ctx, "Duplicate Tags", &mut open)
+    let footed = crate::widgets::dialog(ctx, "Duplicate Tags", &mut open)
         .collapsible(false)
         .resizable(false)
-        .show(ctx, |ui| {
+        .show_foot(ctx, |ui| {
             ui.label(format!("{} put tags on more than one object of the module:", clash.what));
             // (Eight lines at most, "and N more" one of them, as
             // `text::some_of` names things.)
@@ -340,25 +340,21 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             } else {
                 ui.weak("The project's moonglow.toml asks for this warning ([tags]).");
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                let can = !clash.objects.is_empty();
-                retag_them = ui
-                    .add_enabled(can, egui::Button::new("Retag"))
-                    .on_hover_text(
-                        "Give each new object a numbered tag, unique in the module (LAMP_2)",
-                    )
-                    .clicked()
-                    || (can && crate::widgets::enter(ui));
-                if !clash.more.is_empty() {
-                    retag_all = ui
-                        .button("Retag All")
-                        .on_hover_text("Retag every copied object too, each with a tag of its own")
-                        .clicked();
-                }
-                keep = ui.button("Keep Tags").clicked();
-            });
+            let mut foot = crate::widgets::Foot::new()
+                .main("Retag", !clash.objects.is_empty())
+                .tip("Give each new object a numbered tag, unique in the module (LAMP_2)");
+            if !clash.more.is_empty() {
+                foot = foot
+                    .button("Retag All", true)
+                    .tip("Retag every copied object too, each with a tag of its own");
+            }
+            ((), foot.leave("Keep Tags"))
         });
+    if let Some(f) = footed {
+        retag_them = f.pressed.main();
+        retag_all = f.pressed.clicked("Retag All");
+        keep = f.pressed.cancelled();
+    }
     if retag_them || retag_all {
         if app.ws.as_ref().map(Workspace::revision) != Some(clash.revision) {
             app.log.warn(format!(
