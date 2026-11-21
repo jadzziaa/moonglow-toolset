@@ -2777,6 +2777,13 @@ fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: boo
     if apart && (drawn.textures_pending > 0 || drawn.game_pending > 0) {
         return Err(Waiting);
     }
+    // (Nothing of it drawn: its meshes wholly see-through, as an invisible
+    // creature's are (Null Human's, alpha 0, which the renderer leaves
+    // out), and no particles. No picture, as one that failed: the kind's
+    // icon and "No picture" in a gallery, not an empty tile; U30's #12.)
+    if drawn.meshes == 0 && drawn.game == 0 && scene.particles.is_empty() {
+        return Ok(None);
+    }
     let id = vp.render_state.renderer.write().register_native_texture(
         &vp.gpu.device,
         &view,

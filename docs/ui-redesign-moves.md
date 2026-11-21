@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T20:09:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -198,8 +198,8 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Findings for the Design Notes
 
-- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default. Settled in M3 T10: stored where editors open as tabs.
-- Today Esc cancels Options only when it floats. Settled in M3 T10 (ruling R1): docked too.
+- Today a kind of editor moved to a window is never stored, so it would be lost once As Tabs is the default. Settled in M3 T10: stored where editors open as tabs. ✓ M3 T10
+- Today Esc cancels Options only when it floats. Settled in M3 T10 (ruling R1): docked too. ✓ M3 T10
 
 ### Floating Editors
 
@@ -208,7 +208,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | A script in a window of its own (egui_dock surface) | A 1040 by 640 window over the main window, with a border, radius and shadow ✓ M3 T11 (the border, radius 4 and `--shadow`; the window opens at its kind's size as before) |
 | The tab row as the window's bar, with the collapse arrow | Bar row: collapse arrow, tabs with ×, Maximize, Close ✓ M3 T11 (Collapse, Maximize and Close Window, named and tipped) |
 | Double-click and right-click on the empty bar | Unchanged: Maximize or Restore ✓ M3 T11 |
-| Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn |
+| Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn ✓ kept, checked in M4 U30 (`a_floating_editor_s_tab_menu_keeps_today_s_entries`: Rename…, Show in Module Tree, Maximize, Close, Close Others, Close Tabs to the Right and Close All, in that order; egui_dock's Eject where the tab is not alone in its window, as before; an area's adds Claim This Area or Release Claim, and the plugins' commands follow where there are any) |
 | Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window ✓ M4 U12 (the pane narrows to half the window under 560, never dropped) |
 | Help tab of the script's bottom pane | Under Reference, as on the Script board ✓ M4 U12 |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window ✓ M4 U13 (the window's bottom pane under the text, at most a third of the window's height) |
@@ -247,7 +247,7 @@ Every control of the screens mocked in the second round and its home in the mock
 #### Not Drawn
 
 - Talk Table, Choose String…, New Line…, Choose Model… and the row chooser, which appear in the Cell panel only for those column kinds. ✓ M4 U16 (each under the column's heading, at the panel's width)
-- The read-only resource view with Copy to Module and Save As….
+- The read-only resource view with Copy to Module and Save As…. ✓ M4 U23 (the read-only tab's header: where it is from, its kind, Edit… for a 2DA, Copy to Module and Save As…)
 
 ### Talk Table Editor
 
@@ -381,7 +381,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- Variant pictures, which today appear only for a single selected tile.
+- Variant pictures, which today appear only for a single selected tile. ✓ kept, M4 U5 (Tile Properties' Variants, "Variant (N fit here)", for one tile alone)
 
 ## Part 3: Where Things Moved, Second Round, Continued
 
@@ -407,16 +407,16 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### How the Shell Yields
 
-- Top bar: below a window width of 1300, Compile, Verify and Test Module become icons and Quick Open is capped at 300 px. If it would fall under 240 px, it becomes an icon button.
-- Left Dock: below 1500, it folds to its 24 px strip. The user can unfold it, and the compact header still fits.
-- Right Dock: below 1400, it narrows from 320 to 280 px and its panels become tabs. Under 300 px of panel width, the palette's type strip becomes a combo.
+- Top bar: below a window width of 1300, Compile, Verify and Test Module become icons and Quick Open is capped at 300 px. If it would fall under 240 px, it becomes an icon button. ✓ M3 T2 (the icons), T8 (Quick Open)
+- Left Dock: below 1500, it folds to its 24 px strip. The user can unfold it, and the compact header still fits. ✓ M3 T14; the compact header M4 U3
+- Right Dock: below 1400, it narrows from 320 to 280 px and its panels become tabs. Under 300 px of panel width, the palette's type strip becomes a combo. ✓ M3 T14 (the combo with the type's icon), M4 U6 (Standard and Custom beside it)
 - Header: below an editor width of 990, it goes compact. Below 550, Snap and Turn lose their value text. Below 490, Together and Onto Objects move into More. At 1280 the editor is 974 wide. ✓ M4 U3 (the area's header, `area_view::header`, by `Yields` of its own row's width)
-- Status Bar: below a window width of 1400, the panel switches become icons. Then the game folder drops, then hints drop from the end. At 1280 all six hints fit.
+- Status Bar: below a window width of 1400, the panel switches become icons. Then the game folder drops, then hints drop from the end. At 1280 all six hints fit. ✓ M3 T14; from 1400 up, the hints drop whole before the switches lose their words (U13's review, the proposal's M4 disagreements, row 18)
 - Built: the Top Bar's in M3 T2 and T8; the Left Dock's, the Right Dock's and the Status Bar's in M3 T14, from one `Yields` decided once a frame. T14 adds what no board draws: below 796 the Right Dock folds to its strip too (the editor area's least, 490, beside the Left Dock's strip), and below 962 a dock unfolded by hand folds the other. The header's (E 990, 550, 490) are M4's area header.
 
 #### New
 
-- The strip's panel icons and the "5 of 10" count.
+- The strip's panel icons and the "5 of 10" count. ✓ M3 T4 and T13 (the strip's icons); M4 U3 for the count, which is the area header's Show popover's "N of 10" after its words in the compact header (`area_view/header.rs`), not the strip's (`area_header::the_area_header_yields_at_990_550_and_490`, U30's review)
 
 ### Welcome
 
@@ -442,7 +442,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- A "last opened" time on Recent Modules: the settings keep only paths.
+- A "last opened" time on Recent Modules: the settings keep only paths. (Not drawn, as decided: U24 keeps paths alone.)
 
 ### Hak Editor
 
@@ -494,7 +494,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- Models as text (it shows only when a model is listed), the row context menu, and the Edit menu for 2DAs.
+- Models as text (it shows only when a model is listed), the row context menu, and the Edit menu for 2DAs. ✓ kept: Models as text and the row's menu M3 T4, Edit… for a 2DA in the read-only tab's header M4 U23
 
 ### Journal Editor
 
@@ -517,7 +517,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- The "Select a category or an entry" message, and the Root or no selection state.
+- The "Select a category or an entry" message, and the Root or no selection state. ✓ M4 U22 ("Choose a category or an entry. Add with nothing chosen adds a category." in the Category panel under Root or nothing chosen; `journal_factions::the_journal_s_header_and_panels_follow_the_choice`, U30's review)
 
 ### Faction Editor
 
@@ -542,7 +542,7 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- The Add Faction and Change Faction Name windows, which stay modal.
+- The Add Faction and Change Faction Name windows, which stay modal. ✓ M4 U22 (modal, with U27's footer)
 - The Basic chart view (kept as Basic's view ✓ M4 U22: the switch's Basic has nothing else to show; the Reactions panel stands beside it).
 
 ### Dialogs and Wizards
@@ -570,9 +570,9 @@ Every control of the screens mocked in the second round and its home in the mock
 
 #### Not Drawn
 
-- Find Instance, Plugins, NWSync, Bake and Light maker.
-- A dimmed backdrop: today's dialogs do not dim, so the board has none.
-- Steps for the Area Wizard, which is one page today.
+- Find Instance, Plugins, NWSync, Bake and Light maker. ✓ each in its home: Find Instance in Search Results M4 U28; Plugins a document tab M4 U29; Publish to NWSync a dialog with U27's footer M4 U27; Bake Walkmesh to Transform and Custom Light Right Dock sections M4 U29
+- A dimmed backdrop: most dialogs do not dim; only a job's progress, a plugin's question and Quick Open do, as the Dialogs board says. (Not drawn for the rest, as decided: kept as the code dims today, the proposal's M4 disagreements, row 3, U27.)
+- Steps for the Area Wizard, which is one page today. (Not drawn, as decided: the Area Wizard stays one page, with no step list, U27.)
 
 #### Dialogs That Could Become Dock Panels
 

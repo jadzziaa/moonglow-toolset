@@ -2052,7 +2052,18 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                 true => items.iter().filter(|i| has_found(i, at.tools, at.filter)).count(),
                 false => items.len(),
             };
-            let shown = egui::CollapsingHeader::new(label.as_str())
+            // (Its folder after the chevron, closed or open, as the
+            // AreaTiles board's Features, Groups and Terrain have theirs:
+            // room kept before its name, the icon painted there once it is
+            // drawn, U30's #7. Its name for a screen reader its words.)
+            let mut title = egui::text::LayoutJob::default();
+            let format = egui::TextFormat {
+                font_id: egui::TextStyle::Button.resolve(ui.style()),
+                color: egui::Color32::PLACEHOLDER,
+                ..Default::default()
+            };
+            title.append(label, mg_uikit::metrics::ICON + FOLDER_GAP, format);
+            let shown = egui::CollapsingHeader::new(title)
                 .icon(mg_uikit::collapsing_icon)
                 .id_salt((tileset, depth, label.as_str(), searching))
                 .default_open(
@@ -2110,7 +2121,21 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                     }
                     group_pictures(ui, &groups, at);
                 });
-            row_count(ui, shown.header_response.rect, count);
+            let row = shown.header_response.rect;
+            let icon = match shown.openness > 0.5 {
+                true => mg_uikit::Icon::FolderOpen,
+                false => mg_uikit::Icon::Folder,
+            };
+            let side = mg_uikit::metrics::ICON;
+            let at_x = row.left() + ui.spacing().indent;
+            let square = egui::Rect::from_min_size(
+                egui::pos2(at_x, row.center().y - side / 2.0),
+                egui::vec2(side, side),
+            );
+            if ui.is_rect_visible(square) {
+                icon.paint(ui.painter(), square, mg_uikit::tokens(ui.ctx()).text_2);
+            }
+            row_count(ui, row, count);
         }
         PaletteItem::Brush { label, brush } => {
             let tiles = match at.gallery {
@@ -2136,13 +2161,24 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             if let Some(open) = at.fold {
                 state.set_open(open);
             }
-            let (_, header, _) = state
-                .show_header(ui, |ui| brush_row(ui, label, *brush, at))
-                .body(|ui| tile_pictures(ui, &tiles, at));
+            // (`show_header` as egui has it, with the kit's chevron in place
+            // of egui's triangle, as the folders above have: U30's #8.)
+            let header = ui.horizontal(|ui| {
+                let spacing = ui.spacing().item_spacing;
+                ui.spacing_mut().item_spacing.x = 0.0;
+                state.show_toggle_button(ui, mg_uikit::collapsing_icon);
+                ui.spacing_mut().item_spacing = spacing;
+                brush_row(ui, label, *brush, at);
+            });
+            state.show_body_indented(&header.response, ui, |ui| tile_pictures(ui, &tiles, at));
             row_count(ui, header.response.rect, tiles.len());
         }
     }
 }
+
+/// The room between a palette folder's icon and its name (the board's
+/// `.tree-row` gap).
+const FOLDER_GAP: f32 = 4.0;
 
 /// A heading's count at the end of its row (`row`), in `text-3`, as the
 /// blueprint palettes' categories have theirs (the AreaTiles board's

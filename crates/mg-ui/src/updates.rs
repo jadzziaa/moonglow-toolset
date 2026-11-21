@@ -139,7 +139,7 @@ pub struct Updates {
     /// What its check found (`None` while asking).
     pub report: Option<Outcome>,
     /// A newer release the automatic check found: the notice under the
-    /// toolbar, until dismissed.
+    /// Top Bar, until dismissed.
     pub notice: Option<Release>,
     /// The install of a release, under way or ready.
     pub getting: Option<Getting>,
@@ -849,7 +849,7 @@ pub(crate) fn act(app: &mut Moonglow, ctx: &egui::Context, line: &Line, offer: O
     }
 }
 
-/// The notice of a newer release, under the toolbar, while there is one:
+/// The notice of a newer release, under the Top Bar, while there is one:
 /// [`line`]'s words and buttons, with Don't Remind Me and its Close; not
 /// while the Welcome page tells it in sight (M4's U24: once is enough), nor
 /// while the Check for Updates window does.

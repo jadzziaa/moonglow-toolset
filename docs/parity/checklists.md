@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -65,7 +65,7 @@ unless their file (under `crates/`) follows the name.
 |---|---|---|
 | Module name, then areas, then finish | New Module (name), then the Area Wizard | ✅ [new_module_and_area_through_the_wizards] |
 | Area name, tileset list sorted by name, size presets Tiny/Small/Medium/Large and 2–32 per side | same | ✅ |
-| Launch Area Properties Dialog / Open Area in the Area Viewer (on by default) | the same, worded "Launch Area Properties dialog" and "Open area in the Area Viewer" (the style guide's sentence case for check boxes) | ✅ [new_module_and_area_through_the_wizards, the_core_dialogs_hold_the_pattern] |
+| Launch Area Properties Dialog / Open Area in the Area Viewer (on by default) | the same, worded "Open Area Properties" (the owner's ruling, M4's U30 review) and "Open area in the Area Viewer" (the style guide's sentence case for check boxes) | ✅ [new_module_and_area_through_the_wizards, the_core_dialogs_hold_the_pattern] |
 | Buttons Create and Cancel; the Enter key and Escape | a footer row at the dialog's foot, under a rule: **Create** in the accent fill (the main action) and **Cancel** at the right; Enter presses Create whenever it is enabled (a name and a tileset given; also from a text field), Escape is Cancel; the body has 12 points of padding; one page, no step list | ✅ [the_core_dialogs_hold_the_pattern] |
 | Files written (module.ifo, repute.fac, palettes, ARE/GIT/GIC) | identical apart from Aurora's random choices | ✅ (`mg-corpus-tests/tests/aurora_new.rs`, engine: `engine_new_module.rs`) |
 
@@ -361,7 +361,7 @@ row by `mg-edit/src/transition.rs`'s tests; the window's tests are in
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Build Module: Unused, Missing Resources, Compile, Spell Check; Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results ("No errors found"; double click opens), export | Build › Build Module…: the same options, layout and defaults; the compile passes as one undoable command; the results and what each pass did in the log | ◐ [build_module_compiles_and_reports]; Creature CR as Aurora's [challenge_ratings_match_aurora (`mg-corpus-tests/tests/aurora_creatures.rs`)]; no Spell Check |
+| Build Module: Unused, Missing Resources, Compile, Spell Check; Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results ("No errors found"; double click opens), export | Build › Build Module…: the same options, layout and defaults; the compile passes as one undoable command; the results in the Problems panel and what each pass did in the log | ◐ [build_module_compiles_and_reports]; Creature CR as Aurora's [challenge_ratings_match_aurora (`mg-corpus-tests/tests/aurora_creatures.rs`)]; no Spell Check |
 | Encounters pass: each encounter's creature entries (blueprints and placed encounters) given the creature blueprints' CR and appearance; entries whose creature does not exist removed | `mg_module::build::compile_encounters` (after the Creature CR pass, as Aurora) | ✅ [encounters_are_compiled_as_aurora_does (`mg-corpus-tests/tests/aurora_encounters.rs`)] |
 | Test Module (F9): saves, then `nwmain -userdirectory <dir> +TestNewModule <module>` | the same; the module must be in the user directory's `modules` folder | ◐ (the command is tested, not run: the game only runs here in the sandbox) |
 
@@ -378,7 +378,7 @@ row by `mg-edit/src/transition.rs`'s tests; the window's tests are in
 Aurora's items as `aurora-ui-inventory.md` has them (`mmFrame`, and the
 area viewer's `AreaMenu` merged into it), its keys in brackets, against
 where Moonglow has each (`crates/mg-ui/src/commands.rs` `MENUS` and
-`TOP_BAR`, `keys.rs`; the area view's toolbar is the manual's chapter 4).
+`TOP_BAR`, `keys.rs`; the area header is the manual's chapter 4).
 Items Aurora hides are left out but for Save To Savegame and the Module
 Wizard.
 
@@ -393,21 +393,21 @@ Wizard.
 | Edit › Resize Area, Rotate Area | Edit › Resize Area…, Rotate Area… | ✅ |
 | Edit › Find Instance | Edit › Find Instance… | ✅ |
 | Edit › Module Properties | Edit › Module Properties (and Module Properties on the Module panel's tab bar) | ✅ |
-| Edit › Area Properties (the area's Edit too) | the area view's toolbar and the module tree's context menu | ✅ |
+| Edit › Area Properties (the area's Edit too) | the area header's Area Properties and the module tree's context menu | ✅ |
 | View › Selection Mode › Select Terrain, Select Objects | the area view's Select Tiles (F10, Aurora's Select Terrain's key) | ✅ |
-| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) and the area view's toolbar, always shown; the editors' one-row headers, their icon buttons named in their tips and for a screen reader (Options' Toolbar buttons, Icons only, retired in M4's U23: an old settings file's setting is read and dropped) | — |
+| View › Toolbars › File, Display, Selection Mode, Object Filters, Preview | the Top Bar (the menus, New, Open, Save, Undo, Redo, Quick Open, Compile, Verify, Test Module) and the area header, always shown; the editors' one-row headers, their icon buttons named in their tips and for a screen reader (Options' Toolbar buttons, Icons only, retired in M4's U23: an old settings file's setting is read and dropped) | — |
 | View › Interface Panels › Message Log, Module Contents, Palettes | View › Log, Left Dock, Right Dock (each ticked while shown), Hide All Panels, Reset Layout; the module tree is the Left Dock's Module panel (its tab bar: Module Properties, New Area, Expand All, Collapse All), beside its Resources panel, the Outliner under them while an area is in front (its placed objects by kind, a seam between), and View › Left Dock (Ctrl+Alt+1) folds the dock on either; the palettes are the Right Dock's Palette panel, which View › Right Dock (Ctrl+Alt+2) folds, with the Preview panel on the tab beside theirs (Tools › Preview); the log is the Bottom Dock's Log panel (Copy Log, Save Log, Clear Log on its tab bar), opened and closed by the Log switch in the Status Bar, which shows the log's last line while it is closed (pressed, it opens the log); a new installation starts with it closed; in a narrow window the side docks fold by themselves (the Left Dock under 1500 points, the Right Dock under 796, 280 wide under 1400) without changing what View says you chose, and come back by hand there; in a window 2560 or wider the Left Dock is 320 and the Right Dock 741 in two columns (Palette, Preview) where not chosen (M3 T14) | ✅ improvement [what_the_shell_shows_at_each_width] [a_window_narrowed_and_widened_writes_nothing_and_gives_all_back] |
 | View › Interface Panels › Toolbar, Visual Camera Controls | none: the camera's keys and the mouse (the manual's chapter 4) | — |
-| View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area view's toolbar: each kind, All, None, Start, as in Aurora for every area view; View › Go to Start Location | ✅ |
+| View › Object Filters › Show All, Show None, Show Creatures… Show Waypoints, Go to Start Location | the area header's Show toggles (the Show popover where the header is compact): each kind, Start, All, None, as in Aurora for every area view; View › Go to Start Location | ✅ |
 | View › Full Screen (F11) | Full Screen (F11), from the key and Quick Open | ✅ |
 | The main frame's area windows, one for each area open, side by side within it | the editor area's document tabs (each with its kind's icon, its name, a dot where it has unsaved changes and a close button) in editor groups side by side: View › Split Editor (Ctrl+\\, and the button at the right end of the focused group's tab bar) moves the tab in front to another editor group (a new one at its right where there is one); a tab dragged to a group's side makes one; the groups are kept with the module's open tabs | ✅ [split_editor_makes_a_second_group_from_the_front_tab, the_modified_dot_follows_each_tab_s_own_unsaved_changes, editor_groups_are_kept_and_come_back_from_their_places_alone] |
 | The main frame's other windows (each Properties, script and conversation in a window of its own within it; Escape as Cancel) | Options › General › Open editors: As Tabs (a tab of the focused editor group; a new installation's) or As Floating Windows (a window of its own over the area); areas always as tabs; a kind moved opens where it was put, until View › Reset Layout; Escape is the Cancel of a window, or of a docked tab, with OK and Cancel; a window has a border and a shadow, a bar of its collapse arrow, tabs, Maximize and Close Window, and a grip in its corner; a dialog's title is at the left of a title row it is moved by, with a Close where Escape closes it | ✅ [editors_open_as_tabs_or_as_windows_as_the_switch_says, a_kind_moved_keeps_its_place_until_reset_layout, escape_cancels_a_docked_tab_with_ok_and_cancel, a_floating_window_s_bar_collapses_maximizes_resizes_and_closes, a_dialog_drags_by_its_title_row_and_not_by_its_body] |
 | View › Show Preview Window | Tools › Preview (beside Tools › Palettes: the Right Dock on its Preview tab; the folded dock's Preview button; a key set in Options › Keyboard, by the command's id of before) | ✅ [tools_preview_and_the_strip_show_the_preview] |
 | Environment (the area's Scene) › Refresh (F5) | none: the view is drawn as it changes; Tools › Reload Resources reads changed haks and folders | — (its key is settled) |
-| Environment › Display Grid, Display Shadows, Fog, Use Area Lighting | the area view's toolbar: Grid, Shadows (with three kinds), Fog, Lighting | ✅ |
-| Environment › Fade Geometry › Never, Object Mode Only, Always | the area view's toolbar: Fade Geometry, the same three | ✅ |
-| Environment › Render AABB Nodes | the area view's toolbar: Walkmesh… (the ground's, and the objects') | ✅ |
-| Environment › Play Ambient Sound, Play Ambient Music, Play Placed Sounds | the area view's toolbar: Ambient, Music, Sounds | ✅ |
+| Environment › Display Grid, Display Shadows, Fog, Use Area Lighting | the area header: Grid in its Overlays popover; Shadows (with three kinds), Fog and Lighting in its Lighting popover | ✅ |
+| Environment › Fade Geometry › Never, Object Mode Only, Always | the area header's Lighting popover: Fade Geometry, the same three | ✅ |
+| Environment › Render AABB Nodes | the area header's Overlays popover: Ground walkmesh and Object walkmeshes | ✅ |
+| Environment › Play Ambient Sound, Play Ambient Music, Play Placed Sounds | the area header's Audio popover: Ambient, Music, Sounds | ✅ |
 | Build › Verify Area | none: Build › Verify Module verifies the whole module, its areas with it | ✗ |
 | Build › Build Module | Build › Build Module… | ✅ [build_module_compiles_and_reports] |
 | Build › Test Module (F9) | Build › Test Module (F9), and Test Module, Choose Character (Shift+F9) | ✅ |

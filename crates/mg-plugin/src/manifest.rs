@@ -34,7 +34,7 @@ pub struct Manifest {
     /// What it does by itself, when something happens.
     pub events: Vec<EventDecl>,
     /// The values it keeps (API 0.4), which the user can set in the
-    /// Plugins window and it reads as `ctx.settings`.
+    /// Plugins tab and it reads as `ctx.settings`.
     pub settings: Vec<SettingDecl>,
     /// What it exports, imports, asks page by page and shows in a pane
     /// (API 0.6).
@@ -996,7 +996,7 @@ impl EventDecl {
         self.targets.is_empty() || self.targets.iter().any(|t| t.takes(Target::Placed(kind)))
     }
 
-    /// When it acts, and what it may do, for people (the Plugins window,
+    /// When it acts, and what it may do, for people (the Plugins tab,
     /// `mg plugin list`): "before a save, reads each area it writes: may
     /// warn of it, or stop the save".
     pub fn said(&self) -> String {

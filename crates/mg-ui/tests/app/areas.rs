@@ -805,6 +805,37 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     assert!(shown(&h), "{first} is at the top of the list again");
 }
 
+/// The Area Wizard's tilesets are rows across the list (U30's #11: the
+/// one chosen filled behind its words alone): each as wide as the list,
+/// whatever its name's length, the one chosen too.
+#[test]
+fn the_area_wizard_s_tileset_rows_fill_the_list() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-area-wizard-rows");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.palette_dock = false;
+    let names: Vec<String> = (mg_module::new::tilesets(app.game.as_deref().unwrap()).iter())
+        .take(4)
+        .map(|t| t.name.clone())
+        .collect();
+    let mut h = harness(app, 1200.0, 900.0);
+    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+    settle(&mut h);
+    h.get_by_label(&names[0]).click();
+    settle(&mut h);
+    let rows: Vec<egui::Rect> = names.iter().map(|n| h.get_by_label(n).rect()).collect();
+    for (name, row) in names.iter().zip(&rows) {
+        assert!(row.width() >= 270.0, "{name}: {row:?} not across the list");
+        assert!((row.left() - rows[0].left()).abs() < 0.5, "{name}: {row:?} beside the others");
+        assert!((row.width() - rows[0].width()).abs() < 0.5, "{name}: {row:?} not as wide");
+    }
+}
+
 #[test]
 fn an_area_is_renamed_from_its_tab() {
     let Some((mut h, area)) = area_harness("rename-tab") else { return };

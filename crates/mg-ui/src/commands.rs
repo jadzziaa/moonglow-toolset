@@ -1,5 +1,5 @@
 //! The window's commands, in one table: what each is called, when it can
-//! be chosen and what it does. The menus, the toolbar, the keys (Options ›
+//! be chosen and what it does. The menus, the Top Bar, the keys (Options ›
 //! Keyboard) and whatever else offers commands read it, so a command is
 //! named, enabled and run the same wherever it is chosen, and every one of
 //! them can be given a key.
@@ -94,7 +94,7 @@ pub enum Id {
     /// A nasher project's files its include leaves out, taken in.
     TakeInLeftOut,
     AreaStatistics,
-    /// The Plugins window.
+    /// The Plugins tab.
     Plugins,
     /// Install a plugin from its archive.
     InstallPlugin,

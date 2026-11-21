@@ -1779,7 +1779,8 @@ mod tests {
                 scroll.show(ui, &mut top, |ui, i| {
                     ui.label(format!("page {i}"));
                     // (Flipping each pass, or as tall as the room in sight
-                    // under its top, as `beside_model` sized the model.)
+                    // under its top, as the blueprint pages' model beside their fields
+                    // was sized before M4's U11.)
                     let tall = match (i, flip, follows) {
                         (1, _, true) => (ui.clip_rect().bottom() - ui.cursor().top()).max(300.0),
                         (1, true, false) => 300.0,

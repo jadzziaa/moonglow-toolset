@@ -956,3 +956,104 @@ fn the_tiles_palette_s_toolbar_is_in_the_boards_order() {
     let list = ["Expand All", "Collapse All", "items", "List", "Gallery", "Exact Tile"];
     in_order(&at(&h, &list, false), "the List");
 }
+
+/// The tiles palette's Gallery's terrain and crosser headings wear the
+/// kit's chevrons, as the folders above them do (U30's #8: egui's filled
+/// triangles), in Dark and Light: no filled triangle in the Right Dock.
+#[test]
+fn the_tiles_gallery_s_headings_have_the_kit_s_chevrons() {
+    let Some((mut h, _)) = area_harness("gallery-tiles-chevrons") else { return };
+    wide_window(&mut h);
+    show_palette(h.state_mut());
+    settle(&mut h);
+    palette_type(&mut h, "Tiles");
+    h.state_mut().settings.palette_gallery = true;
+    settle(&mut h);
+    for light in [false, true] {
+        h.state_mut().settings.light_theme = light;
+        settle(&mut h);
+        let dock = right_dock_rect(&h);
+        let three = |closed: bool| {
+            (drawn(&h).iter())
+                .filter(|s| match s {
+                    egui::Shape::Path(p) => {
+                        p.points.len() == 3
+                            && p.closed == closed
+                            && p.points.iter().all(|q| dock.contains(*q))
+                    }
+                    _ => false,
+                })
+                .count()
+        };
+        // (The terrains' headings shown: Grass's, the tileset's first.)
+        let headings = h.query_all_by_label_contains("Grass").count();
+        assert!(headings > 0, "a terrain's heading ({light})");
+        assert_eq!(three(true), 0, "no filled triangle in the dock ({light})");
+        assert!(three(false) > 2, "the chevrons ({light}): {}", three(false));
+    }
+}
+
+/// The tiles palette's folders (Features, Groups, Terrain) have the
+/// AreaTiles board's folder icons after their chevrons, closed or open,
+/// before their names (U30's #7: none), in its List and its Gallery.
+#[test]
+fn the_tiles_palette_s_folders_have_folder_icons() {
+    let Some((mut h, _)) = area_harness("tiles-folder-icons") else { return };
+    wide_window(&mut h);
+    show_palette(h.state_mut());
+    settle(&mut h);
+    palette_type(&mut h, "Tiles");
+    settle(&mut h);
+    mg_uikit::record_icons(&h.ctx);
+    for gallery in [false, true] {
+        h.state_mut().settings.palette_gallery = gallery;
+        settle(&mut h);
+        let drawn = mg_uikit::icons_drawn(&h.ctx);
+        let dock = right_dock_rect(&h);
+        let folders: Vec<(String, egui::Rect)> = ["Features", "Groups", "Terrain"]
+            .iter()
+            .flat_map(|name| {
+                let rows = h.query_all_by_label(name).map(|n| n.rect());
+                rows.filter(|r| dock.contains(r.center()))
+                    .map(|r| (name.to_string(), r))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert!(!folders.is_empty(), "the folders (gallery {gallery})");
+        for (name, row) in &folders {
+            let icon = drawn.iter().find(|(i, r)| {
+                matches!(i, mg_uikit::Icon::Folder | mg_uikit::Icon::FolderOpen)
+                    && row.contains_rect(*r)
+            });
+            let (icon, at) =
+                icon.unwrap_or_else(|| panic!("{name}: no folder (gallery {gallery})"));
+            // (Before its name: within its row's first few dozen points.)
+            assert!(at.left() < row.left() + 40.0, "{name}: {icon:?} at {at:?} in {row:?}");
+        }
+    }
+}
+
+/// A picture with nothing drawn in it shows the kind's icon and "No
+/// picture", as one that failed does (U30's #12: Null Human, whose meshes
+/// are wholly see-through, an empty cell in the Appearance Gallery).
+#[test]
+fn a_picture_with_nothing_drawn_says_no_picture() {
+    // (With a GPU: the pictures drawn, as the window draws them.)
+    let Some((mut h, _)) = area_harness("gallery-null-human") else { return };
+    wide_window(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+    settle(&mut h);
+    h.state_mut().placeable_gallery.as_mut().unwrap().kind =
+        mg_ui::appearance_gallery::Kind::Creature;
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Null Human".into();
+    settle(&mut h);
+    assert_eq!(h.state().thumbnails.waiting(), 0, "the pictures made");
+    let cell = (h.get_all_by_label("Null Human").map(|n| n.rect()))
+        .find(|r| r.height() > 60.0)
+        .expect("Null Human's cell");
+    let said = drawn(&h).iter().any(|s| match s {
+        egui::Shape::Text(t) => t.galley.text() == "No picture" && cell.contains(t.pos),
+        _ => false,
+    });
+    assert!(said, "\"No picture\" in Null Human's cell {cell:?}");
+}

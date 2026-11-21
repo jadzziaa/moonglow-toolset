@@ -86,6 +86,72 @@ fn the_build_window_s_advanced_controls_keep_its_buttons_in_reach() {
     assert!(done.bottom() < 800.0, "the buttons are in the window: {done:?}");
 }
 
+/// Module Properties' event rows yield at a window of 420, the least
+/// (U30's #14): each field narrows, its "…" and Edit stay inside the
+/// window; at 1000 the fields keep their 160.
+#[test]
+fn module_properties_event_rows_yield_to_a_narrow_window() {
+    let dir = mg_testkit::scratch_dir("ui-module-events-420");
+    let path = sample_module(&dir);
+    for width in [420.0, 1000.0] {
+        let mut app = app_with(Vec::new());
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+        let mut h = harness(app, width, 600.0);
+        settle(&mut h);
+        // (The page's, not the menu bar's Edit.)
+        let edits: Vec<egui::Rect> =
+            h.get_all_by_label("Edit").map(|n| n.rect()).filter(|r| r.top() > 60.0).collect();
+        assert!(edits.len() >= 10, "at {width}: the events' Edit buttons: {}", edits.len());
+        for edit in &edits {
+            assert!(edit.right() <= width, "at {width}: Edit at {edit:?} past the window");
+        }
+        if width > 900.0 {
+            let fields = (h.get_all_by_role(egui::accesskit::Role::TextInput))
+                .map(|n| n.rect())
+                .filter(|r| edits.iter().any(|e| (e.center().y - r.center().y).abs() < 4.0));
+            for field in fields {
+                assert!((field.width() - 160.0).abs() < 1.0, "at {width}: {field:?}");
+            }
+        }
+    }
+}
+
+/// Missing Resources' two columns of kinds stand the Dialogs board's 8
+/// apart (`.two-c`; U30's #10: "Encounters" 4 from the check box after
+/// it).
+#[test]
+fn the_build_window_s_missing_resources_columns_stand_8_apart() {
+    let dir = mg_testkit::scratch_dir("ui-build-columns");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.build = Some(Default::default());
+    let mut h = harness(app, 1200.0, 1000.0);
+    h.run();
+    h.get_by_label("Advanced Controls").click();
+    h.run();
+    // (The kinds: the check boxes under Advanced Controls, between
+    // Missing Resources' heading and Compile's.)
+    let under = h.get_by_label("Advanced Controls").rect().bottom();
+    let heading = |name: &str| {
+        let rects = h.get_all_by_label(name).map(|n| n.rect());
+        rects.filter(|r| r.top() > under).map(|r| r.left()).next().unwrap()
+    };
+    let (from, to) = (heading("Missing Resources"), heading("Compile"));
+    let boxes: Vec<egui::Rect> = (h.get_all_by_role(egui::accesskit::Role::CheckBox))
+        .map(|n| n.rect())
+        .filter(|r| r.top() > under && r.left() >= from - 0.5 && r.left() < to - 0.5)
+        .collect();
+    assert_eq!(boxes.len(), 11, "the eleven kinds: {boxes:?}");
+    let first = boxes.iter().map(|r| r.left()).fold(f32::INFINITY, f32::min);
+    let (left, right): (Vec<egui::Rect>, Vec<egui::Rect>) =
+        boxes.iter().partition(|r| r.left() < first + 1.0);
+    let end = left.iter().map(|r| r.right()).fold(0.0, f32::max);
+    let next = right.iter().map(|r| r.left()).fold(f32::INFINITY, f32::min);
+    assert!(next - end >= 7.5, "the columns {:.1} apart", next - end);
+}
+
 #[test]
 fn closing_with_unsaved_changes_asks_first() {
     let dir = mg_testkit::scratch_dir("ui-unsaved");

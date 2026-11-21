@@ -920,11 +920,11 @@ pub(crate) fn kind_count(kind: mg_area::ObjectKind, n: usize) -> String {
 }
 
 /// An Outliner's eye's name and tip for `kind`: named as the area
-/// toolbar's toggle of the same state is, "Show Creatures" (title case: a
+/// header's toggle of the same state is, "Show Creatures" (title case: a
 /// toggle names what it does when on, and is said pressed or not; a name
 /// that changed with its state, as the board's "Hide creatures", would
 /// leave a toggle that no longer answers to its name), the Outliner's
-/// group apart from the toolbar's.
+/// group apart from the header's.
 pub(crate) fn eye_words(kind: mg_area::ObjectKind) -> (String, String) {
     let name = format!("Show {}", kind.label());
     let tip = format!("Show or hide the {} in the area's view", kind.label().to_lowercase());

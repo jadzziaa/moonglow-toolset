@@ -107,9 +107,9 @@ pub(crate) const FORMS_TALLER: f32 = (22.0 + 4.0) / (18.0 + 3.0);
 
 /// How much taller a window that is mostly rows (a tree, a list, a
 /// table, code) is: its rows are 22 points with none between, where they
-/// were 18 with 3 (a point more each), and only its toolbars and the
+/// were 18 with 3 (a point more each), and only its button rows and the
 /// few lines of form under its rows grew as a form's do (5 points each).
-/// Worked out for the conversation window (its toolbars and Data page
+/// Worked out for the conversation window (its button rows and Data page
 /// about 35 points more, its tree a point a row: some 7 hundredths), and
 /// looked at in the pictures of the conversation, script, journal, raw
 /// fields, resources and manual windows at the sizes they open at

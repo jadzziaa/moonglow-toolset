@@ -172,7 +172,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             if !w.shows(t) {
                                 continue;
                             }
-                            let mut label = ui.selectable_label(w.selected == Some(i), &t.name);
+                            // (Chosen, filled across the row, not behind
+                            // its words alone: the Wizard board's, U30's
+                            // #11. The name at the row's left.)
+                            let row = egui::Button::selectable(
+                                w.selected == Some(i),
+                                (t.name.as_str(), egui::Atom::grow()),
+                            )
+                            .min_size(egui::vec2(ui.available_width(), 0.0));
+                            let mut label = ui.add(row);
                             if w.hidden.contains(&t.resref) {
                                 label = label.on_hover_text(format!(
                                     "{}: hidden by the project (moonglow.toml's [tilesets])",
@@ -205,7 +213,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add_space(6.0);
                 area_size(ui, w);
                 ui.add_space(6.0);
-                ui.check_box(&mut w.launch_properties, "Launch Area Properties dialog");
+                ui.check_box(&mut w.launch_properties, "Open Area Properties");
                 ui.check_box(&mut w.open_viewer, "Open area in the Area Viewer");
                 let spec = w.spec().filter(|s| !s.name.is_empty());
                 let foot = crate::widgets::Foot::new().main("Create", spec.is_some()).cancel();

@@ -205,10 +205,11 @@ pub(crate) const SHARED_MAKERS: &[(&str, &str, &[&str])] = &[
         "String Edit (widgets.rs:ui#1)",
         "loc_edit = Some(",
         &[
-            "blueprint/mod.rs:locstring#1",
             "blueprint/mod.rs:locstring_memo#1",
             "blueprint/mod.rs:locstring_memo_to#1",
+            "blueprint/mod.rs:locstring_then#1",
             "blueprint/mod.rs:locstring_whole#1",
+            "blueprint/mod.rs:narrow_locstring#1",
             "dialog_view.rs:text_panel#1",
         ],
     ),
@@ -1247,6 +1248,29 @@ fn small_dialogs_fit_their_content() {
             assert_eq!(times.len(), 2, "two copies' times: {times:?}");
             assert!((times[0] - times[1]).abs() < 0.5, "the times aligned: {times:?}");
         }
+    }
+}
+
+/// Rename is the Dialogs board's 440 wide (U30's #9: it was about 345),
+/// and never wider than the window: at the least window and at 150%.
+#[test]
+fn rename_is_the_board_s_440_wide_within_the_window() {
+    running("-rename-width");
+    let o = op("references.rs:rename_window#1");
+    for (size, zoom) in [
+        (egui::vec2(1280.0, 720.0), 1.0),
+        (mg_ui::LEAST_WINDOW_SIZE, 1.0),
+        (egui::vec2(640.0, 720.0), 1.5),
+    ] {
+        let Some(h) = opened(&o, size, zoom) else { return };
+        let window = window_now(&h, o.title);
+        let screen = size.x / zoom;
+        if screen > 500.0 {
+            let w = window.width();
+            assert!((w - 440.0).abs() <= 1.0, "at {size:?} by {zoom}: {w:.0} wide, not 440");
+        }
+        let inside = window.left() >= -0.5 && window.right() <= screen + 0.5;
+        assert!(inside, "at {size:?} by {zoom}: {window:?} past the window");
     }
 }
 

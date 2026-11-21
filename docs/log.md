@@ -1,5 +1,19 @@
 # Update log
 
+## 2026-11-21
+* **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U30's review ([moves](ui-redesign-moves.md), [03](manual/03-modules.md); [parity](parity/checklists.md)).
+  * **Timing**: area084's five wheel rows over the budget were the test's camera, not U6's code: U6's two new views left it farther out for the views after them. `frame_perf` gives the camera back; the five are 5.2 to 6.3 ms, under the budget. The huge script's slower scrolling is mostly the test's too (it opens the script docked since U12's review).
+  * **Forms**: in the narrow Properties panel a name takes its field's whole width, its StrRef under it beside "…"; a placeable's check rows at the form's pitch; Module Properties' event rows yield to a narrow window.
+  * **Dialogs and galleries**: Rename is the board's 440 wide; Build Module's columns stand 8 apart; the Area Wizard's chosen tileset fills its row; the tiles gallery's headings have chevrons and the tiles palette's folders their icons; a picture with nothing drawn says "No picture".
+  * **Words**: the Area Wizard's "Open Area Properties"; tooltips and comments that still named the toolbar or the Plugins window; Build Module's results in Problems in the checklist.
+  * Three design questions put to the owner (the Module tree's extensions, the script's line pitch, conversation lines past the view).
+* **Update**: [The UI redesign](ui-redesign-proposal.md)'s M4, **U30, the closing pass** ([moves](ui-redesign-moves.md), [deferred](deferred.md), [02](manual/02-main-window.md), [03](manual/03-modules.md), [10](manual/10-options.md), [11](manual/11-command-line.md), [16](manual/16-writing-plugins.md); [checklists](parity/checklists.md)).
+  * **Timing against U0**: the three perf suites, three rounds alone, with U0's own tree run interleaved. Over the budget only what was over at U0, the known Select Texture click frame (12.46 ms), the wide creature's first frame and area084's wheel frame beside a dock panel (7.0 to 8.0 ms; the test's camera, as the review found). The views slower by more than 20 percent are named with the task that made them slower, found by building the task commits in turn (U6, U9, U11, U12 and U13, U16, U22, U25 and U26).
+  * **frame_perf at 1280 by 800** failed on asserts true only at the default width (panels folded into one tab bar under 1400, a row out of sight at 800 high); the test now holds at both sizes.
+  * **The moves file**: fourteen lines ticked with their tasks, among them the floating tab menu's "Unchanged" row after a new test of its entries; what stays unticked is the viewer's (M6) and three lines not drawn by decision.
+  * **The manual and the parity checklist** no longer name the area's and the script's toolbars, Edit N Together as a window, the Claims Table window or Run Tests outside the Plugins tab; the kit's crate comment says the viewer takes the kit from M6; stale doc comments naming removed items fixed.
+  * **Deferred**: 229 bold entries, counted as the proposal's U30 paragraph says (230 at M4's start); the light theme entry restated.
+
 ## 2026-11-20
 * **Fix**: [The UI redesign](ui-redesign-proposal.md)'s M4, U29's review ([04](manual/04-areas.md), [02](manual/02-main-window.md); [deferred](deferred.md)).
   * **Enter and Escape**: Enter in Edit Areas Together is Open in Tab on its Areas page alone, never from a field it lets go; Escape in a field gives up the field only (Custom Light's hak name too). Any press outside a section takes its keys, Properties included. Another module opened closes the sections. A dropped-down list closed by Enter, Space or an arrow no longer moves the row under it.

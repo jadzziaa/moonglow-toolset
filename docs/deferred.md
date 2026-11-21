@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -914,7 +914,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
-- **The light theme's own colors:** it is egui's light theme; the script
+- **The light theme's own colors:** it is the redesign's Light theme
+  (`mg-uikit`'s tokens, since its M2; this entry said egui's); the script
   editor's syntax colors and the conversation editor's line colors
   follow it, the Faction Editor's sliders keep Aurora's red and blue
   (legible on both: `conversation_and_factions_in_both_themes`, which

@@ -107,7 +107,7 @@ fn a_plugin_acts_when_the_module_is_saved() {
     save(&mut h);
     assert_eq!(said(&h).len(), 1, "once for a change");
     // What a plugin's events were allowed is kept in the settings, by
-    // plugin and version, shown in the Plugins window and forgotten from
+    // plugin and version, shown in the Plugins tab and forgotten from
     // there, or when the plugin is enabled or disabled. (Another of the
     // plugins installed: this one's are what its events just did.)
     let (id, name) = (h.state().plugins.installed.iter())
@@ -419,7 +419,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
     assert!(log.contains(&"Set local: start: 1 placeables".to_string()), "{log:#?}");
 
     // From the Plugins menu, with nothing selected: it says so. (And
-    // the Plugins window says which menus each is in.)
+    // the Plugins tab says which menus each is in.)
     h.state_mut().run_plugin_command("example.set-local", "set-local");
     h.run_steps(3);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("A chest"), "nothing changed");
@@ -434,7 +434,7 @@ fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
 /// submenu is made once, where its first command is, nested at each ›,
 /// its commands in the manifest's order; a command with no `menu` stays
 /// in the menu itself. The Plugins menu nests them the same way, and the
-/// Command Palette and the Plugins window name each by its whole path.
+/// Command Palette and the Plugins tab name each by its whole path.
 #[test]
 fn a_plugin_s_commands_are_grouped_into_submenus() {
     let Some((mut h, _)) = plugin_harness("ui-plugin-submenus", false) else { return };
@@ -513,7 +513,7 @@ fn a_plugin_s_commands_are_grouped_into_submenus() {
     h.key_press(egui::Key::Escape);
     settle(&mut h);
 
-    // The Plugins window says where each is.
+    // The Plugins tab says where each is.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     settle(&mut h);
     h.get_by_label("Command: Make › Services › Crier (right-click: creature)");
@@ -1820,7 +1820,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     h.get_by_label("This project's plugins").scroll_to_me();
     h.run();
     h.get_by_label("You said no: it is off.");
-    // Enabled from the Plugins window: allowed as it is now.
+    // Enabled from the Plugins tab: allowed as it is now.
     h.get_by_label("Builder tags 1.0.0").click();
     h.run();
     assert!(runs(&h, id));
@@ -2275,7 +2275,7 @@ fn a_plugin_warns_before_a_save() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run_steps(3);
     assert!(h.state().plugins.save.held.is_none());
-    // And the Plugins window says what the plugin does by itself.
+    // And the Plugins tab says what the plugin does by itself.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     settle(&mut h);
     h.get_by_label_contains("before a save, reads each resource it writes (are)");

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # The main window
@@ -63,9 +63,9 @@ drawn over the bar's middle. The window can't be made narrower than the menus
 and follow it as soon as it changes); one left smaller opens at that
 size. Where the Status Bar is short of room, its parts give way in
 one order (see [The Status Bar](#the-status-bar)). The Top Bar
-is the same whatever **Tools › Options › General › Editors' toolbar
-buttons** says: that setting is the editors' toolbars' (the area's
-header yields to its width instead). The icons are Moonglow's own drawings, one to a command. The
+is the same whatever an editor shows: each editor's one-row header
+yields to its own width (the old **Editors' toolbar buttons** setting
+is retired). The icons are Moonglow's own drawings, one to a command. The
 toolbar's other buttons of earlier versions have homes of their own:
 **Module Properties** (a box) and **New Area** (the Area Wizard, a
 plus) are icons on the Module panel's tab bar, beside **Expand All** and
@@ -496,8 +496,8 @@ CSV…**, below).
 chosen (or takes it away), Shift and a click chooses those from the row
 clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
-of one kind, or areas: one Properties window, what you change set on
-each), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
+of one kind: one Properties window, what you change set on each; areas:
+the Right Dock's Edit Areas Together section), **Export** (**Export…**, **Export as Files…**, **Copy to Scratch
 Folder**; for areas, **Export Minimaps…** and **Export Minimaps with
 Map Notes…**, each area's map into a folder as `NAME.png`
 ([Minimaps](04-areas.md#minimaps)); for conversations, the four below), **Delete…** (and the
@@ -1396,7 +1396,7 @@ point). The pictures
 of the galleries, the palettes and a hovered row's preview have no
 shadow. **Shaders** draws it with the game's
 own shaders, a material's custom ones among them (wind-swayed leaves move
-while the viewer plays): the same switch as the area view's toolbar
+while the viewer plays): the same switch as the area header's
 (Areas › The header).
 
 ## The log

@@ -1,4 +1,4 @@
-//! Plugins in the window: those installed in Moonglow's plugins folder,
+//! Plugins in the Plugins tab: those installed in Moonglow's plugins folder,
 //! which of them are enabled, their commands (run as jobs, their edits one
 //! undoable command) and their checks (run with Verify Module).
 //!
@@ -43,8 +43,8 @@ pub struct Installed {
     /// only as the user allowed it, and is not Moonglow's to remove.
     pub project: bool,
     /// It has tests of its own (`tests/*.toml`), as its folder had them
-    /// when it was read: the Plugins window's Run Tests. (Looked for in
-    /// its folder every frame the window was open.)
+    /// when it was read: the Plugins tab's Run Tests. (Looked for in
+    /// its folder every frame the tab was drawn.)
     pub has_tests: bool,
 }
 
@@ -64,7 +64,7 @@ pub struct SettingsForm {
     pub values: std::collections::BTreeMap<String, mg_plugin::SettingValue>,
 }
 
-/// The plugins as the window has them.
+/// The plugins as the Plugins tab has them.
 #[derive(Debug, Default)]
 pub struct Plugins {
     pub installed: Vec<Installed>,
@@ -2632,7 +2632,7 @@ pub(crate) fn tab(app: &mut Moonglow, ui: &mut egui::Ui) {
 /// spread across a wide window.
 const PAGE_MOST: f32 = 760.0;
 
-/// What a plugin adds, as the Plugins window and the project's question
+/// What a plugin adds, as the Plugins tab and the project's question
 /// list it: its commands (and the menus they are in), checks, what it does
 /// by itself, and its settings (and where each is kept).
 fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {

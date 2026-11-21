@@ -294,7 +294,7 @@ fn corners(ui: &mut Ui, room: Rect, state: &mut State, assets: &skin::Assets, sa
     };
     let tip = match state.preview_interactive {
         true => {
-            "Controls take values here; an edit starts over; handlers' code runs only in the game"
+            "Controls take values here (an edit starts over), and handlers' code runs only in the game"
                 .to_string()
         }
         false => format!(

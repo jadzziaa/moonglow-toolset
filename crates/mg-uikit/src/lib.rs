@@ -1,5 +1,7 @@
-//! The Moonglow suite's look, shared by Moonglow Toolset and Moonglow
-//! Viewer: the redesign's [color tokens](mod@tokens), [metrics], [theme]
+//! The Moonglow suite's look, made for Moonglow Toolset and Moonglow
+//! Viewer (the toolset uses it; the viewer, which pins the toolset's
+//! crates at a release tag, takes it when it moves to a release that has
+//! it, the redesign's M6): the redesign's [color tokens](mod@tokens), [metrics], [theme]
 //! (egui's style made from them, dark and light), [fonts], the drawn
 //! [icon set](icons), the [form helpers](form) both applications' forms
 //! use, and the shell's parts: the [Top Bar's, the docks' and the

@@ -2437,7 +2437,7 @@ pub(crate) fn icons() -> Vec<Icon> {
     all
 }
 
-/// The Module panel's header buttons that run commands (today's
+/// The Module panel's header buttons that run commands (the old
 /// toolbar's Properties and New Area), as the Top Bar's: command, icon,
 /// name, tip. (Expand All and Collapse All after them are the tree's:
 /// [`module_tools`].) The tree's row of the same name is apart from the

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
 ---
 
 # Modules
@@ -150,7 +150,7 @@ all of it, while the window goes on: the tab says it is reading; the
 next ones, for a resource or a tag, only what changed since). A number typed there that is no resource's name is a talk-table
 line's StrRef: the module's names, descriptions, conversation lines and
 2DAs that name that line are listed. It's in the right-click menus of the module
-tree and palettes, the script editor's toolbar and **Edit › Find
+tree and palettes, the script editor's header (**Used By**) and **Edit › Find
 References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
   `guard_talk › NPC line 3 “Halt!” › action`. Click one to go there: the
@@ -1323,7 +1323,7 @@ the menus do; one taken over or handed on says to tell them.
 
 `mg claims PROJECT` lists every area of the table and the module and
 whose each is; `mg claims PROJECT claim AREA…`, `release AREA…` and
-`hand AREA… --to CODE` do what the menus and the window do (`--force`
+`hand AREA… --to CODE` do what the menus and the Claims Table tab do (`--force`
 takes, releases or hands on another's claim, for the one who keeps the
 table), and `merged AREA…` marks areas merged, with their Tags as the
 module has them ([Command-line tools](11-command-line.md)). Several

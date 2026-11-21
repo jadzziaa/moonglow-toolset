@@ -1580,7 +1580,7 @@ pub(crate) enum ScriptSave {
 /// A script editor's Save, Compile or To Scratch: its text into the module
 /// (an Undo step; the module's file is written by File › Save), compiled as
 /// `how` and the options say. A Save with nothing unsaved does nothing (the
-/// toolbar's is off then).
+/// header's is off then).
 pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
     let (save, compile, to_scratch) =
         (how == ScriptSave::Save, how == ScriptSave::Compile, how == ScriptSave::ToScratch);

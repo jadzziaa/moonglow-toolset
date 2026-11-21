@@ -1504,7 +1504,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // panel is narrower than them, down to [`TYPE_COMBO_UNDER`]: in a
         // narrower panel (the Narrow board's 280) a dropdown of them,
         // "Placeables". (Named by their types within the row, a group of
-        // its own: the area view's toolbar names its filters so too.)
+        // its own: the area header names its filters so too.)
         let each = mg_uikit::metrics::ICON_BUTTON + 1.0;
         // (The panel: this room and its body's margin, 8 each side.)
         let panel = ui.available_width() + 2.0 * mg_uikit::metrics::PANEL_PADDING;

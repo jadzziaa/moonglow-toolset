@@ -1,7 +1,7 @@
 //! What Moonglow found of how its renderer draws on this machine: the
 //! startup check's verdict (`apps/moonglow`, [`mg_render::backend::start`])
 //! and the area view's watch ([`mg_render::watch`]); the notice under the
-//! toolbar when either found it drawing nothing, with **Restart with …**
+//! Top Bar when either found it drawing nothing, with **Restart with …**
 //! (the same GPU's other backend), and the restart itself. The notice
 //! that the game's shaders alone draw wrong, which says the same each run
 //! on that driver, offers **Don't Show Again** too.
@@ -373,7 +373,7 @@ pub(crate) fn device_lost(app: &mut Moonglow, why: String) {
     app.renderer_check.device_lost = Some(said);
 }
 
-/// The notice of a renderer that draws nothing, under the toolbar while
+/// The notice of a renderer that draws nothing, under the Top Bar while
 /// there is one.
 pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(trouble) = app.renderer_check.trouble.clone() else { return };

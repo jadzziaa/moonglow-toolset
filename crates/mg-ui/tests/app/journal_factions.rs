@@ -143,7 +143,8 @@ fn chosen(h: &Harness<'_, Moonglow>) -> (u32, u32) {
 
 /// The journal's header holds its controls (the Journal board's), OK and
 /// Cancel at its end; the Entry and Category panels follow the choice
-/// (their subtitles "[0002] of Category000" and "Category000"); Finish
+/// (their subtitles "[0002] of Category000" and "Category000"), each
+/// saying what to choose while nothing is chosen; Finish
 /// category clicked is one Undo step, the tree's row then saying the entry
 /// finishes its category, and the Top Bar's Undo, with the pointer over
 /// the panel, takes it back.
@@ -156,6 +157,10 @@ fn the_journal_s_header_and_panels_follow_the_choice() {
         assert!(h.get_by_label(JOURNAL_HEADER).query_by_label(end).is_some(), "{end}");
     }
     assert!(h.query_by_label_contains("Choose an entry").is_some(), "the Entry panel says so");
+    // (Nothing chosen, the Category panel too: the moves file's "Select a
+    // category or an entry" row.)
+    let said = "Choose a category or an entry. Add with nothing chosen adds a category.";
+    assert!(h.query_by_label(said).is_some(), "the Category panel says so");
     choose_second_entry(&mut h);
     assert_eq!(h.state().journal_view.selected, Some(Node::Entry(0, 1)));
     assert!(h.query_by_label_contains("[0002] of Category000").is_some(), "Entry's subtitle");

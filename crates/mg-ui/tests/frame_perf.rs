@@ -469,6 +469,61 @@ fn view_in(
     said_memory(h, what);
 }
 
+/// An area's camera once the zoom of the views before has stopped (the
+/// wheel's zoom goes on a while after its frames).
+fn resting_camera(h: &mut App<'_>, area: ResRef) -> Option<mg_ui::area_view::Orbit> {
+    let orbit = |h: &App<'_>| h.state().area_views.get(&area).and_then(|v| v.orbit);
+    for _ in 0..1000 {
+        let was = orbit(h);
+        h.run_steps(1);
+        if orbit(h) == was {
+            break;
+        }
+    }
+    orbit(h)
+}
+
+/// Gives an area's camera back as [`resting_camera`] had it (`rest`): the
+/// views after a view added among others are then timed from where they
+/// were before it.
+fn rest_camera(h: &mut App<'_>, area: ResRef, rest: Option<mg_ui::area_view::Orbit>) {
+    resting_camera(h, area);
+    if let (Some(rest), Some(v)) = (rest, h.state_mut().area_views.get_mut(&area)) {
+        v.orbit = Some(rest);
+    }
+    h.run_steps(2);
+    let now = h.state().area_views.get(&area).and_then(|v| v.orbit);
+    assert_eq!(now, rest, "the camera given back");
+}
+
+/// Under 1400 an editor's Right Dock sections fold into one tab bar:
+/// asserts the tabs named in order along the dock's top and `front`, a
+/// label of the front panel's own, drawn in the dock under them.
+fn tabs_folded(h: &App<'_>, tabs: &[&str], front: &str) {
+    let dock = h.state().right_dock_rect().expect("no Right Dock");
+    let drawn: Vec<(String, egui::Rect)> = h
+        .query_all_by(|n| n.label().is_some() && n.bounding_box().is_some())
+        .filter(|n| dock.contains_rect(n.rect()))
+        .map(|n| (n.accesskit_node().label().unwrap_or_default().to_string(), n.rect()))
+        .collect();
+    let at = |name: &str| drawn.iter().find(|(l, _)| l == name).map(|(_, r)| *r);
+    let mut was: Option<egui::Rect> = None;
+    for name in tabs {
+        let r = at(name).unwrap_or_else(|| panic!("no {name} tab in the folded Right Dock"));
+        assert!(r.top() < dock.top() + 40.0, "{name} not in the dock's tab bar: {r:?}");
+        if let Some(was) = was {
+            assert!(r.left() > was.right() - 1.0, "{name} not after the tab before");
+            assert!((r.center().y - was.center().y).abs() < 2.0, "{name} not on one row");
+        }
+        was = Some(r);
+    }
+    let bar = was.map_or(dock.top(), |r| r.bottom());
+    assert!(
+        drawn.iter().any(|(l, r)| l.contains(front) && r.top() >= bar),
+        "{front:?} not drawn in the front panel"
+    );
+}
+
 /// A line for a view's frames, timed one way (`how`).
 fn said(r: &mut Report, what: &str, how: &str, f: &Frames) {
     let cpu: Vec<Duration> = f.ui.iter().zip(&f.tessellate).map(|(a, b)| *a + *b).collect();
@@ -1139,6 +1194,12 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         }
     }
     fold_palette(h);
+    // (The camera as the views above leave it, given back after the two
+    // Properties panel views: their wheel frames zoom it out, and the
+    // views after them would otherwise be timed from farther away, which
+    // made their wheel rows 18 percent dearer than before M4's U6 with no
+    // change of their own; U30's review.)
+    let rest = resting_camera(h, area);
     // A creature selected, its Inventory page in the Properties panel
     // under the palettes (M4's U6: the Properties window's page drawn in
     // the Right Dock's lower section every frame; before it, the creature
@@ -1192,6 +1253,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         }
         fold_palette(h);
     }
+    rest_camera(h, area, rest);
     // The Outliner (M3's T13) with a kind of 200 objects or more opened
     // (one of them selected: the Outliner opens its kind and brings it
     // into sight), against its kinds closed, the same one selected.
@@ -2147,7 +2209,13 @@ fn tileset(h: &mut App<'_>, r: &mut Report) {
     h.run_steps(5);
     assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Problems), "Problems not shown");
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
-    assert!(h.query_by_label_contains("Textures, of ").is_some(), "Textures not shown");
+    // (Under 1400 Preview and Textures fold into one tab bar, Preview's in
+    // front.)
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label_contains("Textures, of ").is_some(), "Textures not shown");
+    } else {
+        tabs_folded(h, &["Preview", "Textures"], "Tile diagram: tile 16");
+    }
     assert!(h.query_by_label("408 tiles").is_some(), "the Outliner's parts not shown");
     let tiles = h
         .state()
@@ -2199,7 +2267,13 @@ fn hak(h: &mut App<'_>, r: &mut Report) {
     h.state_mut().actions.push(Action::ShowPanel(mg_ui::Panel::Preview));
     h.run_steps(5);
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Preview), "Preview not shown");
-    assert!(h.query_by_label_contains("Details, ").is_some(), "Details not shown");
+    // (Under 1400 Preview and Details fold into one tab bar, Preview's in
+    // front.)
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label_contains("Details, ").is_some(), "Details not shown");
+    } else {
+        tabs_folded(h, &["Preview", "Details"], "Animation");
+    }
     assert!(h.query_by_label_contains(".mdl, 9").is_some(), "no Outliner");
     let rows = h.state().haks.iter().find(|d| d.id == id).map_or(0, |d| d.hak.items().len());
     println!(
@@ -2238,8 +2312,21 @@ fn factions(h: &mut App<'_>, r: &mut Report) {
     h.run_steps(5);
     assert!(h.state().dock.find_tab(&t).is_some_and(|at| at.surface.is_main()), "not docked");
     assert!(h.state().right_dock_rect().is_some(), "no Right Dock");
-    assert!(h.query_by_label("Global effect").is_some(), "Faction not shown");
-    assert!(h.query_by_label("Full detail").is_some(), "Reactions not shown");
+    if screen_size().x >= 1400.0 {
+        assert!(h.query_by_label("Global effect").is_some(), "Faction not shown");
+        assert!(h.query_by_label("Full detail").is_some(), "Reactions not shown");
+    } else {
+        // (Under 1400 the three panels fold into one tab bar, Reaction's in
+        // front.)
+        assert_eq!(
+            h.state().right_dock_shows(),
+            Some(mg_ui::Panel::Reaction),
+            "Reaction not shown"
+        );
+        // (Reaction's own slider: the matrix's cells, " toward ", have
+        // rects past the editor's edge, under the dock, drawn or not.)
+        tabs_folded(h, &["Faction", "Reaction", "Reactions"], "Reputation value");
+    }
     let outliner =
         h.query_all_by_label(mg_ui::OUTLINER).any(|g| g.query_by_label("Hostile").is_some());
     assert!(outliner, "no Outliner of the factions");
@@ -3480,8 +3567,30 @@ fn read_only_and_options() {
         let t = Tab::Resource(key);
         open(&mut h, t.clone());
         h.run_steps(5);
+        // (A short window shows the rows only scrolled to: the view builds
+        // the rows in sight alone. Unfolded from the last up, a row unfolded
+        // leaves those above it where they are; scrolled up to as needed.)
+        let at = h.query_all_by_label_contains("S00").next().map(|n| n.rect().center());
+        let at = at.expect("no S00 row");
+        let wheel = |h: &mut App<'_>, by: f32| {
+            h.event(egui::Event::PointerMoved(at));
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, by),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+        };
         for s in (0..30).rev() {
             let name = format!("S{s:02}");
+            let by = if s == 29 { -60.0 } else { 60.0 };
+            for _ in 0..200 {
+                if h.query_all_by_label_contains(&name).next().is_some() {
+                    break;
+                }
+                wheel(&mut h, by);
+            }
             let found = h.query_all_by_label_contains(&name).next().map(|n| n.click()).is_some();
             assert!(found, "no {name} row");
             h.run_steps(2);

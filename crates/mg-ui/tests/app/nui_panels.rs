@@ -2983,3 +2983,29 @@ fn a_table_of_many_binds_and_a_rename_while_a_field_is_typed_in() {
     let s = Settings::parse(module.get(&ResKey::new(key().resref, ResType::TXT)).unwrap()).unwrap();
     assert!(s.bindings.contains_key("bind_39_x"), "renamed");
 }
+
+/// The NUI board's Properties (U30's #6): Send chosen, its Behavior opened
+/// and its Enabled's chip clicked, Properties stand at their top, Property
+/// Binding and Content in sight under the panel's header.
+#[test]
+fn properties_open_at_their_top_on_a_chip_s_click() {
+    let mut w = our_window();
+    w["root"]["children"][2]["children"][0]["enabled"] = json!({"bind": "can_send"});
+    let mut s = our_settings();
+    s.bindings
+        .insert("can_send".into(), mg_nui::Binding { value: json!(false), ..Default::default() });
+    let mut h = designer_with(Mode::Tabs, 1600.0, w, s);
+    choose(&mut h, "Button · Send");
+    h.get_by_label("Behavior").click();
+    settle(&mut h);
+    h.get_by_label("Bound to can_send").click();
+    settle(&mut h);
+    // (The panel's header, its Element Actions at its end; its first
+    // section right under it, the next in sight.)
+    let header = h.get_by_label(nui_names::ELEMENT_ACTIONS).rect();
+    let binding = h.get_by_label("Property Binding").rect();
+    assert!(binding.top() > header.bottom(), "{binding:?} under the header {header:?}");
+    assert!(binding.top() < header.bottom() + 24.0, "{binding:?} scrolled from {header:?}");
+    let content = h.get_by_label("Content").rect();
+    assert!(right_dock_rect(&h).contains_rect(content), "Content in sight: {content:?}");
+}

@@ -860,7 +860,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) {
         let beside = ui.available_width() >= 640.0;
         let shown = |ui: &mut Ui, showing: &mut Option<ObjectKind>| {
             // Doors, triggers, waypoints, or all, on the map and in the
-            // lists (a group named for them: the area toolbar's and the
+            // lists (a group named for them: the area header's and the
             // palette's Doors are others).
             ui.horizontal(|ui| {
                 mg_uikit::name_group(ui, "Destinations Shown");

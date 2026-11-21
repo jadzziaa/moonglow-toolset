@@ -507,7 +507,7 @@ fn f6_stops_at_an_open_tool_section() {
         settle(&mut h);
         open_together(&mut h);
         // (The keys taken from it by a press on the view.)
-        click_pos(&mut h, egui::pos2(400.0, size.y / 2.0));
+        click_pos(&h, egui::pos2(400.0, size.y / 2.0));
         settle(&mut h);
         assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "AreasTogether");
         let mut stops = Vec::new();

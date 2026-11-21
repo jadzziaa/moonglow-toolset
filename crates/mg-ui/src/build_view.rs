@@ -204,6 +204,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             // the dialog taller than its other columns.)
                             let half = w.missing_of.len().div_ceil(2);
                             ui.horizontal_top(|ui| {
+                                // (8 apart, the Dialogs board's `.two-c`
+                                // column gap: U30's #10.)
+                                ui.spacing_mut().item_spacing.x = MISSING_GAP;
                                 let mut kinds = w.missing_of.iter_mut().enumerate();
                                 for column in 0..2 {
                                     ui.vertical(|ui| {
@@ -373,6 +376,10 @@ pub(crate) fn counted_as_used(app: &mut Moonglow, button: &egui::Response) {
         app.build_used.text.clear();
     }
 }
+
+/// The room between Missing Resources' two columns of kinds (the
+/// Dialogs board's `.two-c`: `column-gap: 8px`).
+const MISSING_GAP: f32 = 8.0;
 
 /// Why Mark as Used can't be: no Unused result is chosen.
 const CHOOSE_UNUSED: &str = "Choose an Unused result in Problems first";

@@ -362,6 +362,14 @@ fn the_area_header_yields_at_990_550_and_490() {
     assert!(place(&h, "Show Creatures").is_none(), "989: no toggles on the row");
     let show = h.get_by_label(AREA_HEADER).get_by_label("Show").rect();
     assert!(show.width() > 60.0, "989: Show with its count: {show:?}");
+    // (Its count drawn after its words: the moves file's "5 of 10".)
+    let words = crate::shell::drawn_texts(&h, show);
+    // (Its words and count one line: "Show10 of 10".)
+    let counted = |w: &String| {
+        w.starts_with("Show")
+            && w.strip_suffix(" of 10").is_some_and(|n| n.ends_with(|c: char| c.is_ascii_digit()))
+    };
+    assert!(words.iter().any(counted), "989: Show's \"N of 10\" drawn: {words:?}");
     assert!(h.get_by_label(AREA_HEADER).query_by_label("Day").is_none(), "989: the moon alone");
     let night = h.get_by_label(AREA_HEADER).get_by_label("Night");
     assert!(night.rect().width() <= mg_uikit::metrics::ICON_BUTTON + 0.5, "989: the moon");

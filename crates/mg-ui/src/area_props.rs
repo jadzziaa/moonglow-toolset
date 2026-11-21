@@ -32,9 +32,9 @@ pub(crate) const PAGES_ROW: &str = "Area Properties pages";
 const SHARED_PAGES: [&str; 6] = ["Visual", "Grass", "Audio", "Events", "Advanced", "Variables"];
 
 /// Area Properties of `area`; with `others`, of them all (Edit Areas
-/// Together): shown as `area`'s, and what is changed is set on each.
-/// Area Properties (of several areas: `others` with the first), over
-/// its OK and Cancel (`blueprint::ok_cancel`).
+/// Together): shown as `area`'s, and what is changed is set on each;
+/// under its header with OK and Cancel at its right end
+/// (`blueprint::ok_cancel_header`).
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
     let areas = || std::iter::once(area).chain(others.iter().copied());
     let targets: Vec<(ResKey, GffPath)> = areas()

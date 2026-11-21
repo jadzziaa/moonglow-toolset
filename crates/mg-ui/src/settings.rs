@@ -621,8 +621,8 @@ pub struct Settings {
     /// them (in every area view). Off by default, as Aurora draws nothing
     /// there and the area's edge shows plainest so.
     pub tile_border: bool,
-    /// The 3D views' Shaders switch (the area view's toolbar, the model
-    /// view's): the game's own shaders draw what they can, a material's
+    /// The 3D views' Shaders switch (the area header's Lighting popover, the
+    /// model view's): the game's own shaders draw what they can, a material's
     /// custom ones among them (`docs/shaders-proposal.md`). `None`: as
     /// [`GAME_SHADERS_BY_DEFAULT`] has it, until the switch is used.
     pub game_shaders: Option<bool>,
@@ -630,7 +630,7 @@ pub struct Settings {
     /// on a ground under it that takes only shadows. `None`: on, until
     /// the switch is used.
     pub model_shadows: Option<bool>,
-    /// The kinds of objects the area view's toolbar hides (`Triggers`,
+    /// The kinds of objects the area header's Show toggles hide (`Triggers`,
     /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
     /// `Start` for the start location's marker; `Merchants`, as 1.35 and
     /// earlier wrote it, is read as `Stores`): every area view, the open
@@ -895,13 +895,13 @@ pub struct Settings {
     pub graphics_failures: Vec<GraphicsFailure>,
     /// The lit check's notice that the game's shaders draw wrong, hidden
     /// (Don't Show Again) on a GPU, driver and backend: Moonglow draws with
-    /// its own there without saying so under the toolbar, until the driver
+    /// its own there without saying so under the Top Bar, until the driver
     /// changes ([`crate::renderer_check::lit_found`]). Options › General
     /// shows it again.
     pub graphics_notices_hidden: Vec<GraphicsFailure>,
-    /// Options › Area › Toolbar: the area view's toolbar's buttons left
+    /// Options › Area › Header: the area header's controls left
     /// out, by name ([`crate::icons::AREA_TOOLS`]; an objects' filter as
-    /// "Show Creatures"). A builder's ask: a toolbar of what is used.
+    /// "Show Creatures"). A builder's ask: a header of what is used.
     pub hidden_area_tools: Vec<String>,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
@@ -1113,7 +1113,7 @@ pub struct Settings {
     #[serde(default)]
     pub turn_together: bool,
     /// The area view: what is placed goes onto the top of a placeable or
-    /// door under the pointer (the toolbar's Onto Objects), as Drop onto
+    /// door under the pointer (the area header's Onto Objects), as Drop onto
     /// Object sets it after; off, on the ground.
     #[serde(default)]
     pub place_onto_objects: bool,

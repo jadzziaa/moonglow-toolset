@@ -182,8 +182,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                     ("Last name", "Last name", "LastName", true),
                 ] {
                     crate::widgets::field_label(ui, text);
-                    super::row(ui, |ui| {
-                        f.locstring(ui, what, label);
+                    f.locstring_then(ui, what, label, |f, ui| {
                         random_name_button(f, ui, what, label, last);
                     });
                     ui.end_row();

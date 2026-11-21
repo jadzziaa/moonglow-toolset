@@ -2,7 +2,7 @@
 //! Left Dock's tabs, split from them by a seam (`shell::left_dock`), what
 //! the active editor holds. In M3 the area's: its placed objects by kind
 //! (`LightArea_crop_outl.png`), each kind with its count and a show or
-//! hide **eye**, which is the area toolbar's Show toggle of the same kind
+//! hide **eye**, which is the area header's Show toggle of the same kind
 //! (one state, `AreaView::show`, shared by every area view:
 //! `area_view::show_kind`); a kind hidden is quiet; a kind with nothing
 //! placed has no arrow. A kind opened lists its objects, each a name and
@@ -55,7 +55,7 @@ use crate::palette_view::{Keys, give_keys, keys_are};
 use crate::tree::{self, Asked, Look, Placed, Step, TreeAt};
 
 /// The Outliner's name: the group its header and rows are in, apart from
-/// the area toolbar's (whose "Show Creatures" its eye shares a name with).
+/// the area header's (whose "Show Creatures" its eye shares a name with).
 pub const OUTLINER: &str = "Outliner";
 
 /// The Outliner's header's name, apart from the Outliner's own group.

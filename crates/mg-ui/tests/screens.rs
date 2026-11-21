@@ -7133,7 +7133,7 @@ fn narrow(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab) {
     h.run_steps(4);
 }
 
-/// The Plugins window with the plugin host's fixture plugins installed and
+/// The Plugins tab with the plugin host's fixture plugins installed and
 /// one enabled, the console open (`target/test-output/screens-plugins/`).
 #[test]
 #[ignore]
@@ -7309,7 +7309,7 @@ fn plugin_kinds() {
 
 /// A project's plugins (the builder-tags example in a project's
 /// `plugins/`): the question when it is opened (`project-plugins-ask`),
-/// the Plugins window with it allowed (`project-plugins-window`), and its
+/// the Plugins tab with it allowed (`project-plugins-window`), and its
 /// settings' form (`plugin-settings`), in
 /// `target/test-output/screens-project-plugins/`.
 #[test]
@@ -13734,12 +13734,9 @@ fn board_nui_as_drawn(h: &mut Harness<'static, Moonglow>, key: ResKey) {
         }
         h.run_steps(5);
     }
-    // (Behavior's chip in sight, as the board draws it, Property Binding on
-    // Enabled above it.)
-    if let Some(chip) = h.query_all_by_label("Bound to can_send").next() {
-        chip.scroll_to_me();
-    }
-    h.run_steps(5);
+    // (Properties left at their top, as the chip's click leaves them:
+    // Property Binding on Enabled and Content in sight, U30's #6. A scroll
+    // to the chip had taken both out of sight.)
     // (A press on the design, Send's place: the design the editor in front,
     // its hints in the Status Bar as the board draws them.)
     if let Some(send) = h.query_all_by_label("Canvas Button · Send").next() {
@@ -14987,7 +14984,7 @@ fn board_dialogs() {
 }
 
 /// Dialogs without a footer before and after U26's change to
-/// `Dialog::show`'s room (the item spacing under the title row taken
+/// `Dialog::show`'s room (now `Dialog::show_foot`'s; the item spacing under the title row taken
 /// off): About, Find Text with Find In Files (the scripts'), Build Module
 /// and Rename, each over Chapter1 in a window
 /// of 1600 by 720 and in short ones, 1280 by 360 and by 320 (the least), into

@@ -754,8 +754,8 @@ fn haks_with(app: &Moonglow, key: ResKey) -> Vec<(String, std::path::PathBuf)> {
         .collect()
 }
 
-/// The places a table can be edited in, as buttons ([`table_menu`]'s):
-/// the one clicked.
+/// The places a table can be edited in, as buttons (the read-only tab's
+/// Edit… menu, and Area Properties' table buttons): the one clicked.
 pub(crate) fn table_homes(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
     use crate::table_view::Home;
     let mut out = None;

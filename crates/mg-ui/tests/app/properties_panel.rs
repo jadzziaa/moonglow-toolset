@@ -1012,3 +1012,86 @@ fn a_double_click_on_a_tree_row_brings_the_area_and_the_panel() {
     assert!(selection.len() == 1 && selection[0].0 == ObjectKind::Waypoint, "{selection:?}");
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "the panel");
 }
+
+/// The panel's controls in the Right Dock named `name`, top to bottom.
+fn in_dock(h: &Harness<'_, Moonglow>, name: &str) -> Vec<egui::Rect> {
+    let dock = right_dock_rect(h);
+    let mut found: Vec<egui::Rect> =
+        h.get_all_by_label(name).map(|n| n.rect()).filter(|r| dock.contains_rect(*r)).collect();
+    found.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    found
+}
+
+/// A localized name whose text is the talk table's, in the narrow panel
+/// (U30's #1 and #15: "Plague Vi" beside "StrRef 5763" at 320, "Cabb" at
+/// 280): its text takes the field's whole width, and "StrRef …" stands
+/// on the row under it, beside the field's "…".
+#[test]
+fn a_name_s_strref_stands_under_its_field_in_the_narrow_panel() {
+    let Some((mut h, area)) = props_area("props-strref", Mode::Floating, 1280.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Creature, 0)]);
+    h.get_by_label("Right Dock").get_by_label("Properties").click();
+    settle(&mut h);
+    for (window, width) in [(1600.0, 320.0), (1280.0, 280.0)] {
+        h.set_size(egui::vec2(window, 900.0));
+        right_dock_width(&mut h, width);
+        settle(&mut h);
+        let dock = right_dock_rect(&h);
+        assert!((dock.width() - width).abs() < 1.0, "at {width}: the dock {:.0}", dock.width());
+        let chip = (h.query_all_by_label_contains("StrRef "))
+            .map(|n| n.rect())
+            .find(|r| dock.y_range().contains(r.center().y))
+            .unwrap_or_else(|| panic!("at {width}: no strref"));
+        assert!(dock.contains_rect(chip), "at {width}: {chip:?} past the panel {dock:?}");
+        // (The first name's field: the panel's text field nearest over
+        // or around the strref.)
+        let field = (h.get_all_by_role(egui::accesskit::Role::TextInput))
+            .filter(|n| dock.contains_rect(n.rect()) && n.rect().top() <= chip.top())
+            .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+            .expect("the name's field");
+        let (name, field) = (field.accesskit_node().value().unwrap_or_default(), field.rect());
+        assert!(!name.is_empty(), "at {width}: the name shown");
+        assert!(chip.top() >= field.bottom(), "at {width}: {chip:?} not under {field:?}");
+        let languages = in_dock(&h, "…");
+        let beside = languages.iter().find(|r| (r.center().y - chip.center().y).abs() < 4.0);
+        let beside = beside.unwrap_or_else(|| panic!("at {width}: no … beside {chip:?}"));
+        assert!(beside.left() >= chip.right(), "at {width}: … after the strref");
+        // (Nothing of the name cut: its text and the field's margins.)
+        let font = h.ctx.global_style().text_styles[&egui::TextStyle::Body].clone();
+        let text = h.ctx.fonts_mut(|f| f.layout_no_wrap(name.clone(), font, egui::Color32::WHITE));
+        let margins = mg_uikit::controls::FIELD_MARGIN.sum().x;
+        assert!(
+            text.size().x + margins <= field.width() + 0.5,
+            "at {width}: {name:?} ({:.0}) cut in a field {:.0} wide",
+            text.size().x,
+            field.width()
+        );
+    }
+}
+
+/// A placeable's Static, Useable and Has inventory rows, and Inventory…
+/// under them, stand at the form's own pitch, in the narrow panel and the
+/// wide layout's (U30's #2: 47 to 51 apart, Useable's and Has inventory's
+/// check boxes each in a scope of its own in the grid's cell).
+#[test]
+fn a_placeable_s_check_rows_stand_at_the_form_s_pitch() {
+    let Some((mut h, area)) = props_area("props-pitch", Mode::Floating, 1280.0) else { return };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Right Dock").get_by_label("Properties").click();
+    settle(&mut h);
+    for width in [280.0, 320.0, 460.0] {
+        right_dock_width(&mut h, width);
+        settle(&mut h);
+        let at = |name: &str| {
+            let found = in_dock(&h, name);
+            *found.first().unwrap_or_else(|| panic!("at {width}: no {name} in the panel"))
+        };
+        let rows = ["Static", "Useable", "Has inventory", "Inventory…"].map(at);
+        let pitch: Vec<f32> = rows.windows(2).map(|w| w[1].center().y - w[0].center().y).collect();
+        // (The check boxes' rows one pitch apart; Inventory…, a button
+        // a few points higher than a check box, at most a few more.)
+        assert!((pitch[0] - pitch[1]).abs() < 1.0, "at {width}: rows apart by {pitch:?}");
+        assert!(pitch[0] < 34.0, "at {width}: rows apart by {pitch:?}");
+        assert!(pitch[2] < pitch[0] + 6.0, "at {width}: Inventory… apart by {pitch:?}");
+    }
+}

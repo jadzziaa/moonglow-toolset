@@ -5306,7 +5306,7 @@ pub(crate) fn grid_arrow_pick(
 }
 
 /// [`arrow_pick`] for an egui combo box of a few fixed `options` (not a
-/// table's rows, which [`row_choice`] lists: the area's toolbar, a
+/// table's rows, which [`row_choice`] lists: the area's header, a
 /// dialog's filters), its box `r`: once clicked or reached with Tab, the
 /// arrow keys step `current` through them, in the order shown. Whether
 /// it changed.

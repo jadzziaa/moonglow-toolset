@@ -477,7 +477,7 @@ pub enum Action {
     /// with the compiled script made: noted as compiled where the module
     /// has it now, for Compile All to pass over.
     NoteCompiled(Vec<(ResKey, Vec<u8>)>),
-    /// A script editor's Save (its toolbar's, or the Save key while its
+    /// A script editor's Save (its header's, or the Save key while its
     /// text has the keyboard): the text into the module, not the module
     /// to its file.
     SaveScript(ResKey),
@@ -1511,14 +1511,14 @@ pub struct Moonglow {
     /// The width of a window's frame round its panes (its stroke: the dock
     /// gives its windows no margin), for following a window egui_dock made.
     window_frame: f32,
-    /// Where the panes are drawn (under the toolbar, beside the tree).
+    /// Where the panes are drawn (under the Top Bar, beside the tree).
     dock_rect: Option<egui::Rect>,
     /// The resources waiting for the answer to "delete it?" (one, or those
     /// chosen in the module tree).
     pub confirm_delete: Option<Vec<ResKey>>,
     pub quit_requested: bool,
     /// What the startup check and the area view's watch found of the
-    /// renderer here, for the notice under the toolbar.
+    /// renderer here, for the notice under the Top Bar.
     pub renderer_check: renderer_check::RendererCheck,
     /// The lit check, once the game's data is read
     /// ([`renderer_check::lit_check`]).
@@ -3733,7 +3733,7 @@ impl Moonglow {
             .map(|(_, leaf)| leaf.rect)
             .filter(|r| r.is_positive())
             .unwrap_or(screen);
-        // Below the menu and toolbar (the main pane's top), never over them.
+        // Below the Top Bar (the main pane's top), never over it.
         let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
         // Placed clear of a folded dock's strip: a window's resize handles
         // reach past its edges by egui's corner grab
@@ -3913,7 +3913,7 @@ impl Moonglow {
                 .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(at), |ui| {
                     // (Its window's own layer, over the main window: not
                     // cut to the main window's panels, which hid it where
-                    // a window's bar lay over the toolbar.)
+                    // a window's bar lay over the Top Bar.)
                     ui.set_clip_rect(at.expand(1.0));
                     ui.put(at, button).on_hover_text(tip).clicked()
                 })
@@ -4077,7 +4077,7 @@ impl Moonglow {
     }
 
     /// The room a maximized window takes: the whole of Moonglow's window
-    /// under its menu and toolbar, over the module tree, the palettes and
+    /// under its Top Bar, over the module tree, the palettes and
     /// the log as well as the panes (a builder: Maximize "doesn't make it
     /// fill the screen").
     fn maximize_room(&self) -> Option<egui::Rect> {

@@ -1434,6 +1434,25 @@ impl Form<'_> {
 
     /// A localized name: the English text, and `…` for every language.
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.locstring_then(ui, what, label, |_, _| {});
+    }
+
+    /// A [`locstring`](Self::locstring) and `after` (a creature's Random
+    /// Name) after its `…`. In a narrow form the text takes the field's
+    /// whole width, and whose it is ("StrRef 5763") stands on the row
+    /// under it with the buttons (the owner's ruling on U30's #1: a name
+    /// beside its strref in a 280 panel was cut to four letters).
+    pub(crate) fn locstring_then(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        after: impl FnOnce(&mut Self, &mut Ui),
+    ) {
+        if narrow(ui) {
+            self.narrow_locstring(ui, what, label, after);
+            return;
+        }
         self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         row(ui, |ui| {
@@ -1441,19 +1460,13 @@ impl Form<'_> {
             // its right end, "StrRef 24650" or the language's name, in
             // the talk table's color: the Creature board's `.field .keys`.
             // A window's field fills its row's room but for the buttons
-            // after it; a narrow form's keeps its width, which the row
-            // wraps.)
+            // after it; a narrow form's is `narrow_locstring`.)
             let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
-            // (A field is never wider than its row's room: egui's isn't.)
-            let width = match narrow(ui) {
-                true => 240.0_f32.min(ui.available_width()),
-                false => {
-                    // (And a few points for the frames past their widgets.)
-                    let buttons =
-                        2.0 * (mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x) + 6.0;
-                    (ui.available_width() - buttons).clamp(LOC_FIELD.start, LOC_FIELD.end)
-                }
-            };
+            // (A field is never wider than its row's room: egui's isn't;
+            // and a few points for the frames past their widgets.)
+            let buttons =
+                2.0 * (mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x) + 6.0;
+            let width = (ui.available_width() - buttons).clamp(LOC_FIELD.start, LOC_FIELD.end);
             let id = self.id(label);
             let color = talk_table_color(ui);
             let keys = borrowed.as_ref().map(|(from, why)| {
@@ -1505,6 +1518,58 @@ impl Form<'_> {
             if crate::widgets::languages_button(ui) {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
+            after(self, ui);
+        });
+    }
+
+    /// [`locstring_then`](Self::locstring_then) in a narrow form: the
+    /// field, then a row of whose its text is, its `…` and `after`.
+    fn narrow_locstring(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        after: impl FnOnce(&mut Self, &mut Ui),
+    ) {
+        self.mark_mixed(ui, label);
+        let current = self.root.locstring(label).cloned().unwrap_or_default();
+        let (shown, borrowed) = crate::widgets::loc_shown(self.app, &current);
+        let color = talk_table_color(ui);
+        let id = self.id(label);
+        ui.vertical(|ui| {
+            let typed = ui
+                .scope(|ui| {
+                    if borrowed.is_some() {
+                        ui.visuals_mut().override_text_color = Some(color);
+                    }
+                    let width = fit(ui, 240.0);
+                    crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
+                })
+                .inner;
+            if let Some(v) = typed {
+                self.set_typed(
+                    what,
+                    label,
+                    Value::LocString(with_edited_text(current.clone(), &v)),
+                );
+            }
+            let held = current.clone();
+            self.hold_text(ui, what, label, &shown, true, move |text| {
+                Value::LocString(with_edited_text(held.clone(), &text))
+            });
+            ui.horizontal_wrapped(|ui| {
+                if let Some((from, why)) = &borrowed {
+                    let text = egui::RichText::new(from.as_str())
+                        .size(mg_uikit::metrics::SMALL_SIZE)
+                        .color(color);
+                    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                }
+                if crate::widgets::languages_button(ui) {
+                    let edit = LocStringEdit::new(self.target(label), what, &current);
+                    self.app.loc_edit = Some(edit);
+                }
+                after(self, ui);
+            });
         });
     }
 
@@ -1779,10 +1844,18 @@ impl Form<'_> {
 
     /// A checkbox for a flag (BYTE 0 or 1); the value.
     pub(crate) fn check(&mut self, ui: &mut Ui, text: &str, label: &str) -> bool {
+        self.check_if(ui, true, text, label)
+    }
+
+    /// A [`check`](Self::check) that can be ticked only where `enabled`
+    /// (a static placeable's Useable). (Disabled as a widget, not in a
+    /// scope of its own: a scope in a form's grid cell stood its row 47
+    /// to 51 points from the next, U30's #2.)
+    pub(crate) fn check_if(&mut self, ui: &mut Ui, enabled: bool, text: &str, label: &str) -> bool {
         self.mark_mixed(ui, label);
         let current = self.int(label) != 0;
         let mut v = current;
-        if ui.check_box(&mut v, text).changed() {
+        if ui.add_enabled(enabled, mg_uikit::controls::Checkbox::new(&mut v, text)).changed() {
             self.set_int(text, label, i64::from(v), FieldType::Byte);
         }
         v
@@ -2054,8 +2127,29 @@ impl Form<'_> {
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
+        // (Outside a narrow form, which wraps its rows, the field yields
+        // to its `…` and Edit where the row's room is short: Module
+        // Properties' events at a window of 420 put both past its edge,
+        // U30's #14. The grid's last column's room, which its first
+        // column's labels decide, not a column's width: no feedback.)
+        let yield_to = (!narrow(ui)).then(|| {
+            let s = ui.spacing();
+            let small = egui::TextStyle::Button.resolve(ui.style());
+            let color = ui.visuals().text_color();
+            let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+            let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
+            let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
+            width.clamp(SCRIPT_FIELD_LEAST, 160.0)
+        });
         row(ui, |ui| {
-            if let Some(v) = resref_field(self.app, ui, self.id(label), current, &what, &types) {
+            let id = self.id(label);
+            let picked = match yield_to {
+                Some(width) => crate::widgets::with_resref_width(ui, width, |ui| {
+                    resref_field(self.app, ui, id, current, &what, &types)
+                }),
+                None => resref_field(self.app, ui, id, current, &what, &types),
+            };
+            if let Some(v) = picked {
                 self.set(&what, label, Value::resref(v));
             }
             let field = self.id(label);
@@ -2407,6 +2501,10 @@ pub(crate) const NARROW_FORM: f32 = 400.0;
 /// The width of a localized name's field in a window (`Form::locstring`):
 /// its row's room, held to these.
 const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
+
+/// The least a script's field yields to ([`Form::script`]): about eight
+/// characters of a resref.
+const SCRIPT_FIELD_LEAST: f32 = 60.0;
 
 /// The room inside a field's right end round the words that say whose its
 /// text is ("StrRef 24650"): the board's `.field .keys` padding.

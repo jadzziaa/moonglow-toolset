@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T12:25:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
 ---
 
 # Options
@@ -470,7 +470,7 @@ outside Moonglow) always ask.
   which compiles again a script that has no debug file yet.
 - **Check for errors as you type**: on by default. The script is
   compiled a moment after you stop typing, and its first error shows
-  under the toolbar, its line underlined (see [Scripts](07-scripts.md)).
+  in the Status Bar, its line underlined (see [Scripts](07-scripts.md)).
   Off, there is no check and no line kept for it.
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and

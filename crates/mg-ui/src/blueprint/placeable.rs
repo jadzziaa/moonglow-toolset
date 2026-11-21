@@ -90,11 +90,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             f.check_taking(ui, "Static", "Static", &mg_module::areas::VISUAL_TRANSFORM_FIELDS);
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Useable", "Useable"));
+        f.check_if(ui, !fixed, "Useable", "Useable");
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        let has =
-            ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has inventory", "HasInventory")).inner;
+        let has = f.check_if(ui, !fixed, "Has inventory", "HasInventory");
         ui.end_row();
         // (Inventory… on a row of its own, as the boards draw it.)
         crate::widgets::field_label(ui, "");

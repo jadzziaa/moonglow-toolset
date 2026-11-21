@@ -96,7 +96,7 @@ pub struct OptionsDraft {
     /// and whether OK shows them again.
     pub graphics_notices_hidden: Vec<crate::settings::GraphicsFailure>,
     pub show_graphics_notices: bool,
-    /// The area toolbar's buttons left out ([`Settings::hidden_area_tools`]).
+    /// The area header's controls left out ([`Settings::hidden_area_tools`]).
     pub hidden_area_tools: Vec<String>,
     /// Per cent.
     pub ui_scale: u16,
@@ -1164,8 +1164,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 )
                 .on_hover_text("Store a .ndb with each compiled script, for debuggers");
                 ui.check_box(&mut draft.live_check, "Check for errors as you type").on_hover_text(
-                    "Compile the script as you type and show its first error under \
-                                     the toolbar",
+                    "Compile the script as you type and show its first error in the Status Bar",
                 );
                 crate::widgets::field_label(ui, "External Script Compiler");
                 ui.horizontal(|ui| {

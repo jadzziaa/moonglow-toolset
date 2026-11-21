@@ -275,7 +275,7 @@ pub struct ScriptTools {
     pub convert_indent: Option<(ResKey, bool, bool)>,
     /// A step of a script's own history to take, back (`false`) or again
     /// (`true`), once its editor is drawn: Edit › Undo or Redo, or the
-    /// toolbar's, while the script is the one worked in
+    /// Top Bar's, while the script is the one worked in
     /// (`script_view::undo_target`).
     pub(crate) undo: Option<(ResKey, bool)>,
     /// A script's editor to give the keys back to once it is drawn (a

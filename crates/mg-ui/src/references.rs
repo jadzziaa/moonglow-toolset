@@ -1360,6 +1360,9 @@ fn named_ui(ui: &mut Ui, named: Option<&Named>, find: &mut Option<ResKey>) {
     }
 }
 
+/// The Rename dialog's width (the Dialogs board's Rename).
+const RENAME_WIDTH: f32 = 440.0;
+
 /// The Rename window.
 pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.rename.take() else { return };
@@ -1389,6 +1392,12 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         .collapsible(false)
         .resizable(false)
         .show_foot(ctx, |ui| {
+            // (The Dialogs board's 440 points wide, less the body's margins
+            // and the window's edges, where the screen has the room: U30's
+            // #9. Its notes wrap there.)
+            let body = RENAME_WIDTH - 2.0 * mg_uikit::dialog::BODY_PADDING - 2.0;
+            crate::widgets::fit_min_width(ui, body);
+            crate::widgets::fit_width(ui, body);
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "New name");
                 let mut text = crate::widgets::ResRefText(&mut draft.to);

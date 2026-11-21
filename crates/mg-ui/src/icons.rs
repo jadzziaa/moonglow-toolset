@@ -49,7 +49,7 @@ icons! {
     WALKMESH = Walkmesh;
     SELECT_TILES = SelectTiles;
     PAINT = Paint;
-    /// The area view's Area Properties (the main toolbar's Module Properties
+    /// The area header's Area Properties (the Module panel header's Module Properties
     /// is `module`: `area-properties` and `properties` are one drawing).
     AREA_PROPERTIES = AreaProperties;
     /// A palette's Gallery and List (its pictures or its names).
@@ -169,8 +169,8 @@ pub(crate) struct Tools {
 }
 
 /// The area header's controls that can be hidden (Options › Area ›
-/// Header, the header's right-click menu), by the names the toolbar
-/// before it gave them, kept so that a stored list keeps its meaning
+/// Header, the header's right-click menu), by the names the retired area
+/// toolbar gave them, kept so that a stored list keeps its meaning
 /// (`area_view::header`); the objects' filters are [`area_tool_kind`]'s.
 pub(crate) const AREA_TOOLS: [&str; 29] = [
     "Start",
@@ -204,7 +204,7 @@ pub(crate) const AREA_TOOLS: [&str; 29] = [
     "To Scratch",
 ];
 
-/// The name an objects' filter of the area toolbar is hidden by: "Show
+/// The name an objects' filter of the area header is hidden by: "Show
 /// Creatures" (the play-sounds button is "Sounds").
 pub(crate) fn area_tool_kind(label: &str) -> String {
     format!("Show {label}")
@@ -217,18 +217,17 @@ impl Tools {
         Tools { icons_only: only }
     }
 
-    /// How a button of the main or the area toolbar is labelled: its icon
+    /// How a Top Bar quick action is labelled: its icon
     /// and its name, or its icon alone.
     pub(crate) fn look(self) -> Label {
         if self.icons_only { Label::IconOnly } else { Label::Both }
     }
 
-    /// A button of the main or the area toolbar: `icon` and `name`, or the
+    /// A Top Bar quick action: `icon` and `name`, or the
     /// icon alone ([`Tools::look`]), named `name` either way.
     pub(crate) fn widget(self, icon: Icon, name: &str) -> IconButton {
-        // (4 px between the icon and the words, not the mock's 6: the area
-        // toolbar's forty buttons took a row more with 6, in today's
-        // layout, until M3 moves its switches into popovers.)
+        // (4 px between the icon and the words, not the mock's 6: the retired
+        // area toolbar's forty buttons took a row more with 6.)
         IconButton::new(icon, name).label(self.look()).gap(mg_uikit::metrics::GAP_S)
     }
 
@@ -260,8 +259,8 @@ impl Tools {
         }
     }
 
-    /// Every icon the toolbars, the palettes and the module tree show: the
-    /// main toolbar's, the object types', and every one declared here
+    /// Every icon the bars and headers, the palettes and the module tree show:
+    /// the Top Bar's, the object types', and every one declared here
     /// ([`ALL`], [`editor::ALL`]).
     #[cfg(test)]
     pub(crate) fn icons() -> Vec<Icon> {
@@ -307,7 +306,7 @@ mod tests {
     }
 
     /// An icon is one command's across the main window's bars (the Top
-    /// Bar, the Module panel's header) and the area view's toolbar (Module
+    /// Bar, the Module panel's header) and the area header (Module
     /// Properties `module`, Area Properties `area-properties`; the area's
     /// Grid `grid`, a palette's Gallery `gallery`): they share none (the
     /// start location's, which the area view's Start shows, left the main
@@ -426,7 +425,7 @@ mod tests {
 
     /// Every icon the application names is one of the set's
     /// (`Icon::ALL`), and each paints strokes at 16 px: those declared
-    /// here, the main toolbar's, and every icon named (`Icon::` and its name) in the
+    /// here, the Top Bar's, and every icon named (`Icon::` and its name) in the
     /// application's source.
     #[test]
     fn every_icon_used_is_drawn() {

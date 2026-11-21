@@ -598,7 +598,7 @@ pub struct AreaView {
     /// Circles where each placed sound is heard at full volume and where
     /// it stops.
     pub sound_ranges: bool,
-    /// The toolbar's Minimap: the area's map in the view's corner.
+    /// The header's Minimap (Overlays): the area's map in the view's corner.
     pub minimap: bool,
     /// The map, as last drawn ([`crate::minimap::of`]), and where it is
     /// on the screen while it is shown.
@@ -682,10 +682,10 @@ pub struct AreaView {
     /// degrees.
     snap: (Option<f32>, Option<f32>),
     /// Several selected objects turn about their middle as one
-    /// (Options: the toolbar's Together).
+    /// (Options: the header's Together).
     turn_together: bool,
     /// What is placed goes onto the placeable or door under the pointer
-    /// (the settings', copied each frame: the toolbar's Onto Objects).
+    /// (the settings', copied each frame: the header's Onto Objects).
     onto_objects: bool,
     /// The ground point under the pointer, shown in the corner.
     pub pointer: Option<Vec3>,
@@ -2867,7 +2867,7 @@ fn show(
         view.night = model.lighting.night_by_default();
     }
     // What couldn't be read or found is named in the log, once (the
-    // toolbar only counts it): a tileset or a hak the module wants and
+    // header only counts it): a tileset or a hak the module wants and
     // this machine lacks.
     let mut lacking: Vec<String> = model.problems.clone();
     // (A tileset that is there and can't be read is not "not found".)
@@ -3305,7 +3305,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     app.area_views.insert(area, view);
 }
 
-/// What the area view's toolbar shows, from the kinds it hides
+/// What the area header shows, from the kinds it hides
 /// ([`crate::settings::Settings::hidden_in_areas`]): each kind, and the
 /// start location's marker.
 fn shown_of(hidden: &[String]) -> ([bool; 9], bool) {
@@ -3341,7 +3341,7 @@ fn share(app: &mut Moonglow, show: [bool; 9], show_start: bool) {
 }
 
 /// What `area`'s view shows of each kind (by [`ObjectKind::index`]): the
-/// area toolbar's Show toggles' state, which the Outliner's eyes show too;
+/// area header's Show toggles' state, which the Outliner's eyes show too;
 /// as every view will (Options' kept state) where its view is not open.
 pub(crate) fn kinds_shown(app: &Moonglow, area: mg_core::ResRef) -> [bool; 9] {
     match app.area_views.get(&area) {
@@ -3351,8 +3351,8 @@ pub(crate) fn kinds_shown(app: &Moonglow, area: mg_core::ResRef) -> [bool; 9] {
 }
 
 /// `kind` shown (`on`) or hidden in `area`'s view, and so in every area
-/// view, as its Show toggle on the area toolbar does: one state, which the
-/// toolbar and the Outliner's eye both show, from this frame on where the
+/// view, as its Show toggle in the area header does: one state, which the
+/// header and the Outliner's eye both show, from this frame on where the
 /// Outliner is drawn before the view (the Left Dock is).
 pub(crate) fn show_kind(app: &mut Moonglow, area: mg_core::ResRef, kind: ObjectKind, on: bool) {
     let (mut show, start) = match app.area_views.get(&area) {
@@ -4277,7 +4277,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 
 /// The area header's controls to show, ticked (its right-click menu, one
 /// to a line, and Options › Area › Header, `wrapped` in rows): `hidden`,
-/// those left out, by name (the names the toolbar before it kept, so that
+/// those left out, by name (the names the retired area toolbar kept, so that
 /// a stored list keeps its meaning: "Walkmesh…" the two walkmeshes).
 pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped: bool) {
     use crate::icons::{AREA_TOOLS, area_tool_kind};
@@ -4326,12 +4326,13 @@ pub(crate) fn toolbar_menu(ui: &mut egui::Ui, hidden: &mut Vec<String>, wrapped:
         }
         mg_uikit::menu_separator(ui);
     }
-    if ui.button("Show All").on_hover_text("Every button on the area's toolbar").clicked() {
+    if ui.button("Show All").on_hover_text("Every button on the area's header").clicked() {
         hidden.clear();
     }
 }
 
-/// A toolbar button with a menu behind it (Walkmesh…, Shadows): a click
+/// A header button with a menu behind it (Walkmesh, Shadows, unfolded
+/// into the wide header): a click
 /// is the button's own (`true` the first of the two returned), and
 /// holding it a moment (0.35 s) or a right-click opens the menu, whose
 /// release is no click; the menu, to show its choices in.
@@ -5277,7 +5278,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         // A double click on the ground: over to the tiles, that one
         // selected (a click on an object there comes back to objects), so
-        // going between the two needs no trip to the toolbar.
+        // going between the two needs no trip to the header.
         view.tile_mode = true;
         view.selection.clear();
         view.start_selected = false;
@@ -7080,8 +7081,8 @@ fn set_locked(
 /// (the drops, Random Facing), what the object's type offers (Aurora's
 /// `pmViewerArea`), Reuse, Delete, the start location and Test (from
 /// here); last, as in Aurora, Variables and Properties. Runs of related
-/// commands are submenus of one level, as the toolbar's Shadows and
-/// Walkmesh… keep theirs behind one button.
+/// commands are submenus of one level, as the wide header's Shadows and
+/// Walkmesh keep theirs behind one button.
 fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     let single = match view.selection.as_slice() {
         [one] => Some(*one),
@@ -8653,7 +8654,7 @@ mod tests {
         assert!(mesh.vertices[4..].iter().all(|v| v.color == Color32::BLUE));
     }
 
-    /// The toolbar's hidden kinds, saved in the settings by name: Stores
+    /// The header's hidden kinds (its Show toggles), saved in the settings by name: Stores
     /// were saved as Merchants before they were renamed, and stay hidden.
     #[test]
     fn stores_hidden_as_merchants_stay_hidden() {

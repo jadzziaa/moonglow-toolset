@@ -1103,3 +1103,30 @@ fn model_window(mode: Mode) {
     hover(&mut h, over);
     until(&mut h, "the Esc hint back", esc_hinted);
 }
+
+/// The tab menu of a floating editor keeps today's entries (the moves
+/// table's Floating Editors row "Unchanged, not drawn"): a script in a
+/// window of its own, its tab right-clicked, shows Rename…, Show in Module
+/// Tree, Maximize, Close, Close Others, Close Tabs to the Right and Close
+/// All, in that order, and no Eject for the window's lone tab (a docked
+/// tab's Eject: [`a_kind_moved_keeps_its_place_until_reset_layout`]).
+#[test]
+fn a_floating_editor_s_tab_menu_keeps_today_s_entries() {
+    let mut h = window(Mode::Floating, "ui-open-tab-menu", &[]);
+    open(&mut h, &script(1));
+    assert_eq!(in_main(&h, &script(1)), Some(false), "the script in a window of its own");
+    doc_tab(&h, "s01.nss").click_secondary();
+    until(&mut h, "the tab's menu", |h| h.query_by_label("Close Others").is_some());
+    let entries = [
+        "Rename…",
+        "Show in Module Tree",
+        "Maximize",
+        "Close",
+        "Close Others",
+        "Close Tabs to the Right",
+        "Close All",
+    ];
+    let tops: Vec<f32> = entries.iter().map(|e| popup_item(&h, e).rect().top()).collect();
+    assert!(tops.windows(2).all(|t| t[0] < t[1]), "in the menu's order: {entries:?} at {tops:?}");
+    assert!(h.query_by_label("Eject").is_none(), "no Eject for the window's lone tab");
+}

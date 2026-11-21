@@ -5,8 +5,8 @@
 //! hand, why a stroke was refused), and the counts at the bar's right
 //! (what is selected, the tile under a brush, the area's tiles and
 //! objects). It replaces the line of words that stood under the area's
-//! toolbar. Made once a frame, after the editor area is drawn, from the
-//! view's state as that left it (`shell::update_shown`), and drawn by the
+//! toolbar before M3's T12. Made once a frame, after the editor area is
+//! drawn, from the view's state as that left it (`shell::update_shown`), and drawn by the
 //! next frame's Status Bar (drawn before the editor area); `Moonglow::ui`
 //! asks for that frame where what the bar says changed.
 
@@ -347,7 +347,8 @@ fn hints(
 /// (a drag, or Q and E's turning: the view's posed model, which the drag
 /// has moved), else as the area has it: its kind, tag, blueprint, place
 /// and facing ("Waypoint WP_A (nw_waypoint001) at 20.00, 20.00, 0.00,
-/// facing 17°"), the readout the line under the toolbar had.
+/// facing 17°"), the readout the line under the area's toolbar had (before
+/// M3's T12).
 fn readout(view: &AreaView) -> Option<Hint> {
     let [(kind, index)] = view.selection.as_slice() else { return None };
     let moving = view.drag.is_some() || view.key_turn.is_some();
