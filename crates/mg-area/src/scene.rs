@@ -104,6 +104,19 @@ pub struct View {
     /// draws it ([`crate::border`]), the fog's color past it; else nothing
     /// is, as in Aurora.
     pub border: bool,
+    /// How far the game's camera stands from the player it looks at,
+    /// metres, as the client keeps it: the distance a script's
+    /// `SetCameraFacing(direction, distance, pitch)` gives (or the
+    /// player's zoom sets), not the eye a picture is drawn from. The fog
+    /// starts as much nearer than at the game's own [`GAME_CAMERA`]
+    /// ([`fog_from`]). [`View::of`] gives that.
+    ///
+    /// A client passes its camera's distance as it has it (the Shard's
+    /// `SetCameraFacing(90, 5.5, 84)`: 5.5), whatever eye it fits for
+    /// `mg_render::Camera::game` (5.0 m for that one in
+    /// `night_fog.rs`, 11 m for 12 in `armourer.rs`): the client's fog
+    /// was read back against the script's distance.
+    pub camera: f32,
 }
 
 impl View {
@@ -123,6 +136,7 @@ impl View {
             creature_shadows: true,
             light_shadows: true,
             border: false,
+            camera: GAME_CAMERA,
         }
     }
 
@@ -686,8 +700,24 @@ impl AreaScene {
         let flame = self.flame.iter().flatten().map(|l| &l.gpu);
         let emitting = self.objects.iter().flatten().filter(|s| s.composed.emits());
         let objects = emitting.flat_map(|s| s.composed.models());
+        let names = self.chunks_of(tiles.chain(flame).chain(objects));
+        self.load_chunk_models(gpu, models, names);
+    }
+
+    /// [`AreaScene::load_chunks`] of the objects at `at` alone (the tiles'
+    /// and the others' loaded already).
+    fn load_object_chunks(&mut self, gpu: &Gpu, models: &Models<'_>, at: &[usize]) {
+        let shown = at.iter().filter_map(|&i| self.objects.get(i)?.as_ref());
+        let emitting = shown.filter(|s| s.composed.emits());
+        let names = self.chunks_of(emitting.flat_map(|s| s.composed.models()));
+        self.load_chunk_models(gpu, models, names);
+    }
+
+    /// The models the chunk emitters of `of` throw that are not loaded yet,
+    /// each once, lower case.
+    fn chunks_of<'a>(&self, of: impl Iterator<Item = &'a Arc<GpuModel>>) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
-        for gm in tiles.chain(flame).chain(objects) {
+        for gm in of {
             for n in &gm.model.nodes {
                 if let mg_mdl::NodeKind::Emitter(e) = &n.kind
                     && let Some(c) = &e.chunk
@@ -699,6 +729,11 @@ impl AreaScene {
                 }
             }
         }
+        names
+    }
+
+    /// Loads the chunk models `names`.
+    fn load_chunk_models(&mut self, gpu: &Gpu, models: &Models<'_>, names: Vec<String>) {
         for name in names {
             let built = models
                 .load(&name)
@@ -708,25 +743,70 @@ impl AreaScene {
     }
 
     /// The objects at `at` (their places in `area.objects`) shown anew,
-    /// the rest as they were: after an edit of those alone
-    /// ([`crate::AreaModel::read_objects`]). [`AreaScene::update`] shows
-    /// every object anew (a thousand took most of a millisecond).
+    /// and those `area` has past the ones shown (put at the end of its
+    /// objects), the rest as they were: after an edit of those alone
+    /// ([`crate::AreaModel::read_objects`]), a look changed or objects
+    /// added. [`AreaScene::update`] shows every object and tile anew.
+    ///
+    /// For a game client, whose objects come, move, change and go every
+    /// frame (`crates/mg-area/examples/client_objects.rs` shows it):
+    ///
+    /// - **moved**: nothing to do here. The scene ([`AreaScene::scene`])
+    ///   draws each object where [`crate::AreaObject::model_transform`]
+    ///   puts it as it is made; [`crate::AreaObject::move_to`] moves one.
+    /// - **its look changed** (its `preview`): its place in `at`. A look
+    ///   seen before (by any object, or by this one within the last few
+    ///   updates) is shown again from what was loaded; a new one loads its
+    ///   models, each read once while anything shows it.
+    /// - **added**: pushed onto `area.objects` (with
+    ///   [`crate::AreaObject::from_values`]), then this, `at` empty or not.
+    /// - **taken out**: `area.objects.remove(i)`, then
+    ///   [`AreaScene::remove_object`]`(area, i)`. The scene pairs each
+    ///   object with what it shows by place: one taken out of `area` alone
+    ///   would have the objects after it drawn with their neighbors' looks
+    ///   until the next update of the objects, which, finding fewer
+    ///   objects than it shows, shows them all anew; and for good, were
+    ///   another pushed before it (as many objects again: nothing tells).
+    ///   So each one taken out is told here before any is added.
+    ///
+    /// Objects added are taken to be at the end: the area's model read
+    /// whole again (its objects in the GIT's order, by kind) is shown with
+    /// [`AreaScene::update`].
+    ///
+    /// None of these loads a model already loaded, or builds a tile again.
+    /// An object's `index` (its place among those of its kind) keys its
+    /// particles from one scene to the next: a client gives each object of
+    /// a kind its own, under 2^24.
     pub fn update_objects(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel, at: &[usize]) {
-        if self.objects.len() != area.objects.len()
-            || self.object_missing.len() != area.objects.len()
-        {
+        let had = self.objects.len();
+        if area.objects.len() < had || self.object_missing.len() != had {
             self.update(gpu, game, area);
             return;
         }
+        self.objects.resize(area.objects.len(), None);
+        self.object_missing.resize(area.objects.len(), None);
         let models = self.models(game);
         let load = |name: &str| models.load(name);
-        for &i in at {
-            let Some(o) = area.objects.get(i) else { continue };
+        let fresh: Vec<usize> =
+            (at.iter().copied()).filter(|&i| i < had).chain(had..area.objects.len()).collect();
+        for &i in &fresh {
             (self.objects[i], self.object_missing[i]) =
-                shown(gpu, &mut self.object_cache, o, &load);
+                shown(gpu, &mut self.object_cache, &area.objects[i], &load);
         }
-        self.load_chunks(gpu, &models);
+        self.load_object_chunks(gpu, &models, &fresh);
         self.keep(models);
+        self.settle(area);
+    }
+
+    /// Takes out what is shown of object `i`, after it was taken out of
+    /// `area` (`area.objects.remove(i)`): the objects after it keep what
+    /// they show, one place on, and the models no object shows any more
+    /// are let go after a few updates. Nothing is loaded or read.
+    pub fn remove_object(&mut self, area: &AreaModel, i: usize) {
+        if i < self.objects.len() && i < self.object_missing.len() {
+            self.objects.remove(i);
+            self.object_missing.remove(i);
+        }
         self.settle(area);
     }
 
@@ -943,7 +1023,7 @@ impl AreaScene {
     /// Whether object `i` is only a light: a placeable with a model too
     /// small to see whose appearance has a light (placeables.2da's
     /// `LightColor`), as the game's "Light, White" has, or whose model has
-    /// the light node of a light Moonglow made (`mg_module::lights`). Its
+    /// the light node of a light Moonglow made (`mg_rules::lights`). Its
     /// light, if so.
     pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<BareLight> {
         let shown = self.objects.get(i).and_then(Option::as_ref)?;
@@ -962,7 +1042,7 @@ impl AreaScene {
         }
         // (A builder's own small lamp model is drawn as it is: a light
         // Moonglow made is nothing else.)
-        if !mg_module::lights::is_generated(&o.preview.as_ref()?.base.model) {
+        if !mg_rules::lights::is_generated(&o.preview.as_ref()?.base.model) {
             return None;
         }
         let lamp = shown.composed.point_lights(glam::Mat4::IDENTITY).into_iter().next()?;
@@ -1506,7 +1586,7 @@ impl AreaScene {
                 });
             }
         }
-        let fog = view.fog.then(|| fog(l, view.night));
+        let fog = view.fog.then(|| fog_from(l, view.night, view.camera));
         // What lies past everything drawn: the fog's color, as the client
         // clears to it (an area without a skybox shows it past its tile
         // border, whatever its fog amount: `notes_tile_border.md`), where
@@ -1783,14 +1863,37 @@ fn sun_direction() -> Vec3 {
     Vec3::new(4000.0, 4500.0, 7000.0).normalize()
 }
 
-/// The area's fog, as the client sets it (its fog uniforms read back in
-/// `client_render.rs`): always on, ending at `FogClipDist` and starting
-/// `FogAmount` metres nearer than 30 m (so past 30 it starts behind the
-/// camera), at most 1 m before its end; its colour as stored (gamma space).
+/// How far the game's camera stands from the player as a player enters
+/// an area (its distance as the client keeps it, metres, in the terms of
+/// `SetCameraFacing`'s distance; the eye Moonglow draws that camera from
+/// is `mg_render::Camera::GAME_ENTRY`'s 19 m): the camera the fog's start
+/// is given for by [`fog`].
+pub const GAME_CAMERA: f32 = 20.0;
+
+/// The area's fog as the client sets it for its camera at [`GAME_CAMERA`]
+/// ([`fog_from`]).
 pub fn fog(l: &Lighting, night: bool) -> Fog {
+    fog_from(l, night, GAME_CAMERA)
+}
+
+/// The area's fog as the client sets it for its camera `camera` metres
+/// from the player (its fog uniforms read back in `client_render.rs`'s
+/// `fog_uniforms_match_the_client` and `night_fog::fog_start_follows_the_camera`):
+/// always on, by day and at night, ending at `FogClipDist` and starting
+/// `FogAmount` metres nearer than 30 m less the camera's distance short
+/// of 20 m (so a camera zoomed in to 5.5 m with an amount of 12 has it
+/// start 3.5 m off, and past 30 it starts behind the camera), at most
+/// 1 m before its end; its colour as stored (gamma space).
+///
+/// `camera` is the distance as the client keeps it: a script's
+/// `SetCameraFacing` distance (what the readings were taken against), not
+/// the eye distance fitted to draw that camera with
+/// `mg_render::Camera::game` (5.0 m for the script's 5.5, 11 for 12, 19
+/// for the entry camera's 20: no rule turns one into the other yet).
+pub fn fog_from(l: &Lighting, night: bool, camera: f32) -> Fog {
     let sky = l.sky(night);
     let end = l.fog_clip;
-    let start = (30.0 - f32::from(sky.fog_amount)).min(end - 1.0);
+    let start = (30.0 - f32::from(sky.fog_amount) + camera - GAME_CAMERA).min(end - 1.0);
     let c = sky.fog_color;
     let ch = |shift: u32| ((c >> shift) & 0xFF) as f32 / 255.0;
     Fog { start, end, color: Vec3::new(ch(0), ch(8), ch(16)) }
@@ -1985,12 +2088,86 @@ mod tests {
             creature_shadows: false,
             light_shadows: false,
             border: false,
+            camera: GAME_CAMERA,
         };
         assert_eq!(object_time(ObjectKind::Placeable, true, &view), 0.0);
         assert_eq!(object_time(ObjectKind::Placeable, false, &view), 7.5);
         assert_eq!(object_time(ObjectKind::Creature, false, &view), 7.5);
         let still = View { animate: false, ..view };
         assert_eq!(object_time(ObjectKind::Creature, false, &still), 0.0);
+    }
+
+    /// The fog's start follows the game's camera: the client's fog
+    /// uniforms read back (`client_render.rs`'s `night_fog` readings,
+    /// 2026-11-19, game 89.8193.37) for its camera that far from the
+    /// player, by day and at night alike: (fog amount, clip, camera) and
+    /// the client's start and end.
+    #[test]
+    fn the_fog_starts_nearer_for_a_nearer_camera() {
+        let client = [
+            // The Shard of The Domains of Dread at night, its camera
+            // (SetCameraFacing(90, 5.5, 84)), and nearer and farther.
+            (12, 22.0, 5.5, 3.5, 22.0),
+            (12, 22.0, 8.0, 6.0, 22.0),
+            (12, 22.0, 12.0, 10.0, 22.0),
+            (12, 22.0, 20.0, 18.0, 22.0),
+            (12, 45.0, 8.0, 6.0, 45.0),
+            // Past the clip, at most a metre before it.
+            (12, 22.0, 25.0, 21.0, 22.0),
+            (0, 45.0, 5.5, 15.5, 45.0),
+            (0, 45.0, 12.0, 22.0, 45.0),
+            (0, 45.0, 20.0, 30.0, 45.0),
+            // Past the entry camera's 20 m it goes on moving back.
+            (0, 45.0, 25.0, 35.0, 45.0),
+            (0, 60.0, 25.0, 35.0, 60.0),
+            (12, 45.0, 16.0, 14.0, 45.0),
+            (30, 45.0, 8.0, -12.0, 45.0),
+            // The camera as a player enters (fog_uniforms_match_the_client).
+            (10, 45.0, GAME_CAMERA, 20.0, 45.0),
+            (0, 25.0, GAME_CAMERA, 24.0, 25.0),
+        ];
+        for (amount, clip, camera, start, end) in client {
+            for night in [false, true] {
+                let sky =
+                    crate::Sky { fog_amount: amount, fog_color: 0x0040_3020, ..Default::default() };
+                let l = Lighting {
+                    sun: sky,
+                    moon: sky,
+                    is_night: night,
+                    day_night_cycle: false,
+                    fog_clip: clip,
+                    sky_box: 0,
+                    env_map: None,
+                    shadow_opacity: 0,
+                    flags: 1,
+                    wind_power: 0,
+                    sun_direction: None,
+                    moon_direction: None,
+                    wallpaper: None,
+                };
+                let f = fog_from(&l, night, camera);
+                let what = format!("amount {amount}, clip {clip}, camera {camera}");
+                assert!((f.start - start).abs() < 0.01 && f.end == end, "{what}: {f:?}");
+                assert_eq!(f.color, Vec3::new(0x20 as f32, 0x30 as f32, 0x40 as f32) / 255.0);
+            }
+        }
+        // `fog` is the fog for the camera as a player enters.
+        let l = Lighting {
+            sun: crate::Sky { fog_amount: 12, ..Default::default() },
+            moon: crate::Sky { fog_amount: 12, ..Default::default() },
+            is_night: true,
+            day_night_cycle: false,
+            fog_clip: 22.0,
+            sky_box: 0,
+            env_map: None,
+            shadow_opacity: 0,
+            flags: 1,
+            wind_power: 0,
+            sun_direction: None,
+            moon_direction: None,
+            wallpaper: None,
+        };
+        assert_eq!(fog(&l, true), fog_from(&l, true, GAME_CAMERA));
     }
 
     #[test]
@@ -2041,6 +2218,7 @@ mod tests {
             creature_shadows: true,
             light_shadows: false,
             border: false,
+            camera: GAME_CAMERA,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -2109,6 +2287,7 @@ mod tests {
             creature_shadows: true,
             light_shadows: true,
             border: false,
+            camera: GAME_CAMERA,
         };
         assert!(both.light_shadows_of(&l).is_some());
         let lights_alone = View { creature_shadows: false, ..both };

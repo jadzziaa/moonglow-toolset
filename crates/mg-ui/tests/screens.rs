@@ -1706,7 +1706,7 @@ fn options_window() {
     let automatic =
         |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
     // (Below the Editors section: brought into sight, its list below it.)
-    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    h.get_by_label_contains("Takes effect the next time Moonglow starts.").scroll_to_me();
     h.run();
     h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
     shoot(&mut h, &dir, "options-general-graphics-backend");
@@ -2495,7 +2495,9 @@ fn illumination_and_pc_faction() {
         let mut h = Harness::builder()
             .with_size(egui::vec2(1000.0, 760.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-        h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Advanced");
+        // (A creature's faction is on its Basic page.)
+        let page = if t == ResType::UTC { "Basic" } else { "Advanced" };
+        h.state_mut().blueprint_pages.insert((key, GffPath::root()), page);
         shoot(&mut h, &dir, &format!("{name}-advanced-light-faction"));
         if pc {
             h.get_by_value("PC (not for objects)").click();

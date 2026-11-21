@@ -101,6 +101,9 @@ it differs, it is on purpose:
 - **Renaming custom blueprints in the palette** is done in the blueprint's
   editor (in Aurora 1.89 the palette's in-place rename does nothing).
 - **The Creature Template tab** is not shown (Aurora 1.89 hides it too).
+- **A creature's sound set and faction** are on its Basic page (the sound
+  set after the gender), not Advanced: builders asked to choose them
+  with the rest.
 - **The Item Wizard's Magical** gives only properties the base item can
   have: Aurora's tables give ranged weapons Vampiric Regeneration and
   throwing weapons Freedom of Movement, which itemprops.2da doesn't allow

@@ -29,8 +29,12 @@ libloading = "0.8"
 mg-testkit = { workspace = true, features = ["hlsl"] }
 # (Moonglow's own shaders written for Metal in a test: what its backend
 # refuses shows on every platform.)
-naga = { workspace = true, features = ["wgsl-in", "msl-out"] }
+naga = { workspace = true, features = ["glsl-out", "wgsl-in", "msl-out"] }
 png.workspace = true
+# (`examples/window.rs` only: mg-render itself takes a `wgpu::Surface`
+# and needs no windowing crate. The version eframe's is, patched in the
+# workspace.)
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
 
 [lints]
 workspace = true

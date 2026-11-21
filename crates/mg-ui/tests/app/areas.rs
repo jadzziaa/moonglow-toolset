@@ -461,6 +461,59 @@ fn area_properties_edit_the_area() {
     img.save(mg_testkit::scratch_dir("ui-area-props").join("visual.png")).unwrap();
 }
 
+/// The Copy window's ResRef set to `resref`, and its Tag to the
+/// original's (a builder keeping it: an area's copy is offered its ResRef).
+fn keep_the_original_s_tag(h: &mut Harness<'_, Moonglow>, resref: &str) {
+    let draft = h.state_mut().copy_as.as_mut().expect("the Copy window");
+    draft.resref = resref.into();
+    (draft.tag, draft.tag_follows) = (draft.original_tag.clone(), false);
+}
+
+/// An area's copy is tagged as its ResRef: the Tag follows the ResRef as
+/// it is typed, until the Tag itself is changed (a builder's ask: the
+/// copy kept the original's tag).
+#[test]
+fn an_area_s_copy_takes_its_resref_as_its_tag() {
+    let Some((mut h, area)) = area_harness("copy-area-resref-tag") else { return };
+    let key = ResKey::new(area, ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    let draft = h.state().copy_as.clone().expect("the Copy window");
+    assert_eq!(draft.tag.as_deref(), Some(draft.resref.as_str()), "the ResRef offered");
+    // Typed in the ResRef (focused when the window opens).
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&draft.resref).find(is_input).expect("the ResRef field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&draft.resref).find(is_input).unwrap().type_text("field_two");
+    h.run();
+    assert_eq!(h.state().copy_as.as_ref().unwrap().tag.as_deref(), Some("field_two"));
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let new = ResKey::new(ResRef::from_str("field_two").unwrap(), ResType::ARE);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    assert_eq!(ws.doc(&new).unwrap().root.string("Tag"), Some(&b"field_two"[..]));
+    // A Tag typed is kept, the ResRef changed after it.
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    let draft = h.state().copy_as.clone().expect("the Copy window");
+    let fields: Vec<_> = h.get_all_by_value(&draft.resref).filter(is_input).collect();
+    assert_eq!(fields.len(), 2, "the ResRef and the Tag");
+    fields[1].click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&draft.resref).filter(is_input).nth(1).unwrap().type_text("MARKET");
+    h.run();
+    h.state_mut().copy_as.as_mut().unwrap().resref = "field_three".into();
+    h.run();
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let new = ResKey::new(ResRef::from_str("field_three").unwrap(), ResType::ARE);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    assert_eq!(ws.doc(&new).unwrap().root.string("Tag"), Some(&b"MARKET"[..]));
+}
+
 /// An area copied with its tag and its objects': the area's own tag and
 /// those the project wants unique are listed, the others counted; Retag
 /// gives the copy's their own.
@@ -474,7 +527,7 @@ fn an_area_copied_with_its_tags_offers_retag() {
     let key = ResKey::new(area, ResType::ARE);
     h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
     h.run_steps(3);
-    h.state_mut().copy_as.as_mut().unwrap().resref = "field_two".into();
+    keep_the_original_s_tag(&mut h, "field_two");
     h.run_steps(2);
     h.get_by_label("Create Copy").click();
     h.run_steps(3);
@@ -554,7 +607,7 @@ fn retag_all_follows_the_copy_s_transitions_and_names_the_scripts() {
         h.state_mut().tag_clash = None;
         h.state_mut().actions.push(mg_ui::Action::CopyDialog(ResKey::new(area, ResType::ARE)));
         h.run_steps(3);
-        h.state_mut().copy_as.as_mut().unwrap().resref = name.into();
+        keep_the_original_s_tag(h, name);
         h.run_steps(2);
         h.get_by_label("Create Copy").click();
         h.run_steps(3);
@@ -1182,7 +1235,8 @@ fn an_area_is_copied_with_its_objects() {
     h.run_steps(3);
     let draft = h.state_mut().copy_as.as_mut().expect("the Copy window");
     draft.resref = "start_two".into();
-    draft.tag = Some("StartTwo".into());
+    // (A Tag typed: the ResRef no longer gives it.)
+    (draft.tag, draft.tag_follows) = (Some("StartTwo".into()), false);
     h.run_steps(2);
     h.get_by_label("Create Copy").click();
     h.run_steps(3);

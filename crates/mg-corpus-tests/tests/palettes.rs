@@ -229,13 +229,14 @@ fn tdod_s_lists_read_and_group_its_palettes() {
         return;
     };
     let dir = mg_testkit::scratch_dir("tdod-palette-lists");
-    let rules = format!(
-        "[palette.kind]\ntitle = \"Kind\"\n\
+    // (The project file names its lists relative to its own folder: copies, the source stays read-only.)
+    for list in ["palette_kinds.toml", "palette_roles.toml"] {
+        std::fs::copy(project.join(list), dir.join(list)).unwrap();
+    }
+    let rules = "[palette.kind]\ntitle = \"Kind\"\n\
          types = [\"utc\", \"ute\", \"uti\", \"utp\", \"uts\", \"utm\", \"utt\", \"utw\"]\n\
-         from = {:?}\n[palette.role]\ntitle = \"Role\"\ntypes = [\"uti\"]\nfrom = {:?}\n",
-        project.join("palette_kinds.toml").display().to_string(),
-        project.join("palette_roles.toml").display().to_string(),
-    );
+         from = \"palette_kinds.toml\"\n[palette.role]\ntitle = \"Role\"\ntypes = [\"uti\"]\n\
+         from = \"palette_roles.toml\"\n";
     std::fs::write(dir.join("moonglow.toml"), rules).unwrap();
     let started = std::time::Instant::now();
     let p = mg_module::project_file::ProjectFile::read(&dir);

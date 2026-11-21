@@ -353,12 +353,12 @@ struct Caster { world: mat4x4<f32>, light_local: vec4<f32>, light_world: vec4<f3
 pub(crate) fn copy_source(samples: u32) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
-            "texture_depth_multisampled_2d",
+            crate::framebuffer::depth_read_type(samples),
             ", @builtin(sample_index) s: u32",
-            "textureLoad(depth, vec2<i32>(frag.xy), i32(s))",
+            "textureLoad(depth, vec2<i32>(frag.xy), i32(s)).x",
         )
     } else {
-        ("texture_depth_2d", "", "textureLoad(depth, vec2<i32>(frag.xy), 0)")
+        (crate::framebuffer::depth_read_type(1), "", "textureLoad(depth, vec2<i32>(frag.xy), 0).x")
     };
     let vs = crate::framebuffer::FULLSCREEN_VS;
     format!(
@@ -621,7 +621,7 @@ impl Pipelines {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Depth,
+                sample_type: crate::framebuffer::DEPTH_READ,
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: samples > 1,
             },

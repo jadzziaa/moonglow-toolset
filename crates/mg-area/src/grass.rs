@@ -1,81 +1,92 @@
 //! An area's grass, for the editor: the edits that set it in a GIT (as
 //! undoable workspace edits, each changing only what it must: the steps
-//! of [`mg_module::grass`]'s plans, which `mg areas` makes in place) and
-//! the tufts the area view draws. What it is and how the engine keeps it:
-//! [`mg_module::grass`], re-exported here.
+//! of [`mg_rules::grass`]'s plans, which `mg areas` makes in place; the
+//! feature `edit`) and the tufts the area view draws. What it is and how
+//! the engine keeps it: [`mg_rules::grass`], re-exported here.
 
 use glam::{Vec2, Vec3};
-use mg_edit::{Edit, GffPath};
 use mg_gff::Struct;
 use mg_mdl::{Face, Mesh, MeshExtra, Model, Node, NodeKind, Skin};
-use mg_resman::ResKey;
 
-pub use mg_module::grass::*;
+pub use mg_rules::grass::*;
 
 use crate::walk::WalkFace;
 
-/// The path of `AreaProperties` in a GIT.
-pub fn properties_path() -> GffPath {
-    GffPath::root().field(PROPERTIES)
-}
+#[cfg(feature = "edit")]
+pub use edits::*;
 
-/// The path of override `index`.
-pub fn override_path(index: usize) -> GffPath {
-    properties_path().field(OVERRIDES).item(LIST, index)
-}
+/// The undoable edits of an area's grass (with the editor's workspace).
+#[cfg(feature = "edit")]
+mod edits {
+    use mg_edit::{Edit, GffPath};
+    use mg_gff::Struct;
+    use mg_resman::ResKey;
 
-/// The undoable edits that make `steps` (a plan of [`mg_module::grass`],
-/// as `mg areas` makes it in place) in the GIT `git`.
-pub fn edits(git: ResKey, steps: Vec<Step>) -> Vec<Edit> {
-    let list = || properties_path().field(OVERRIDES);
-    steps
-        .into_iter()
-        .map(|step| match step {
-            Step::Property { label, value } => Edit::SetField {
-                key: git,
-                path: properties_path(),
-                label: label.into(),
-                value: Some(value),
-            },
-            Step::Field { index, label, value } => Edit::SetField {
-                key: git,
-                path: override_path(index),
-                label: label.into(),
-                value: Some(value),
-            },
-            Step::Insert { index, item } => {
-                Edit::InsertItem { key: git, path: list(), list: LIST.into(), index, item }
-            }
-            Step::Remove(index) => {
-                Edit::RemoveItem { key: git, path: list(), list: LIST.into(), index }
-            }
-        })
-        .collect()
-}
+    use super::*;
 
-/// The edits that turn the tileset's grass off or on in the GIT `git`
-/// (whose root is `root`): [`disabled_plan`].
-pub fn set_disabled(git: ResKey, root: &Struct, disabled: bool) -> Vec<Edit> {
-    edits(git, disabled_plan(root.child(PROPERTIES), disabled))
-}
+    /// The path of `AreaProperties` in a GIT.
+    pub fn properties_path() -> GffPath {
+        GffPath::root().field(PROPERTIES)
+    }
 
-/// The edits that make the GIT `git` (whose root is `root`) grow `o` on
-/// its material: [`set_plan`], as `mg areas --grass` does.
-pub fn set_override(git: ResKey, root: &Struct, o: &GrassOverride) -> Vec<Edit> {
-    edits(git, set_plan(root.child(PROPERTIES), o))
-}
+    /// The path of override `index`.
+    pub fn override_path(index: usize) -> GffPath {
+        properties_path().field(OVERRIDES).item(LIST, index)
+    }
 
-/// The edits that move the grass the GIT whose root is `root` grows on
-/// material `from` to material `to` (in place of what grows there):
-/// [`move_plan`].
-pub fn move_override(git: ResKey, root: &Struct, from: u32, to: u32) -> Vec<Edit> {
-    edits(git, move_plan(root.child(PROPERTIES), from, to))
-}
+    /// The undoable edits that make `steps` (a plan of [`mg_rules::grass`],
+    /// as `mg areas` makes it in place) in the GIT `git`.
+    pub fn edits(git: ResKey, steps: Vec<Step>) -> Vec<Edit> {
+        let list = || properties_path().field(OVERRIDES);
+        steps
+            .into_iter()
+            .map(|step| match step {
+                Step::Property { label, value } => Edit::SetField {
+                    key: git,
+                    path: properties_path(),
+                    label: label.into(),
+                    value: Some(value),
+                },
+                Step::Field { index, label, value } => Edit::SetField {
+                    key: git,
+                    path: override_path(index),
+                    label: label.into(),
+                    value: Some(value),
+                },
+                Step::Insert { index, item } => {
+                    Edit::InsertItem { key: git, path: list(), list: LIST.into(), index, item }
+                }
+                Step::Remove(index) => {
+                    Edit::RemoveItem { key: git, path: list(), list: LIST.into(), index }
+                }
+            })
+            .collect()
+    }
 
-/// The edits that take the overrides for `material` out of the GIT whose
-/// root is `root`: [`remove_plan`].
-pub fn remove_override(git: ResKey, root: &Struct, material: u32) -> Vec<Edit> {
-    edits(git, remove_plan(root.child(PROPERTIES), material))
+    /// The edits that turn the tileset's grass off or on in the GIT `git`
+    /// (whose root is `root`): [`disabled_plan`].
+    pub fn set_disabled(git: ResKey, root: &Struct, disabled: bool) -> Vec<Edit> {
+        edits(git, disabled_plan(root.child(PROPERTIES), disabled))
+    }
+
+    /// The edits that make the GIT `git` (whose root is `root`) grow `o` on
+    /// its material: [`set_plan`], as `mg areas --grass` does.
+    pub fn set_override(git: ResKey, root: &Struct, o: &GrassOverride) -> Vec<Edit> {
+        edits(git, set_plan(root.child(PROPERTIES), o))
+    }
+
+    /// The edits that move the grass the GIT whose root is `root` grows on
+    /// material `from` to material `to` (in place of what grows there):
+    /// [`move_plan`].
+    pub fn move_override(git: ResKey, root: &Struct, from: u32, to: u32) -> Vec<Edit> {
+        edits(git, move_plan(root.child(PROPERTIES), from, to))
+    }
+
+    /// The edits that take the overrides for `material` out of the GIT whose
+    /// root is `root`: [`remove_plan`].
+    pub fn remove_override(git: ResKey, root: &Struct, material: u32) -> Vec<Edit> {
+        edits(git, remove_plan(root.child(PROPERTIES), material))
+    }
 }
 
 /// How many kinds of grass the tiles of one model grow ([`tufts`]'s
@@ -506,9 +517,16 @@ pub fn thinned(grass: &Model, share: f32) -> Model {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "edit")]
     use mg_core::{ResRef, ResType};
+    #[cfg(feature = "edit")]
+    use mg_edit::Edit;
+    #[cfg(feature = "edit")]
     use mg_gff::Value;
+    #[cfg(feature = "edit")]
+    use mg_resman::ResKey;
 
+    #[cfg(feature = "edit")]
     fn git_with(items: Vec<Struct>, disabled: Option<u8>) -> Struct {
         let mut props = Struct::new(100);
         props.set("AmbientSndDay", Value::Int(3));
@@ -534,6 +552,7 @@ mod tests {
     }
 
     /// Applies edits as the workspace would (enough of it for these).
+    #[cfg(feature = "edit")]
     fn apply(root: &mut Struct, edits: &[Edit]) {
         for e in edits {
             match e {
@@ -560,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "edit")]
     fn overrides_are_added_one_a_material_and_removed() {
         let key = ResKey::new(ResRef::from_str("field").unwrap(), ResType::GIT);
         let mut props = Struct::new(100);
@@ -594,6 +614,7 @@ mod tests {
     /// plan: from any GIT, the two leave the same GIT (the review of
     /// 2026-10-21 found them written twice, and they had drifted once).
     #[test]
+    #[cfg(feature = "edit")]
     fn the_area_view_s_edits_leave_what_mg_areas_leaves() {
         let key = ResKey::new(ResRef::from_str("field").unwrap(), ResType::GIT);
         let grass = GrassOverride { material: 3, look: look("grass", 2.0) };
@@ -618,29 +639,29 @@ mod tests {
         let cases: Vec<(&str, InPlace, Edits)> = vec![
             (
                 "set",
-                Box::new(move |p| _ = mg_module::grass::set_in(p, &d1)),
+                Box::new(move |p| _ = mg_rules::grass::set_in(p, &d1)),
                 Box::new(move |r| set_override(key, r, &d2)),
             ),
             (
                 "remove",
-                Box::new(|p| _ = mg_module::grass::remove_in(p, 3)),
+                Box::new(|p| _ = mg_rules::grass::remove_in(p, 3)),
                 Box::new(move |r| remove_override(key, r, 3)),
             ),
             (
                 "off",
-                Box::new(|p| _ = mg_module::grass::set_disabled_in(p, true)),
+                Box::new(|p| _ = mg_rules::grass::set_disabled_in(p, true)),
                 Box::new(move |r| set_disabled(key, r, true)),
             ),
             (
                 "on",
-                Box::new(|p| _ = mg_module::grass::set_disabled_in(p, false)),
+                Box::new(|p| _ = mg_rules::grass::set_disabled_in(p, false)),
                 Box::new(move |r| set_disabled(key, r, false)),
             ),
             (
                 "move",
                 Box::new(|p| {
                     let steps = move_plan(Some(p), 3, 5);
-                    mg_module::grass::apply(p, &steps);
+                    mg_rules::grass::apply(p, &steps);
                 }),
                 Box::new(move |r| move_override(key, r, 3, 5)),
             ),
@@ -657,6 +678,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "edit")]
     fn an_override_is_changed_in_place_and_keeps_what_else_it_holds() {
         let key = ResKey::new(ResRef::from_str("field").unwrap(), ResType::GIT);
         let mut item = GrassOverride { material: 3, look: look("grass", 2.0) }.item();

@@ -32,6 +32,7 @@ case "${1:-start}" in
     rm -f "$H/display"
     cat > "$H/started.sh" <<EOF
 #!/bin/sh
+echo "\$\$" > "$H/keeper.pid"
 echo "\$DISPLAY" > "$H/display"
 exec sleep infinity
 EOF
@@ -68,7 +69,15 @@ EOF
       # setsid made the session its own process group.
       kill -- "-$(cat "$H/session.pid")" 2>/dev/null || true
     fi
-    rm -f "$H/session.pid" "$H/display"
+    # KWin starts the session's keeper (started.sh's sleep) outside that
+    # group, so it outlived every stop: end it by its own PID.
+    if [[ -f "$H/keeper.pid" ]]; then
+      keeper=$(cat "$H/keeper.pid")
+      if [[ "$(tr '\0' ' ' < "/proc/$keeper/cmdline" 2>/dev/null)" == "sleep infinity " ]]; then
+        kill "$keeper" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$H/session.pid" "$H/display" "$H/keeper.pid"
     ;;
   *)
     echo "usage: $0 [start|stop]" >&2

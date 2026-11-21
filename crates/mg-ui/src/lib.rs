@@ -173,7 +173,12 @@ pub use wizards::{AreaWizard, Wizard};
 /// `setup` (egui-wgpu's: the window's, or a test's) with the backend
 /// options every wgpu instance Moonglow makes takes: Direct3D 12 compiles
 /// with the compiler `mg_render::dx12` chose (the DXC beside the program,
-/// else FXC).
+/// else FXC). On OpenGL the device asks for at least wgpu's default
+/// limits, as far as the adapter has them: egui-wgpu's own device asks
+/// for WebGL 2's there, which allow no storage buffer in a vertex shader,
+/// and the renderer's first pipeline was a validation panic (the tests'
+/// device; the window's asks for the adapter's already). What else was
+/// asked for stays (the tests' 8192 pixels a texture at most).
 pub fn graphics_setup(mut setup: egui_wgpu::WgpuSetup) -> egui_wgpu::WgpuSetup {
     if let egui_wgpu::WgpuSetup::CreateNew(new) = &mut setup {
         new.instance_descriptor.backend_options = mg_render::dx12::backend_options();
@@ -182,6 +187,16 @@ pub fn graphics_setup(mut setup: egui_wgpu::WgpuSetup) -> egui_wgpu::WgpuSetup {
         new.instance_descriptor.backends = mg_render::backend::backends_from_env()
             .0
             .unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
+        let asked = new.device_descriptor.clone();
+        new.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut descriptor = asked(adapter);
+            if adapter.get_info().backend == wgpu::Backend::Gl {
+                descriptor.required_limits = (descriptor.required_limits)
+                    .or_better_values_from(&wgpu::Limits::default())
+                    .or_worse_values_from(&adapter.limits());
+            }
+            descriptor
+        });
     }
     setup
 }

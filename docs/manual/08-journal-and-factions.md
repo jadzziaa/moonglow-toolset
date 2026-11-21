@@ -113,7 +113,7 @@ than the five standard factions, is not edited: the editor says so in
 place of the matrix, and the file stays as it is.
 
 Creatures, doors, placeables, triggers and encounters belong to a faction
-(their Advanced page). The PC faction isn't offered there: it is the
+(their Advanced page; a creature's Basic page). The PC faction isn't offered there: it is the
 players' alone, and the game puts a creature of it in Hostile as it
 loads, where it fights the players (a placeable, door or trigger keeps
 it, and is regarded as players are; it regards a player as hostile, a

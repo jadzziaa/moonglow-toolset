@@ -875,6 +875,16 @@ pub struct Settings {
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
     /// the module tree (where it lists by name) and the palettes.
     pub name_resrefs: bool,
+    /// Options > General: Show tags beside names: `Name (tag)` in the
+    /// module tree, for blueprints and placed objects (a waypoint's name,
+    /// then its tag). A builder's ask.
+    pub tree_tags: bool,
+    /// Options > General: Set the portrait with the appearance: a
+    /// creature given another appearance takes the portrait its
+    /// appearance.2da row names (`PORTRAIT`), where portraits.2da has
+    /// it. Off by default (the portrait kept, as Moonglow kept it). A
+    /// builder's ask.
+    pub appearance_portrait: bool,
     /// Options > General: Show challenge ratings in the creature palette,
     /// off (the default: shown).
     pub palette_no_cr: bool,
@@ -2488,7 +2498,16 @@ mod tests {
             assert!(!back.contains("toolbar_icons_only"), "written without it");
             let old = fields_of(text).expect("fields");
             let kept: Vec<_> = old.into_iter().filter(|(n, _)| n != "toolbar_icons_only").collect();
-            assert_eq!(fields_of(&back).expect("fields"), kept, "nothing else changed");
+            // (Two fields came after the file, from develop's Builders'
+            // asks: written at their defaults, the rest as it was.)
+            let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
+                .expect("fields")
+                .into_iter()
+                .partition(|(n, _)| !kept.iter().any(|(k, _)| k == n));
+            let defaults = [("tree_tags", "false"), ("appearance_portrait", "false")]
+                .map(|(n, v)| (n.to_string(), v.to_string()));
+            assert_eq!(added, defaults, "only the fields added since, at their defaults");
+            assert_eq!(written, kept, "nothing else changed");
             // (Its settings as written: a few not their defaults.)
             assert!(read.light_theme && read.ui_scale == Some(125), "{back}");
             assert_eq!(read.recent, [PathBuf::from("/modules/Chapter1.mod")]);

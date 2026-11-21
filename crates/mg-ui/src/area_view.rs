@@ -878,7 +878,8 @@ impl Watching {
         if busy || self.last.is_some_and(|t| now - t < watch::EVERY) {
             return;
         }
-        let samples = crate::model_view::SAMPLES;
+        // (The samples the targets were made with: one on OpenGL.)
+        let samples = targets.samples;
         let sampler = self.sampler.get_or_insert_with(|| watch::Sampler::new(&vp.gpu, samples));
         let mut tiles: Vec<glam::Vec3> = frame
             .instances
@@ -3453,6 +3454,7 @@ fn viewport(
             let size = ui.available_size().max(egui::vec2(32.0, 32.0));
             mg_area::Sight::of(&o.camera(), size.x / size.y)
         }),
+        camera: fog_camera(view.orbit.map(|o| o.distance)),
     };
     // The grass far off, put together by chunks on a thread of its own
     // (drawn tile by tile until it is, the same tufts: the picture stays as
@@ -6021,11 +6023,28 @@ fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3,
 }
 
 /// The farthest the game's camera stands from the player (metres; the
-/// classic camera's limit, NWScript's SetCameraFacing): the view's fog is
-/// measured from that near its target.
-const GAME_CAMERA: f32 = 20.0;
+/// camera as a player enters, NWScript's SetCameraFacing): the view's fog
+/// is measured from that near its target.
+const GAME_CAMERA: f32 = mg_area::GAME_CAMERA;
 
-/// The game's fog `f` as a view `distance` from its target shows it. The
+/// The game's camera whose fog a view `distance` from its target shows
+/// (`View::camera`): as near as the view, as the game's fog starts nearer
+/// for its camera nearer the player, but no farther than [`GAME_CAMERA`]
+/// (from farther off, [`view_fog`] moves the fog back); the game's own
+/// as a player enters without a view yet.
+///
+/// `View::camera` wants the distance as the game keeps it (a script's
+/// `SetCameraFacing` distance); the orbit's is an eye's, which the game's
+/// fitted cameras put a little nearer (19 m for its 20, 11 for 12, 5.0
+/// for 5.5). With no rule between them the orbit's is taken as it is:
+/// the fog starts up to a metre nearer than the game's would for the
+/// camera that draws the same picture.
+fn fog_camera(distance: Option<f32>) -> f32 {
+    distance.map_or(GAME_CAMERA, |d| d.min(GAME_CAMERA))
+}
+
+/// The game's fog `f` (for its camera at [`GAME_CAMERA`] or nearer:
+/// `View::camera`) as a view `distance` from its target shows it. The
 /// game measures fog from its camera, which stays near the player (at most
 /// [`GAME_CAMERA`] off); the view often looks from much farther, where the
 /// game's fog would hide what it looks at. So the fog is the game's as a
@@ -8843,8 +8862,12 @@ mod tests {
     #[test]
     fn the_fog_is_measured_from_a_game_camera_near_the_target() {
         let city = mg_render::Fog { start: -5.0, end: 45.0, color: Vec3::splat(0.4) };
-        // As near as the game's camera: the game's fog.
+        // As near as the game's camera: the game's fog, for its camera as
+        // near as the view (`fog_camera`: the area gives it).
         assert_eq!(view_fog(city, 15.0), city);
+        assert_eq!(fog_camera(Some(15.0)), 15.0);
+        assert_eq!(fog_camera(Some(60.0)), GAME_CAMERA);
+        assert_eq!(fog_camera(None), GAME_CAMERA);
         assert_eq!(view_fog(city, GAME_CAMERA), city);
         // From 60 m: moved back 40 m, so the target (60 m off) is as clear
         // as the game shows a player 20 m from its camera.

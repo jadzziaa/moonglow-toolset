@@ -1007,7 +1007,8 @@ fn docked_options_hints_enter_where_it_is_ok() {
     // and leaves Options open.
     h.get_by_label("General").click();
     settle(&mut h);
-    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    // (Contains: with WGPU_BACKEND set, the note says so after it.)
+    h.get_by_label_contains("Takes effect the next time Moonglow starts.").scroll_to_me();
     settle(&mut h);
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let area = h.state().editor_area_rect().unwrap();

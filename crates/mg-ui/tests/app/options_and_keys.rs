@@ -721,7 +721,8 @@ fn the_graphics_backend_is_chosen_in_options() {
     h.get_by_label("General").click();
     h.run();
     // (Below the Editors section: brought into sight, its list below it.)
-    h.get_by_label("Takes effect the next time Moonglow starts.").scroll_to_me();
+    // (Contains: with WGPU_BACKEND set, the note says so after it.)
+    h.get_by_label_contains("Takes effect the next time Moonglow starts.").scroll_to_me();
     h.run();
     let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
     let automatic =

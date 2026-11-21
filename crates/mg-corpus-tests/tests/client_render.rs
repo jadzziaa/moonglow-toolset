@@ -78,6 +78,8 @@ mod icons;
 mod joined;
 #[path = "client_render/local_z.rs"]
 mod local_z;
+#[path = "client_render/night_fog.rs"]
+mod night_fog;
 #[path = "client_render/nui.rs"]
 mod nui;
 #[path = "client_render/part_emitters.rs"]
@@ -105,11 +107,12 @@ const FACING: f32 = 90.0;
 const AHEAD: f32 = 3.0;
 /// The view the client shows for `SetCameraFacing(90, 12, 45)`: field of
 /// view (degrees), focus height, distance, pitch (degrees from straight
-/// down).
-const FIT_FOV: f32 = 48.0;
-const FIT_FOCUS: f32 = 1.25;
-const FIT_DISTANCE: f32 = 19.0;
-const FIT_PITCH: f32 = 50.0;
+/// down): the client's own camera there, which does not take the command
+/// given at once ([`Camera::GAME_ENTRY`], where the fit is kept).
+const FIT_FOV: f32 = Camera::GAME_FOV;
+const FIT_FOCUS: f32 = Camera::GAME_FOCUS;
+const FIT_DISTANCE: f32 = Camera::GAME_ENTRY.0;
+const FIT_PITCH: f32 = Camera::GAME_ENTRY.1;
 
 const ENTER: &str = r#"
 void Log(string s) { WriteTimestampedLogEntry(s); }
@@ -326,23 +329,9 @@ fn fitted_camera(pc: Vec3, fov: f32, focus: f32, distance: f32, pitch: f32) -> C
 }
 
 /// [`fitted_camera`] looking along another facing (degrees anticlockwise
-/// from east).
+/// from east): the game's camera as mg-render has it ([`Camera::game`]).
 fn camera_facing(pc: Vec3, facing: f32, fov: f32, focus: f32, distance: f32, pitch: f32) -> Camera {
-    let elevation = (90.0 - pitch).to_radians();
-    let facing = facing.to_radians();
-    let focus = pc + Vec3::new(0.0, 0.0, focus);
-    let dir = Vec3::new(
-        -facing.cos() * elevation.cos(),
-        -facing.sin() * elevation.cos(),
-        elevation.sin(),
-    );
-    Camera {
-        eye: focus + dir * distance,
-        target: focus,
-        fov_y: fov.to_radians(),
-        near: 0.1,
-        far: 200.0,
-    }
+    Camera::game(pc, facing, distance, pitch, focus, fov)
 }
 
 /// How far a picture of Moonglow's is from the client's: the mean
@@ -454,8 +443,8 @@ fn off_and_on(
 /// second after the player enters (as [`save_area_module_facing`] turns
 /// it): field of view and focus as [`fitted_camera`]'s, this distance and
 /// pitch (fitted to its pictures: [`fit_turned_camera`]).
-const TURNED_DISTANCE: f32 = 11.0;
-const TURNED_PITCH: f32 = 44.0;
+const TURNED_DISTANCE: f32 = Camera::GAME_SCRIPTED_12_45.0;
+const TURNED_PITCH: f32 = Camera::GAME_SCRIPTED_12_45.1;
 
 /// [`camera_facing`] for the camera [`save_area_module_facing`] gives the
 /// client: [`fitted_camera`]'s looking north, else turned.
@@ -465,6 +454,14 @@ fn scripted_camera(pc: Vec3, facing: f32) -> Camera {
     } else {
         camera_facing(pc, facing, FIT_FOV, FIT_FOCUS, TURNED_DISTANCE, TURNED_PITCH)
     }
+}
+
+/// How far the client's camera of [`save_area_module_facing`] stands from
+/// the player, as the client keeps it (what its fog's start follows:
+/// `mg_area::View::camera`): its own as the player enters (20 m) looking
+/// north, the script's 12 m else.
+fn scripted_camera_distance(facing: f32) -> f32 {
+    if facing == FACING { mg_area::GAME_CAMERA } else { 12.0 }
 }
 
 /// Exploration (`MG_FIT=1`): the distance, pitch and focus of the camera
@@ -1083,7 +1080,10 @@ fn placeable_light_uniforms() {
 /// L5: the client's fog uniforms (read back through the debug shader) are
 /// Moonglow's fog: the end at the fog clip distance, the start the fog
 /// amount nearer than 30 m (at most 1 m before the end), with or without a
-/// skybox. `MG_FOG_CASES=amount:clip,...` measures others.
+/// skybox, by day (the sun's fog) and at night (the moon's), outdoors and
+/// in. `MG_FOG_CASES=amount:clip[:flags],...` measures others, the flags
+/// `n` for night and `i` for an interior (as `12:22:ni`, the Shard of
+/// The Domains of Dread).
 #[test]
 #[ignore]
 fn fog_uniforms_match_the_client() {
@@ -1091,27 +1091,59 @@ fn fog_uniforms_match_the_client() {
     let _ = oracle_tool!("nwn_script_comp");
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let shader = debug_shader(&game);
-    let cases: Vec<(u8, f32, u8)> = std::env::var("MG_FOG_CASES")
+    // (amount, clip, skybox, night, interior)
+    let cases: Vec<(u8, f32, u8, bool, bool)> = std::env::var("MG_FOG_CASES")
         .ok()
         .map(|v| {
             v.split(',')
                 .map(|c| {
-                    let (a, d) = c.split_once(':').unwrap();
-                    (a.parse().unwrap(), d.parse().unwrap(), 0)
+                    let mut parts = c.split(':');
+                    let a = parts.next().unwrap().parse().unwrap();
+                    let d = parts.next().unwrap().parse().unwrap();
+                    let flags = parts.next().unwrap_or("");
+                    (a, d, 0, flags.contains('n'), flags.contains('i'))
                 })
                 .collect()
         })
-        .unwrap_or_else(|| vec![(0, 45.0, 0), (10, 45.0, 0), (50, 100.0, 1), (0, 25.0, 0)]);
+        .unwrap_or_else(|| {
+            vec![
+                (0, 45.0, 0, false, false),
+                (10, 45.0, 0, false, false),
+                (50, 100.0, 1, false, false),
+                (0, 25.0, 0, false, false),
+                (12, 22.0, 0, true, true),
+                (12, 22.0, 0, false, false),
+            ]
+        });
     let mut failures = Vec::new();
-    for (amount, clip, sky) in cases {
-        let dir = scratch_dir(&format!("client_fog_{amount}_{clip}"));
+    for (amount, clip, sky, night, interior) in cases {
+        let what = format!(
+            "fog {amount} clip {clip} sky {sky}{}{}",
+            if night { " night" } else { "" },
+            if interior { " interior" } else { "" }
+        );
+        let dir = scratch_dir(&format!(
+            "client_fog_{amount}_{clip}{}{}",
+            if night { "_n" } else { "" },
+            if interior { "_i" } else { "" }
+        ));
         let light =
             Lighting { ambient: 0x404040, diffuse: 0xB0B0B0, main_light: 0, only_tile: None };
         let (mut m, mut are) = build_module(&game, &dir, light);
-        are.root.set("SunFogAmount", Value::Byte(amount));
-        are.root.set("SunFogColor", Value::Dword(0x806040));
+        // (The other one's fog another amount and colour, to tell which
+        // the client takes.)
+        let (this, other) = if night { ("Moon", "Sun") } else { ("Sun", "Moon") };
+        are.root.set(&format!("{this}FogAmount"), Value::Byte(amount));
+        are.root.set(&format!("{this}FogColor"), Value::Dword(0x806040));
+        are.root.set(&format!("{other}FogAmount"), Value::Byte(amount.wrapping_add(7)));
+        are.root.set(&format!("{other}FogColor"), Value::Dword(0x204080));
+        are.root.set("IsNight", Value::Byte(u8::from(night)));
         are.root.set("FogClipDist", Value::Float(clip));
         are.root.set("SkyBox", Value::Byte(sky));
+        if interior {
+            let flags = are.root.integer("Flags").unwrap_or(0) | 1;
+            are.root.set("Flags", Value::Dword(u32::try_from(flags).unwrap_or(1)));
+        }
         let area =
             m.info().unwrap().root.list("Mod_Area_list").unwrap()[0].resref("Area_Name").unwrap();
         m.set_gff(ResKey::new(area, ResType::ARE), &are).unwrap();
@@ -1120,31 +1152,31 @@ fn fog_uniforms_match_the_client() {
         std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
         m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
         let Some(client) = client_screenshot(&dir, "MgScene") else {
-            panic!("fog {amount}: the client did not reach the scene (see {})", dir.display());
+            panic!("{what}: the client did not reach the scene (see {})", dir.display());
         };
         // The start from 1 / (end - start): the read-back clamps below 0.
         let end = debug_value(&client, 12, 1024.0);
         let start = end - 1.0 / debug_value(&client, 13, 1.0);
         let color = [14, 15, 16].map(|k| debug_value(&client, k, 1.0));
         let lighting = mg_area::Lighting::read(&are.root, None);
-        let ours = mg_area::fog(&lighting, false);
+        let ours = mg_area::fog(&lighting, night);
         eprintln!(
-            "fog {amount} clip {clip} sky {sky}: client {start:.2}..{end:.2}, \
-             moonglow {:.2}..{:.2}",
-            ours.start, ours.end
+            "{what}: client {start:.2}..{end:.2} colour {color:.3?}, \
+             moonglow {:.2}..{:.2} colour {:.3}",
+            ours.start, ours.end, ours.color
         );
         let close = |a: f32, b: f32, tolerance: f32| (a - b).abs() <= tolerance;
         if debug_value(&client, 10, 1.0) < 0.5 {
-            failures.push(format!("fog {amount}: the client has fog off"));
+            failures.push(format!("{what}: the client has fog off"));
         }
         if !close(start, ours.start, 0.3) || !close(end, ours.end, 0.1) {
             failures.push(format!(
-                "fog {amount} clip {clip}: client {start}..{end}, moonglow {}..{}",
+                "{what}: client {start}..{end}, moonglow {}..{}",
                 ours.start, ours.end
             ));
         }
         if (0..3).any(|c| !close(color[c], ours.color[c], 0.003)) {
-            failures.push(format!("fog {amount}: colour {color:?} vs {}", ours.color));
+            failures.push(format!("{what}: colour {color:?} vs {}", ours.color));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

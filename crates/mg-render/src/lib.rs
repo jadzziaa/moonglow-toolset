@@ -15,6 +15,7 @@ pub mod guard;
 pub mod model;
 pub mod particles;
 mod pool;
+pub mod present;
 pub mod probe;
 mod reach;
 mod renderer;
@@ -27,6 +28,10 @@ pub mod watch;
 
 pub use assets::{Assets, LoadedTexture, NoAssets, Palettes, colored_name, split_colors};
 pub use game::ShaderStats;
+/// (For the corpus tests: the game's programs split as the renderer
+/// splits them.)
+#[doc(hidden)]
+pub use game::part as uniform_part;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};
 pub use gpu::{Gpu, OPTIONAL_FEATURES, headless_adapter};
@@ -51,6 +56,8 @@ pub fn wgsl_sources() -> Vec<(String, String)> {
         ("line".into(), renderer::LINE_WGSL.into()),
         ("shadow_cast".into(), shadow::CAST.into()),
         ("shadow_volume".into(), volume::VOLUME.into()),
+        ("present".into(), present::draw_source(wgpu::TextureFormat::Bgra8Unorm)),
+        ("present_srgb".into(), present::draw_source(wgpu::TextureFormat::Bgra8UnormSrgb)),
     ];
     for samples in [1, 4] {
         out.push((format!("framebuffer_{samples}"), framebuffer::source(samples)));

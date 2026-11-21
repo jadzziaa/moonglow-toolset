@@ -464,9 +464,122 @@ impl Camera {
     }
 }
 
+/// The game client's camera over a creature, in the terms a script gives
+/// it (`SetCameraFacing(direction, distance, pitch)`), as Moonglow's
+/// pictures beside the client's have fitted it (mg-corpus-tests'
+/// `client_render.rs`, run by hand on the off-screen display).
+///
+/// What is matched: the shape, an eye `distance` metres from a point
+/// `focus` metres above the creature's feet, looking at that point along
+/// `facing` and tilted `pitch` degrees from straight down; and, at the
+/// points below, the numbers that make Moonglow's picture the client's:
+///
+/// - [`Camera::GAME_FOV`] and [`Camera::GAME_FOCUS`]: 48 degrees and
+///   1.25 m, fitted (with the distance and pitch) to the area pictures,
+///   and kept for every camera fitted since;
+/// - [`Camera::GAME_ENTRY`]: 19 m at 50 degrees, the view the client
+///   shows as the player enters, where a module's OnClientEnter calls
+///   `SetCameraFacing(90, 12, 45)` itself, which the client does not take
+///   (it takes a script's camera only given a second after the player
+///   enters; `docs/findings.md`, "An upright particle turns to the eye"):
+///   the client's own camera there, looking north in every picture
+///   (whether that facing is the command's or the client's was not told
+///   apart);
+/// - [`Camera::GAME_SCRIPTED_12_45`]: 11 m at 44 degrees for
+///   `SetCameraFacing(f, 12, 45)` given a second after the player enters,
+///   fitted to the client's pictures (`fit_turned_camera`) and used for
+///   the turned cameras since (`armourer.rs`).
+///
+/// What is not known: how the client turns a script's distance and pitch
+/// into an eye in general. At 12 and 45 it is 0.92 of the distance and a
+/// degree less pitch; the tests that ask for other cameras use that ratio
+/// unfitted (`batch4.rs`, `shadows.rs`); for the head pictures' 3 m and
+/// 80 degrees `heads.rs` draws from 2.6 m and 82 degrees about 1.4 m up,
+/// "from about where the client looks"; Moonglow Client fitted the Shard's 5.5 m and 84 degrees as
+/// 5.25 m and 83 degrees about 1.5 m up (its `first-picture.md`). No rule
+/// is drawn from them here: a caller passes the distance and pitch it
+/// wants the picture taken from.
+///
+/// The fog does not follow this eye: `mg_area::View::camera` takes the
+/// script's distance (5.5 for the Shard, where the eye is fitted at 5.0
+/// or 5.25), as the client's fog was read back against it.
+impl Camera {
+    /// The client's vertical field of view, degrees (fitted).
+    pub const GAME_FOV: f32 = 48.0;
+    /// The height above a creature's feet the client's camera looks at and
+    /// turns about, metres (fitted).
+    pub const GAME_FOCUS: f32 = 1.25;
+    /// The client's own camera as the player enters: distance (metres) and
+    /// pitch (degrees from straight down), fitted.
+    pub const GAME_ENTRY: (f32, f32) = (19.0, 50.0);
+    /// The client's camera for `SetCameraFacing(f, 12, 45)` given a second
+    /// after the player enters: distance and pitch, fitted.
+    pub const GAME_SCRIPTED_12_45: (f32, f32) = (11.0, 44.0);
+
+    /// The game's camera over a creature whose feet are at `feet`: looking
+    /// along `facing` (degrees anticlockwise from east, as a script's
+    /// direction), from `distance` metres, tilted `pitch` degrees from
+    /// straight down, at the point `focus` metres above the feet, with a
+    /// vertical field of view of `fov` degrees (the client's:
+    /// [`Camera::GAME_FOV`]); near 0.1 m and far 200 m. Pitch 0 looks
+    /// straight down, along the view's up ([`Camera::view`] has no
+    /// direction there): the client's pitch stays above it.
+    pub fn game(
+        feet: Vec3,
+        facing: f32,
+        distance: f32,
+        pitch: f32,
+        focus: f32,
+        fov: f32,
+    ) -> Camera {
+        let elevation = (90.0 - pitch).to_radians();
+        let facing = facing.to_radians();
+        let target = feet + Vec3::new(0.0, 0.0, focus);
+        let back = Vec3::new(
+            -facing.cos() * elevation.cos(),
+            -facing.sin() * elevation.cos(),
+            elevation.sin(),
+        );
+        Camera {
+            eye: target + back * distance,
+            target,
+            fov_y: fov.to_radians(),
+            near: 0.1,
+            far: 200.0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The client's camera as the player enters, over feet at (20, 20, 0)
+    /// looking north: the eye south of and above the focus, 19 m from it.
+    #[test]
+    fn the_game_s_camera_stands_behind_and_above_the_focus() {
+        let (distance, pitch) = Camera::GAME_ENTRY;
+        let feet = Vec3::new(20.0, 20.0, 0.0);
+        let c = Camera::game(feet, 90.0, distance, pitch, Camera::GAME_FOCUS, Camera::GAME_FOV);
+        assert_eq!(c.target, Vec3::new(20.0, 20.0, 1.25));
+        // 19 m back at 40 degrees above the ground: 19 cos 40 south, 19 sin 40 up.
+        assert!(c.eye.abs_diff_eq(Vec3::new(20.0, 5.445_156, 13.462_965), 1e-4), "{}", c.eye);
+        assert!((c.eye.distance(c.target) - distance).abs() < 1e-4);
+        assert!((c.fov_y - 48f32.to_radians()).abs() < 1e-6);
+        assert_eq!((c.near, c.far), (0.1, 200.0));
+        // Looking east (0) the eye is west; pitch 90 is level with the focus.
+        let (d, _) = Camera::GAME_SCRIPTED_12_45;
+        let level = Camera::game(feet, 0.0, d, 90.0, 1.0, 48.0);
+        assert!(level.eye.abs_diff_eq(Vec3::new(9.0, 20.0, 1.0), 1e-4), "{}", level.eye);
+        // The pitch is from straight down: a larger one is lower.
+        let steep = Camera::game(feet, 180.0, 11.0, 30.0, 1.25, 48.0);
+        let flat = Camera::game(feet, 180.0, 11.0, 60.0, 1.25, 48.0);
+        assert!(steep.eye.z > flat.eye.z && steep.eye.x < flat.eye.x);
+        assert!(steep.eye.x > 20.0, "looking west, the eye is east");
+        // The view looks from the eye at the focus.
+        let ahead = c.view().transform_point3(c.target);
+        assert!(ahead.x.abs() < 1e-4 && ahead.y.abs() < 1e-4 && ahead.z < 0.0);
+    }
 
     /// A step of `per_point` at the target, across the view, is a point
     /// on the screen: what is dragged follows the pointer.

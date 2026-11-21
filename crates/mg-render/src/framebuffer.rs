@@ -43,6 +43,23 @@ pub(crate) const FULLSCREEN_VS: &str = "\
 }
 ";
 
+/// How the shaders that read the scene's depth by the texel
+/// (`textureLoad`: the copies here, the shadows' darkening, the shadow
+/// volumes' depth copy, the watch) bind it: as a float texture, not
+/// filterable, which a depth format allows. Not as a depth texture: naga's
+/// GLSL writer makes one a shadow sampler, which GLSL can't fetch a texel
+/// from, and wgpu's OpenGL back end refuses the pipeline ("WGSL
+/// `textureLoad` from depth textures is not supported in GLSL").
+pub(crate) const DEPTH_READ: wgpu::TextureSampleType =
+    wgpu::TextureSampleType::Float { filterable: false };
+
+/// The WGSL type those shaders declare the depth as ([`DEPTH_READ`]),
+/// for `samples` samples a pixel: a texel's depth is its first
+/// component (`textureLoad(…).x`).
+pub(crate) fn depth_read_type(samples: u32) -> &'static str {
+    if samples > 1 { "texture_multisampled_2d<f32>" } else { "texture_2d<f32>" }
+}
+
 impl Copies {
     pub(crate) fn new(
         device: &wgpu::Device,
@@ -85,13 +102,13 @@ pub(crate) fn source(samples: u32) -> String {
     let (color, depth, sum) = if samples > 1 {
         (
             "texture_multisampled_2d<f32>",
-            "texture_depth_multisampled_2d",
+            depth_read_type(samples),
             format!(
                 "var c = vec4<f32>(0.0);\n    for (var s = 0; s < {samples}; s++) {{ c += textureLoad(color, at, s); }}\n    c = c / {samples}.0;"
             ),
         )
     } else {
-        ("texture_2d<f32>", "texture_depth_2d", "let c = textureLoad(color, at, 0);".into())
+        ("texture_2d<f32>", depth_read_type(1), "let c = textureLoad(color, at, 0);".into())
     };
     let vs = FULLSCREEN_VS;
     format!(
@@ -103,7 +120,7 @@ struct Out {{ @location(0) color: vec4<f32>, @location(1) depth: vec4<f32> }}
     var at = vec2<i32>(p.xy);
     at.y = i32(textureDimensions(color).y) - 1 - at.y;
     {sum}
-    let d = textureLoad(depth, at, 0);
+    let d = textureLoad(depth, at, 0).x;
     return Out(c, vec4<f32>(d, 0.0, 0.0, 1.0));
 }}
 "
@@ -131,7 +148,7 @@ impl Copier {
             label: Some("framebuffer copy"),
             entries: &[
                 texture(0, wgpu::TextureSampleType::Float { filterable: false }),
-                texture(1, wgpu::TextureSampleType::Depth),
+                texture(1, DEPTH_READ),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

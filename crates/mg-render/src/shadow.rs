@@ -708,12 +708,12 @@ pub(crate) fn stencil_uniform(
 pub(crate) fn darken_source(samples: u32, lights: bool, stencil: bool) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
-            "texture_depth_multisampled_2d",
+            crate::framebuffer::depth_read_type(samples),
             ", @builtin(sample_index) s: u32",
-            "textureLoad(depth, at, i32(s))",
+            "textureLoad(depth, at, i32(s)).x",
         )
     } else {
-        ("texture_depth_2d", "", "textureLoad(depth, at, 0)")
+        (crate::framebuffer::depth_read_type(1), "", "textureLoad(depth, at, 0).x")
     };
     let (map, dark) = match (stencil, lights) {
         (true, false) => ("", "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0);"),
@@ -1377,7 +1377,7 @@ impl Darkener {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: crate::framebuffer::DEPTH_READ,
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: samples > 1,
                     },

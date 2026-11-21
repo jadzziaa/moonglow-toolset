@@ -20,7 +20,7 @@ cargo fmt                                       # rustfmt.toml: width 100, "Max"
 
 The first two test commands are the whole suite, each test once: a plain
 `cargo test --workspace` also runs the corpus tests a second time,
-unoptimized, and links the 22 examples (documentation tests, as CI runs
+unoptimized, and links the 24 examples (documentation tests, as CI runs
 them: `cargo test --workspace --doc`).
 The corpus tests' sweeps (every area, model, script, sound, texture and
 module of the install) take a sample on an everyday run (under a minute)
@@ -72,7 +72,8 @@ and the sandboxed Luau runtime; the API is documented in
 `egui_kittest` in `crates/mg-ui/tests`; to look at a window's layout,
 render it with `tests/screens.rs`: `cargo test -p mg-ui --test screens --
 --ignored` writes PNGs to `target/test-output/screens/`), `mg-testkit` (corpus locator, oracle
-tools, engine runner) and `mg-corpus-tests` (tests only). Binaries:
+tools, engine runner; it re-exports `mg-testkit-gpu`, the GPU hold alone, which a
+client of the crates takes by itself) and `mg-corpus-tests` (tests only). Binaries:
 `apps/mg` (CLI) and `apps/moonglow` (the GUI). `packaging/` builds the release packages
 (AppImage, Flatpak, Windows installer, macOS app; `packaging/README.md`) and
 `docs/manual/` is the user manual, also built into the app (Help › User

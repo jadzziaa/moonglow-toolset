@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-11T03:39:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-19T13:44:48Z }
 sources:
   - id: bioware-dxt1-one-bit
     resource: crates/mg-corpus-tests/tests/client_render/batch6.rs (batch6_bioware_dxt1_one_bit), run 2026-11-10
@@ -26,6 +26,9 @@ sources:
   - id: camera-range
     resource: nwscript.nss SetCameraFacing (89.8193.37-17)
     title: 'SetCameraFacing: distance 1 to 25'
+  - id: night-fog
+    resource: crates/mg-corpus-tests/tests/client_render/night_fog.rs (fog_start_follows_the_camera, night_fog_matches_the_client), run 2026-11-19 on 89.8193.37-17
+    title: The client's fog start for cameras from 5.5 to 25 m, and night areas with a short fog clip distance beside Moonglow's
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -619,7 +622,7 @@ The earlier reconstruction (att(0) = 1.5, k ≈ 12.33, colours uploaded as-is) m
 - `fogEnd` ≈ `FogClipDist`, which is also the far clip / render distance for tiles and static placeables.
   - A skybox adds **+90 m** to the render distance ([WIKI]).
   - Dynamic placeables and doors: 45 m; creatures: 35 m.
-- `fogStart` comes from `Sun/MoonFogAmount`: **measured in the client** (its `fogParams` uniform read back through a patched `inc_standard.shd`, `client_render.rs` `fog_uniforms_match_the_client`): `fogEnd = FogClipDist` and `fogStart = min(30 − FogAmount, fogEnd − 1)` metres; fog is always enabled, even at amount 0, and a skybox changes neither. EE's Area Properties take amounts 0–200 (past 30 the fog starts behind the camera). Console `fogstart/fogend` exist.
+- `fogStart` comes from `Sun/MoonFogAmount` and the camera's distance from the player: **measured in the client** (its `fogParams` uniform read back through a patched `inc_standard.shd`, `client_render.rs` `fog_uniforms_match_the_client` and `night_fog.rs` `fog_start_follows_the_camera`): `fogEnd = FogClipDist` and `fogStart = min(30 − FogAmount − (20 − cameraDistance), fogEnd − 1)` metres, `cameraDistance` the client's camera distance as `SetCameraFacing` gives it (20 as a player enters, where it reads `min(30 − FogAmount, fogEnd − 1)`); whatever the pitch, by day and at night. Read 2026-11-19: amount 12, clip 22 → 3.50 at 5.5 m, 6.00 at 8, 10.00 at 12, 18.00 at 20, 20.99 (end − 1) at 25; amount 0, clip 45 → 15.50, 22.00, 30.00, 35.01 at 5.5, 12, 20, 25 (the rule holds past 20 m). Moonglow had 30 − amount for every camera, and so drew a zoomed-in camera's near things clear where the client fogs them (Moonglow Client's first picture of a night area: the briars darker and crisper, the far ground meeting the fog in a line between 18 and 22 m); `mg_area::fog_from` and `View::camera` take the camera now, and the pictures agree (`night_fog_matches_the_client`: the ground within 0.6 of 255). Fog is always enabled, even at amount 0, and a skybox changes neither. EE's Area Properties take amounts 0–200 (past 30 the fog starts behind the camera). Console `fogstart/fogend` exist.
 - Skybox:
   - drawn with `vsvt/fst` (FOG 0 → never fogged), centred on the player
   - **`skyfade1.mdl`** (texture `skyblurpoly.tga`, colour = how much fog, alpha = how much sky shows) blends fog colour over the horizon and below

@@ -486,12 +486,50 @@ fn judged_key(kind: ObjectKind, object: &Struct) -> JudgedKey {
 /// What an Appearance list says after a row with no model to draw.
 pub const NO_MODEL: &str = "  (no model)";
 
+/// The portraits.2da row of the portrait appearance.2da row `row` names
+/// (its `PORTRAIT`, `po_Minotaur`): the first whose `BaseResRef` is that
+/// name without `po_` (`Minotaur_`), case and a last `_` aside, as every
+/// row of the game's table finds its own. `None` where the row names
+/// none or portraits.2da has none of it.
+pub fn appearance_portrait(appearance: &TwoDa, portraits: &TwoDa, row: usize) -> Option<usize> {
+    let bare = |s: &str| s.trim().trim_end_matches('_').to_ascii_lowercase();
+    let named = appearance.get(row, "PORTRAIT")?.trim();
+    let named = match named.get(..3) {
+        Some(p) if p.eq_ignore_ascii_case("po_") => bare(&named[3..]),
+        _ => bare(named),
+    };
+    if named.is_empty() {
+        return None;
+    }
+    (0..portraits.len()).find(|&r| portraits.get(r, "BaseResRef").is_some_and(|b| bare(b) == named))
+}
+
 #[cfg(test)]
 mod tests {
     use mg_gff::Value;
     use mg_resman::{LayerClass, MemContainer, priority};
 
     use super::*;
+
+    #[test]
+    fn an_appearance_finds_the_portrait_it_names() {
+        let table = |text: &str| TwoDa::parse(text.as_bytes(), Default::default()).unwrap();
+        let appearance = table(
+            "2DA V2.0\n\n  LABEL PORTRAIT\n0 Minotaur po_Minotaur\n1 Wizard po_MinoWiz_\n\
+             2 None ****\n3 Lost po_nothere\n4 Bare Bat\n",
+        );
+        let portraits = table(
+            "2DA V2.0\n\n  BaseResRef Sex\n0 **** 4\n1 dw_f_01_ 1\n2 minotaur_ 4\n\
+             3 MinoWiz_ 4\n4 Minotaur_ 4\n5 bat_ 4\n",
+        );
+        let find = |row| appearance_portrait(&appearance, &portraits, row);
+        assert_eq!(find(0), Some(2), "case and the last _ aside, the first");
+        assert_eq!(find(1), Some(3));
+        assert_eq!(find(2), None, "names none");
+        assert_eq!(find(3), None, "portraits.2da has none of it");
+        assert_eq!(find(4), Some(5), "a name without po_ as it is");
+        assert_eq!(find(9), None, "no such row");
+    }
 
     fn resman() -> ResMan {
         let mut mem = MemContainer::new();

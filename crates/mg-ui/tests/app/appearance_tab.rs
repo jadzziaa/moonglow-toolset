@@ -1284,6 +1284,11 @@ fn the_gallery_holds_from_least_to_greatest_width() {
 fn the_pickers_hold_from_least_to_greatest_width() {
     let open = |h: &mut Harness<'_, Moonglow>, which: &str| match which {
         "Select Portrait" => {
+            // (Brought into sight first: below the Sound set and Faction
+            // rows, which develop's Builders' asks put on the Basic page,
+            // it is under the fold of a short window.)
+            h.get_by_label("Portraits…").scroll_to_me();
+            settle(h);
             h.get_by_label("Portraits…").click();
             settle(h);
         }

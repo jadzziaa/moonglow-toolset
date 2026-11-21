@@ -316,7 +316,7 @@ pub fn wait_for_looks(on: bool) {
 pub const LOST: f64 = 5.0;
 
 pub(crate) fn source(samples: u32) -> String {
-    let depth = if samples > 1 { "texture_depth_multisampled_2d" } else { "texture_depth_2d" };
+    let depth = crate::framebuffer::depth_read_type(samples);
     let vs = crate::framebuffer::FULLSCREEN_VS;
     format!(
         "@group(0) @binding(0) var depth: {depth};
@@ -324,7 +324,7 @@ pub(crate) fn source(samples: u32) -> String {
 {vs}@fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
     let size = vec2<f32>(textureDimensions(depth));
     let at = vec2<i32>(p.xy / vec2<f32>({COLUMNS}.0, {ROWS}.0) * size);
-    return vec4<f32>(textureLoad(depth, at, 0), textureLoad(color, at, 0).rgb);
+    return vec4<f32>(textureLoad(depth, at, 0).x, textureLoad(color, at, 0).rgb);
 }}
 "
     )
@@ -416,8 +416,10 @@ pub struct Sampler {
 }
 
 impl Sampler {
-    /// For targets of `samples` samples a pixel.
+    /// For targets of `samples` samples a pixel, as the device gives
+    /// them ([`Gpu::samples`]: one on OpenGL).
     pub fn new(gpu: &Gpu, samples: u32) -> Sampler {
+        let samples = gpu.samples(samples);
         let device = &gpu.device;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("watch"),
@@ -430,7 +432,7 @@ impl Sampler {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: crate::framebuffer::DEPTH_READ,
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: samples > 1,
                     },

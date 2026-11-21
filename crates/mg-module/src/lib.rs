@@ -21,7 +21,9 @@ pub mod external_compiler;
 pub mod factions;
 pub mod folder;
 pub mod game_data;
-pub mod grass;
+/// (Moved to mg-rules, below the module workspace, for the area's scene
+/// without it: `mg_rules::grass`.)
+pub use mg_rules::grass;
 pub mod ground;
 pub mod hak_edit;
 pub mod haks;
@@ -39,7 +41,8 @@ pub mod outside;
 pub mod palette;
 pub mod palette_add;
 pub mod palette_groups;
-pub mod placement;
+/// (Moved to mg-rules: `mg_rules::placement`.)
+pub use mg_rules::placement;
 mod process;
 pub mod project_file;
 pub mod project_plugins;

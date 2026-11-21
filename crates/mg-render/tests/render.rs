@@ -1247,7 +1247,9 @@ fn a_solid_draw_leaves_the_picture_s_alpha() {
 fn depth_is_kept_for_drawing_after_the_scene() {
     let Some(gpu) = gpu() else { return };
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let (size, samples) = (64, 4);
+    // (The caller's own pipeline below draws into the targets with the
+    // samples the device gives them: one on OpenGL, `Gpu::samples`.)
+    let (size, samples) = (64, gpu.samples(4));
     let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
     let scene =
         Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], ..Default::default() };
@@ -5137,6 +5139,21 @@ void main ()
             };
             let wrong = pool.iter().filter(far).count();
             assert!(wrong <= 4, "{name}, {samples}x: {wrong} of {} water pixels", pool.len());
+            // The same into BGRA targets (a window's,
+            // `present::targets_format`), their copies BGRA too.
+            let bgra = wgpu::TextureFormat::Bgra8Unorm;
+            let mut r = Renderer::new(&gpu, bgra, samples);
+            r.game_shaders = true;
+            r.game_water = true;
+            let targets = Targets::new(&gpu, bgra, samples, 64, 64);
+            r.render_targets(&gpu, &assets, &scene(true), &camera, &targets);
+            assert_eq!(r.drawn.game, 3, "{name}, BGRA: {:?}", r.drawn);
+            let mut data = gpu.read_rgba(&targets.color).data;
+            data.as_chunks_mut::<4>().0.iter_mut().for_each(|t| t.swap(0, 2));
+            let apart = (data.as_chunks::<4>().0.iter().zip(img.data.as_chunks::<4>().0))
+                .filter(|(a, b)| (0..4).any(|i| a[i].abs_diff(b[i]) > 1))
+                .count();
+            assert_eq!(apart, 0, "{name}, {samples}x: BGRA's pixels apart from RGBA's");
         }
         // Without the targets' copies: Moonglow's own water.
         let targets =
@@ -6351,7 +6368,10 @@ fn high_shadows_darken_exactly_the_volume_s_footprint() {
     };
     let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
     let dir = mg_testkit::output_dir("render");
-    for samples in [1, 4] {
+    // (Four where the device gives them: one on OpenGL, `Gpu::samples`.)
+    let mut counts = vec![1, gpu.samples(4)];
+    counts.dedup();
+    for samples in counts {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         let bare = r.render_image(&gpu, &NoAssets, &scene(None), &camera, w, h);
         r.shadow_volumes = true;
@@ -6705,6 +6725,69 @@ fn moonglow_s_own_shaders_are_written_in_hlsl_as_direct3d_12_writes_them() {
         .map(|c| format!("{}: {}", c.file.display(), c.message))
         .collect();
     assert!(failed.is_empty(), "FXC failed: {failed:#?}");
+}
+
+/// Moonglow's own shaders (each WGSL source the renderer makes, at one
+/// sample a pixel and four) written in GLSL as wgpu's OpenGL back end has
+/// naga write them (GLSL 4.30, its flags, a binding for each resource),
+/// every entry point: what naga can't write, OpenGL can't draw, and this
+/// shows without OpenGL. (A depth texture read with `textureLoad` was one:
+/// naga makes it a shadow sampler, which GLSL can't fetch a texel from;
+/// `framebuffer::DEPTH_READ`.) In `target/test-output/glsl/own/`.
+#[test]
+fn moonglow_s_own_shaders_are_written_in_glsl_as_opengl_writes_them() {
+    use naga::back::glsl;
+    let dir = mg_testkit::output_dir("glsl/own");
+    let (mut failures, mut written) = (Vec::new(), 0);
+    for (name, source) in mg_render::wgsl_sources() {
+        let module =
+            naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let mut binding_map = glsl::BindingMap::default();
+        for (k, b) in module.global_variables.iter().filter_map(|(_, g)| g.binding).enumerate() {
+            binding_map.insert(b, k as u8);
+        }
+        let options = glsl::Options {
+            version: glsl::Version::Desktop(430),
+            writer_flags: glsl::WriterFlags::ADJUST_COORDINATE_SPACE
+                | glsl::WriterFlags::FORCE_POINT_SIZE,
+            binding_map,
+            ..Default::default()
+        };
+        for ep in &module.entry_points {
+            let pipeline = glsl::PipelineOptions {
+                shader_stage: ep.stage,
+                entry_point: ep.name.clone(),
+                multiview: None,
+            };
+            let mut text = String::new();
+            let label = format!("{name}.{}", ep.name);
+            match glsl::Writer::new(
+                &mut text,
+                &module,
+                &info,
+                &options,
+                &pipeline,
+                Default::default(),
+            )
+            .and_then(|mut w| w.write())
+            {
+                Ok(_) => {
+                    std::fs::write(dir.join(format!("{label}.glsl")), text).unwrap();
+                    written += 1;
+                }
+                Err(e) => failures.push(format!("{label}: {e}")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "not written in GLSL: {failures:#?}");
+    assert!(written >= 20, "{written} written");
+    eprintln!("{written} stages written in GLSL, in {}", dir.display());
 }
 
 /// The lit check (a lit, textured quad as a tile is drawn, by Moonglow's

@@ -2680,6 +2680,7 @@ dependencies = [
  "mg-resman",
  "mg-rules",
  "mg-set",
+ "mg-testkit",
  "mg-tiles",
  "mg-tlk",
  "thiserror 2.0.21",
@@ -2930,6 +2931,7 @@ dependencies = [
  "png",
  "pollster 0.4.0",
  "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -2956,6 +2958,7 @@ dependencies = [
  "mg-mdl",
  "mg-resman",
  "mg-schema",
+ "mg-set",
  "mg-tlk",
  "thiserror 2.0.21",
 ]
@@ -3018,6 +3021,7 @@ version = "0.0.0"
 dependencies = [
  "mg-resman",
  "mg-serve",
+ "mg-testkit-gpu",
  "mg-update",
  "minisign",
  "naga",
@@ -3025,10 +3029,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mg-testkit-gpu"
+version = "0.0.0"
+
+[[package]]
 name = "mg-tiles"
 version = "0.0.0"
 dependencies = [
  "fastrand",
+ "glam",
  "mg-core",
  "mg-set",
  "thiserror 2.0.21",

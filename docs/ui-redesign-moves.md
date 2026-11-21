@@ -135,8 +135,8 @@ Every control of today's screens and its home in the mockups, by the names the c
 | The floating blueprint window | A document tab; its header carries the name, the resref, OK and Cancel ✓ M3 T10 (a document tab with Open editors As Tabs, the default of a new installation; its header is M4's) ✓ M4 U9 (the header: the kind's icon, the name, the resref quieter, OK and Cancel at its right end; Module and Area Properties the same) |
 | The wrapped row of 14 page tabs | A page list at the left, in the same order; the pages follow one another on one scroll ✓ M4 U9 (each page with its icon, the page at the top filled, the others in view marked; each page under its bar, drawn only where in sight; a window too narrow for the words lists them as the Properties panel's icon rail) |
 | Basic: First name, Last name (languages button, Random name), Tag | Identity section ✓ M4 U10 (the StrRef inside the name's field at its right end, the languages button and Random Name after it) |
-| Race, Appearance with Gallery…, Phenotype, Gender, Preview | Race and Appearance section ✓ M4 U10 |
-| Challenge rating, Category | Palette section ✓ M4 U10 |
+| Race, Appearance with Gallery…, Phenotype, Gender, Sound Set (with its filters and Play Sample; on Basic since builders asked, 2026-11-16, Aurora's is on Advanced), Preview | Race and Appearance section ✓ M4 U10 (Sound set: the merge of develop, 2026-11-21, after Gender with the Advanced page's row as U10 drew it: the filters on a line of their own where the row is short) |
+| Challenge rating, Category, Faction with Edit Factions (on Basic likewise) | Palette section ✓ M4 U10 (Faction: the merge of develop, 2026-11-21, after Category, as U10 drew it on Advanced) |
 | Portrait picture, its combo, Portraits… | Portrait section ✓ M4 U10 |
 | Conversation with its picker, Edit, No interrupt | Conversation section ✓ M4 U10 |
 | Description with its language button | Description section, full width ✓ M4 U10 (its heading names the language, the languages button at its right end) |

@@ -187,7 +187,8 @@ then the shadows, the fog and how the scene is drawn.
   them. Changes to the shadow fields in Area Properties show at once.
 - **Fog**: the area's fog. It is drawn as the game's camera (at most
   20 m from the player) would see it from where the view looks, so a
-  view from farther off isn't lost in it.
+  view from farther off isn't lost in it; zoomed in nearer than 20 m,
+  the fog starts nearer, as the game's does for a camera zoomed in.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls, trees'
   crowns; the black caps and strips under and beside them stay, as in
@@ -1163,9 +1164,11 @@ original's and the copy's alike, so Retag leaves it as it is, and it
 finds whichever object the game finds first.
 
 An area copied with **Copy…** in the module tree has every tag of its
-original's objects: with the option on, the window lists the area's own
-tag (an area has no blueprint), the tags a builder set and those the
-project wants unique.
+original's objects, and its ResRef as its own tag (the Copy window's Tag
+follows the ResRef as you type it, until you change the Tag): with the
+option on, the window lists the area's own tag where it is another's
+(an area has no blueprint), the tags a builder set and those the project
+wants unique.
 
 A blueprint copied (the palette's **Edit Copy…**, **Copy…** in the
 module tree) with a tag another of the module's blueprints has is said
