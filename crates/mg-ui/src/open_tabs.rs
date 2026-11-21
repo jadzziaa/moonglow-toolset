@@ -436,6 +436,7 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::AdvancedSearch => "advanced-search".into(),
         Tab::Options => "options".into(),
         Tab::PlaceableGallery => "placeable-gallery".into(),
+        Tab::Plugins => "plugins".into(),
         Tab::Script(k) => format!("script:{}", key_text(k)),
         Tab::Nui(k) => format!("nui:{}", key_text(k)),
         Tab::NuiSource(k) => format!("nui-source:{}", key_text(k)),
@@ -497,6 +498,7 @@ fn parse_tab(text: &str) -> Option<Want> {
         "advanced-search" => Tab::AdvancedSearch,
         "options" => Tab::Options,
         "placeable-gallery" => Tab::PlaceableGallery,
+        "plugins" => Tab::Plugins,
         "plugin-panel" => {
             let (plugin, panel) = rest.split_once('/')?;
             Tab::PluginPanel { plugin: plugin.to_string(), panel: panel.to_string() }
@@ -1570,6 +1572,7 @@ mod tests {
             Tab::ModuleProperties,
             Tab::Options,
             Tab::PlaceableGallery,
+            Tab::Plugins,
             Tab::Script(key("hello.nss")),
             Tab::Blueprint(key("nw_chest.utp")),
             Tab::Blueprints(vec![key("a.uti"), key("b.uti")]),

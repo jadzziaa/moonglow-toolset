@@ -195,10 +195,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, holder: Holder) {
                         let first = counts[m.having[0]];
                         super::row(ui, |ui| {
                             if counts.iter().any(|c| *c != first && *c > 0) {
-                                ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
-                                    .on_hover_text(
-                                        "They hold other numbers of it: this is the first's",
-                                    );
+                                super::mixed_mark(
+                                    ui,
+                                    "They hold other numbers of it: this is the first's",
+                                );
                             }
                             ui.label(format!("×{first}"));
                         });
@@ -432,8 +432,7 @@ fn equipment(
                             "{n} of the {} wear something here, not all the same",
                             worn.len()
                         );
-                        ui.colored_label(ui.visuals().warn_fg_color, super::MIXED)
-                            .on_hover_text(tip);
+                        super::mixed_mark(ui, tip);
                     }
                     match worn[0] {
                         Some(r) => ui.label(name_of(r)),

@@ -567,8 +567,9 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     h.run_steps(2);
     h.get_by_label("Choose 1 Area(s)…").click();
     h.run_steps(2);
-    // (The chooser's button: one area ticked.)
-    h.get_by_label("Edit 1 Together");
+    // (Edit Areas Together's section, in front in the Right Dock: one area
+    // ticked.)
+    h.get_by_label("1 area ticked");
 }
 
 /// What Advanced Search found is a list of places (`start.git /Creature

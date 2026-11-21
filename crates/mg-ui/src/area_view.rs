@@ -7449,6 +7449,7 @@ fn editing_items(
                     {
                         let draft = crate::light_maker::LightDraft::new(app, view.area, Some(at));
                         app.light_draft = Some(draft);
+                        app.tools.bring = Some(crate::shell::Panel::LightMaker);
                         ui.close();
                     }
                 }
@@ -7478,6 +7479,7 @@ fn editing_items(
             let mut draft = crate::light_maker::LightDraft::new(app, view.area, None);
             draft.change = made;
             app.light_draft = Some(draft);
+            app.tools.bring = Some(crate::shell::Panel::LightMaker);
             ui.close();
         }
         if !chosen.is_empty() && chosen.len() == view.selection.len() {

@@ -5776,9 +5776,12 @@ fn areas_edited_together() {
     h.get_by_label("Tick Shown").click();
     h.run_steps(2);
     shoot(&mut h, &dir, "areas-chooser");
-    h.get_all_by_label_contains(" Together").last().unwrap().click();
-    h.run_steps(3);
-    h.get_by_label("Area Properties pages").get_by_label("Audio").click();
+    // (Since M4's U29 the shared pages are the Right Dock section's, beside
+    // its Areas page on the rail.)
+    let dock = h.state().right_dock_rect().expect("the Right Dock shown");
+    (h.get_all_by_label("Audio").find(|n| dock.contains_rect(n.rect())))
+        .expect("Audio on the section's rail")
+        .click();
     h.run_steps(3);
     shoot(&mut h, &dir, "areas-together-audio");
 }
@@ -7142,7 +7145,7 @@ fn plugins_window() {
         Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
     app.load_plugins();
     app.enable_plugin("example.tag-conventions", true);
-    app.plugins.window = true;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     app.plugins.console = "return ctx.module:resources(\"utc\")".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 760.0))
@@ -7152,7 +7155,7 @@ fn plugins_window() {
     h.get_by_label("Console").click();
     h.run();
     shoot(&mut h, &dir, "plugins");
-    h.state_mut().plugins.window = false;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![mg_ui::Tab::Plugins]));
     h.run();
     // (The menu's, not the Welcome page's chapter link.)
     let link = egui::accesskit::Role::Link;
@@ -7297,7 +7300,7 @@ fn plugin_kinds() {
     h.run_steps(4);
     shoot(&mut h, &dir, "plugin-panel");
 
-    h.state_mut().plugins.window = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     h.run_steps(3);
     h.get_by_label("Panel: Module Overview").scroll_to_me();
     h.run_steps(3);
@@ -7345,12 +7348,16 @@ fn project_plugins() {
     shoot(&mut h, &dir, "project-plugins-ask");
     h.get_by_label("Allow").click();
     h.run();
-    h.state_mut().plugins.window = true;
-    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
+    // (Steps: the tab coming to the front changes the Status Bar's words,
+    // which asks for a frame more.)
+    h.run_steps(4);
+    h.try_run().unwrap_or_else(|e| panic!("the Plugins tab at rest: {e}"));
     h.get_by_label("This project's plugins").scroll_to_me();
-    h.run();
+    h.run_steps(4);
+    h.try_run().unwrap_or_else(|e| panic!("scrolled, at rest: {e}"));
     shoot(&mut h, &dir, "project-plugins-window");
-    h.state_mut().plugins.window = false;
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![mg_ui::Tab::Plugins]));
     h.state_mut().open_plugin_settings("example.builder-tags");
     if let Some(form) = h.state_mut().plugins.settings_form.as_mut() {
         form.values.insert("code".into(), mg_plugin::SettingValue::Text("ab".into()));
@@ -12384,6 +12391,88 @@ fn board_main() {
     shoot(&mut h, &board_dir(), "board_main");
 }
 
+/// `board_main` with Edit Areas Together open (M4's U29): the Right Dock's
+/// section with three of the chapter's areas ticked by its keys, then its
+/// Visual page; the rest as the Main board.
+#[test]
+#[ignore]
+fn board_main_areas_together() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    top_menu(&h, "Edit").click();
+    h.run_steps(3);
+    h.get_by_label("Edit Areas Together…").click();
+    h.run_steps(5);
+    for _ in 0..3 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(2);
+        h.key_press(egui::Key::Space);
+        h.run_steps(2);
+    }
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_areas_together");
+    let dock = h.state().right_dock_rect().expect("the Right Dock shown");
+    (h.get_all_by_label("Visual").find(|n| dock.contains_rect(n.rect())))
+        .expect("Visual on the section's rail")
+        .click();
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_areas_together_visual");
+}
+
+/// `board_main` with Custom Light open (M4's U29): the area view's menu's
+/// Add Light Here › Custom Light… on the ground at the view's center, the
+/// Right Dock's section beside it; the rest as the Main board.
+#[test]
+#[ignore]
+fn board_main_custom_light() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.generated_lights = true;
+    h.run_steps(3);
+    // (The ground near the pyre: the first of a few places whose menu is the
+    // ground's, not an object's.)
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    let index = pyre_index(&mut h);
+    let pyre = {
+        let model = h.state().area_views[&area].model.as_ref().unwrap();
+        model.object(mg_area::ObjectKind::Placeable, index).unwrap().position
+    };
+    let mut found = false;
+    for (x, y) in [(6.0, -6.0), (10.0, 0.0), (-8.0, 4.0), (4.0, 10.0), (12.0, 8.0)] {
+        let Some(at) = h.state().area_views[&area].screen_pos(pyre + glam::Vec3::new(x, y, 0.0))
+        else {
+            continue;
+        };
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        if h.query_by_label_contains("Add Light Here").is_some() {
+            found = true;
+            break;
+        }
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+    }
+    assert!(found, "no place near the pyre whose menu has Add Light Here");
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    h.get_by_label("Custom Light…").click();
+    h.run_steps(5);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker));
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_custom_light");
+}
+
 /// `board_main` with Problems open (M4's U28): Build Module's findings of
 /// the chapter's scripts in the Bottom Dock, an error first and one chosen,
 /// the Status Bar counting them; the rest as the Main board.
@@ -16035,4 +16124,40 @@ fn form_windows_first_sizes() {
     place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (440.0, 600.0));
     h.run_steps(10);
     shoot(&mut h, &dir, &format!("first-size-{when}-long-name-440"));
+}
+
+/// Area Properties in a window of 800 by 600, each page: the pages' fields
+/// stack only in a room this narrow (U29's `area_props::fields`), to set
+/// beside the tip's (the review of U29).
+#[test]
+#[ignore]
+fn area_properties_at_800_by_600() {
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(800.0, 600.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    for page in ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Variables"] {
+        let Some(b) = h.get_by_label("Area Properties pages").query_by_label(page) else {
+            println!("no page {page}");
+            continue;
+        };
+        b.click();
+        h.run_steps(4);
+        shoot(&mut h, &dir, &format!("ap800-{}", page.to_lowercase()));
+    }
 }

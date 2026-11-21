@@ -551,20 +551,17 @@ fn a_picker_s_close_is_its_cancel() {
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its Properties stay");
 }
 
-/// A dialog resized by its edges (Tools › Plugins; Find and Replace Text
-/// was, before M4's U28 made it Search Results') is made
-/// narrower by its edge as well as wider: its title row does not hold it
-/// at the width it had.
+/// A dialog resized by its edges (File › Project › Command Output; Tools
+/// › Plugins was, before M4's U29 made it a tab, and Find and Replace Text
+/// before U28 made it Search Results') is made narrower by its edge as
+/// well as wider: its title row does not hold it at the width it had.
 #[test]
 fn a_resizable_dialog_is_made_narrower_by_its_edge() {
-    let dir = mg_testkit::scratch_dir("ui-dialogs-narrower");
-    let mut app = app_with(Vec::new());
-    app.open_module(&sample_module(&dir));
-    let mut h = harness(app, 1100.0, 800.0);
+    use crate::dialog_pattern::openers_shared::{command_output, project_with_a_command_in};
+    let Some(mut h) = project_with_a_command_in("ui-dialogs-narrower") else { return };
     h.run();
-    h.state_mut().plugins.window = true;
-    settle(&mut h);
-    const TITLE: &str = "Plugins";
+    command_output(&mut h);
+    const TITLE: &str = "Command Output";
     let was = resting(&mut h, TITLE);
     let edge = egui::pos2(was.right() - 1.0, was.center().y);
     press_drag(&mut h, edge, edge - egui::vec2(120.0, 0.0));
@@ -609,21 +606,20 @@ fn every_stop_of_tab_in_a_dialog_is_a_named_control() {
     }
 }
 
-/// A dialog that folds (Tools › Plugins; Find and Replace Text, which
-/// egui's own arrow folded, until M4's U28) has the arrow at its title row's left, "Collapse": clicked, the
+/// A dialog that folds (File › Project › Command Output; Tools › Plugins
+/// until M4's U29 made it a tab; Find and Replace Text, which egui's own
+/// arrow folded, until U28) has the arrow at its title row's left,
+/// "Collapse": clicked, the
 /// dialog is its row alone and the arrow is "Expand"; clicked again, the
 /// dialog is as it was, its size kept; and so by the keyboard (the arrow
 /// focused, Enter). A dialog its buttons answer (New Module) has none.
 #[test]
 fn a_dialog_folds_to_its_title_row_and_back() {
-    let dir = mg_testkit::scratch_dir("ui-dialogs-fold");
-    let mut app = app_with(Vec::new());
-    app.open_module(&sample_module(&dir));
-    let mut h = harness(app, 1100.0, 800.0);
+    use crate::dialog_pattern::openers_shared::{command_output, project_with_a_command_in};
+    let Some(mut h) = project_with_a_command_in("ui-dialogs-fold") else { return };
     h.run();
-    h.state_mut().plugins.window = true;
-    settle(&mut h);
-    const TITLE: &str = "Plugins";
+    command_output(&mut h);
+    const TITLE: &str = "Command Output";
     let open = resting(&mut h, TITLE);
     let arrow = |h: &Harness<'_, Moonglow>, name: &str| -> Option<egui::Rect> {
         dialog_node(h, TITLE).query_all_by_label(name).map(|n| n.rect()).next()
@@ -648,7 +644,7 @@ fn a_dialog_folds_to_its_title_row_and_back() {
         assert!(folded.height() < 32.0, "its row alone (keyboard {keyboard}): {folded:?}");
         assert!(arrow(&h, "Collapse").is_none() && arrow(&h, "Expand").is_some());
         assert!(
-            h.query_by_label_contains("A plugin adds commands").is_none(),
+            dialog_node(&h, TITLE).query_all_by_label("Copy").next().is_none(),
             "no body while folded"
         );
         press(&mut h, "Expand");

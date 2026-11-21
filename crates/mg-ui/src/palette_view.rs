@@ -557,6 +557,14 @@ pub(crate) enum Keys {
     HakReport,
     ResourcesUsed,
     ClaimsTable,
+    /// The area editor's tool sections of the Right Dock (M4's U29): Edit
+    /// Areas Together's areas list (Up, Down, Page Up, Page Down, Home and
+    /// End, Space ticks), Custom Light's and Bake Walkmesh to Transform's
+    /// Enter (their main action) and Escape (their Cancel), held over the
+    /// area's view from their command until a press elsewhere.
+    AreasTogether,
+    LightMaker,
+    Bake,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
@@ -1315,6 +1323,7 @@ fn lights_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
             && let Some(area) = area
         {
             app.light_draft = Some(crate::light_maker::LightDraft::new(app, area, None));
+            app.tools.bring = Some(crate::shell::Panel::LightMaker);
         }
     }
     ui.add_space(4.0);

@@ -23,13 +23,18 @@ pub struct FieldTarget {
     pub path: GffPath,
     pub label: String,
     /// More structs that take the same value (several objects or
-    /// blueprints edited at once): each document and path.
-    pub also: Vec<(ResKey, GffPath)>,
+    /// blueprints edited at once): each document and path. Shared, not
+    /// copied, by each field of a form (M4's U29: three thousand areas
+    /// edited together were copied for each field, each frame).
+    pub also: Also,
 }
+
+/// The other structs a field set goes to ([`FieldTarget::also`]).
+pub type Also = std::sync::Arc<Vec<(ResKey, GffPath)>>;
 
 impl FieldTarget {
     pub fn new(key: ResKey, path: GffPath, label: &str) -> FieldTarget {
-        FieldTarget { key, path, label: label.to_string(), also: Vec::new() }
+        FieldTarget { key, path, label: label.to_string(), also: Also::default() }
     }
 
     fn command(&self, what: &str, value: Value) -> Action {
@@ -1581,8 +1586,18 @@ fn var_body(
         Vec::new()
     };
     let lines = notes.len().min(VAR_NOTES + 1) as f32;
+    // (The note of several edited together as tall as it wraps: in a narrow
+    // room, Edit Areas Together's section, M4's U29, it is several lines.)
+    let together = together_note(edit);
+    let together_tall = together.as_ref().map_or(0.0, |t| {
+        let wrap = ui.available_width();
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let color = ui.visuals().weak_text_color();
+        ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
+            + ui.spacing().item_spacing.y
+    });
     // (The list scrolls, over the buttons kept in reach below it.)
-    let tall = (ui.available_height() - VAR_FOOT - lines * 18.0).max(100.0);
+    let tall = (ui.available_height() - VAR_FOOT - lines * 18.0 - together_tall).max(100.0);
     // (Wider, the fields share what is spare; narrower, as a Properties
     // window's page often is, they shrink to it, down to two fifths: the
     // type, a color's swatch and Delete kept in sight.)
@@ -1859,15 +1874,22 @@ fn var_body(
     if notes.len() > VAR_NOTES {
         ui.weak(format!("and {} more", notes.len() - VAR_NOTES));
     }
-    if !edit.target.also.is_empty() {
-        ui.weak(format!(
-            "{} edited together, shown as the first: the variables you add or change \
-         are set on each, those you delete are deleted from each, and each keeps \
-         its others.",
-            edit.target.also.len() + 1
-        ));
+    if let Some(t) = together {
+        ui.weak(t);
     }
     problem
+}
+
+/// The note under a Variables list edited for several at once.
+fn together_note(edit: &VarTableEdit) -> Option<String> {
+    (!edit.target.also.is_empty()).then(|| {
+        format!(
+            "{} edited together, shown as the first: the variables you add or change \
+             are set on each, those you delete are deleted from each, and each keeps \
+             its others.",
+            edit.target.also.len() + 1
+        )
+    })
 }
 
 /// A Variables page's list as being edited ([`variables_page`]), and the
@@ -3005,6 +3027,11 @@ struct Dialogs {
     /// header's) was open as this frame began: its Escape, which closes
     /// it, is no one else's ([`escape_closes_a_popup`]).
     popup: bool,
+    /// A text field (one line or several, a number being typed, a script's
+    /// name) had the keyboard as the last frame ended ([`dialogs_end`]):
+    /// this frame's Enter or Escape is the field's, which egui has let go
+    /// of before anything is drawn ([`field_had_keyboard`]).
+    field: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -3066,6 +3093,16 @@ pub(crate) fn dialogs_end(ctx: &egui::Context) {
         d.searching = typed.is_some();
         d.searching_text = typed.is_some_and(|(_, text)| *text);
     });
+    let field = focused.is_some_and(|id| egui::text_edit::TextEditState::load(ctx, id).is_some());
+    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).field = field);
+}
+
+/// Whether a text field had the keyboard as the last frame ended (M4's
+/// U29 review): this frame's Enter commits it and its Escape gives it up,
+/// and neither is a tool section's main action or Cancel, though egui has
+/// let go of the field before the section reads the key.
+pub(crate) fn field_had_keyboard(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.field)
 }
 
 /// Whether a search field had the keyboard as the last frame ended: what
@@ -4071,6 +4108,13 @@ pub(crate) fn is_dialog(ctx: &egui::Context, layer: egui::LayerId) -> bool {
 /// the key.
 pub(crate) fn escape_closes_a_popup(ctx: &egui::Context) -> bool {
     ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.popup)
+}
+
+/// Whether a popup or a kit popover was open as this frame began (any
+/// key this frame is its: Enter or Space that closed a combo box's list
+/// earlier in the frame is not a list's under it too).
+pub(crate) fn popup_was_open(ctx: &egui::Context) -> bool {
+    escape_closes_a_popup(ctx)
 }
 
 /// Escape was pressed with no dialog open (for a window of the dock to
@@ -5894,6 +5938,20 @@ fn number_name(ui: &Ui) -> Option<String> {
         .then_some(text)
 }
 
+/// The field label (`field_label`) of the field about to be drawn at
+/// `ui`'s cursor, kept this pass: on its row before it, or right over it
+/// where a narrow form stacks the label over its field. Not taken (a
+/// number field after it is still named by it).
+pub(crate) fn label_before(ui: &Ui) -> Option<egui::Rect> {
+    let (pass, _, rect) = ui.data(|d| d.get_temp::<(u64, String, egui::Rect)>(number_name_id()))?;
+    let at = ui.cursor();
+    let row = rect.y_range().expand(4.0);
+    let same_row =
+        (row.contains(at.top()) || row.contains(at.center().y)) && rect.left() <= at.left() + 1.0;
+    let over = (rect.bottom() - at.top()).abs() <= 10.0 && (rect.left() - at.left()).abs() <= 2.0;
+    (pass == ui.ctx().cumulative_pass_nr() && (same_row || over)).then_some(rect)
+}
+
 /// How large a gallery's pictures are: the kit's slider of their side in
 /// `range` (its value not shown, `text` beside it where given), a point a
 /// step. The side moved to, rounded, when it is moved.
@@ -6147,7 +6205,7 @@ mod tests {
             key: ResKey::parse("inn", ResType::GIT).unwrap(),
             path: GffPath::root(),
             label: "VarTable".into(),
-            also: Vec::new(),
+            also: Also::default(),
         };
         let mut edit = VarTableEdit::new(target, &list);
         assert_eq!(edit.list(), list, "untouched, written as it was");

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:54:43Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
 ---
 
 # Modules
@@ -357,7 +357,7 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
 - **Edit the N ticked together** opens blueprints of one type in one
   window, and objects of one kind placed in one area in one window, as
   the palette's and the area's Edit Together do; **Choose Areas…** opens
-  Edit Areas Together with the areas of what is ticked (areas found, or
+  the Edit Areas Together section of the Right Dock with the areas of what is ticked (areas found, or
   those the objects found are placed in) ticked.
 
 What was found is a list of places as the module was then. Once the
@@ -869,7 +869,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
 | `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
-| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
+| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins tab's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 | `[palette.<id>]` | a [palette grouping](#palette-groupings): another way the palettes show their blueprints (Group by), any number of them | the palettes by category alone |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),

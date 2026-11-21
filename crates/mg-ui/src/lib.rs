@@ -123,6 +123,7 @@ mod text;
 pub mod tile_select;
 mod tile_view;
 pub mod tileset_view;
+mod tool_sections;
 pub mod trace;
 mod transfer;
 mod tree;
@@ -929,6 +930,10 @@ pub struct Moonglow {
     /// The panel in front of each of the Right Dock's tab bars at the
     /// last frame, in the order they were drawn (`shell::right_dock`).
     pub(crate) right_bars: Vec<Panel>,
+    /// Where each of the Right Dock's stacked sections was drawn at the
+    /// last frame, by the panel in front of it (`shell::right_dock`; none
+    /// where it holds one tab bar). For the window's tests.
+    pub(crate) right_places: Vec<(Panel, egui::Rect)>,
     /// The panel in front of each pane of the floating editors' windows
     /// drawn at the last frame (`shell::window_panes`): F6 stops at each,
     /// after the editor area; and those being drawn this frame.
@@ -1048,6 +1053,9 @@ pub struct Moonglow {
     pub adjust: Option<area_tools::AdjustLocation>,
     /// Custom Light… (`light_maker`), while it is open.
     pub light_draft: Option<light_maker::LightDraft>,
+    /// The area editor's tool sections' own state (M4's U29: a tool opened
+    /// since the last frame, a main action to make).
+    pub(crate) tools: tool_sections::Tools,
     /// Bake Walkmesh to Transform (`bake_view`): its window, its steps'
     /// rows files, the save's question.
     pub bake: bake_view::BakeState,
@@ -1698,6 +1706,7 @@ impl Moonglow {
             unfolded_last: None,
             right_columns: false,
             right_bars: Vec::new(),
+            right_places: Vec::new(),
             window_bars: Vec::new(),
             window_bars_drawn: Vec::new(),
             right_fronts: Vec::new(),
@@ -1735,6 +1744,7 @@ impl Moonglow {
             area_views: HashMap::new(),
             adjust: None,
             light_draft: None,
+            tools: Default::default(),
             bake: Default::default(),
             last_light: Default::default(),
             find_instance: None,
@@ -2203,6 +2213,9 @@ impl Moonglow {
         shell::take_dock_sizes(self, ui.ctx());
         shell::keys_leave_panels_not_drawn(self, ui.ctx());
         palette_view::let_go_of_held_keys(ui.ctx());
+        // (The area editor's tools, M4's U29: opened, brought to the front;
+        // a main action pressed, made.)
+        tool_sections::follow(self);
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -2423,8 +2436,6 @@ impl Moonglow {
         dialog_view::test_window(self, ui);
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
-        light_maker::window(self, ui);
-        bake_view::window(self, ui);
         bake_view::save_window(self, ui.ctx());
         shell::draw_late(self, ui);
         // (A Bottom Dock panel drawn before what it shows changed.)
@@ -2446,7 +2457,6 @@ impl Moonglow {
         prefabs::save_window(self, ui.ctx());
         palette_categories::window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
-        area_props::chooser_window(self, ui.ctx());
         side_doc::closing_window(self, ui.ctx());
         table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
@@ -2456,7 +2466,6 @@ impl Moonglow {
         nwsync_view::window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
-        plugins::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
         plugins::project_window(self, ui.ctx());
         plugins::settings_window(self, ui.ctx());
@@ -3120,6 +3129,13 @@ impl Moonglow {
         self.last_line_tips
     }
 
+    /// Where the Right Dock's stacked section showing `panel` was drawn at
+    /// the last frame (its header included). For the window's tests.
+    #[doc(hidden)]
+    pub fn right_section_rect(&self, panel: Panel) -> Option<egui::Rect> {
+        self.right_places.iter().find(|(p, _)| *p == panel).map(|(_, r)| *r)
+    }
+
     /// The panel the Right Dock shows (its tab selected): `None` where the
     /// dock is folded, or holds no panel and is not drawn.
     pub fn right_dock_shows(&self) -> Option<Panel> {
@@ -3156,6 +3172,23 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn options_applied(&self) -> usize {
         self.options_applied
+    }
+
+    /// How often Edit Areas Together's rows shown and its ticked areas'
+    /// set were worked out, and how often the ticked areas were walked
+    /// (`tool_sections::Tools::walks`): never every frame. For the tests.
+    #[doc(hidden)]
+    pub fn areas_together_counts(&self) -> (u64, u64, u64) {
+        let made = self.area_chooser.as_ref().map_or((0, 0), |c| c.made);
+        (made.0, made.1, self.tools.walks)
+    }
+
+    /// The areas Edit Areas Together has ticked (none where it is closed),
+    /// and its row chosen by the keys. For the tests.
+    #[doc(hidden)]
+    pub fn areas_together_ticked(&self) -> Option<(Vec<mg_core::ResRef>, Option<mg_core::ResRef>)> {
+        let c = self.area_chooser.as_ref()?;
+        Some((c.chosen.iter().copied().collect(), c.cursor))
     }
 
     /// The read-only GFF views' counts (M4's U23), wherever they are drawn
@@ -3288,6 +3321,11 @@ impl Moonglow {
     /// resource or a tool of the module, not a side editor's (a hak's, a
     /// 2DA's, a tileset's: closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
+        // (The Plugins tab's install note goes with it, as its window's
+        // did: M4's U29.)
+        if *tab == Tab::Plugins {
+            self.plugins.install_note = None;
+        }
         if side_doc::is_side(tab) || matches!(tab, Tab::Options) {
             return;
         }

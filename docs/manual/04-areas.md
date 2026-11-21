@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
 ---
 
 # Areas
@@ -657,7 +657,9 @@ With **Options › Areas › Lights of any color and reach, written into a
 hak** on (off by default, so that nobody writes into a persistent
 world's haks without meaning to; a project's `moonglow.toml` can say it
 for the team: `[lights] generated`), **Add Light Here** and the
-palette's **Lights** have **Custom Light…** too. Its window takes the
+palette's **Lights** have **Custom Light…** too. It opens a **Custom Light**
+section in the Right Dock (not a window; it shows the dock if it was hidden
+or folded, with the section in front), which takes the
 light's **Color**, **Radius** (its light ends at twice it), a
 **Multiplier** that lengthens its reach (the game lengthens a model
 light's reach by it, not its brightness), its **Priority** (1 to 5:
@@ -665,12 +667,26 @@ where more lights shine at one place than the game draws, those of
 priority 1 are kept), whether creatures' shadows are cast from it, and
 whether it lights creatures and placeables as well as the ground.
 
+Two actions are at the top of the section: the main one and **Cancel**.
+The main one is **Write and Place**, or **Place** where a light of the
+same settings is in the hak already (its row is used again); on **Change
+Light…** it is **Write and Change** or **Change**. Beside them the
+section says where the light goes (at the point clicked, placed with a
+click, or how many lights it changes). Where the main action is grayed
+out, why is said right under the two (choose the hak, say). While the
+section holds the keys (outlined in the accent), **Enter** does the main
+action (from the new hak's name field too) and **Escape** is Cancel;
+**Escape** in the new hak's name gives up the field alone, and a second
+one cancels. A click anywhere else, Properties included, takes the keys
+from it. The section closes with its area's tab, when generated lights
+are turned off, and when another module is opened.
+
 **Written Into** chooses the hak: one of the module's own (not the
 game's), or a new one, by the name typed, made in your user folder's
 `hak` and put at the top of the module's hak list. Nothing is chosen
 at first (but the project's `[lights] hak`, where that is one of the
 module's), and nothing is written until one is. Before anything is
-written the window says what: the model (`mgl_` and twelve letters and
+written the section says what: the model (`mgl_` and twelve letters and
 digits, named by the settings) and placeables.2da with its row, into
 which hak, from which copy of the table, and that the module's players
 must have that hak (a persistent world ships it to them, by NWSync or
@@ -684,7 +700,7 @@ hak's, or the game's; never one in the module file itself, which the
 game does not read), with the light's row added at its end, or at the
 project's `[lights] first_row` (a range the team keeps for lights). So
 the hak must be the one whose copy the game reads, or above it: a hak
-below another that has placeables.2da is refused, and the window says
+below another that has placeables.2da is refused, and the section says
 which to choose. A light of the same settings as one written before is
 the same model and row: nothing is written again. A hak open in the
 hak editor is refused too (close it there first). So is a light whose
@@ -825,16 +841,24 @@ Aurora):
     `[bake]` says which hak, which rows and which file (see [The project
     file](03-modules.md#the-project-file-moonglowtoml)). Without `[bake]`, or on a
     static placeable or one with no visual transform, the item is
-    grayed out and its tip says why. The window says what it will make
-    before anything is written (the name, the row, the hak, the rows
+    grayed out and its tip says why. It opens a **Bake Walkmesh to
+    Transform** section in the Right Dock (not a window), which says what
+    it will make before anything is written (the name, the row, the hak, the rows
     file, or an earlier bake taken again) and turns on **Object
     Walkmeshes**, which draw the selection's walkmesh as it is (orange)
     and as baked (green). **Bake** makes it: one step to undo, which
     takes the hak and the rows file back too. Two placeables of one
     model and one transform (within a millimeter and a tenth of a
     degree) share one bake, so baking five stones the same way makes
-    one model; several selected are baked together. A model with no
-    walkmesh has nothing to bake, and the window says so. Until the
+    one model; several selected are baked together. **Bake** and **Cancel**
+    are at the top of the section, above its plan lines, the two color
+    chips (the walkmesh as it is, and as baked) and its note. Where it
+    can't bake, **Bake** is grayed out and why is said right under the
+    two buttons. While the section holds the keys (outlined in the
+    accent), **Enter** bakes and **Escape** cancels; a click anywhere
+    else, Properties included, takes the keys from it. The section
+    closes with its area's tab, and when another module is opened. A
+    model with no walkmesh has nothing to bake, and the section says so. Until the
     project's build adds a row, the game has no such row, and Verify
     says so (`bake-row-pending`); Moonglow draws the object as the
     build will make it meanwhile. Rows are never ones the game's table
@@ -1913,7 +1937,12 @@ tuft or two a clump).
 ### Several areas together
 
 **Edit › Edit Areas Together…** (or an area's right-click menu in the
-module tree) lists the module's areas to tick. Narrow the list by a name
+module tree) opens an **Edit Areas Together** section in the Right Dock,
+not a window: the command shows the dock if it was hidden or folded, puts
+the section in front and gives it the keys. At its top are **Open in
+Tab** and **Close**, and beside them how many areas are ticked ("3 areas
+ticked"). A rail of pages at its left has **Areas**, which lists the
+module's areas to tick, and the pages that edit them (below). Narrow the list by a name
 or ResRef, by tileset, by kind (interior or exterior, above or under
 ground, natural or artificial), and by what they hold (**Holding**):
 - **Music**: the areas that play it by day, by night or in battle (an
@@ -1925,7 +1954,7 @@ ground, natural or artificial), and by what they hold (**Holding**):
 
 What they hold is read as it is now, unsaved changes too. **Tick Shown**
 ticks what the filters leave; Advanced Search's **Choose N Area(s)…**
-opens the window with the areas of what it found ticked (an area with a
+opens the section with the areas of what it found ticked (an area with a
 creature of a class, an item property…).
 
 The areas ticked are kept under a name with **Save Set** (the name
@@ -1933,14 +1962,38 @@ typed beside it), for this module, in Moonglow's data folder's
 `area-sets` (a small JSON file to share or write by hand: `{ "module":
 "krezk", "areas": ["kz_square", "kz_inn"] }`); **Tick a Set…** ticks
 a set's areas again, and **Delete Set** deletes the set whose name is
-typed. **Edit N Together** opens one Area Properties for the areas
-ticked, shown as the first of them:
+typed.
+
+While the section has the keys (outlined in the accent: a click in it
+gives them to it, a click anywhere else, Properties included, takes
+them), **Up**, **Down**, **Page Up**, **Page Down**, **Home** and
+**End** move the row chosen in the checklist and **Space** ticks it
+(the Status Bar shows these only while the list has rows and the
+keys). **Enter** is Open in Tab on the Areas page alone, and **Escape**
+is Close. In a field, **Enter** commits it (on a shared page the change
+is set on each area, and the section stays) and **Escape** gives up the
+field alone: press **Escape** again to close. Opening another module
+closes the section and forgets its ticks.
+
+**Open in Tab** (enabled with two areas or more ticked; the module
+tree's **Edit N Together**, with several areas chosen, opens the same
+tab directly) opens one Area Properties for the areas ticked, as a tab
+or a window with OK and Cancel, shown as the first of them. The pages
+**Visual**, **Grass**, **Audio**, **Events**, **Advanced** and
+**Variables** of the section edit the same ticked areas at once, as you
+change them, without opening that tab: each change is one undo step
+(**≠** after a field's label, or before a group of choices, marks what
+the areas differ in; a screen reader says it as "mixed"). Where the dock is too narrow
+for a page's labels and fields side by side, each field goes under its
+label. Where Area Properties of any
+of the ticked areas is open, a shared page says so and offers **Show
+It**. Either way:
 
 - A change is set on each area, as one undoable step: the lighting scheme
   (each area's tiles get its lights) and environment, fog, weather, day
   and night, the ambient sounds and music, the event scripts, the check
   modifiers, player vs. player, the loading screen and No Rest.
-- **Give Every Area This Page's Settings**, at the top of each page,
+- **Copy This Page to Every Area**, at the top of each page,
   sets what the page shows (the first area's) on all the others, whether changed here or not: to make
   the areas alike in what they already have. On the Visual page, an area
   whose lighting scheme was another also gets its tiles' lights from the
@@ -1961,13 +2014,12 @@ ticked, shown as the first of them:
   those you delete are deleted from each, and each keeps its others.
 - **Grass**: turning the tileset's grass off or on is set on each area;
   a material's grass, added, changed or removed, is that material's in
-  each area (one an area has for it already changes in place). Give
-  Every Area This Page's Settings gives them the first area's grass as
-  it is.
+  each area (one an area has for it already changes in place). Copy
+  This Page to Every Area gives them the first area's grass as it is.
 - Names, tags and comments are an area's own, and aren't offered.
 
 To give every underground area the same music: Underground in the
-chooser, Tick Shown, Edit Together, then Audio. From the command line,
+Areas page, Tick Shown, then Audio. From the command line,
 `mg areas` does the same (see [Command-line tools](11-command-line.md)).
 
 ## Static placeables, many at once

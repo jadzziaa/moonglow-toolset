@@ -102,7 +102,7 @@ fn a_skill_rank_is_set_on_each_creature() {
         return;
     };
     assert!(h.query_by_label("Skills").is_some(), "the Skills page is offered");
-    assert!(h.query_all_by_value("≠").count() >= 1, "the first skill's ranks differ");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "the first skill's ranks differ");
     let hide = row_of(&h, "skills", "Label", "Hide");
     let rank = |s: &Struct| s.list("SkillList").and_then(|l| l.get(hide)?.integer("Rank"));
     let before = each(&mut h, &keys, rank);
@@ -153,7 +153,7 @@ fn a_special_ability_is_set_on_those_that_have_it() {
     };
     assert_eq!(each(&mut h, &keys, uses), [2, 3, 0]);
     assert!(h.query_by_label("≠ 2 of 3").is_some());
-    assert!(h.query_all_by_value("≠").count() >= 1, "the uses differ");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "the uses differ");
     let name = name_of(&h, "spells", "Name", fireball as usize);
     // The ability's row is the right-hand one.
     let right = |h: &Harness<'_, Moonglow>| {
@@ -329,7 +329,7 @@ fn a_store_s_restrictions_are_set_on_each() {
         (of("WillNotBuy").collect(), of("WillOnlyBuy").collect())
     };
     let before = each(&mut h, &keys, bases);
-    assert!(h.query_all_by_value("≠").count() >= 1, "the modes differ");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "the modes differ");
     assert!(h.query_by_label("≠ 2 of 3").is_some(), "the torch");
     assert!(h.query_by_label("≠ 1 of 3").is_some(), "the longsword");
     // The longsword, added: to the first; the third, which will only buy
@@ -400,7 +400,7 @@ fn a_class_is_set_on_those_that_have_it_within_the_rules() {
     };
     let before = each(&mut h, &keys, classes);
     assert_eq!(h.query_all_by_label("≠ 2 of 3").count(), 2);
-    assert!(h.query_all_by_value("≠").count() >= 1, "the Fighter's levels differ");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "the Fighter's levels differ");
     assert!(h.get_by_label("Levelup Wizard").accesskit_node().is_disabled());
     let level = number_beside(&h, "Class 1", 0);
     set_number(&h, &level, 7.0);
@@ -644,7 +644,7 @@ fn an_inventory_s_items_are_added_to_each_and_taken_from_each() {
     let before = each(&mut h, &keys, items);
     assert!(h.query_by_label("≠ 2 of 3").is_some(), "the longsword");
     assert!(h.query_by_label("≠ 1 of 3").is_some(), "the torch");
-    assert!(h.query_all_by_value("≠").count() >= 1, "two longswords and one");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "two longswords and one");
     h.get_all_by_label("Give to All").last().unwrap().click();
     h.run_steps(4);
     let given = each(&mut h, &keys, items);
@@ -725,7 +725,7 @@ fn an_item_is_equipped_on_each_creature() {
     let before = each(&mut h, &keys, primary);
     let backpacks = each(&mut h, &keys, |s| held_items(s, "ItemList"));
     assert!(before[0].is_some() && before[2].is_none());
-    assert!(h.query_all_by_value("≠").count() >= 1, "the third wears nothing");
+    assert!(h.query_all_by_value("mixed").count() >= 1, "the third wears nothing");
     type_into_hint(&mut h, "Find", "nw_waxbt001");
     h.get_by_label("Battleaxe").click();
     h.run();

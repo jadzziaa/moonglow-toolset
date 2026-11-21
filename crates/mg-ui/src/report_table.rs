@@ -197,6 +197,12 @@ pub(crate) fn has_keys(ctx: &egui::Context, keys: Keys) -> bool {
         && !crate::shell::keys_blocked(ctx)
         && !mg_uikit::popover::Popover::any_open(ctx)
         && !text_has_keys(ctx);
+    // (A popup open as the frame began takes this frame's keys, though it
+    // has closed by now: Enter that chose in a form's combo box list went
+    // to the row under it too, M4's U29 review.)
+    if has && crate::widgets::popup_was_open(ctx) {
+        return false;
+    }
     let left = egui::Id::new(FOCUS_LEFT);
     if !has {
         // (Its rows no longer have the keys: Tab goes as egui sends it.)

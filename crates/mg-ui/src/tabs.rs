@@ -85,6 +85,10 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
+    /// Plugins › Manage Plugins… (M4's U29; a window before): the plugins
+    /// installed, each one's state, Allow, Remove, Settings and Run Tests,
+    /// this project's plugins and the Console (`plugins::tab`).
+    Plugins,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
     /// A tile of a tileset (its index), to look at: its model and what
@@ -200,6 +204,7 @@ impl Tab {
             Tab::AdvancedSearch => "advanced-search",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
+            Tab::Plugins => "plugins",
             Tab::Tile { .. } => "tile",
             Tab::PluginPanel { .. } => "plugin-panel",
         }
@@ -307,7 +312,7 @@ impl Tab {
             "advanced-search",
             "plugin-panel",
         ];
-        const ROWS: [&str; 16] = [
+        const ROWS: [&str; 17] = [
             "script",
             "nui",
             "nui-source",
@@ -323,6 +328,7 @@ impl Tab {
             "manual",
             "references",
             "placeable-gallery",
+            "plugins",
             "tile",
         ];
         let blueprint = mg_area::ObjectKind::ALL.iter().any(|k| k.name() == kind);
@@ -702,6 +708,7 @@ impl Viewer<'_> {
             Tab::References => crate::references::ui(self.app, ui),
             Tab::AdvancedSearch => crate::search::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
+            Tab::Plugins => crate::plugins::tab(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
             Tab::Tile { tileset, tile } => crate::tile_view::ui(self.app, ui, *tileset, *tile),
             Tab::PluginPanel { plugin, panel } => {
@@ -1080,6 +1087,7 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         Tab::References => "References".into(),
         Tab::AdvancedSearch => "Advanced Search".into(),
         Tab::PlaceableGallery => "Appearance Gallery".into(),
+        Tab::Plugins => "Plugins".into(),
         Tab::Options => "Options".into(),
         Tab::Tile { tileset, tile } => {
             // (As an open area has the tileset: not read for a title.)
@@ -1206,6 +1214,7 @@ pub(crate) fn icon(tab: &Tab) -> mg_uikit::Icon {
         Tab::References => I::References,
         Tab::AdvancedSearch => I::Search,
         Tab::PlaceableGallery => I::Gallery,
+        Tab::Plugins => I::Plugin,
         Tab::Options => I::Settings,
         Tab::Tile { .. } => I::Tile,
         // (The plugin API names no icons: a panel is the plugins'.)
@@ -1664,6 +1673,7 @@ mod tests {
             (Tab::References, I::References),
             (Tab::AdvancedSearch, I::Search),
             (Tab::PlaceableGallery, I::Gallery),
+            (Tab::Plugins, I::Plugin),
             (Tab::Options, I::Settings),
             (Tab::InstanceModel { area: r, path }, I::Model),
             (Tab::Tile { tileset: r, tile: 0 }, I::Tile),
@@ -1702,6 +1712,7 @@ mod tests {
                 | Tab::References
                 | Tab::AdvancedSearch
                 | Tab::PlaceableGallery
+                | Tab::Plugins
                 | Tab::Options
                 | Tab::InstanceModel { .. }
                 | Tab::Tile { .. }

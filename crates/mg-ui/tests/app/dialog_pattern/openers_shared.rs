@@ -360,7 +360,12 @@ fn retype_as_a_line_of_the_table(h: &mut Harness<'static, Moonglow>) {
 const COMMAND: &str = "[commands]\nupdate = \"echo said\"\n";
 
 fn project_with_a_command() -> Option<Harness<'static, Moonglow>> {
-    let dir = project_folder(&super::scratch("u27-shared-command"), &[("moonglow.toml", COMMAND)]);
+    project_with_a_command_in("u27-shared-command")
+}
+
+/// [`project_with_a_command`], in a scratch folder of its own (`name`).
+pub(crate) fn project_with_a_command_in(name: &str) -> Option<Harness<'static, Moonglow>> {
+    let dir = project_folder(&super::scratch(name), &[("moonglow.toml", COMMAND)]);
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&dir);
@@ -369,7 +374,7 @@ fn project_with_a_command() -> Option<Harness<'static, Moonglow>> {
 
 /// The command run, answered, and its output shown (File › Project ›
 /// Command Output).
-fn command_output(h: &mut Harness<'static, Moonglow>) {
+pub(crate) fn command_output(h: &mut Harness<'static, Moonglow>) {
     h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
     settle(h);
     // (Asked the first time; allowed, it runs without asking.)
@@ -470,10 +475,6 @@ pub(crate) fn openers() -> Vec<Opener> {
             project_with_allowed_plugin,
             |h| h.state_mut().open_plugin_settings("example.builder-tags"),
         ),
-        Opener::new("plugins.rs:window#1", "Plugins", plain, |h| {
-            h.state_mut().plugins.window = true
-        })
-        .bare(),
         Opener::new("plugin_events.rs:window#1", "Before Saving", house_rules, save_with_a_warning),
         // (A running job asks for a frame every 50 ms, its clock and
         // spinner: `.job()` waits for its window to be still, not to rest.)

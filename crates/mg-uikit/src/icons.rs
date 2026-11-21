@@ -1,4 +1,4 @@
-//! The drawn icon set: 194 icons in a 24 by 24 box, strokes 1.5 wide with
+//! The drawn icon set: 196 icons in a 24 by 24 box, strokes 1.5 wide with
 //! round caps and joins, no fill, drawn at 16 px (the spec's section 8).
 //!
 //! The set is `icons/icons.json` (each name's SVG markup), made into Rust
@@ -998,8 +998,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_set_has_194_icons_named_as_in_the_file() {
-        assert_eq!(Icon::ALL.len(), 194);
+    fn the_set_has_196_icons_named_as_in_the_file() {
+        assert_eq!(Icon::ALL.len(), 196);
         let json = include_str!("../icons/icons.json");
         for icon in Icon::ALL {
             assert_eq!(Icon::from_name(icon.name()), Some(icon));

@@ -503,13 +503,16 @@ fn moved_target(
         Some(None) => return false,
         None => {}
     }
-    t.also = std::mem::take(&mut t.also)
-        .into_iter()
-        .filter_map(|(k, p)| match now(&k, &p) {
-            Some(to) => to,
-            None => Some((k, p)),
-        })
-        .collect();
+    t.also = std::sync::Arc::new(
+        t.also
+            .iter()
+            .cloned()
+            .filter_map(|(k, p)| match now(&k, &p) {
+                Some(to) => to,
+                None => Some((k, p)),
+            })
+            .collect(),
+    );
     true
 }
 

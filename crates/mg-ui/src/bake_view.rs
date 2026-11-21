@@ -2,9 +2,9 @@
 //! Position menu), and the question a save asks where baked models are
 //! no longer used ([`mg_module::bake`]; `docs/walkmesh-bake-proposal.md`).
 //!
-//! The window says what a bake will make before anything is written (the
-//! name, the row, the hak, the rows file, an earlier bake taken again)
-//! and shows the selection's walkmeshes in the area view as they are
+//! Its Right Dock panel (M4's U29; a window before) says what a bake will
+//! make before anything is written (the name, the row, the hak, the rows
+//! file, an earlier bake taken again) and shows the selection's walkmeshes in the area view as they are
 //! (orange) and as baked (green). Baking writes the models into the
 //! project's hak and the rows into its rows file, and sets each object's
 //! `Appearance`: one step of Undo, which takes the hak and the rows file
@@ -22,11 +22,11 @@ use mg_module::bake::{self, Plan};
 
 use crate::{Action, Moonglow};
 
-/// The bake window's state, its steps' rows files kept for Undo, and the
-/// save's question.
+/// Bake Walkmesh to Transform's state (its Right Dock panel's, M4's U29),
+/// its steps' rows files kept for Undo, and the save's question.
 #[derive(Debug, Default)]
 pub struct BakeState {
-    /// The window, while it is open.
+    /// Its panel, while it is open.
     pub draft: Option<BakeDraft>,
     /// What the Position menu says of the placeables selected, what for,
     /// and the pass it was last asked in: worked out as the menu opens
@@ -59,13 +59,13 @@ pub(crate) struct TidyAsk {
     then: Action,
 }
 
-/// The Bake Walkmesh window's state.
+/// The Bake Walkmesh panel's state.
 #[derive(Debug, Clone)]
 pub struct BakeDraft {
     pub area: ResRef,
     /// The placeables baked (their places in the area's list).
     pub objects: Vec<usize>,
-    /// What baking them will do, worked out as the window opened, and
+    /// What baking them will do, worked out as the panel opened, and
     /// again when the area's objects changed since.
     pub plan: Result<Plan, String>,
     /// When the area's GIT last changed as the plan was made
@@ -217,7 +217,7 @@ pub(crate) fn menu_items(app: &mut Moonglow, view: &mut crate::area_view::AreaVi
     }
 }
 
-/// Opens the window on placeables `objects` of `area`, with its plan, and
+/// Opens the panel on placeables `objects` of `area`, with its plan, and
 /// the area view's Object Walkmeshes on (to see before and after), and
 /// its overlays shown (the header's Overlays switch on, kept so).
 pub(crate) fn open(app: &mut Moonglow, area: ResRef, objects: Vec<usize>) {
@@ -229,6 +229,8 @@ pub(crate) fn open(app: &mut Moonglow, area: ResRef, objects: Vec<usize>) {
     app.settings.hide_overlays = false;
     let planned_at = changed_at(app, area);
     app.bake.draft = Some(BakeDraft { area, objects, plan, planned_at });
+    // (Brought with its keys, open before or not: M4's U29.)
+    app.tools.bring = Some(crate::shell::Panel::Bake);
 }
 
 /// Sets `objects` (each with the row it goes back to) back: one step.
@@ -246,80 +248,99 @@ fn unbake(app: &mut Moonglow, area: ResRef, objects: &[(usize, u32)]) {
     app.actions.push(Action::Apply(Command::new("Unbake Walkmesh", edits)));
 }
 
-/// Draws the window, when open.
-pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(mut d) = app.bake.draft.take() else { return };
+/// The Right Dock's Bake Walkmesh to Transform (M4's U29; a window
+/// before), while it is open: Bake and Cancel at its top
+/// (`tool_sections::actions`), then what baking will make, the two colors
+/// the view draws the walkmeshes in, as they are and as baked, and the
+/// note. `detail`: its header's words where its section has no header.
+pub(crate) fn panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    detail: Option<&str>,
+) -> Option<crate::tool_sections::Answer> {
+    let d = app.bake.draft.as_mut()?;
     // (Its placeables scaled or turned again, or given another
-    // appearance, with the window open: what it would bake is worked out
-    // from them as they are now.)
-    let now = changed_at(app, d.area);
-    if now != d.planned_at {
-        d.plan = plan_for(app, d.area, &d.objects);
+    // appearance, with it open: what it would bake is worked out from
+    // them as they are now.)
+    let (area, objects, planned_at) = (d.area, d.objects.clone(), d.planned_at);
+    let now = changed_at(app, area);
+    if now != planned_at {
+        let plan = plan_for(app, area, &objects);
+        let d = app.bake.draft.as_mut()?;
+        d.plan = plan;
         d.planned_at = now;
     }
-    let mut open = true;
-    // (Beside the view, not over the objects whose walkmeshes it shows.)
-    let corner = ui.ctx().content_rect().right_top() + egui::vec2(-24.0, 96.0);
-    let footed = crate::widgets::dialog(ui.ctx(), "Bake Walkmesh to Transform", &mut open)
-        .pivot(egui::Align2::RIGHT_TOP)
-        .default_pos(corner)
-        .resizable(false)
-        .collapsible(false)
-        .show_foot(ui.ctx(), |ui| {
-            crate::widgets::fit_width(ui, 460.0);
-            match &d.plan {
-                Ok(plan) => {
-                    for line in plan.describe().lines() {
-                        ui.add(egui::Label::new(line).wrap());
-                    }
-                    ui.add_space(4.0);
-                    // (A square of each color before what it shows.)
-                    let chip = |ui: &mut egui::Ui, color| {
-                        let side = egui::Vec2::splat(10.0);
-                        let (rect, _) = ui.allocate_exact_size(side, egui::Sense::hover());
-                        ui.painter().rect_filled(rect, 1.0, color);
-                    };
-                    ui.horizontal(|ui| {
-                        chip(ui, BEFORE);
-                        ui.label("as the game has it now");
-                        chip(ui, AFTER);
-                        ui.label("as baked");
-                    });
-                    ui.weak(
+    let d = app.bake.draft.as_ref()?;
+    let ok = d.plan.as_ref().is_ok_and(|p| p.bakes().next().is_some());
+    let main = Some(("Bake", ok, "Write the models and rows, and set each placeable's appearance"));
+    let keys = crate::palette_view::Keys::Bake;
+    let leave = ("Cancel", "Close it without baking");
+    let why = match &d.plan {
+        Err(e) => Some(e.clone()),
+        Ok(_) if !ok => Some(NOTHING.to_string()),
+        Ok(_) => None,
+    };
+    let answer = crate::tool_sections::actions(ui, keys, main, leave, detail, why.as_deref());
+    let d = app.bake.draft.as_ref()?;
+    // (Where it cannot bake, why is said under its actions, in sight.)
+    crate::tool_sections::scrolled(ui, "bake-walkmesh", |ui| {
+        if let Ok(plan) = &d.plan {
+            for line in plan.describe().lines() {
+                ui.add(egui::Label::new(line).wrap());
+            }
+            ui.add_space(4.0);
+            // (A square of each color before what it shows.)
+            let chip = |ui: &mut egui::Ui, color| {
+                let side = egui::Vec2::splat(10.0);
+                let (rect, _) = ui.allocate_exact_size(side, egui::Sense::hover());
+                ui.painter().rect_filled(rect, 1.0, color);
+            };
+            ui.horizontal_wrapped(|ui| {
+                chip(ui, BEFORE);
+                ui.label("as the game has it now");
+                chip(ui, AFTER);
+                ui.label("as baked");
+            });
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
                         "The model is drawn as before; only what it blocks changes. Players \
                          need the hak, and the project's build adds the rows to placeables.2da.",
-                    );
-                }
-                Err(e) => {
-                    ui.colored_label(ui.visuals().warn_fg_color, e);
-                }
-            }
-            let ok = d.plan.as_ref().is_ok_and(|p| p.bakes().next().is_some());
-            ((), crate::widgets::Foot::new().main("Bake", ok).cancel())
-        });
-    let done = match &footed {
-        Some(f) if f.pressed.main() => Some(true),
-        Some(f) if f.pressed.cancelled() => Some(false),
-        _ => None,
-    };
-    match done {
-        Some(true) => {
-            if let Ok(plan) = &d.plan {
-                made(app, &d, plan);
-            }
+                    )
+                    .weak(),
+                )
+                .wrap(),
+            );
         }
-        Some(false) => {}
-        None if open => app.bake.draft = Some(d),
-        None => {}
+    });
+    answer.or_else(|| crate::tool_sections::enter_after(ui, keys, ok, true))
+}
+
+/// "Bake" where it is open and something can be baked (the Status Bar's
+/// Enter hint).
+pub(crate) fn main_words(app: &Moonglow) -> Option<&'static str> {
+    let d = app.bake.draft.as_ref()?;
+    d.plan.as_ref().is_ok_and(|p| p.bakes().next().is_some()).then_some("Bake")
+}
+
+/// Bake pressed (made as the frame begins: `tool_sections::follow`): the
+/// plan written, the panel closed.
+pub(crate) fn finish(app: &mut Moonglow) {
+    let Some(d) = app.bake.draft.take() else { return };
+    if let Ok(plan) = &d.plan {
+        made(app, &d, plan);
     }
 }
+
+/// Why Bake is disabled where the plan bakes nothing.
+const NOTHING: &str = "Nothing here has a walkmesh to bake.";
 
 /// Before: the walkmeshes as the game has them.
 const BEFORE: egui::Color32 = egui::Color32::from_rgb(255, 150, 40);
 /// After: as baked.
 const AFTER: egui::Color32 = egui::Color32::from_rgb(80, 220, 110);
 
-/// The baked walkmeshes the window would make in `area`, in the area's
+/// The baked walkmeshes the panel would make in `area`, in the area's
 /// space, each with its object's place among the area's objects: drawn
 /// green over the area view's own.
 pub(crate) fn after_faces(app: &Moonglow, area: &mg_area::AreaModel, at: ResRef) -> Vec<[Vec3; 3]> {

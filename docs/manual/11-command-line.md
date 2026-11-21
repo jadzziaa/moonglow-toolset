@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T14:17:07Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
 ---
 
 # Command-line tools
@@ -251,7 +251,7 @@ applies it as the editors would.
 ## Several areas at once
 
 `mg areas` does from the command line what **Edit › Edit Areas Together…**
-does in the window (see [Areas](04-areas.md)). Without a change, it lists
+does in the Right Dock's Edit Areas Together section (see [Areas](04-areas.md)). Without a change, it lists
 the areas chosen: ResRef, name, tileset and kind. Every ARE the module
 holds is listed, and one its area list (`Mod_Area_list`) leaves out is
 warned of: the game doesn't load it (`listed` in the JSON). Names are

@@ -3551,3 +3551,135 @@ fn welcome_page() {
     }
     r.end();
 }
+
+/// M4's U29 (the review's A18, `docs/deferred.md`): Edit Areas Together
+/// over an authored module of 3,000 areas (each a 1 by 1 area of the
+/// game's Rural tileset, a third of them interior, a third underground),
+/// opened by Edit's menu: the 3,000 listed, then all ticked (Tick Shown),
+/// then their shared Visual page (before U29 the Area Properties window
+/// of the 3,000, opened by its Edit 3000 Together; since U29 the Right
+/// Dock's Edit Areas Together section, its Visual page chosen on its
+/// rail). `FRAME_VIEW=Edit Areas Together` picks them.
+#[test]
+#[ignore]
+fn edit_areas_together_3000() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    const COUNT: usize = 3_000;
+    let dir = mg_testkit::scratch_dir("frame-perf-u29");
+    let path = dir.join("areas3000.mod");
+    {
+        use mg_gff::{Gff, Struct, Value};
+        let mut m = mg_module::Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let mut list = Vec::new();
+        for n in 0..COUNT {
+            let name = format!("area{n:04}");
+            let r = ResRef::from_str(&name).unwrap();
+            let mut item = Struct::new(6);
+            item.set("Area_Name", Value::resref(r));
+            list.push(item);
+            let mut are = Gff::new(*b"ARE ");
+            let title = mg_core::LocString::from_text(
+                mg_core::Language::ENGLISH,
+                mg_core::Gender::Male,
+                format!("Area {n}"),
+            );
+            are.root.set("Name", Value::LocString(title));
+            are.root.set("ResRef", Value::resref(r));
+            are.root.set("Tag", Value::String(name.to_uppercase().into_bytes()));
+            are.root.set("Tileset", Value::resref(ResRef::from_str("ttr01").unwrap()));
+            are.root.set("Width", Value::Int(1));
+            are.root.set("Height", Value::Int(1));
+            are.root.set("Flags", Value::Dword([0, 1, 3][n % 3]));
+            are.root.set("DayNightCycle", Value::Byte(1));
+            let mut tile = Struct::new(1);
+            tile.set("Tile_ID", Value::Int(0));
+            tile.set("Tile_Orientation", Value::Int(0));
+            tile.set("Tile_Height", Value::Int(0));
+            are.root.set("Tile_List", Value::List(vec![tile]));
+            m.set(ResKey::new(r, ResType::ARE), are.to_bytes().unwrap());
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("AreaProperties", Value::Struct(Struct::new(100)));
+            m.set(ResKey::new(r, ResType::GIT), git.to_bytes().unwrap());
+        }
+        info.root.set("Mod_Area_list", Value::List(list));
+        m.set_info(&info).unwrap();
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    }
+    let mut r = Report::new();
+    println!("Edit Areas Together over {COUNT} areas: frames at {:?}", screen_size());
+    let rs = render_state();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    // (The areas the module opened with, closed: the views time the
+    // section or the window, not an area's view beside them.)
+    let shown: Vec<Tab> = (h.state().dock.iter_all_tabs())
+        .map(|(_, t)| t.clone())
+        .filter(|t| matches!(t, Tab::Area(_) | Tab::ModuleProperties))
+        .collect();
+    for t in &shown {
+        close(&mut h, t);
+    }
+    menu(&mut h, "Edit", "Edit Areas Together…");
+    h.run_steps(3);
+    // (A row is named "Area 0 (area0000)" or, since U29, "area0000 (Area 0)".)
+    let listed = h.query_all_by_label_contains("(area").count()
+        + h.query_all_by_label_contains("(Area ").count();
+    assert!(listed > 0, "no area rows: Edit Areas Together not shown");
+    println!("  ({listed} of the {COUNT} area rows laid out)");
+    // (The pointer moved and the wheel turned over the list's rows, as
+    // they lie: the window's before U29, the Right Dock's section since.
+    // Over the whole screen, the wheel was turned at its middle, which
+    // since U29 is the empty editor area, not the list: the review of
+    // U29.)
+    let rows = rows_rect(&h);
+    view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas listed"), rows, |_, _| {});
+    click(&mut h, "Tick Shown");
+    h.run_steps(2);
+    let rows = rows_rect(&h);
+    view_in(&mut h, &mut r, &format!("Edit Areas Together, {COUNT} areas ticked"), rows, |_, _| {});
+    // Their shared pages: the window (before U29), or the section's
+    // Visual page (since).
+    let together = format!("Edit {COUNT} Together");
+    if h.query_by_label(&together).is_some() {
+        click(&mut h, &together);
+    } else {
+        click(&mut h, "Visual");
+    }
+    h.run_steps(3);
+    assert!(
+        h.query_by_label_contains("Always Dark").is_some(),
+        "not on the Visual page of the {COUNT} areas"
+    );
+    // (Over the page, round its Always Dark.)
+    let page = h.query_by_label_contains("Always Dark").map(|n| {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+        n.rect().expand2(egui::vec2(100.0, 120.0)).intersect(screen)
+    });
+    view_in(
+        &mut h,
+        &mut r,
+        &format!("Edit Areas Together, {COUNT} areas, Visual page"),
+        page,
+        |_, _| {},
+    );
+    r.end();
+}
+
+/// Where the list of Edit Areas Together's rows lies on the screen (the
+/// rows laid out, in sight).
+fn rows_rect(h: &App<'_>) -> Option<egui::Rect> {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size());
+    h.query_all_by(|n| {
+        n.label().is_some_and(|l| l.contains("(Area ") || l.contains("(area"))
+            && n.bounding_box().is_some()
+    })
+    .map(|n| n.rect().intersect(screen))
+    .filter(|r| r.is_positive())
+    .reduce(|a, b| a.union(b))
+}

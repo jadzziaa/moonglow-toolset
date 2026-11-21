@@ -290,6 +290,22 @@ pub enum Panel {
     /// type, size, movement rate, personal space, height and blood color
     /// (`appearance_gallery::facts`).
     Appearance,
+    /// Edit Areas Together (M4's U29; a window before): the areas chosen by
+    /// what they hold (`area_props::AreaChooser`) and their shared pages,
+    /// Area Properties' Visual, Grass, Audio, Events, Advanced and Variables,
+    /// on a rail as Properties' are, what is changed set on each at once: a
+    /// section of the Right Dock while it is open, whatever the editor in
+    /// front (`area_props::together_panel`).
+    AreasTogether,
+    /// Custom Light and Change Light (M4's U29, the Light Maker; a window
+    /// before): a section of its area's Right Dock while it is open, its
+    /// main action and Cancel in the row at its top (`light_maker::panel`).
+    LightMaker,
+    /// Bake Walkmesh to Transform (M4's U29; a window before): a section of
+    /// its area's Right Dock while it is open, the view showing the
+    /// walkmeshes as baked, Bake and Cancel in the row at its top
+    /// (`bake_view::panel`).
+    Bake,
     /// A panel of the unit tests' own (`shell::tests`): numbers under
     /// [`SAMPLE_BOTTOM`] are the Right Dock's, the others the Bottom
     /// Dock's, the count their badge. Built only into the library's own
@@ -347,7 +363,7 @@ impl Panel {
     /// own (`Panel::keys`): where they are while it is not drawn, they
     /// leave it ([`keys_leave_panels_not_drawn`]). A new panel with keys
     /// of its own is named here.
-    pub(crate) const KEYED: [Panel; 35] = [
+    pub(crate) const KEYED: [Panel; 38] = [
         Panel::Module,
         Panel::Resources,
         Panel::Outliner,
@@ -383,6 +399,9 @@ impl Panel {
         Panel::HakConflicts,
         Panel::ResourcesUsed,
         Panel::ClaimsTable,
+        Panel::AreasTogether,
+        Panel::LightMaker,
+        Panel::Bake,
     ];
     /// The Bottom Dock's global panels (shown whatever the editor in
     /// front), in their tabs' order after the editor's own: the Script
@@ -431,7 +450,10 @@ impl Panel {
             | Panel::Faction
             | Panel::Reaction
             | Panel::Reactions
-            | Panel::Appearance => Dock::Right,
+            | Panel::Appearance
+            | Panel::AreasTogether
+            | Panel::LightMaker
+            | Panel::Bake => Dock::Right,
             Panel::Log
             | Panel::Compiler
             | Panel::Bookmarks
@@ -486,6 +508,9 @@ impl Panel {
             Panel::HakConflicts => "Hak Pak Conflict Analysis",
             Panel::ResourcesUsed => "Resources Used",
             Panel::ClaimsTable => "Claims Table",
+            Panel::AreasTogether => "Edit Areas Together",
+            Panel::LightMaker => "Custom Light",
+            Panel::Bake => "Bake Walkmesh to Transform",
             #[cfg(test)]
             Panel::Sample(n) => SAMPLE_NAMES[usize::from(n) % SAMPLE_NAMES.len()],
         }
@@ -531,6 +556,9 @@ impl Panel {
             Panel::HakConflicts,
             Panel::ResourcesUsed,
             Panel::ClaimsTable,
+            Panel::AreasTogether,
+            Panel::LightMaker,
+            Panel::Bake,
         ];
         #[cfg(test)]
         if let Some(n) = SAMPLE_NAMES.iter().position(|s| *s == name) {
@@ -579,6 +607,9 @@ impl Panel {
             Panel::HakConflicts => Icon::Hak,
             Panel::ResourcesUsed => Icon::Statistics,
             Panel::ClaimsTable => Icon::Lock,
+            Panel::AreasTogether => Icon::Together,
+            Panel::LightMaker => Icon::CustomLight,
+            Panel::Bake => Icon::Bake,
             #[cfg(test)]
             Panel::Sample(_) => Icon::Eye,
         }
@@ -650,6 +681,9 @@ impl Panel {
             }
             Panel::ResourcesUsed => "Resources Used: what the area's view has loaded",
             Panel::ClaimsTable => "Claims Table: whose each area is",
+            Panel::AreasTogether => "Edit Areas Together: several areas' shared pages",
+            Panel::LightMaker => "Custom Light: a light of your color and reach, made into a hak",
+            Panel::Bake => "Bake Walkmesh to Transform: what the selected placeables block",
             #[cfg(test)]
             Panel::Sample(_) => "A test's panel",
         }
@@ -764,6 +798,11 @@ impl Panel {
             // U22.)
             Panel::Entry | Panel::Category => crate::journal_view::panel_detail(app, self),
             Panel::Reaction | Panel::Reactions => crate::faction_view::panel_detail(app, self),
+            // (M4's U29: the areas ticked, the light's words, the
+            // placeables to bake.)
+            Panel::AreasTogether | Panel::LightMaker | Panel::Bake => {
+                crate::tool_sections::detail(app, self)
+            }
             _ => None,
         }
     }
@@ -849,6 +888,11 @@ impl Panel {
             Panel::HakConflicts => app.hak_report.is_some(),
             Panel::ResourcesUsed => app.area_stats.is_some(),
             Panel::ClaimsTable => app.claims.table.is_some(),
+            // (M4's U29: while open, Custom Light and Bake beside their
+            // area alone.)
+            Panel::AreasTogether | Panel::LightMaker | Panel::Bake => {
+                crate::tool_sections::shown_beside(app, self, brings.area)
+            }
             #[cfg(test)]
             Panel::Sample(n) => n != SAMPLE_EMPTY && brings.has(self),
         }
@@ -914,6 +958,10 @@ impl Panel {
             Panel::HakConflicts => Keys::HakReport,
             Panel::ResourcesUsed => Keys::ResourcesUsed,
             Panel::ClaimsTable => Keys::ClaimsTable,
+            // (M4's U29: Enter their main action, Escape their Cancel.)
+            Panel::AreasTogether => Keys::AreasTogether,
+            Panel::LightMaker => Keys::LightMaker,
+            Panel::Bake => Keys::Bake,
             #[cfg(test)]
             Panel::Sample(_) => Keys::List,
         }
@@ -964,6 +1012,10 @@ pub(crate) struct Brings {
     /// Reference 44 and Help 56, where the Script board's dock has 56
     /// and 44.
     pub(crate) window_shares: &'static [u16],
+    /// The area it is, where it is an area's editor: the one its tool
+    /// sections (M4's U29: Custom Light, Bake Walkmesh to Transform) are
+    /// shown beside.
+    pub(crate) area: Option<mg_core::ResRef>,
 }
 
 impl Brings {
@@ -1162,23 +1214,40 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         crate::Tab::Area(area) if app.ws.is_some() && tile_properties_shown(app, *area) => {
             let right = if palettes { AREA_TILES_RIGHT } else { TILES_ALONE };
             let folded = AREA_TILES_FOLDED;
-            Brings { outliner: true, right, folded, window_right: TILES_ALONE, ..Brings::default() }
+            let area = Some(*area);
+            Brings {
+                outliner: true,
+                right,
+                folded,
+                window_right: TILES_ALONE,
+                area,
+                ..Brings::default()
+            }
         }
         // (Select Tiles with Tile Properties hidden: the palettes alone,
         // not the objects' Properties, which Select Tiles does not
         // select.)
         crate::Tab::Area(area) if app.ws.is_some() && tiles_in_hand(app, *area) => {
-            Brings { outliner: true, right, ..Brings::default() }
+            Brings { outliner: true, right, area: Some(*area), ..Brings::default() }
         }
         // (Any other tool: Properties under the palettes, the Main board's
         // lower section; in the area's own window where it is dragged
         // out.)
-        crate::Tab::Area(_) if app.ws.is_some() => {
+        crate::Tab::Area(area) if app.ws.is_some() => {
             let right = if palettes { AREA_PROPS_RIGHT } else { PROPS_ALONE };
             let folded = AREA_PROPS_FOLDED;
             let shares = AREA_PROPS_SHARES;
             let window_right = PROPS_ALONE;
-            Brings { outliner: true, right, folded, window_right, shares, ..Brings::default() }
+            let area = Some(*area);
+            Brings {
+                outliner: true,
+                right,
+                folded,
+                window_right,
+                shares,
+                area,
+                ..Brings::default()
+            }
         }
         crate::Tab::Area(_) => Brings { right, ..Brings::default() },
         crate::Tab::NoArea => Brings { right, ..Brings::default() },
@@ -1402,6 +1471,13 @@ pub(crate) fn right_sections(app: &Moonglow) -> Vec<Vec<Panel>> {
     if Panel::Palette.available(app) && !brings.has(Panel::Palette) {
         let asked = PALETTES.iter().copied();
         sections.insert(0, asked.filter(|p| *p == Panel::Palette || !brings.has(*p)).collect());
+    }
+    // (M4's U29: the tools open, a section of their own under the rest,
+    // whatever the editor brings; first in the one tab bar under 1400, as
+    // no editor's `folded` names them.)
+    let tools = crate::tool_sections::section(app, brings.area);
+    if !tools.is_empty() {
+        sections.push(tools);
     }
     sections
 }
@@ -3464,6 +3540,10 @@ pub(crate) fn shown(
     if let Some(hints) = crate::dock_reports::hints(app, ctx, &k) {
         shown.hints = hints;
     }
+    // (The area editor's tools with the keys, M4's U29: theirs.)
+    if let Some(hints) = crate::tool_sections::hints(app, ctx) {
+        shown.hints = hints;
+    }
     // The Resources panel in use: its hints (the Resources board's), the
     // editor's counts kept.
     if let Some(over) = app.resources_here {
@@ -4062,6 +4142,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     app.late_slots.clear();
     app.right_columns = false;
     app.right_bars.clear();
+    app.right_places.clear();
     let sections = right_sections(app);
     let folded_as = editor_brings(app).folded;
     let held = folded_order(&sections, folded_as);
@@ -4237,6 +4318,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                     _ => format!("{RIGHT_DOCK}, Section {}", index + 1),
                 };
                 let front = section_front(app, section);
+                app.right_places.push((front, place));
                 if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(place) {
                     pressed = Some(front);
                     app.plugins.pane =
@@ -4667,7 +4749,9 @@ fn section_rects(
     }
     let shares: Vec<f32> = sections.iter().map(|s| stack.share(app, s)).collect();
     let leasts: Vec<f32> = sections.iter().map(|s| section_least(app, s)).collect();
-    let heights = section_heights_with(column.height() - (count - 1) as f32, &shares, &leasts);
+    let room = column.height() - (count - 1) as f32;
+    let heights = tools_heights(app, room, sections, &shares, &leasts)
+        .unwrap_or_else(|| section_heights_with(room, &shares, &leasts));
     let mut rects = Vec::with_capacity(count);
     let mut y = column.top();
     for h in &heights {
@@ -4675,6 +4759,52 @@ fn section_rects(
         y += h + 1.0;
     }
     rects
+}
+
+/// The heights of stacked `sections` in `room` where one is the tools'
+/// (M4's U29 review): the tools' section its share of the room
+/// (`tool_sections::share`, two thirds at first), the others the rest by
+/// their own shares, at least their least where the rest has it; Properties
+/// with nothing selected only its header ([`shut`]), what its share was going
+/// to the tools'. Judged by the selection alone, never by what was drawn:
+/// nothing that flips from frame to frame. None: no tools' section.
+fn tools_heights(
+    app: &Moonglow,
+    room: f32,
+    sections: &[Vec<Panel>],
+    shares: &[f32],
+    leasts: &[f32],
+) -> Option<Vec<f32>> {
+    let tools = sections.iter().position(|s| crate::tool_sections::is_tools(s))?;
+    let header = mg_uikit::metrics::DOCK_TABS;
+    let others: Vec<usize> = (0..sections.len()).filter(|i| *i != tools).collect();
+    let all: f32 = others.iter().map(|i| shares[*i]).sum::<f32>().max(f32::EPSILON);
+    let rest = room * (1.0 - crate::tool_sections::share(app));
+    let open: Vec<usize> = others.iter().copied().filter(|i| !shut(app, &sections[*i])).collect();
+    let open_share: f32 = open.iter().map(|i| shares[*i]).sum();
+    let open_room = (rest * open_share / all).max(0.0);
+    let open_heights = section_heights_with(
+        open_room,
+        &open.iter().map(|i| shares[*i]).collect::<Vec<_>>(),
+        &open.iter().map(|i| leasts[*i]).collect::<Vec<_>>(),
+    );
+    let mut heights = vec![0.0; sections.len()];
+    for (i, h) in open.iter().zip(open_heights) {
+        heights[*i] = h.round();
+    }
+    for i in others.iter().filter(|i| !open.contains(i)) {
+        heights[*i] = header;
+    }
+    let used: f32 = heights.iter().sum();
+    heights[tools] = (room - used).max(0.0);
+    Some(heights)
+}
+
+/// Whether the section `section` is Properties with nothing selected,
+/// beside an open tool: only its header is shown ([`tools_heights`]).
+fn shut(app: &Moonglow, section: &[Panel]) -> bool {
+    section == [Panel::Properties]
+        && crate::properties_panel::nothing_selected(app, app.active_editor())
 }
 
 /// The lines between stacked sections at `rects` (from [`section_rects`]),
@@ -4694,18 +4824,32 @@ fn section_seams(
         let top = rects[i].bottom();
         let line = egui::Rect::from_x_y_ranges(rects[i].x_range(), top..=top + 1.0);
         ui.painter().rect_filled(line, 0.0, t.line);
+        // (Not under a Properties shut beside a tool: its header alone is
+        // shown while nothing is selected.)
+        if crate::tool_sections::is_tools(&sections[i + 1]) && shut(app, &sections[i]) {
+            continue;
+        }
         let grip = line.expand2(egui::vec2(0.0, 3.0));
         let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::drag());
         if seam.hovered() || seam.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
-        let (Some(at), Some(kind)) = (seam.interact_pointer_pos(), stack.kind) else { continue };
+        let Some(at) = seam.interact_pointer_pos() else { continue };
         if !seam.dragged() {
             continue;
         }
         let pair = rects[i].height() + rects[i + 1].height();
         let least = SECTION_LEAST.min(pair / 2.0);
         let upper = (at.y - rects[i].top()).clamp(least, pair - least);
+        // (The seam over a tool's section: its share of the column, kept
+        // for the run, as the Properties sections' seams keep theirs.)
+        if crate::tool_sections::is_tools(&sections[i + 1]) {
+            let room: f32 = rects.iter().map(egui::Rect::height).sum();
+            let tools = rects[i + 1].bottom() - rects[i].top() - upper;
+            app.tools.share = Some((tools / room.max(1.0)).clamp(0.1, 0.95));
+            continue;
+        }
+        let Some(kind) = stack.kind else { continue };
         let mut now: Vec<f32> = rects.iter().map(egui::Rect::height).collect();
         now[i] = upper;
         now[i + 1] = pair - upper;
@@ -4929,6 +5073,7 @@ pub(crate) fn panel_body(
         Panel::Entry | Panel::Category => Margin::ZERO,
         Panel::Faction | Panel::Reaction | Panel::Reactions => Margin::ZERO,
         Panel::Appearance => Margin::ZERO,
+        Panel::AreasTogether | Panel::LightMaker | Panel::Bake => Margin::ZERO,
         Panel::Preview if crate::appearance_gallery::is_gallery(editor) => Margin::ZERO,
         Panel::Preview if crate::tileset_view::tileset_of(editor).is_some() => Margin::ZERO,
         Panel::Preview if crate::hak_view::hak_of(editor).is_some() => Margin::ZERO,
@@ -5065,6 +5210,14 @@ pub(crate) fn panel_body(
                     Some(_) => crate::nui_view::panels::properties(app, &mut body, editor, titled),
                     None => crate::properties_panel::panel(app, &mut body, editor, titled),
                 }
+            }
+            // (The area editor's tools, M4's U29.)
+            Panel::AreasTogether | Panel::LightMaker | Panel::Bake => {
+                let builder = egui::UiBuilder::new().max_rect(room);
+                let builder = LateSlot::salted(builder, host, panel.name(), pane);
+                let mut body = ui.new_child(builder);
+                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                crate::tool_sections::body(app, &mut body, panel, titled);
             }
             // (A NUI designer's, M4's U18.)
             Panel::Components | Panel::Bindings => {
@@ -5340,6 +5493,48 @@ pub(crate) fn bottom_dock(app: &mut Moonglow, ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::share;
+
+    /// Each tool section's tab icon is no other panel's, and Custom
+    /// Light's and Bake's are their own (M4's U29 review: under 1400 the
+    /// Right Dock's tabs may be icons alone, and Custom Light's was the
+    /// header's Lighting, Bake's the walkmesh overlay's), named in the
+    /// window's code by their panels alone. (Edit Areas Together's is also
+    /// the header's Together: the review named the other two, whose tabs
+    /// were the icons alone at 1280.)
+    #[test]
+    fn the_tools_tabs_have_icons_of_their_own() {
+        use super::Panel;
+        let tools = crate::tool_sections::TOOLS;
+        for (i, t) in tools.iter().enumerate() {
+            for u in &tools[i + 1..] {
+                assert_ne!(t.icon(), u.icon(), "{t:?} and {u:?}");
+            }
+            for p in Panel::KEYED.iter().filter(|p| !tools.contains(p)) {
+                assert_ne!(t.icon(), p.icon(), "{t:?}'s icon is {p:?}'s");
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = vec![src];
+        let mut uses = std::collections::HashMap::<String, usize>::new();
+        while let Some(f) = files.pop() {
+            if f.is_dir() {
+                files.extend(std::fs::read_dir(&f).unwrap().map(|e| e.unwrap().path()));
+            } else if f.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&f).unwrap();
+                for t in [Panel::LightMaker, Panel::Bake] {
+                    // (The panel's arm of `Panel::icon`, or a name in the window's
+                    // own table of icons.)
+                    let name = format!("Icon::{:?}", t.icon());
+                    let table = format!("= {:?};", t.icon());
+                    let n = text.matches(&name).count() + text.matches(&table).count();
+                    *uses.entry(name).or_default() += n;
+                }
+            }
+        }
+        for (name, n) in uses {
+            assert_eq!(n, 1, "{name} named {n} times in mg-ui's code");
+        }
+    }
 
     /// The Status Bar's name and note share the room: whole where both
     /// fit; the narrower whole and the other cut where it is under half;

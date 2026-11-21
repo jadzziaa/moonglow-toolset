@@ -1151,7 +1151,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                             ui.label(egui::RichText::new(text).strong());
                         }
                         if differ {
-                            ui.colored_label(warn, super::MIXED).on_hover_text(
+                            super::mixed_mark(
+                                ui,
                                 "The creatures differ here. This shows the first one's.",
                             );
                         }
@@ -1186,7 +1187,8 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
                                     class_targets.iter().map(|c| count(c, l, k)).collect();
                                 let shown = counts[m.having[0]] as i64;
                                 if counts.iter().any(|c| *c as i64 != shown) {
-                                    ui.colored_label(warn, super::MIXED).on_hover_text(
+                                    super::mixed_mark(
+                                        ui,
                                         "Counts differ: this shows the first one's. A count typed \
                                          is set on each.",
                                     );

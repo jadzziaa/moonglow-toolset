@@ -142,6 +142,11 @@ impl PageRail {
                 ui.allocate_exact_size(vec2(PAGE_BUTTON, RAIL_PADDING - RAIL_GAP), Sense::hover());
                 for (i, (icon, name)) in self.pages.iter().enumerate() {
                     let r = page_ui(ui, *icon, name, i == shown);
+                    // (A page reached by Tab brought into sight: the rail
+                    // lower than its pages at the least window.)
+                    if r.gained_focus() && !ui.clip_rect().contains_rect(r.rect) {
+                        r.scroll_to_me_animation(None, egui::style::ScrollAnimation::none());
+                    }
                     if r.clicked() && i != *page {
                         *page = i;
                         changed = true;

@@ -2204,7 +2204,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 .clicked()
                             {
                                 app.area_chooser =
-                                    Some(crate::area_props::AreaChooser::with(k.resref));
+                                    Some(crate::area_props::AreaChooser::of([k.resref]));
+                                // (Shown with its keys, open or not: M4's U29.)
+                                app.tools.bring = Some(crate::shell::Panel::AreasTogether);
                             }
                             if ui.button("View Area").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::Area(k.resref)));

@@ -49,9 +49,10 @@ const KEPT: &[(&str, char, usize, Font, &str)] = &[
     (
         "crates/mg-ui/src/area_props.rs",
         '≠',
-        1,
+        2,
         Proportional,
-        "the mark of values that differ, named in a message",
+        "the mark of values that differ, named in a message (the window's and Edit Areas \
+         Together's)",
     ),
     (
         "crates/mg-ui/src/blueprint/creature_lists.rs",

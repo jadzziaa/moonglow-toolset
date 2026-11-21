@@ -115,7 +115,7 @@ fn texture_picture(app: &mut Moonglow, ui: &mut Ui, texture: &str) {
 
 /// The GITs' `AreaProperties` alone (what the edits look at: not the
 /// objects, copied every frame), by GIT, of those that have it.
-fn properties(app: &mut Moonglow, areas: &[ResRef]) -> Vec<(ResKey, Struct)> {
+pub(crate) fn properties(app: &mut Moonglow, areas: &[ResRef]) -> Vec<(ResKey, Struct)> {
     let Some(ws) = app.ws.as_mut() else { return Vec::new() };
     areas
         .iter()
@@ -145,9 +145,22 @@ fn apply(
 
 /// The page: of `area`, and of `others` with it (each change is made to
 /// each of them; an override, to the one each has for its material).
-pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
-    let areas: Vec<ResRef> = std::iter::once(area).chain(others.iter().copied()).collect();
-    let gits = properties(app, &areas);
+pub(crate) fn page(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    area: ResRef,
+    others: &[ResRef],
+    kept: Option<&[(ResKey, Struct)]>,
+) {
+    let read;
+    let gits = match kept {
+        Some(gits) => gits,
+        None => {
+            let areas: Vec<ResRef> = std::iter::once(area).chain(others.iter().copied()).collect();
+            read = properties(app, &areas);
+            &read[..]
+        }
+    };
     let Some((_, first)) = gits.first() else {
         ui.label("This area has no grass settings (its GIT lacks AreaProperties).");
         return;
@@ -182,7 +195,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                 .changed()
             {
                 let what = if grows { "Grow the tileset's grass" } else { "No tileset grass" };
-                apply(app, &gits, what, |k, root| grass::set_disabled(k, root, !grows));
+                apply(app, gits, what, |k, root| grass::set_disabled(k, root, !grows));
             }
             ui.horizontal(|ui| {
                 texture_picture(app, ui, &look.texture);
@@ -237,7 +250,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                         list.show(ui).and_then(|v| u32::try_from(v).ok()).unwrap_or(o.material);
                     if to != o.material {
                         let (from, what) = (o.material, "Grass's surface material");
-                        apply(app, &gits, what, |k, root| grass::move_override(k, root, from, to));
+                        apply(app, gits, what, |k, root| grass::move_override(k, root, from, to));
                     }
                     if ui
                         .button("Remove")
@@ -245,7 +258,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                         .clicked()
                     {
                         let m = o.material;
-                        apply(app, &gits, "Remove grass", |k, root| {
+                        apply(app, gits, "Remove grass", |k, root| {
                             grass::remove_override(k, root, m)
                         });
                     }
@@ -306,7 +319,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
                 ui.weak("No face of this area's tiles is of this material: nothing grows here.");
             }
             if set && changed != *o {
-                apply(app, &gits, "Grass", |k, root| grass::set_override(k, root, &changed));
+                apply(app, gits, "Grass", |k, root| grass::set_override(k, root, &changed));
             } else if changed != *o
                 && let Some(slot) =
                     trying.overrides.iter_mut().rev().find(|t| t.material == o.material)
@@ -362,7 +375,7 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
         if let Some(m) = pick {
             let set = app.tileset(tileset);
             let o = GrassOverride::new(m, set.as_deref());
-            apply(app, &gits, "Add grass", |k, root| grass::set_override(k, root, &o));
+            apply(app, gits, "Add grass", |k, root| grass::set_override(k, root, &o));
         }
     });
     ui.add_space(8.0);

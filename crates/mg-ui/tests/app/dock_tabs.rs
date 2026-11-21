@@ -1907,3 +1907,59 @@ fn find_and_replace_text_s_field_and_rows_by_the_keyboard_alone() {
         "Tab from the rows on from Find what, in the dock {dock:?}: {next:?}"
     );
 }
+
+/// With Find Instance's In Area list open, Enter (which closes the list,
+/// choosing) opens no hit's area, and the arrows and Space move no hit:
+/// a popup open as the frame began has the frame's keys, though it closed
+/// earlier in that frame (M4's U29 review of U28's tables).
+#[test]
+fn a_combo_box_list_closed_by_enter_leaves_the_hits_alone() {
+    let mut h = objects("u29-find-combo");
+    find(&mut h, "");
+    dock_high(&mut h, 360);
+    in_dock(&h, "Creature GUARD").click();
+    h.run();
+    assert_eq!(h.state().search_results.instance_chosen(), Some(0));
+    let open_list = |h: &mut H| {
+        let combo = h
+            .query_all_by(|n| n.value().as_deref() == Some("(all areas)"))
+            .next()
+            .expect("In Area's list")
+            .rect()
+            .center();
+        h.event(egui::Event::PointerMoved(combo));
+        h.event(egui::Event::PointerButton {
+            pos: combo,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.event(egui::Event::PointerButton {
+            pos: combo,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run();
+        assert!(egui::Popup::is_any_open(&h.ctx), "the list is open");
+    };
+    let a1 = ResRef::from_str("a1").unwrap();
+    for k in [egui::Key::ArrowDown, egui::Key::End, egui::Key::Space, egui::Key::Enter] {
+        open_list(&mut h);
+        key(&mut h, k);
+        settle(&mut h);
+        assert_eq!(h.state().search_results.instance_chosen(), Some(0), "{k:?} moved no hit");
+        assert!(h.state().dock.find_tab(&Tab::Area(a1)).is_none(), "{k:?} opened no area");
+        if egui::Popup::is_any_open(&h.ctx) {
+            key(&mut h, egui::Key::Escape);
+            settle(&mut h);
+        }
+        h.state_mut().find_instance.as_mut().unwrap().area = None;
+        settle(&mut h);
+        if rows_named(&h, "Creature ").is_empty() {
+            key(&mut h, egui::Key::Enter);
+        }
+        in_dock(&h, "Creature GUARD").click();
+        h.run();
+    }
+}

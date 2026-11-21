@@ -8708,3 +8708,462 @@ fn the_area_s_keys_beside_a_table_that_had_the_grid_s() {
         assert_eq!(doc(&h), was, "{floating}: the table as it was");
     }
 }
+
+/// Custom Light is a section of the Right Dock (M4's U29; a window
+/// before): Custom Light… shows the hidden dock with it in front and gives
+/// it the keys, held over the area's view under the pointer; Escape is its
+/// Cancel; Enter, not under a menu, is its main action, also from the new
+/// hak's name field; it closes with its area's tab, and with the option
+/// turned off.
+#[test]
+fn custom_light_is_a_right_dock_section_with_its_keys() {
+    use glam::Vec3;
+    let user = mg_testkit::scratch_dir("ui-custom-light-section-user");
+    let Some((mut h, area)) = area_harness_with(
+        "custom-light-section",
+        "ttr01",
+        None,
+        4,
+        Some(user.clone()),
+        &|_, _, _| {},
+    ) else {
+        return;
+    };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.state_mut().settings.generated_lights = true;
+    h.state_mut().settings.hide_palettes = true;
+    settle(&mut h);
+    assert!(h.state().right_dock_shows().is_none(), "hidden");
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        let at = screen(h, area, Vec3::new(15.0, 15.0, 0.0));
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        h.get_by_label_contains("Add Light Here").hover();
+        h.run_steps(3);
+        h.get_by_label("Custom Light…").click();
+        settle(h);
+        h.hover_at(screen(h, area, Vec3::new(20.0, 20.0, 0.0)));
+        settle(h);
+    };
+    // At the least window: at rest, and each control Tab reaches in sight.
+    h.set_size(mg_ui::LEAST_WINDOW_SIZE);
+    settle(&mut h);
+    open(&mut h);
+    h.try_run().unwrap_or_else(|e| panic!("the section at rest, a frame asks another: {e}"));
+    let dock = right_dock_rect(&h);
+    let reached = crate::tool_sections::tabbed_in_sight(&mut h, dock, 400);
+    assert!(reached >= 4, "Tab reached {reached} of the section's controls");
+    h.state_mut().light_draft = None;
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    settle(&mut h);
+    open(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker));
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "Escape: Cancel");
+    assert_ne!(h.state().right_dock_shows(), Some(mg_ui::Panel::LightMaker), "the section gone");
+    // The option turned off, and its area's tab closed: it closes.
+    open(&mut h);
+    h.state_mut().settings.generated_lights = false;
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "with the option off");
+    h.state_mut().settings.generated_lights = true;
+    open(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Area(area)]));
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "with its area");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    settle(&mut h);
+    // The new hak's name typed; Enter under a menu is the menu's.
+    open(&mut h);
+    // (Under the section's fields, scrolled to: in a dock of several
+    // sections it has the bottom of the column.)
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    settle(&mut h);
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .type_text("mg_lights");
+    settle(&mut h);
+    let hak = user.join("hak/mg_lights.hak");
+    menu(&h, "View").click();
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!hak.exists(), "nothing written under the menu");
+    assert!(h.state().light_draft.is_some(), "and the section stays");
+    // Enter in the name field: Write and Place.
+    h.get_all_by_role(egui::accesskit::Role::TextInput)
+        .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+        .unwrap()
+        .click();
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(6);
+    settle(&mut h);
+    assert!(hak.is_file(), "Enter: written");
+    assert!(h.state().light_draft.is_none());
+    let undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert!(undo.as_deref().is_some_and(|u| u.starts_with("Add Light")), "placed: {undo:?}");
+}
+
+/// Custom Light… from the area's menu, at a point of the ground.
+fn open_custom_light(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    use glam::Vec3;
+    let at = screen(h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    h.get_by_label("Custom Light…").click();
+    settle(h);
+    h.hover_at(screen(h, area, Vec3::new(20.0, 20.0, 0.0)));
+    settle(h);
+}
+
+/// A press on the Right Dock's section over the tool section whose main
+/// action is `main` (Properties, at 1600 by 900): 50 points over the
+/// action's row, past the tool's painted header.
+fn press_over_the_section(h: &mut Harness<'_, Moonglow>, main: &str) {
+    let dock = right_dock_rect(h);
+    let row = (h.get_all_by_label(main).map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .unwrap_or_else(|| panic!("no {main} in the dock"));
+    click_pos(h, egui::pos2(dock.center().x, row.top() - 50.0));
+    settle(h);
+}
+
+/// Custom Light's keys as the U29 review ruled (M4): Escape in its hak's
+/// name gives up the field alone, the section stays (a second Escape
+/// cancels); a press on Properties over it takes its keys, so neither Enter
+/// nor Escape is its after it (nothing written, the draft kept, its outline
+/// gone).
+#[test]
+fn custom_light_s_escape_in_a_field_and_a_press_on_properties() {
+    let user = mg_testkit::scratch_dir("ui-custom-light-keys-user");
+    let Some((mut h, area)) =
+        area_harness_with("custom-light-keys", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.generated_lights = true;
+    settle(&mut h);
+    open_custom_light(&mut h, area);
+    assert!(mg_ui::palette_view::arrow_keys_are(&h.ctx) == "LightMaker", "the section's keys");
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    settle(&mut h);
+    let name = |h: &Harness<'_, Moonglow>| {
+        let dock = right_dock_rect(h);
+        // (The section's, under the Palette's search field.)
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .filter(|n| dock.contains_rect(n.rect()))
+            .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+            .unwrap()
+            .rect()
+    };
+    let at = name(&h);
+    click_pos(&h, at.center());
+    settle(&mut h);
+    h.event(egui::Event::Text("mg_half".into()));
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape in the field: the section stays");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_none(), "Escape again: Cancel");
+    // A press on Properties over it: its keys gone.
+    open_custom_light(&mut h, area);
+    h.get_by_label("A new hak:").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("A new hak:").click();
+    let at = name(&h);
+    click_pos(&h, at.center());
+    h.event(egui::Event::Text("mg_lights".into()));
+    settle(&mut h);
+    // (Enter now would write: the field given up first, by a press on a
+    // part of the section that is no field.)
+    h.get_by_label("Written Into").click();
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker");
+    press_over_the_section(&mut h, "Write and Place");
+    assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker", "Properties took them");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    settle(&mut h);
+    assert!(!user.join("hak/mg_lights.hak").exists(), "Enter: nothing written");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape: the draft kept");
+    // Held again by a press in it, then a press on the area's view (no
+    // pane's own): taken from it as well.
+    h.get_by_label("Written Into").click();
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker");
+    // (Mid-view, clear of the docks and the view's own buttons.)
+    click_pos(&h, egui::pos2(600.0, 450.0));
+    settle(&mut h);
+    assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "LightMaker", "the view's press");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().light_draft.is_some(), "Escape after the view's press: the draft kept");
+}
+
+/// Custom Light's tab where the Right Dock's tabs are icons alone (1280
+/// by 720): named to the screen reader, its tip under the pointer (M4's
+/// U29 review).
+#[test]
+fn custom_light_s_tab_has_a_name_and_a_tip_where_tabs_are_icons() {
+    let Some((mut h, area)) =
+        area_harness_with("custom-light-tab", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    h.set_size(egui::vec2(1280.0, 720.0));
+    h.state_mut().settings.generated_lights = true;
+    settle(&mut h);
+    open_custom_light(&mut h, area);
+    crate::tool_sections::tab_named_with_tip(&mut h, "Custom Light");
+}
+
+/// Custom Light whole in sight (M4's U29 review): at 1600 by 900 stacked
+/// under the Palette and Properties, and at 1280 by 720 in the one tab
+/// bar, every control of its section inside it, none cut; why Write and
+/// Place is disabled said under its actions; outlined whole while it holds
+/// the keys.
+#[test]
+fn custom_light_is_whole_in_sight_and_says_why_it_is_disabled() {
+    for size in [egui::vec2(1600.0, 900.0), egui::vec2(1280.0, 720.0)] {
+        let user = mg_testkit::scratch_dir("ui-custom-light-whole-user");
+        let Some((mut h, area)) =
+            area_harness_with("custom-light-whole", "ttr01", None, 4, Some(user), &|_, _, _| {})
+        else {
+            return;
+        };
+        h.set_size(size);
+        h.state_mut().settings.generated_lights = true;
+        settle(&mut h);
+        open_custom_light(&mut h, area);
+        let dock = right_dock_rect(&h);
+        let section = h.state().right_section_rect(mg_ui::Panel::LightMaker).unwrap_or(dock);
+        let roles = [
+            egui::accesskit::Role::Button,
+            egui::accesskit::Role::CheckBox,
+            egui::accesskit::Role::RadioButton,
+            egui::accesskit::Role::TextInput,
+            egui::accesskit::Role::SpinButton,
+            egui::accesskit::Role::ColorWell,
+        ];
+        let body = section.with_min_y(section.top() + mg_uikit::metrics::DOCK_TABS);
+        let mut seen = 0;
+        for n in h.query_all_by(|n| roles.contains(&n.role())) {
+            let r = n.rect();
+            // (Its own: a palette's control over it, clipped at its own
+            // section's foot, is reported whole.)
+            if !body.contains(r.center()) || n.accesskit_node().bounding_box().is_none() {
+                continue;
+            }
+            seen += 1;
+            assert!(
+                body.expand(0.5).contains_rect(r),
+                "{size:?}: {:?} cut at {r:?} in {body:?}",
+                n.accesskit_node().label()
+            );
+        }
+        assert!(seen >= 8, "{size:?}: {seen} controls");
+        // Properties' grid: its label column at least the stylesheet's,
+        // the check boxes in the fields' column.
+        let label = h.get_by_label("Multiplier").rect();
+        let shadows = h.get_by_label("Creatures' shadows are cast from it").rect();
+        let gap = shadows.left() - label.left();
+        assert!(gap >= mg_uikit::metrics::LABEL_WIDTH, "{size:?}: the label column {gap}");
+        for whole in ["Written Into", "A new hak:", "Lights creatures and placeables too"] {
+            let r = h.get_by_label(whole).rect();
+            assert!(body.contains_rect(r), "{size:?}: {whole} at {r:?} in {body:?}");
+        }
+        let main = (h.get_all_by_label("Write and Place").map(|n| n.rect()))
+            .find(|r| body.contains_rect(*r))
+            .expect("Write and Place");
+        let why = h.get_by_label("Choose the hak the light goes into").rect();
+        assert!(
+            why.top() >= main.bottom() && why.top() <= main.bottom() + 30.0,
+            "{size:?}: why under the row: {why:?}"
+        );
+        crate::tool_sections::outlined_whole(&mut h, body.with_min_y(main.top() - 6.0));
+    }
+}
+
+/// Edit Areas Together's keys hold over the area's view under the pointer
+/// (an area open, the pointer over its view: Down and Space tick in the
+/// section's list, the view's selection kept), until a press elsewhere: a
+/// press on Properties over it takes them.
+#[test]
+fn edit_areas_together_s_keys_hold_over_the_area_s_view() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("together-held") else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    menu_command(&mut h, "Edit", "Edit Areas Together…");
+    settle(&mut h);
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
+    settle(&mut h);
+    let selection = h.state().area_views[&area].selection.clone();
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    h.key_press(egui::Key::Space);
+    settle(&mut h);
+    let (ticked, _) = h.state().areas_together_ticked().expect("open");
+    assert_eq!(ticked, vec![area], "Down and Space: the section's, over the view");
+    assert_eq!(h.state().area_views[&area].selection, selection, "the view's selection kept");
+    press_over_the_section(&mut h, "Open in Tab");
+    h.key_press(egui::Key::Space);
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    let (ticked, _) = h.state().areas_together_ticked().expect("Escape not its: still open");
+    assert_eq!(ticked, vec![area], "Space not its after the press");
+}
+
+/// Custom Light pictured (M4's U29): its section as opened, with a new
+/// hak's name typed, and the frame after Write and Place; since the
+/// review, Custom Light again with the hak written chosen among the
+/// module's (Place: the same light, its row used again), and Change Light
+/// on the light placed, its settings as they are (Change) and another
+/// color (Write and Change); in both themes at the boards' sizes and the
+/// least window. By hand:
+/// `MG_U29_PICS=<folder> cargo test -p mg-ui --test app u29_pictures -- --ignored`.
+#[test]
+#[ignore]
+fn u29_pictures_custom_light() {
+    use glam::Vec3;
+    mg_testkit::gpu::hold();
+    for light in [false, true] {
+        for size in crate::tool_sections::PICTURE_SIZES {
+            let user = mg_testkit::scratch_dir("ui-u29-pics-light-user");
+            let Some((mut h, area)) =
+                area_harness_with("u29-pics-light", "ttr01", None, 4, Some(user), &|_, _, _| {})
+            else {
+                return;
+            };
+            h.set_size(size);
+            h.state_mut().settings.generated_lights = true;
+            h.state_mut().settings.light_theme = light;
+            settle(&mut h);
+            let menu_at = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+                let at = screen(h, area, at);
+                h.hover_at(at);
+                for pressed in [true, false] {
+                    h.event(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Secondary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    });
+                }
+                h.run_steps(3);
+            };
+            let custom_light = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+                menu_at(h, at);
+                h.get_by_label_contains("Add Light Here").hover();
+                h.run_steps(3);
+                h.get_by_label("Custom Light…").click();
+                settle(h);
+                h.hover_at(egui::pos2(2.0, 2.0));
+            };
+            // (The main action in the section, enabled or not.)
+            let action = |h: &Harness<'_, Moonglow>, words: &str, enabled: bool| {
+                let dock = right_dock_rect(h);
+                h.get_all_by_label(words).any(|n| {
+                    dock.contains_rect(n.rect()) && n.accesskit_node().is_disabled() != enabled
+                })
+            };
+            custom_light(&mut h, Vec3::new(15.0, 15.0, 0.0));
+            crate::tool_sections::picture_of(&mut h, "light-new", "why it is disabled", |h| {
+                action(h, "Write and Place", false)
+                    && crate::tool_sections::label_in(
+                        h,
+                        right_dock_rect(h),
+                        "Choose the hak the light goes into",
+                    )
+            });
+            h.get_by_label("A new hak:").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("A new hak:").click();
+            settle(&mut h);
+            h.get_all_by_role(egui::accesskit::Role::TextInput)
+                .rfind(|n| n.accesskit_node().label().as_deref() != Some("Quick Open"))
+                .unwrap()
+                .type_text("mg_lights");
+            crate::tool_sections::picture_of(&mut h, "light-hak-named", "what it writes", |h| {
+                action(h, "Write and Place", true)
+                    && crate::tool_sections::shown_in(h, right_dock_rect(h), |n| {
+                        crate::tool_sections::words(n).is_some_and(|l| l.contains("Writes into"))
+                    })
+            });
+            h.key_press(egui::Key::Enter);
+            h.run_steps(1);
+            crate::tool_sections::picture_of(&mut h, "light-placed", "the section closed", |h| {
+                h.state().light_draft.is_none()
+            });
+            settle(&mut h);
+            // Custom Light again: the hak written is among the module's.
+            custom_light(&mut h, Vec3::new(25.0, 25.0, 0.0));
+            h.get_by_label("mg_lights.hak").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("mg_lights.hak").click();
+            settle(&mut h);
+            crate::tool_sections::picture_of(&mut h, "light-existing-hak", "Place", |h| {
+                action(h, "Place", true)
+                    && crate::tool_sections::label_in(h, right_dock_rect(h), "mg_lights.hak")
+            });
+            h.key_press(egui::Key::Escape);
+            settle(&mut h);
+            // Change Light on the light placed.
+            h.state_mut().area_views.get_mut(&area).unwrap().selection =
+                vec![(mg_area::ObjectKind::Placeable, 0)];
+            h.run_steps(2);
+            menu_at(&mut h, Vec3::new(15.0, 15.0, 1.5));
+            h.get_by_label("Change Light…").click();
+            settle(&mut h);
+            h.hover_at(egui::pos2(2.0, 2.0));
+            h.get_by_label("mg_lights.hak").scroll_to_me();
+            settle(&mut h);
+            h.get_by_label("mg_lights.hak").click();
+            settle(&mut h);
+            crate::tool_sections::picture_of(&mut h, "light-change", "Change", |h| {
+                action(h, "Change", true)
+            });
+            h.state_mut().light_draft.as_mut().unwrap().spec.color = [40, 80, 255];
+            settle(&mut h);
+            crate::tool_sections::picture_of(
+                &mut h,
+                "light-change-new-row",
+                "Write and Change",
+                |h| action(h, "Write and Change", true),
+            );
+        }
+    }
+}

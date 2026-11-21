@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T12:25:59Z }
+generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
 ---
 
 # Plugin API reference
@@ -348,7 +348,7 @@ asked again: the plugins read the module as it now is.
 **In what order.** Moonglow's own work comes first: the builder code in
 a new ResRef, the project's script and tag for Setup Store (the
 project's `moonglow.toml`). The plugins' handlers then see what Moonglow
-made, each in the order of the Plugins window and seeing the edits of
+made, each in the order of the Plugins tab and seeing the edits of
 those before it. The warning of a tag a paste doubled comes last, and
 sees what the plugins did: a tag a plugin made the copy's own is not
 doubled.

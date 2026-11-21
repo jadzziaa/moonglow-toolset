@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-14T00:24:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -693,8 +693,8 @@ the Area Wizard writes from the row (above), and more:
 - **Checked:** Aurora, `aurora_lighting_scheme.rs` (Interior Evil, row 16,
   on a 4×4 Rural area whose tiles were lit 31).
 - **Moonglow:** `Scheme::applied_fields` and `tile_fields` in
-  `crates/mg-module/src/new.rs`; Area Properties, Give Every Area This
-  Page's Settings and `mg areas --lighting-scheme` use them.
+  `crates/mg-module/src/new.rs`; Area Properties, Copy This Page to
+  Every Area and `mg areas --lighting-scheme` use them.
 - **Wiki:** not described.
 
 ### ARE colors and tile lights, stored and read

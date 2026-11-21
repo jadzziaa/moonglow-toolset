@@ -28,7 +28,7 @@ use crate::common::*;
 mod openers_core;
 mod openers_editors;
 mod openers_module;
-mod openers_shared;
+pub(crate) mod openers_shared;
 mod openers_wizards;
 mod openers_world;
 pub(crate) mod table;
@@ -1258,7 +1258,7 @@ fn small_dialogs_fit_their_content() {
 fn tab_brings_a_scrolled_body_s_control_into_sight() {
     running("-tab");
     let mut scrolled = Vec::new();
-    for key in ["light_maker.rs:window#1", "script_wizard.rs:window#1"] {
+    for key in ["script_wizard.rs:window#1"] {
         let o = op(key);
         let Some(mut h) = opened(&o, mg_ui::LEAST_WINDOW_SIZE, 1.0) else { continue };
         let first = seen(&h, o.title);

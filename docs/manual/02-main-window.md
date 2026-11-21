@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus (with the update check and installing an update from the app), Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the module tree, the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs and windows, the palette, the resource browser, the model viewer, the log, the Status Bar (hints and counts), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T16:13:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
 ---
 
 # The main window
@@ -33,7 +33,8 @@ wider: see Narrow and wide windows, below). The docks follow the tab you work in
 the panels of an area, so it is there while an area's tab (or, with no
 area open, the tab saying so) is in front of the middle, and not at all
 while another tab is (Module Properties, a script, a blueprint, the
-manual: the middle then has the room); a tool in a window of its own
+manual: the middle then has the room; Edit Areas Together, while open,
+brings it beside any tab); a tool in a window of its own
 leaves it as the area under it has it. Where you
 work in two panes side by side, it follows the one you last clicked in.
 If you fold the dock away, **Tools › Palettes** brings it back; beside a
@@ -86,7 +87,7 @@ editor's own beside a blueprint's editor (also **Tools › Preview**). Each kind
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
-| Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
+| Plugins | the commands of the plugins you have enabled, Manage Plugins… (the Plugins tab), Install Plugin from File… ([Plugins](15-plugins.md)); the Plugins tab is a document tab in the middle, brought to the front where it is open already and closed from its tab's menu as any tab |
 | Help | User Manual, Command Palette…, Check for Updates…, About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
@@ -307,7 +308,7 @@ changes them; the menus show the current keys.
 | Ctrl+\ | Split Editor: the tab in front to another editor group (a new one at the right where there is one group) |
 | Ctrl+Shift+T | Reopen the tab closed last |
 | Ctrl+Shift+M | Maximize the window of the tab in front, or put it back |
-| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA, a NUI window, a tileset or the Faction Editor is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers, a tileset's parts, the factions; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field); a NUI window's Checks, in the Bottom Dock, its first row's control; Problems its first finding's place; a tileset's Textures its first Copy), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, a tileset's tile table, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
+| F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA, a NUI window, a tileset or the Faction Editor is in front (a conversation's bookmarks, a table's columns, a NUI window's Layers, a tileset's parts, the factions; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and an open tool section's, each its own stop; and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field); a NUI window's Checks, in the Bottom Dock, its first row's control; Problems its first finding's place; a tileset's Textures its first Copy), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, a tileset's tile table, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+P | Quick Open: go to a resource or a command |
@@ -607,7 +608,22 @@ on, **Tile Properties** in its place (and nothing there while its
 header toggle hides it), what it shows ("6 tiles";
 [Areas](04-areas.md#tile-properties)). In a window under 1400 points
 the second is a tab of the one tab bar: Palette, Properties, Preview
-(Palette, Preview, Tile Properties in Select Tiles). An area dragged
+(Palette, Preview, Tile Properties in Select Tiles). While a **tool
+section** is open (**Edit Areas Together**, beside any tab; **Custom
+Light** or Change Light and **Bake Walkmesh to Transform**, beside
+their area: [Areas](04-areas.md)), it is a section of its own under
+the others, its main action and Cancel or Close in a row at its top,
+taking two thirds of the dock's height at first (all but Properties'
+header while nothing is selected); drag the seam over it and the share
+is kept until Moonglow closes. Its command shows the dock (folded or
+hidden too) with the section in front and gives it the keys, held over
+the area's view until you press anywhere outside it, Properties
+included; F6 stops at it as at the other sections. It closes by its
+Cancel or Close, by its main action, and when another module is
+opened. Under 1400 points it is the first tab of the one tab bar,
+its icon alone where the tab bar is narrow (Edit Areas Together's that
+of the area header's Together switch, Custom Light's and Bake's their
+own), its name in its tip. An area dragged
 out into a window of its own has Properties (or Tile Properties) in its
 window's right pane, the palettes staying in the Right Dock; in a window
 too narrow for the pane and a view of 400 points beside it, the pane is
@@ -677,7 +693,8 @@ Dock's width you drag there is kept apart from the one you drag in a
 narrower window: each layout gives back its own. There a Right
 Dock wider than 560 (at its width at first, or dragged so) stands in
 two columns, the Palette and the Preview as tabs in the first (340, or
-half the dock) and Properties (or Tile Properties) in the second, a
+half the dock) and Properties (or Tile Properties) in the second, an
+open tool section under it, a
 line between them that you drag to share the dock (each column at least
 280; kept for each kind of editor, and forgotten by View › Reset
 Layout), the arrow that folds the dock at the end of the second's
@@ -879,7 +896,7 @@ About) has a **Close** at the row's right, after its own buttons when
 you go through it with Tab, and so do the pickers Select Portrait and
 Select Texture, whose Close is their Cancel; one that only its own
 buttons answer (a question, a wizard) has none. A dialog that folds
-(Plugins and most dialogs that
+(most dialogs that
 Escape closes) has the arrow at the row's left: **Collapse** folds it
 to its row, **Expand** shows it again as it was. A job's window (a
 running command's progress, a plugin's question) has the same row, with

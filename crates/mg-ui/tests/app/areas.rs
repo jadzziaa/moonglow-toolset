@@ -880,8 +880,8 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     h.run();
     h.get_by_label("Edit Areas Together…").click();
     h.run();
-    // (The window, taller than the test's screen, is placed a frame after
-    // it is drawn: the box is clicked where it comes to rest.)
+    // (The Right Dock's section, its Areas page: the box where it comes
+    // to rest.)
     at_rest(&mut h, "the Holding box", &|h| h.get_by_value("Anything").rect());
     h.get_by_value("Anything").click();
     h.run();
@@ -916,16 +916,17 @@ fn areas_are_chosen_by_what_they_hold_and_kept_as_a_set() {
     assert_eq!(kept["module"], "sample");
     h.get_by_label("Untick All").click();
     h.run();
-    assert!(h.query_by_label("Edit 0 Together").is_some());
+    h.get_by_label("No areas ticked");
     h.get_by_value("Tick a Set…").click();
     h.run();
     h.get_all_by_label("Caves").last().unwrap().click();
     h.run();
-    h.get_by_label("Edit 2 Together");
+    h.get_by_label("2 areas ticked");
 }
 
-/// Edit › Edit Areas Together…: areas ticked in the chooser (narrowed by
-/// its filters) open in one Area Properties, where a change is set on each:
+/// Edit › Edit Areas Together…: areas ticked in the Right Dock's section
+/// (narrowed by its filters) open by Open in Tab in one Area Properties,
+/// where a change is set on each:
 /// a field, a flag (each area keeping its other flags), and the variables
 /// added or changed (each keeping its own).
 #[test]
@@ -976,21 +977,23 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Edit Areas Together…").click();
     h.run();
     h.get_by_label_contains("Apple Inn");
-    // (Where the window comes to rest, a frame after it is drawn.)
+    // (Where the section comes to rest.)
     at_rest(&mut h, "the ground box", &|h| h.get_by_value("Above or under ground").rect());
     h.get_by_value("Above or under ground").click();
     h.run();
     h.get_all_by_label("Underground").last().unwrap().click();
     h.run();
     assert!(h.query_by_label_contains("Apple Inn").is_none(), "the inn is above ground");
-    assert!(h.query_by_label("Edit 0 Together").is_some());
+    h.get_by_label("No areas ticked");
+    assert!(h.get_by_label("Open in Tab").accesskit_node().is_disabled(), "two at the least");
     h.get_by_label("Tick Shown").click();
     h.run();
-    h.get_by_label("Edit 2 Together").click();
+    h.get_by_label("2 areas ticked");
+    h.get_by_label("Open in Tab").click();
     h.run_steps(3);
     let caves: Vec<ResRef> = ["cave1", "cave2"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
     assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves)).is_some());
-    assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
+    assert!(h.query_by_label("Edit Areas Together").is_none(), "the section closed");
 
     // Visual: always dark, on both caves and not on the inn.
     click_in_sight(&mut h, "Always Dark");
@@ -1010,7 +1013,7 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Names, tags and comments are edited one area at a time.");
     // The flags they differ in, each marked: natural or artificial, and
     // shader flag 0x100 (one field holds them all).
-    assert_eq!(h.query_all_by_value("≠").count(), 2);
+    assert_eq!(h.query_all_by_value("mixed").count(), 2);
     h.get_by_label("Above ground").click();
     h.run_steps(2);
     let flags = |h: &mut Harness<'_, Moonglow>, name: &str| are(h, name).integer("Flags");
@@ -1019,14 +1022,22 @@ fn several_areas_are_edited_together() {
     assert_eq!(flags(&mut h, "inn"), Some(0x1));
     h.get_by_label("Artificial").click();
     h.run_steps(2);
-    assert_eq!(h.query_all_by_value("≠").count(), 1, "both artificial now");
+    assert_eq!(h.query_all_by_value("mixed").count(), 1, "both artificial now");
     // Variables: one added is added to each, which keeps its own. (The
     // caves' are in their ARE, as Moonglow wrote them before 1.34.3:
     // opening the window moves them to the GIT, where the game reads
     // them, one step of its own.)
-    h.get_by_label("Variables (1)…").click();
+    // (Below the page's fields, one under the other in a window this
+    // narrow: scrolled to.)
+    click_in_sight(&mut h, "Variables (1)…");
     h.run();
-    h.get_by_label("Add").click();
+    // (The Variables window's Add: the page's own, further down the window,
+    // is laid out too once it is scrolled to the Advanced page's foot.)
+    let screen = h.ctx.content_rect();
+    (h.get_all_by_label("Add").filter(|n| screen.contains_rect(n.rect())))
+        .min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .expect("the Variables window's Add")
+        .click();
     h.run();
     {
         let row = h.state_mut().var_edit.as_mut().unwrap().rows.last_mut().unwrap();
@@ -1056,7 +1067,7 @@ fn several_areas_are_edited_together() {
     assert_eq!(names(&mut h, "cave1"), ["nDepth"]);
 }
 
-/// Give Every Area This Page's Visual Settings, on areas edited together:
+/// Copy This Page to Every Area (Visual's), on areas edited together:
 /// an area of another lighting scheme gets the first's, and its tiles'
 /// lights from that scheme's colors, as choosing the scheme gives them;
 /// one of the same scheme keeps its tiles' own. One step to undo.
@@ -1111,7 +1122,7 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
     let before = sources(&mut h, "cave2");
     h.get_by_label("Visual").click();
     h.run_steps(2);
-    h.get_by_label("Give Every Area This Page's Visual Settings").click();
+    h.get_by_label("Copy This Page to Every Area").click();
     h.run_steps(3);
     let (scheme, lights) = sources(&mut h, "cave2");
     assert_eq!(scheme, Some(i64::from(evil)));

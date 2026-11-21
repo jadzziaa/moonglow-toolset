@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-18T21:20:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -257,7 +257,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - the area editor: every object selected and dragged, and so with
     Adjust Location or the context menu open (A16); Paint at radius 25
     m and density 50, the pointer still (A17); Update Instances with
-    30,000 listed, Edit Areas Together with 3,000 areas (A18's rest);
+    30,000 listed (A18's rest: Edit Areas Together with 3,000 areas has
+    its view since M4's U29, `frame_perf::edit_areas_together_3000`);
     2,000 placeables with the Position menu open (A20); a light placed
     with 30,000 more rows in placeables.2da (A21); a 2,000-tile set's
     Tiles page, its last tile chosen (A22); a hill tileset's 32 by 32
@@ -510,7 +511,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `engine_custom_light.rs`), and the client answered the proposal's two
   questions (2026-10-29, the third client batch): a `LightColor` light
   and a model's light node light creatures and placeables as they light
-  tiles, so the window's "Lights creatures and placeables too" starts
+  tiles, so the Custom Light section's "Lights creatures and placeables too" starts
   ticked; a draw takes as many lights as the client's Max Lights (32 by
   default). Not built: a flicker (the node's color or multiplier keyed in
   the model's `default` animation). Read for it (2026-10-30, the fourth
@@ -521,7 +522,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the area view holds a static placeable still since, and plays a
   dynamic one's light node keys and its meshes' self-illumination keys
   since 2026-10-30 (`point_lights_at`, `idle_keys_meshes`; the fifth
-  client batch). Left: the window's flicker itself (Custom Light…
+  client batch). Left: the flicker itself in the Custom Light section (Custom Light…
   writing the keyed `default` and a dynamic placeable). (S) (from
   builders' reports after 1.16.2)
 - **A drag when a key changes the mode, the owner's call:** a drag under
@@ -2101,8 +2102,8 @@ is not taken for a new gap.
   `mg replace` changes text in names; a name in one language would
   need a language to be given), nor list fields one by one (an ARE's
   tiles and `Expansion_List`: a tile's own lights aren't set;
-  variables are `--var`'s, in the GIT where the game reads them). Give
-  Every Area This Page's Visual Settings gives an area of another
+  variables are `--var`'s, in the GIT where the game reads them). Copy
+  This Page to Every Area (Visual's) gives an area of another
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)

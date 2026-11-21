@@ -2666,11 +2666,11 @@ fn fields_that_differ_among_blueprints_edited_together_are_marked() {
     let marks = |h: &mut Harness<'_, Moonglow>, page: &'static str| {
         h.state_mut().blueprint_pages.insert((keys[0], mg_edit::GffPath::root()), page);
         h.run();
-        h.query_all_by_value("≠").count()
+        h.query_all_by_value("mixed").count()
     };
     assert_eq!(marks(&mut h, "Basic"), 3, "the name, the appearance, the hit points");
     // The mark says what it means.
-    h.get_all_by_value("≠").next().unwrap().hover();
+    h.get_all_by_value("mixed").next().unwrap().hover();
     h.run();
     assert!(h.query_by_label_contains("The objects differ here").is_some());
     assert_eq!(marks(&mut h, "Advanced"), 3, "the conversation, No Interrupt, the variables");

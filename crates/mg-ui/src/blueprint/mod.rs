@@ -782,7 +782,7 @@ pub(crate) struct Form<'a> {
     /// Other objects or blueprints of the same type edited with it
     /// (Aurora's multi-editor): each field set is set on them too. Each is
     /// its document and path.
-    pub also: Vec<(ResKey, GffPath)>,
+    pub also: crate::widgets::Also,
     /// The object as it is now.
     pub root: Struct,
     /// What the list pages did to the objects edited together.
@@ -1156,7 +1156,20 @@ impl Form<'_> {
     /// the objects edited together differ in any of the fields `labels`.
     pub(crate) fn mark_mixed_inline(&mut self, ui: &mut Ui, labels: &[&str]) {
         if labels.iter().any(|l| self.differs(l)) {
-            ui.colored_label(ui.visuals().warn_fg_color, MIXED).on_hover_text(MIXED_TIP);
+            mixed_mark_inline(ui, self.id(labels.first().copied().unwrap_or("")).with("mixed"));
+        }
+    }
+
+    /// [`mark_mixed_inline`](Self::mark_mixed_inline) for one bit of a
+    /// field of flags: before a group of choices, the whole group's.
+    pub(crate) fn mark_mixed_bit_inline(&mut self, ui: &mut Ui, label: &str, bit: u32) {
+        let set = |v: Option<&Value>| match v {
+            Some(Value::Dword(f)) => *f & bit,
+            Some(Value::Int(f)) => *f as u32 & bit,
+            _ => 0,
+        };
+        if self.differs_by(label, set) {
+            mixed_mark_inline(ui, self.id(&format!("{label}#{bit}")).with("mixed"));
         }
     }
 
@@ -1169,7 +1182,7 @@ impl Form<'_> {
         }
         let color = ui.visuals().warn_fg_color;
         row(ui, |ui| {
-            ui.colored_label(color, MIXED);
+            mixed_mark(ui, MIXED_TIP);
             ui.colored_label(
                 color,
                 "They differ here: this shows the first one's, and what you change here sets \
@@ -1180,14 +1193,24 @@ impl Form<'_> {
 
     /// The "≠" before the field about to be drawn: painted in the gutter
     /// to its left, and known to the screen reader and the pointer.
+    ///
+    /// On the field's label, after its words, where the label is kept
+    /// (`widgets::label_before`): a mark in the gutter was 5 by 7 pixels,
+    /// and outside the page where a narrow form stacks the label over the
+    /// field (M4's U29 review). Else in the gutter, as before.
     fn paint_mixed(&self, ui: &Ui, label: &str) {
-        let at = ui.cursor().min + egui::vec2(-3.0, 2.0);
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let color = ui.visuals().warn_fg_color;
-        let rect = ui.painter().text(at, egui::Align2::RIGHT_TOP, MIXED, font, color);
-        let r = ui.interact(rect, self.id(label).with("mixed"), egui::Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
-        r.on_hover_text(MIXED_TIP);
+        let id = self.id(label).with("mixed");
+        let size = mixed_mark_size(ui);
+        let rect = match crate::widgets::label_before(ui) {
+            Some(l) => egui::Rect::from_min_size(
+                egui::pos2(l.right() + 4.0, l.center().y - size.y / 2.0),
+                size,
+            ),
+            None => {
+                egui::Rect::from_min_size(ui.cursor().min + egui::vec2(-3.0 - size.x, 1.0), size)
+            }
+        };
+        paint_mixed_mark(ui, rect, id, MIXED_TIP);
     }
 
     /// Several blueprints edited together (not placed objects).
@@ -1210,14 +1233,14 @@ impl Form<'_> {
         if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
             && (*at, *key) == (revision, self.key)
             && *path == self.path
-            && *also == self.also
+            && (Arc::ptr_eq(also, &self.also) || *also == self.also)
             && kept.first().is_some_and(|t| t.at == self.root)
         {
             return kept.clone();
         }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
-            for (key, path) in &self.also {
+            for (key, path) in self.also.iter() {
                 if let Some(s) = ws.doc(key).ok().and_then(|d| path.get(&d.root).cloned()) {
                     out.push(lists::Target::new(*key, path.clone(), s));
                 }
@@ -2646,7 +2669,7 @@ pub(crate) fn edit_many(
     let shown = FormShown {
         key,
         path,
-        also,
+        also: Arc::new(also),
         root,
         restype,
         page,
@@ -2791,7 +2814,7 @@ pub(crate) fn looked_at(app: &Moonglow, key: &ResKey) -> (Option<String>, bool) 
 pub(crate) struct FormShown<'p> {
     pub key: ResKey,
     pub path: GffPath,
-    pub also: Vec<(ResKey, GffPath)>,
+    pub also: crate::widgets::Also,
     pub root: Struct,
     pub restype: ResType,
     pub page: &'p str,
@@ -3032,6 +3055,52 @@ const MIXED_LIMIT: usize = 64;
 /// The mark of a field whose value differs among the objects edited
 /// together.
 pub(crate) const MIXED: &str = "≠";
+
+/// The size of the [`MIXED`] mark: a badge of the body text's height.
+fn mixed_mark_size(ui: &Ui) -> egui::Vec2 {
+    let h = ui.text_style_height(&egui::TextStyle::Body).max(14.0);
+    egui::vec2(h, h)
+}
+
+/// The [`MIXED`] mark at `rect`: "≠" bold on a tint of the warning color,
+/// readable in both themes; known to the screen reader as "≠" whose value
+/// is "mixed", and to the pointer by its tip (M4's U29 review).
+fn paint_mixed_mark(
+    ui: &Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    tip: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let color = ui.visuals().warn_fg_color;
+    let p = ui.painter();
+    p.rect_filled(rect, 3.0, color.gamma_multiply(0.18));
+    p.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Inside);
+    let font = egui::FontId::proportional(rect.height() - 1.0);
+    p.text(rect.center() + egui::vec2(0.0, -0.5), egui::Align2::CENTER_CENTER, MIXED, font, color);
+    let r = ui.interact(rect, id, egui::Sense::hover());
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
+    ui.ctx().accesskit_node_builder(r.id, |node| {
+        node.set_label(MIXED);
+        node.set_value("mixed");
+    });
+    r.on_hover_text(tip)
+}
+
+/// The [`MIXED`] mark laid out where the next widget goes (before a group
+/// of choices: the whole group's).
+fn mixed_mark_inline(ui: &mut Ui, id: egui::Id) {
+    let size = mixed_mark_size(ui);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    paint_mixed_mark(ui, rect, id, MIXED_TIP);
+}
+
+/// The [`MIXED`] mark laid out where the next widget goes, with its tip
+/// `tip` (a list's row whose objects differ there).
+pub(crate) fn mixed_mark(ui: &mut Ui, tip: impl Into<egui::WidgetText>) -> egui::Response {
+    let size = mixed_mark_size(ui);
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::hover());
+    paint_mixed_mark(ui, rect, r.id.with("mixed"), tip)
+}
 
 /// The tip of [`MIXED`].
 const MIXED_TIP: &str = "The objects differ here: this shows the first one's. What you set goes to \

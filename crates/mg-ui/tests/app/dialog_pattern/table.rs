@@ -6,14 +6,12 @@
 /// buttons' words left to right, and, where a button stands before the
 /// main action, why (named here, not read from the words).
 pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
-    ("area_props.rs:chooser_window#1", &["Edit 0 Together", "Cancel"], None),
     ("area_reshape.rs:resize_window#1", &["OK", "Cancel"], None),
     ("area_reshape.rs:rotate_window#1", &["OK", "Cancel"], None),
     ("area_reshape.rs:tileset_window#1", &["OK", "Cancel"], None),
     ("area_tools.rs:adjust_window#1", &["OK", "Apply", "Cancel"], None),
     ("area_view.rs:set_window#1", &["OK", "Cancel"], None),
     ("bake_view.rs:save_window#1", &["Tidy Up", "Keep Them", "Cancel"], None),
-    ("bake_view.rs:window#1", &["Bake", "Cancel"], None),
     ("blueprint/creature_lists.rs:inventory#1", &["Yes", "No"], None),
     ("blueprint/replacements.rs:gallery#1", &["OK", "Cancel"], None),
     ("blueprint/situated.rs:portrait#1", &["OK", "Cancel"], None),
@@ -39,7 +37,6 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("jobs.rs:window#1 Message", &["OK"], None),
     ("jobs.rs:window#1 Page", &["< Back", "Next >", "Cancel"], Some(PAGE)),
     ("levelup_view.rs:window#1", &["OK", "Cancel"], None),
-    ("light_maker.rs:window#1", &["Write and Place", "Cancel"], None),
     ("manual.rs:about_window#1", &[], None),
     ("module_folder.rs:ui#1", &["Open Directory", "Open .mod File", "Cancel"], None),
     ("module_props.rs:attach_window#1", &["OK", "Cancel"], None),
@@ -55,7 +52,6 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("plugins.rs:remove_window#1", &["Remove", "Cancel"], None),
     ("plugins.rs:replace_window#1", &["Replace", "Cancel"], None),
     ("plugins.rs:settings_window#1", &["Save", "Defaults", "Cancel"], None),
-    ("plugins.rs:window#1", &[], None),
     ("prefabs.rs:save_window#1", &["Save", "Cancel"], None),
     ("project_commands.rs:output_window#1", &["Copy", "Close"], None),
     ("project_commands.rs:window#1", &["Allow and Run", "Cancel"], None),

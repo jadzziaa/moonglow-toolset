@@ -314,3 +314,303 @@ fn the_save_s_questions_are_each_asked_once() {
     assert!(h.query_by_label("Keep Them").is_none());
     assert!(!h.state().ws.as_ref().unwrap().is_modified(), "saved");
 }
+
+/// Bake Walkmesh to Transform is a section of the Right Dock (M4's U29;
+/// a window before): its command shows the hidden dock with it in front
+/// and gives it the keys, held over the area's view under the pointer;
+/// Escape is its Cancel (the view keeps its selection: the Escape is not
+/// its too), Enter its Bake, neither under a dialog; its area's tab closed,
+/// it closes.
+#[test]
+fn bake_walkmesh_is_a_right_dock_section_with_its_keys() {
+    let Some((mut h, area, _, _)) = bake_harness("section", Some(RULES)) else { return };
+    let original = appearance(&mut h, area, 0);
+    h.state_mut().settings.hide_palettes = true;
+    settle(&mut h);
+    assert!(h.state().right_dock_shows().is_none(), "hidden");
+    let open = |h: &mut Harness<'static, Moonglow>| {
+        position_menu(h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+        h.get_by_label("Bake Walkmesh to Transform…").click();
+        settle(h);
+        // (The pointer over the area's view: the keys stay the section's.)
+        h.hover_at(screen(h, area, Vec3::new(20.0, 20.0, 0.0)));
+        settle(h);
+    };
+    // At the least window: at rest, and each control Tab reaches in sight.
+    let size = h.ctx.content_rect().size();
+    h.set_size(mg_ui::LEAST_WINDOW_SIZE);
+    settle(&mut h);
+    open(&mut h);
+    h.try_run().unwrap_or_else(|e| panic!("the section at rest, a frame asks another: {e}"));
+    let dock = right_dock_rect(&h);
+    let reached = crate::tool_sections::tabbed_in_sight(&mut h, dock, 400);
+    assert!(reached >= 2, "Tab reached {reached} of the section's controls");
+    h.state_mut().bake.draft = None;
+    h.set_size(size);
+    settle(&mut h);
+    open(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Bake));
+    h.get_by_label("1 placeable");
+    h.get_by_label_contains("Writes mgbk_0001.mdl");
+    // Escape: Cancel, and only that.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().bake.draft.is_none(), "Escape: Cancel");
+    assert_eq!(
+        h.state().area_views[&area].selection,
+        vec![(ObjectKind::Placeable, 0)],
+        "the view's selection kept"
+    );
+    assert_ne!(h.state().right_dock_shows(), Some(mg_ui::Panel::Bake), "the section gone");
+    // Under a dialog, Enter and Escape are the dialog's.
+    open(&mut h);
+    h.state_mut().about = true;
+    settle(&mut h);
+    h.key_press(egui::Key::Enter);
+    settle(&mut h);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.state().about, "the dialog closed");
+    assert!(h.state().bake.draft.is_some(), "the section stays");
+    assert_eq!(appearance(&mut h, area, 0), original, "nothing baked under the dialog");
+    // Its area's tab closed: it closes.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Area(area)]));
+    settle(&mut h);
+    assert!(h.state().bake.draft.is_none(), "closed with its area");
+    // Enter: Bake.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    settle(&mut h);
+    open(&mut h);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    settle(&mut h);
+    assert!(h.state().bake.draft.is_none());
+    assert_eq!(appearance(&mut h, area, 0), 50000, "Enter: Bake");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Bake Walkmesh to Transform"));
+}
+
+/// A press on Properties over Bake's section (1600 by 900, the placeable
+/// selected) takes its keys (M4's U29 review): neither Enter (Bake) nor
+/// Escape (Cancel) is its after it, nothing baked, the draft kept, its
+/// outline gone. (Bake has no field: Escape in one does not apply.)
+#[test]
+fn a_press_on_properties_takes_bake_s_keys() {
+    let Some((mut h, area, _, _)) = bake_harness("press-properties", Some(RULES)) else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    let original = appearance(&mut h, area, 0);
+    position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+    h.get_by_label("Bake Walkmesh to Transform…").click();
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Bake", "the section's keys");
+    let dock = right_dock_rect(&h);
+    let row = (h.get_all_by_label("Bake").map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .expect("Bake in the dock");
+    // (Over the section's painted header: Properties, the placeable's.)
+    click_pos(&h, egui::pos2(dock.center().x, row.top() - 50.0));
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Properties", "Properties took them");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    settle(&mut h);
+    assert_eq!(appearance(&mut h, area, 0), original, "Enter: nothing baked");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().bake.draft.is_some(), "Escape: the draft kept");
+    // A press in the section holds them again; one on the area's view
+    // (no pane's) takes them from it too.
+    let row = (h.get_all_by_label("Bake").map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .expect("Bake in the dock");
+    click_pos(&h, egui::pos2(row.right() + 60.0, row.bottom() + 40.0));
+    settle(&mut h);
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Bake", "a press in it");
+    click_pos(&h, egui::pos2(600.0, 450.0));
+    settle(&mut h);
+    assert_ne!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Bake", "a press on the view");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().bake.draft.is_some(), "Escape after it: the draft kept");
+}
+
+/// Bake Walkmesh to Transform pictured (M4's U29): its section with one
+/// placeable; the section in error (its placeable given the appearance
+/// of one with no walkmesh while it is open: why, under its actions);
+/// the view's menu item refused for two, before any section opens (the
+/// second has no walkmesh, as its tip says: named `bake-menu-refused`
+/// since the review, `bake-several-refused` having said what the section
+/// does not show); and the frame after Bake, in both themes at the
+/// boards' sizes and the least window. By hand:
+/// `MG_U29_PICS=<folder> cargo test -p mg-ui --test app u29_pictures -- --ignored`.
+#[test]
+#[ignore]
+fn u29_pictures_bake() {
+    mg_testkit::gpu::hold();
+    for light in [false, true] {
+        for size in crate::tool_sections::PICTURE_SIZES {
+            let Some((mut h, area, _, _)) = bake_harness("u29-pics", Some(RULES)) else { return };
+            h.state_mut().settings.light_theme = light;
+            h.set_size(size);
+            settle(&mut h);
+            position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+            h.get_by_label("Bake Walkmesh to Transform…").click();
+            settle(&mut h);
+            let enabled = |h: &Harness<'_, Moonglow>| {
+                let dock = right_dock_rect(h);
+                h.get_all_by_label("Bake")
+                    .any(|n| dock.contains_rect(n.rect()) && !n.accesskit_node().is_disabled())
+            };
+            crate::tool_sections::picture_of(&mut h, "bake-one", "Bake enabled", enabled);
+            // (In error: the placeable given the second's appearance, which
+            // has no walkmesh, the plan made again.)
+            let none = appearance(&mut h, area, 2);
+            let edit = mg_edit::Edit::SetField {
+                key: ResKey::new(area, ResType::GIT),
+                path: "/Placeable List[0]".parse().unwrap(),
+                label: "Appearance".into(),
+                value: Some(mg_gff::Value::Dword(none as u32)),
+            };
+            let command = mg_edit::Command::new("No walkmesh", vec![edit]);
+            h.state_mut().actions.push(mg_ui::Action::Apply(command));
+            settle(&mut h);
+            assert_eq!(appearance(&mut h, area, 0), none, "the appearance set");
+            // (Its plan in error, or nothing in it to bake: why, either way.)
+            let draft = h.state().bake.draft.as_ref().expect("still open");
+            let why = match &draft.plan {
+                Err(e) => e.clone(),
+                Ok(_) => "Nothing here has a walkmesh to bake.".to_string(),
+            };
+            crate::tool_sections::picture_of(&mut h, "bake-error", "why, in sight", |h| {
+                crate::tool_sections::label_in(h, right_dock_rect(h), &why)
+            });
+            h.key_press(egui::Key::Escape);
+            settle(&mut h);
+            h.state_mut().actions.push(mg_ui::Action::Undo);
+            settle(&mut h);
+            h.state_mut().area_views.get_mut(&area).unwrap().selection =
+                vec![(ObjectKind::Placeable, 0), (ObjectKind::Placeable, 2)];
+            h.run_steps(2);
+            let p = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+            right_click(&mut h, p);
+            open_submenu(&mut h, "Position");
+            // (Not offered: the second has no walkmesh; its tip says so.)
+            h.get_by_label("Bake Walkmesh to Transform…").hover();
+            h.run_steps(8);
+            crate::tool_sections::picture_of(&mut h, "bake-menu-refused", "its tip", |h| {
+                let item = "Bake Walkmesh to Transform…";
+                h.get_all_by_label(item).any(|n| n.accesskit_node().is_disabled())
+                    && h.query_all_by_label_contains("walkmesh").any(|n| {
+                        crate::tool_sections::words(&n)
+                            .is_some_and(|l| l != item && l.contains(':'))
+                    })
+            });
+            h.key_press(egui::Key::Escape);
+            settle(&mut h);
+            position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+            h.get_by_label("Bake Walkmesh to Transform…").click();
+            settle(&mut h);
+            h.key_press(egui::Key::Enter);
+            h.run_steps(1);
+            crate::tool_sections::picture_of(&mut h, "bake-done", "the section closed", |h| {
+                h.state().bake.draft.is_none()
+            });
+        }
+    }
+}
+
+/// The section's tab where the Right Dock's tabs are icons alone (1280 by
+/// 720, Bake the fourth): named "Bake Walkmesh to Transform" to the
+/// screen reader, and its tip says it under the pointer (M4's U29 review:
+/// it was an icon with no name in sight).
+#[test]
+fn bake_s_tab_has_a_name_and_a_tip_where_tabs_are_icons() {
+    let Some((mut h, area, _, _)) = bake_harness("tab-icon", Some(RULES)) else { return };
+    h.set_size(egui::vec2(1280.0, 720.0));
+    settle(&mut h);
+    position_menu(&mut h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+    h.get_by_label("Bake Walkmesh to Transform…").click();
+    settle(&mut h);
+    crate::tool_sections::tab_named_with_tip(&mut h, "Bake Walkmesh to Transform");
+}
+
+/// Bake opened on its placeable (selected, so Properties shows it).
+fn open_bake(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    position_menu(h, area, 0, Vec3::new(15.0, 15.0, 0.0));
+    h.get_by_label("Bake Walkmesh to Transform…").click();
+    settle(h);
+}
+
+/// Bake's section in the Right Dock's column (M4's U29 review): at 1600
+/// by 900, Properties showing the placeable, it takes two thirds of the
+/// column; its seam dragged, the share is kept for the run (closed and
+/// opened again, the same); its note whole in sight, at 1600 by 900 and
+/// at 1280 by 720 (one tab bar); outlined whole while it holds the keys.
+#[test]
+fn bake_takes_two_thirds_of_the_column_and_its_note_is_whole() {
+    let Some((mut h, area, _, _)) = bake_harness("split", Some(RULES)) else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    open_bake(&mut h, area);
+    let section = h.state().right_section_rect(mg_ui::Panel::Bake).expect("stacked at 1600");
+    let props = h.state().right_section_rect(mg_ui::Panel::Properties).expect("Properties");
+    let palette = h.state().right_section_rect(mg_ui::Panel::Palette);
+    let column = palette.map_or(props, |p| p.union(props)).union(section);
+    let share = section.height() / column.height();
+    assert!((share - 2.0 / 3.0).abs() < 0.03, "two thirds: {share} ({section:?} of {column:?})");
+    let note = h.get_by_label_contains("only what it blocks changes").rect();
+    assert!(section.contains_rect(note), "the note whole: {note:?} in {section:?}");
+    crate::tool_sections::outlined_whole(&mut h, section.with_min_y(section.top() + 30.0));
+    // Its seam dragged up by 60 points: kept for the run.
+    let seam = egui::pos2(section.center().x, section.top() - 0.5);
+    h.hover_at(seam);
+    h.run();
+    press(&h, seam, true, egui::Modifiers::NONE);
+    h.run();
+    for step in 1..=6 {
+        h.event(egui::Event::PointerMoved(seam - egui::vec2(0.0, 10.0 * step as f32)));
+        h.run();
+    }
+    press(&h, seam - egui::vec2(0.0, 60.0), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let dragged = h.state().right_section_rect(mg_ui::Panel::Bake).unwrap();
+    assert!(
+        (dragged.top() - (section.top() - 60.0)).abs() < 3.0,
+        "dragged: {dragged:?} from {section:?}"
+    );
+    h.state_mut().bake.draft = None;
+    settle(&mut h);
+    open_bake(&mut h, area);
+    let again = h.state().right_section_rect(mg_ui::Panel::Bake).unwrap();
+    assert!((again.height() - dragged.height()).abs() < 2.0, "kept: {again:?}, {dragged:?}");
+    // At 1280 by 720: one tab bar, the note whole.
+    h.set_size(egui::vec2(1280.0, 720.0));
+    settle(&mut h);
+    let dock = right_dock_rect(&h);
+    let note = h.get_by_label_contains("only what it blocks changes").rect();
+    assert!(dock.contains_rect(note), "1280: the note whole: {note:?} in {dock:?}");
+}
+
+/// Where Bake cannot bake, why is said under its actions, in sight (M4's
+/// U29 review: it was said at the foot of its scroll), Bake disabled.
+#[test]
+fn bake_says_why_it_is_disabled_under_its_actions() {
+    let Some((mut h, area, _, _)) = bake_harness("why", Some(RULES)) else { return };
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    open_bake(&mut h, area);
+    h.state_mut().bake.draft.as_mut().unwrap().plan = Err("The placeable has no walkmesh.".into());
+    settle(&mut h);
+    let dock = right_dock_rect(&h);
+    let main = (h.get_all_by_label("Bake").map(|n| n.rect()))
+        .find(|r| dock.contains_rect(*r))
+        .expect("Bake in the dock");
+    let bake = h.get_all_by_label("Bake").find(|n| dock.contains_rect(n.rect())).unwrap();
+    assert!(bake.accesskit_node().is_disabled(), "Bake disabled");
+    let why = h.get_by_label("The placeable has no walkmesh.").rect();
+    assert!(
+        why.top() >= main.bottom() && why.top() <= main.bottom() + 30.0,
+        "under the row: {why:?}, {main:?}"
+    );
+    assert!(dock.contains_rect(why), "in sight: {why:?}");
+}

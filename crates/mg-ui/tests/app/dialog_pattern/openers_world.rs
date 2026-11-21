@@ -58,13 +58,6 @@ fn two_waypoints() -> Option<Harness<'static, Moonglow>> {
     Some(h)
 }
 
-/// The area with generated lights on (Custom Light is offered).
-fn lights() -> Option<Harness<'static, Moonglow>> {
-    let mut h = area()?;
-    h.state_mut().settings.generated_lights = true;
-    Some(h)
-}
-
 /// The area wide enough for the Right Dock's Tile Properties.
 fn wide() -> Option<Harness<'static, Moonglow>> {
     let (mut h, area) = area_harness(&super::scratch("u27-world-tiles"))?;
@@ -135,9 +128,6 @@ fn open_tidy(h: &mut Harness<'static, Moonglow>) {
 
 pub(crate) fn openers() -> Vec<Opener> {
     vec![
-        Opener::new("area_props.rs:chooser_window#1", "Edit Areas Together", area, |h| {
-            edit_item(h, "Edit Areas Together…")
-        }),
         Opener::new("area_reshape.rs:resize_window#1", "Resize Area", area, |h| {
             edit_item(h, "Resize Area…")
         }),
@@ -163,7 +153,6 @@ pub(crate) fn openers() -> Vec<Opener> {
         .field(0)
         .off(|h| clear_field(h, "Create Set", 0)),
         Opener::new("bake_view.rs:save_window#1", "Baked Models No Longer Used", bake, open_tidy),
-        Opener::new("bake_view.rs:window#1", "Bake Walkmesh to Transform", bake, open_bake),
         Opener::new("tile_select.rs:panel#1", "Select a Color", wide, |h| {
             let area = area_of(h);
             area_click(h, "Select Tiles");
@@ -193,13 +182,6 @@ pub(crate) fn openers() -> Vec<Opener> {
             settle(h);
         })
         .bare(),
-        Opener::new("light_maker.rs:window#1", "Custom Light", lights, |h| {
-            waypoint_menu(h);
-            h.get_by_label_contains("Add Light Here").hover();
-            h.run_steps(3);
-            h.get_by_label("Custom Light…").click();
-            settle(h);
-        }),
         Opener::new("prefabs.rs:save_window#1", "Save as Prefab", two_waypoints, |h| {
             waypoint_menu(h);
             open_submenu(h, "Reuse");

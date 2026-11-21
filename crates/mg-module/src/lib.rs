@@ -142,6 +142,8 @@ pub struct Module {
     /// The project's rules (`moonglow.toml`): none for a module kept in
     /// one file, or a folder or project without the file.
     pub project_file: project_file::ProjectFile,
+    /// How many times the project's files were read ([`Module::project_reads`]).
+    project_reads: u64,
 }
 
 impl Default for Module {
@@ -173,6 +175,7 @@ impl Module {
             folder: None,
             archive: None,
             project_file: project_file::ProjectFile::default(),
+            project_reads: 0,
         }
     }
 
@@ -183,6 +186,7 @@ impl Module {
         else {
             let had = self.project_file.path.is_some();
             self.project_file = project_file::ProjectFile::default();
+            self.project_reads += u64::from(had);
             return had;
         };
         let here = self.project_file.place() == Some(&place);
@@ -190,7 +194,22 @@ impl Module {
             return false;
         }
         self.project_file = project_file::ProjectFile::read_at(&place);
+        self.project_reads += 1;
         true
+    }
+
+    /// The project's rules as read again from outside the module (a
+    /// plugin's settings written): counted as [`Module::reread_project_file`]'s.
+    pub fn reread_project_file_as(&mut self, project_file: project_file::ProjectFile) {
+        self.project_file = project_file;
+        self.project_reads += 1;
+    }
+
+    /// A number that moves whenever the project's files are read again
+    /// (claims taken or released, the rules changed), for views that cache
+    /// what they say (M4's U29 review: who may edit an area).
+    pub fn project_reads(&self) -> u64 {
+        self.project_reads
     }
 
     /// Opens a module archive, folder, or nasher project (its folder or its

@@ -148,7 +148,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
             app,
             key,
             path: GffPath::root(),
-            also: Vec::new(),
+            also: Default::default(),
             root: root.clone(),
             together: Default::default(),
             own_tab: false,

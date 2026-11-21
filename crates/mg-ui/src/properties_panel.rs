@@ -99,6 +99,13 @@ pub(crate) fn detail(app: &Moonglow, editor: Option<&Tab>) -> String {
     }
 }
 
+/// Whether the editor `editor` is an area with nothing selected, so that
+/// its Properties has nothing to show (beside an open tool, its section is
+/// its header alone: `shell::tools_heights`).
+pub(crate) fn nothing_selected(app: &Moonglow, editor: Option<&Tab>) -> bool {
+    area_of(editor).is_some_and(|a| matches!(selected(app, a), Selected::Nothing(false)))
+}
+
 /// The tab of today's Properties window on `area`'s selection (one object,
 /// or several of one kind), if one is selected.
 fn window_of(app: &Moonglow, area: ResRef) -> Option<Tab> {
@@ -194,6 +201,8 @@ pub(crate) fn page_icon(page: &str) -> mg_uikit::Icon {
         "Visual" => Icon::Light,
         "Grass" => Icon::Grass,
         "Audio" => Icon::Sound,
+        // (Edit Areas Together's own, M4's U29.)
+        "Areas" => Icon::Area,
         _ => Icon::Properties,
     }
 }
@@ -206,6 +215,12 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
     let Some(area) = area_of(editor) else { return };
     // (The pane F6 is at outlined, as the other panes are.)
     let keys = crate::palette_view::Keys::Properties;
+    // (A press in it takes the keys, as a pane's does: a tool section under
+    // it had them. M4's U29 review.)
+    let press = ui.input(|i| i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten());
+    if press.is_some_and(|at| ui.max_rect().contains(at) && ui.clip_rect().contains(at)) {
+        crate::palette_view::give_keys(ui.ctx(), keys);
+    }
     crate::palette_view::keys_outline(ui, ui.max_rect(), keys);
     let focus = std::mem::take(&mut app.props_focus);
     if !titled {
@@ -282,7 +297,8 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
     let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room).id_salt("page"));
     body.set_clip_rect(room.intersect(ui.clip_rect()));
     let path = paths[0].clone();
-    let also: Vec<(ResKey, GffPath)> = paths[1..].iter().map(|p| (git, p.clone())).collect();
+    let also: crate::widgets::Also =
+        std::sync::Arc::new(paths[1..].iter().map(|p| (git, p.clone())).collect());
     let Some(root) = object_now(app, &path, git) else {
         body.weak("This object is no longer there.");
         return;

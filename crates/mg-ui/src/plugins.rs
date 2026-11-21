@@ -68,8 +68,6 @@ pub struct SettingsForm {
 #[derive(Debug, Default)]
 pub struct Plugins {
     pub installed: Vec<Installed>,
-    /// The Plugins window is open.
-    pub window: bool,
     /// The console's code, and what its last run said.
     pub console: String,
     pub console_output: Vec<(Level, String)>,
@@ -986,7 +984,7 @@ impl Moonglow {
             }
         }
         if wrote && let (Some(root), Some(ws)) = (&root, &mut self.ws) {
-            ws.module.project_file = ProjectFile::read(root);
+            ws.module.reread_project_file_as(ProjectFile::read(root));
         }
     }
 
@@ -1093,7 +1091,7 @@ impl Moonglow {
         }
         // (The project's files as the tidy left them, done or not.)
         if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
-            ws.module.project_file = ProjectFile::read(root);
+            ws.module.reread_project_file_as(ProjectFile::read(root));
         }
         let done = match done {
             Ok(done) => done,
@@ -1542,7 +1540,8 @@ impl Moonglow {
     /// replaced only after a yes ([`Plugins::replace`]), asked of each.
     pub fn install_plugin_from(&mut self, path: &Path) {
         let Some(dir) = self.plugin_dir.clone() else { return };
-        self.plugins.window = true;
+        // (Its tab shown, where the install note says what came of it.)
+        self.actions.push(crate::Action::OpenTab(crate::Tab::Plugins));
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let read = || Package::open_all(path).map_err(|e| e.to_string());
         let packages = match read() {
@@ -2323,13 +2322,26 @@ fn swatch(ui: &egui::Ui, rect: egui::Rect, [r, g, b]: [u8; 3]) {
     ui.painter().rect_stroke(at, 2.0, (1.0, stroke.color), egui::StrokeKind::Inside);
 }
 
-/// Tools › Plugins: the plugins installed, each to enable; where they are
-/// kept; and the console.
-pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
-    if !app.plugins.window {
-        return;
-    }
-    let mut open = true;
+/// Plugins › Manage Plugins…, a document tab (M4's U29, as U26 made the
+/// Appearance Gallery one; a window before): the plugins installed, each to
+/// enable; where they are kept; and the console, on one scroll. A tab or a
+/// window as Options' Open editors says, with no module open too; kept in
+/// the open tabs as the other tools' tabs are. Its own dialogs (Remove,
+/// Replace, Settings, This Project Comes with Plugins) stay dialogs.
+/// A folder's path on the Plugins tab: given the room to the tab's right
+/// edge, past the page's width (M4's U29 review: it was cut with "…" at the
+/// page's edge beside free room), and cut only where that is too little,
+/// its whole in its tip.
+fn path_label(ui: &mut egui::Ui, text: egui::RichText) -> egui::Response {
+    let whole = text.text().to_string();
+    let room = (ui.clip_rect().right() - 8.0 - ui.cursor().min.x).max(ui.available_width());
+    let height = ui.spacing().interact_size.y;
+    ui.allocate_ui(egui::vec2(room, height), |ui| ui.add(egui::Label::new(text).truncate()))
+        .inner
+        .on_hover_text(whole)
+}
+
+pub(crate) fn tab(app: &mut Moonglow, ui: &mut egui::Ui) {
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
     let mut forgotten = None;
@@ -2346,250 +2358,246 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             .collect();
     let shadowed: Vec<String> =
         (trusts.iter()).filter(|(_, t)| t.runs()).map(|(id, _)| id.clone()).collect();
-    crate::widgets::dialog(ctx, "Plugins", &mut open).default_size([560.0, 480.0]).show_bare(
-        ctx,
-        |ui| {
-            ui.label(
-                "A plugin adds commands and checks, and may add exporters, importers, wizards \
+    let margin = egui::Margin { left: 12, right: 12, top: 10, bottom: 10 };
+    // (A field or button reached by Tab is brought into sight.)
+    crate::tool_sections::scrolled_in(ui, "plugins-tab", margin, |ui| {
+        ui.set_max_width(PAGE_MOST.min(ui.available_width()));
+        ui.label(
+            "A plugin adds commands and checks, and may add exporters, importers, wizards \
                  and panels. It reads the open module and the game data \
              and hands back changes that Undo takes back; it cannot reach your files, the \
              network or other programs, but for a file or a folder you choose for it and \
              what you allow it to write there. Each is off until you enable it.",
-            );
-            ui.weak(format!(
-                "Plugins are experimental: the plugin API ({}) is new, and a later release may \
+        );
+        ui.weak(format!(
+            "Plugins are experimental: the plugin API ({}) is new, and a later release may \
                  change it.",
-                mg_plugin::API
-            ));
-            // How long what plugins do within a save, a paste or a
-            // wizard's Finish may take.
-            ui.horizontal(|ui| {
-                let mut seconds = app.plugin_event_budget().as_secs() as u32;
-                crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
-                    "How long each plugin's handlers of a save, a paste or a wizard's Finish \
+            mg_plugin::API
+        ));
+        // How long what plugins do within a save, a paste or a
+        // wizard's Finish may take.
+        ui.horizontal(|ui| {
+            let mut seconds = app.plugin_event_budget().as_secs() as u32;
+            crate::widgets::field_label(ui, "Time within a save or a paste").on_hover_text(
+                "How long each plugin's handlers of a save, a paste or a wizard's Finish \
                          may take, which wait for them; past it, they are stopped (and a save \
                          goes on)",
-                );
-                let r = ui.add(
-                    egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"),
-                );
-                if r.changed() {
-                    app.settings.plugin_event_seconds = seconds;
-                }
-            });
-            ui.add_space(4.0);
-            // The buttons first, the folder under them: its path may be
-            // longer than the window is wide.
-            ui.horizontal(|ui| {
-                install = ui
-                    .add_enabled(app.plugin_dir.is_some(), egui::Button::new("Install from File…"))
-                    .on_hover_text(
-                        "Install a plugin from its archive (a zip); it is off until you enable it",
-                    )
-                    .clicked();
-                reload = ui
-                    .button("Reload")
-                    .on_hover_text("Read the folder again: a plugin copied in, or changed")
-                    .clicked();
-                if let Some(dir) = app.plugin_dir.clone()
-                    && ui
-                        .button("Open Folder")
-                        .on_hover_text("Open the plugins folder (it is made if it is not there)")
-                        .clicked()
-                {
-                    crate::widgets::open_folder(ui.ctx(), &dir, &mut app.log);
-                }
-            });
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Folder");
-                match &app.plugin_dir {
-                    Some(dir) => {
-                        let path = dir.display().to_string();
-                        ui.add(egui::Label::new(&path).truncate()).on_hover_text(&path);
-                    }
-                    None => {
-                        ui.weak("none");
-                    }
-                }
-            });
-            if let Some((l, note)) = &app.plugins.install_note {
-                ui.colored_label(l.color(ui), note);
+            );
+            let r = ui
+                .add(egui::DragValue::new(&mut seconds).range(1..=MOST_EVENT_SECONDS).suffix(" s"));
+            if r.changed() {
+                app.settings.plugin_event_seconds = seconds;
             }
-            if app.no_plugins {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "Started with --no-plugins: none are loaded.",
-                );
+        });
+        ui.add_space(4.0);
+        // The buttons first, the folder under them: its path may be
+        // longer than the window is wide.
+        ui.horizontal(|ui| {
+            install = ui
+                .add_enabled(app.plugin_dir.is_some(), egui::Button::new("Install from File…"))
+                .on_hover_text("Install a plugin from its zip archive, off until you enable it")
+                .clicked();
+            reload = ui
+                .button("Reload")
+                .on_hover_text("Read the folder again: a plugin copied in, or changed")
+                .clicked();
+            if let Some(dir) = app.plugin_dir.clone()
+                && ui
+                    .button("Open Folder")
+                    .on_hover_text("Open the plugins folder (it is made if it is not there)")
+                    .clicked()
+            {
+                crate::widgets::open_folder(ui.ctx(), &dir, &mut app.log);
             }
-            ui.separator();
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                // (Started without plugins, none are listed: said above.)
-                if !app.plugins.installed.iter().any(|i| !i.project) && !app.no_plugins {
-                    ui.weak(
-                        "No plugins are installed. Install one from its archive (Install from \
+        });
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Folder");
+            match &app.plugin_dir {
+                Some(dir) => {
+                    let path = dir.display().to_string();
+                    path_label(ui, egui::RichText::new(&path));
+                }
+                None => {
+                    ui.weak("none");
+                }
+            }
+        });
+        if let Some((l, note)) = &app.plugins.install_note {
+            ui.colored_label(l.color(ui), note);
+        }
+        if app.no_plugins {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                "Started with --no-plugins: none are loaded.",
+            );
+        }
+        ui.separator();
+        {
+            // (Started without plugins, none are listed: said above.)
+            if !app.plugins.installed.iter().any(|i| !i.project) && !app.no_plugins {
+                ui.weak(
+                    "No plugins are installed. Install one from its archive (Install from \
                          File…), or copy a plugin's folder into the folder above.",
-                    );
-                }
-                // Remove, for what Install from File put there.
-                let mut remove_button = |ui: &mut egui::Ui, installed: &Installed, name: String| {
-                    let id = installed.plugin.as_ref().ok().map(|p| p.manifest.id.clone());
-                    let tip = if installed.from_archive {
-                        "Delete this plugin's folder from the plugins folder"
-                    } else {
-                        "Not installed from a file: to remove it, delete its folder (Open Folder)"
-                    };
-                    let button = egui::Button::new("Remove…").small();
-                    if ui
-                        .add_enabled(installed.from_archive, button)
-                        .on_hover_text(tip)
-                        .on_disabled_hover_text(tip)
-                        .clicked()
-                    {
-                        remove = Some(Remove { dir: installed.dir.clone(), name, id });
-                    }
+                );
+            }
+            // Remove, for what Install from File put there.
+            let mut remove_button = |ui: &mut egui::Ui, installed: &Installed, name: String| {
+                let id = installed.plugin.as_ref().ok().map(|p| p.manifest.id.clone());
+                let tip = if installed.from_archive {
+                    "Delete this plugin's folder from the plugins folder"
+                } else {
+                    "Not installed from a file: to remove it, delete its folder (Open Folder)"
                 };
-                // Those installed, then the open project's own.
-                let ours = app.project_root();
-                let mut project_heading = false;
-                for installed in &app.plugins.installed {
-                    if installed.project && !std::mem::replace(&mut project_heading, true) {
-                        ui.separator();
-                        crate::widgets::section_heading(ui, "This project's plugins");
-                        let folder = ours
-                            .as_ref()
-                            .zip(app.ws.as_ref())
-                            .map(|(r, ws)| mg_plugin::project::folder(r, &ws.module.project_file));
-                        if let Some(folder) = folder {
-                            let path = folder.display().to_string();
-                            ui.add(egui::Label::new(egui::RichText::new(&path).weak()).truncate())
-                                .on_hover_text(&path);
-                        }
-                        ui.label(
-                            "They come with the project's checkout. Each runs only once you \
+                let button = egui::Button::new("Remove…").small();
+                if ui
+                    .add_enabled(installed.from_archive, button)
+                    .on_hover_text(tip)
+                    .on_disabled_hover_text(tip)
+                    .clicked()
+                {
+                    remove = Some(Remove { dir: installed.dir.clone(), name, id });
+                }
+            };
+            // Those installed, then the open project's own.
+            let ours = app.project_root();
+            let mut project_heading = false;
+            for installed in &app.plugins.installed {
+                if installed.project && !std::mem::replace(&mut project_heading, true) {
+                    ui.separator();
+                    crate::widgets::section_heading(ui, "This project's plugins");
+                    let folder = ours
+                        .as_ref()
+                        .zip(app.ws.as_ref())
+                        .map(|(r, ws)| mg_plugin::project::folder(r, &ws.module.project_file));
+                    if let Some(folder) = folder {
+                        let path = folder.display().to_string();
+                        path_label(ui, egui::RichText::new(&path).weak());
+                    }
+                    ui.label(
+                        "They come with the project's checkout. Each runs only once you \
                              allow it, as it is then: one that changes is off until you allow it \
                              again. Your answers are yours alone, kept in Moonglow's own \
                              settings, never in the project.",
-                        );
-                        ui.add_space(4.0);
-                    }
-                    match &installed.plugin {
-                        Ok(p) => {
-                            let m = &p.manifest;
-                            let trust = trusts.get(&m.id).filter(|_| installed.project);
-                            let mut on = match trust {
-                                Some(t) => t.runs(),
-                                None => app.plugin_enabled(&m.id),
-                            };
-                            ui.horizontal(|ui| {
-                                let label = format!("{} {}", m.name, m.version);
-                                if ui
-                                    .check_box(&mut on, egui::RichText::new(&label).strong())
-                                    .changed()
-                                {
-                                    match trust {
-                                        Some(_) => toggle_project = Some((m.id.clone(), on)),
-                                        None => toggle = Some((m.id.clone(), on)),
-                                    }
-                                }
-                                ui.weak(&m.id);
-                                if installed.project {
-                                    ui.weak("· the project's").on_hover_text(
-                                        "It comes with the project's checkout (its plugins \
-                                         folder): to remove it, the project removes it",
-                                    );
-                                } else {
-                                    remove_button(ui, installed, label);
-                                }
-                                if !m.settings.is_empty()
-                                    && ui
-                                        .small_button("Settings…")
-                                        .on_hover_text("The values this plugin keeps")
-                                        .clicked()
-                                {
-                                    open_settings = Some(m.id.clone());
-                                }
-                                // (Its own tests, as `mg plugin test` runs them.)
-                                if let Ok(p) = &installed.plugin
-                                    && installed.has_tests
-                                    && ui
-                                        .small_button("Run Tests")
-                                        .on_hover_text(
-                                            "Its own tests (tests/*.toml), on their fixtures: \
-                                             the log says what each came to",
-                                        )
-                                        .clicked()
-                                {
-                                    run_tests = Some(p.clone());
-                                }
-                            });
-                            ui.indent(("plugin", &m.id, installed.project), |ui| {
-                                if let Some(t) = trust {
-                                    trust_line(ui, t);
-                                } else if shadowed.contains(&m.id) {
-                                    ui.weak(
-                                        "The project has a plugin of this id, which runs in \
-                                         its stead while the project is open.",
-                                    );
-                                }
-                                if !m.description.is_empty() {
-                                    ui.label(&m.description);
-                                }
-                                let by = match m.authors.as_slice() {
-                                    [] => String::new(),
-                                    authors => format!("By {}. ", authors.join(", ")),
-                                };
-                                ui.weak(format!("{by}License: {}.", m.license));
-                                adds(ui, m);
-                                let allowed = allowed.get(&m.id).copied().unwrap_or(0);
-                                if allowed > 0 {
-                                    ui.horizontal(|ui| {
-                                        ui.weak(format!(
-                                            "Allowed before, and not asked again: {allowed}"
-                                        ));
-                                        let forget = ui.small_button("Forget").on_hover_text(
-                                            "It asks again for the folder it writes into, \
-                                             and for your leave",
-                                        );
-                                        if forget.clicked() {
-                                            forgotten = Some(m.id.clone());
-                                        }
-                                    });
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.colored_label(ui.visuals().error_fg_color, e);
-                                if !installed.project {
-                                    let folder = installed.dir.file_name().unwrap_or_default();
-                                    let name = folder.to_string_lossy().into_owned();
-                                    remove_button(ui, installed, name);
-                                }
-                            });
-                        }
-                    }
+                    );
                     ui.add_space(4.0);
                 }
-            });
-            ui.separator();
-            egui::CollapsingHeader::new("Console").icon(mg_uikit::collapsing_icon).show(ui, |ui| {
-                ui.label(
-                    "Try the plugin API on the open module: mg and ctx are at hand; what the code \
-                 returns is shown, and its edits go in as one step.",
-                );
-                let field = egui::TextEdit::multiline(&mut app.plugins.console)
-                    .code_editor()
-                    .desired_rows(4)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("return ctx.module:resources(\"utc\")");
-                crate::widgets::text_area(ui, egui::Id::new("plugin-console"), field);
-                run_console = ui.add_enabled(app.ws.is_some(), egui::Button::new("Run")).clicked();
-                for (l, line) in &app.plugins.console_output {
-                    ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));
+                match &installed.plugin {
+                    Ok(p) => {
+                        let m = &p.manifest;
+                        let trust = trusts.get(&m.id).filter(|_| installed.project);
+                        let mut on = match trust {
+                            Some(t) => t.runs(),
+                            None => app.plugin_enabled(&m.id),
+                        };
+                        // (Wrapped: in a narrow tab its buttons ran past the
+                        // edge, Settings… and Run Tests cut: M4's U29 review.)
+                        ui.horizontal_wrapped(|ui| {
+                            let label = format!("{} {}", m.name, m.version);
+                            if ui.check_box(&mut on, egui::RichText::new(&label).strong()).changed()
+                            {
+                                match trust {
+                                    Some(_) => toggle_project = Some((m.id.clone(), on)),
+                                    None => toggle = Some((m.id.clone(), on)),
+                                }
+                            }
+                            ui.weak(&m.id);
+                            if installed.project {
+                                ui.weak("· the project's").on_hover_text(
+                                    "It comes with the project's checkout (its plugins \
+                                         folder): to remove it, the project removes it",
+                                );
+                            } else {
+                                remove_button(ui, installed, label);
+                            }
+                            if !m.settings.is_empty()
+                                && ui
+                                    .small_button("Settings…")
+                                    .on_hover_text("The values this plugin keeps")
+                                    .clicked()
+                            {
+                                open_settings = Some(m.id.clone());
+                            }
+                            // (Its own tests, as `mg plugin test` runs them.)
+                            if let Ok(p) = &installed.plugin
+                                && installed.has_tests
+                                && ui
+                                    .small_button("Run Tests")
+                                    .on_hover_text(
+                                        "Its own tests (tests/*.toml), on their fixtures: \
+                                             the log says what each came to",
+                                    )
+                                    .clicked()
+                            {
+                                run_tests = Some(p.clone());
+                            }
+                        });
+                        ui.indent(("plugin", &m.id, installed.project), |ui| {
+                            if let Some(t) = trust {
+                                trust_line(ui, t);
+                            } else if shadowed.contains(&m.id) {
+                                ui.weak(
+                                    "The project has a plugin of this id, which runs in \
+                                         its stead while the project is open.",
+                                );
+                            }
+                            if !m.description.is_empty() {
+                                ui.label(&m.description);
+                            }
+                            let by = match m.authors.as_slice() {
+                                [] => String::new(),
+                                authors => format!("By {}. ", authors.join(", ")),
+                            };
+                            ui.weak(format!("{by}License: {}.", m.license));
+                            adds(ui, m);
+                            let allowed = allowed.get(&m.id).copied().unwrap_or(0);
+                            if allowed > 0 {
+                                ui.horizontal(|ui| {
+                                    ui.weak(format!(
+                                        "Allowed before, and not asked again: {allowed}"
+                                    ));
+                                    let forget = ui.small_button("Forget").on_hover_text(
+                                        "It asks again for the folder it writes into, \
+                                             and for your leave",
+                                    );
+                                    if forget.clicked() {
+                                        forgotten = Some(m.id.clone());
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.colored_label(ui.visuals().error_fg_color, e);
+                            if !installed.project {
+                                let folder = installed.dir.file_name().unwrap_or_default();
+                                let name = folder.to_string_lossy().into_owned();
+                                remove_button(ui, installed, name);
+                            }
+                        });
+                    }
                 }
-            });
-        },
-    );
+                ui.add_space(4.0);
+            }
+        }
+        ui.separator();
+        egui::CollapsingHeader::new("Console").icon(mg_uikit::collapsing_icon).show(ui, |ui| {
+            ui.label(
+                "Try the plugin API on the open module: mg and ctx are at hand; what the code \
+                 returns is shown, and its edits go in as one step.",
+            );
+            let field = egui::TextEdit::multiline(&mut app.plugins.console)
+                .code_editor()
+                .desired_rows(4)
+                .desired_width(f32::INFINITY)
+                .hint_text("return ctx.module:resources(\"utc\")");
+            crate::widgets::text_area(ui, egui::Id::new("plugin-console"), field);
+            run_console = ui.add_enabled(app.ws.is_some(), egui::Button::new("Run")).clicked();
+            for (l, line) in &app.plugins.console_output {
+                ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));
+            }
+        });
+    });
     if let Some((id, on)) = toggle {
         app.enable_plugin(&id, on);
     }
@@ -2618,11 +2626,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if run_console {
         app.run_console();
     }
-    if !open {
-        app.plugins.window = false;
-        app.plugins.install_note = None;
-    }
 }
+
+/// The most width the Plugins tab's page takes: its lines are read, not
+/// spread across a wide window.
+const PAGE_MOST: f32 = 760.0;
 
 /// What a plugin adds, as the Plugins window and the project's question
 /// list it: its commands (and the menus they are in), checks, what it does
@@ -2767,7 +2775,7 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
                             }
                             if ui
                                 .button("Don't Allow")
-                                .on_hover_text("It stays off; Manage Plugins enables it later")
+                                .on_hover_text("It stays off until you enable it in Manage Plugins")
                                 .clicked()
                             {
                                 answers.push((m.id.clone(), false));

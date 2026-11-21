@@ -968,7 +968,8 @@ impl Id {
             Id::FindInstance => return app.open_find_instance(),
             Id::EditAreasTogether => {
                 app.area_chooser.get_or_insert_with(Default::default);
-                return;
+                // (Shown, open or not: M4's U29.)
+                return crate::tool_sections::bring(app, crate::shell::Panel::AreasTogether);
             }
             Id::UpdateAllInstances => return app.update_all_instances(),
             Id::ReplaceText => return app.open_find_text(),
@@ -1023,7 +1024,7 @@ impl Id {
                 return;
             }
             Id::Plugins => {
-                app.plugins.window = true;
+                app.actions.push(Action::OpenTab(crate::Tab::Plugins));
                 return;
             }
             Id::InstallPlugin => return app.install_plugin(),

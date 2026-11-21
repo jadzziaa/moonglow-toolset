@@ -464,7 +464,8 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     let mut change: Option<(&str, lists::Outcome, &str)> = None;
     super::row(ui, |ui| {
         if mixed {
-            ui.colored_label(ui.visuals().warn_fg_color, super::MIXED).on_hover_text(
+            super::mixed_mark(
+                ui,
                 "The stores differ here: this shows the first one's. A mode clicked applies to \
                  each.",
             );

@@ -151,6 +151,8 @@ pub struct Workspace {
     unsaved: bool,
     /// Moves on every change (apply, undo, redo), for views that cache.
     revision: u64,
+    /// The revision it was opened at ([`Workspace::identity`]).
+    identity: u64,
     /// [`Workspace::rewrites`], by resource.
     rewrites: HashMap<ResKey, u64>,
     /// The resources as opened or last saved ([`Workspace::saved`]).
@@ -222,6 +224,7 @@ fn next_step() -> u64 {
 
 impl Workspace {
     pub fn new(module: Module) -> Workspace {
+        let first = first_revision();
         Workspace {
             saved: resources_of(&module),
             module,
@@ -232,7 +235,8 @@ impl Workspace {
             redo: Vec::new(),
             saved_at: 0,
             unsaved: false,
-            revision: first_revision(),
+            revision: first,
+            identity: first,
             rewrites: HashMap::new(),
             touching: Vec::new(),
             touched: std::collections::VecDeque::new(),
@@ -301,6 +305,12 @@ impl Workspace {
     /// and that no other workspace has had.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// A number that tells this workspace from every other: the module
+    /// opened again, or another with the same resources, has another.
+    pub fn identity(&self) -> u64 {
+        self.identity
     }
 
     /// How many times resource `key` was replaced whole or had a list at

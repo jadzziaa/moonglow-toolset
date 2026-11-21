@@ -77,6 +77,8 @@ mod tile_edges;
 mod tile_properties;
 mod tiles;
 mod tileset_panels;
+mod tool_section_keys;
+mod tool_sections;
 mod transition_setup;
 mod transition_triggers;
 mod tree;
