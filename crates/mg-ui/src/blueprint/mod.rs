@@ -2763,7 +2763,7 @@ pub(crate) fn edit_many(
     // from elsewhere, Inventory… or a test, is brought to the top.)
     let id = window_state_id(app, key, &path, "pages");
     let mut listed = crate::form_pages::list(ui, id, mg_uikit::pages::PAGES, &pages, &mut top);
-    let all = AllPages { id, pages: &pages, top: &mut top, bring: listed.chosen };
+    let all = AllPages { id, pages: &pages, top: &mut top, bring: listed.chosen, panel: false };
     let shown = FormShown {
         key,
         path,
@@ -2840,12 +2840,16 @@ fn kind_name(t: ResType) -> &'static str {
 /// A Properties window's pages on one scroll ([`FormShown::all`]): the
 /// scroll's id (the list beside it reads it by the same), the pages, the
 /// page at the top (asked for, then as shown), and whether the list chose
-/// it this frame.
+/// it this frame; `panel`: the Properties panel's (M5's W2, ruling 12:
+/// the wide layout's), each page under a section heading beside the
+/// panel's rail, laid out narrow as the panel's one page is, not a
+/// window's (no Preview of its own, no sideways scroll, one column).
 pub(crate) struct AllPages<'p> {
     pub id: egui::Id,
     pub pages: &'p [&'static str],
     pub top: &'p mut usize,
     pub bring: bool,
+    pub panel: bool,
 }
 
 /// The tab of a Properties window of the object at `path` of `key`, with
@@ -2999,7 +3003,9 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     if viewed {
         typing_kept_out(ui, ui.available_rect_before_wrap());
     }
-    let own_tab = all.is_some();
+    // (A window's own pages, not the panel's on one scroll.)
+    let window = all.as_ref().is_some_and(|a| !a.panel);
+    let own_tab = window;
     let mut form = Form { app, key, path, also, root, together: Default::default(), own_tab };
     // (Sideways too: the window fits its pane, `TabViewer::scroll_bars`;
     // in a narrow room, the panel's, down alone, its rows fitting it.)
@@ -3007,7 +3013,7 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
     // width the dock or its column is given.)
     // (The window's pages judged on a page's own width, inside its
     // margins: `form_pages::narrow`.)
-    let narrow = match all.is_some() {
+    let narrow = match window {
         true => crate::form_pages::narrow(ui.available_width()),
         false => ui.available_width() < NARROW_FORM || form.app.panel_form,
     };
@@ -3030,15 +3036,22 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
             });
         }
         // (The window's: every page on one scroll, drawn where in sight.)
-        Some(AllPages { id, pages, top, bring }) => {
-            let scroll = crate::form_pages::scroll(
-                id,
-                pages,
-                !narrow,
-                bring,
-                crate::form_pages::page_columns(ui.available_width()),
-            );
+        Some(AllPages { id, pages, top, bring, panel }) => {
+            let columns = match panel {
+                true => 1,
+                false => crate::form_pages::page_columns(ui.available_width()),
+            };
+            let scroll =
+                crate::form_pages::scroll(id, pages, !narrow, bring, columns).headings(panel);
+            // (The panel's one object's place under its first page's
+            // heading, as WideArea draws it under Basic.)
+            let readout = heading.and_then(|(_, r)| r).filter(|_| panel);
             scroll.show(ui, top, |ui, i| {
+                if i == 0
+                    && let Some(readout) = &readout
+                {
+                    ui.label(egui::RichText::new(readout).small().weak());
+                }
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
             });
         }

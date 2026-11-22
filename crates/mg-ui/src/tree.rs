@@ -63,10 +63,16 @@ pub(crate) struct AreaNames {
     /// How many times an area's placed objects were read for the tree
     /// (what the Filter found in them is then looked for again).
     reads: u64,
+    /// How many resources' rows' words were made ([`RowWords`]): each
+    /// once for a make of the groups' lists, when first wanted, not every
+    /// frame (the tests' count; [`Rows`] add to it).
+    words_made: Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// What the groups' lists were made for ([`Groups::shape`]).
-type Shape = (u64, usize, bool, bool, bool);
+/// What the groups' lists were made for ([`Groups::shape`]): the
+/// workspace's revision, how many resources the module has, areas and
+/// blueprints by name, and how their rows say what they are.
+type Shape = (u64, usize, bool, Says);
 
 /// What the Filter finds, kept from frame to frame: it was looked for
 /// again every frame (each resource's name lowered, every placed object of
@@ -130,9 +136,162 @@ enum ListRead {
     Open(u64),
 }
 
-/// A group's resources in the order the tree shows them, and the names of
-/// those shown by name.
-type GroupList = (Vec<ResKey>, HashMap<ResKey, String>);
+/// A group's resources in the order the tree shows them, and what each
+/// one's row says.
+type GroupList = (Vec<ResKey>, Rows);
+
+/// What a group's rows say ([`RowWords`]): what they are made from read
+/// with the group's list, and each row's words made when first wanted (a
+/// row drawn, its tip, the letters typed) and kept with the list. Not
+/// made for all of them with the list: the list is made again at every
+/// edit, and a module of 25,000 resources took 12 to 16 ms a make, a frame
+/// over the budget at every edit, for the 40 rows in sight.
+#[derive(Debug, Default)]
+pub(crate) struct Rows {
+    /// The names (where listed by name) and tags (where shown) read with
+    /// the list, of the resources that have one.
+    read: HashMap<ResKey, (Option<String>, Option<String>)>,
+    /// The ResRefs two of the group's files share.
+    shared: std::collections::HashSet<ResRef>,
+    says: Says,
+    /// The rows' words made so far.
+    made: std::sync::Mutex<HashMap<ResKey, Arc<RowWords>>>,
+    /// The module tree's count of rows made ([`AreaNames`]).
+    count: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// The rows of the group that lists `key` (by its type: [`GROUPS`]).
+fn rows_of<'l>(lists: &'l [GroupList], key: &ResKey) -> Option<&'l Rows> {
+    let group = GROUPS.iter().position(|(_, types)| types.contains(&key.restype))?;
+    lists.get(group).map(|(_, rows)| rows)
+}
+
+impl Rows {
+    fn read_of(&self, key: &ResKey) -> (Option<&str>, Option<&str>) {
+        self.read.get(key).map_or((None, None), |(n, t)| (n.as_deref(), t.as_deref()))
+    }
+
+    /// The row of `key`'s words: made the first time, kept after.
+    pub(crate) fn get(&self, key: &ResKey) -> Arc<RowWords> {
+        let mut made = self.made.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let made = made.entry(*key).or_insert_with(|| {
+            self.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (name, tag) = self.read_of(key);
+            let shares = self.shared.contains(&key.resref);
+            Arc::new(RowWords::of(*key, name, tag, shares, self.says))
+        });
+        made.clone()
+    }
+
+    /// What the Filter looks in for `key` ([`RowWords::sought`]), made
+    /// anew (a look through every row, once for what is typed).
+    fn sought(&self, key: &ResKey) -> String {
+        let (name, tag) = self.read_of(key);
+        RowWords::sought_of(*key, name, tag, self.says)
+    }
+}
+
+/// What a resource's row in the module tree says, made when first wanted
+/// and kept with its group's list (not every frame: [`Rows`]), by one rule under the options that shape it
+/// (Options › General: List areas and blueprints by name, Show ResRefs
+/// beside names, Show tags beside names in the module tree, Show file
+/// extensions in the module tree):
+/// - `name`, its words: the area's or blueprint's name where they are
+///   listed by name and it has one, else its ResRef; a blueprint's, a NUI
+///   window's, the journal's and the factions' ResRef with its extension
+///   (`guard.utc`) where extensions are shown, or where its group holds
+///   another file of that ResRef (only Journal and factions holds two
+///   types, and a module's `module.jrl` and `repute.fac` don't share one:
+///   a `repute.jrl` put in by hand beside `repute.fac` would);
+///   areas, conversations and scripts by their ResRefs alone, as Aurora
+///   and the board list them;
+/// - `second`, dimmed after it (as the Outliner's tag): its ResRef where
+///   ResRefs are shown and the row says a name (with its extension as
+///   above), and a blueprint's tag where tags are shown, joined by ` · `;
+///   the two cut with an ellipsis to the dock's width;
+/// - `label`, its accessible name: the whole on one line, as the rows
+///   said it before the dimming and as extensions shown would draw it
+///   (`Hent Fynolds (creature007) (GUARD_HENT)`, `creature007.utc
+///   (GUARD_HENT)`): told apart from the Outliner's `Name, tag X`;
+/// - `tip`: the whole, a line each (its name, its file's name with its
+///   extension, its tag), for a row cut short and for the file's type;
+/// - `sought`, what the Filter looks in (folded): its file's name with its
+///   extension (`.utc` and `guard.utc` are found whatever is shown), its
+///   name where listed by name, its tag where tags are shown.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RowWords {
+    pub(crate) name: String,
+    pub(crate) second: String,
+    pub(crate) label: String,
+    pub(crate) tip: String,
+    sought: String,
+}
+
+/// How a group's rows are to say what they are ([`RowWords`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Says {
+    /// Show ResRefs beside names.
+    pub(crate) resrefs: bool,
+    /// Show tags beside names in the module tree.
+    pub(crate) tags: bool,
+    /// Show file extensions in the module tree.
+    pub(crate) extensions: bool,
+}
+
+impl RowWords {
+    /// The row of `key`: `name`, where it is listed by name and has one;
+    /// `tag`, where tags are shown and it has one; `shares`, whether its
+    /// group holds another file of its ResRef.
+    pub(crate) fn of(
+        key: ResKey,
+        name: Option<&str>,
+        tag: Option<&str>,
+        shares: bool,
+        says: Says,
+    ) -> RowWords {
+        // (Areas, conversations and scripts by their ResRefs alone.)
+        let filed = !matches!(key.restype, ResType::ARE | ResType::DLG | ResType::NSS);
+        let file = key.to_string();
+        let resref = key.resref.to_string();
+        let drawn_ref = if filed && (says.extensions || shares) { &file } else { &resref };
+        // (Its accessible name as extensions shown would draw it.)
+        let said_ref = if filed { &file } else { &resref };
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        let tag = tag.map(str::trim).filter(|t| !t.is_empty() && says.tags);
+        let (words, mut second, mut label) = match name {
+            Some(name) if says.resrefs => {
+                (name.to_string(), drawn_ref.clone(), format!("{name} ({drawn_ref})"))
+            }
+            Some(name) => (name.to_string(), String::new(), name.to_string()),
+            None => (drawn_ref.clone(), String::new(), said_ref.clone()),
+        };
+        let mut tip = match name {
+            Some(name) => format!("{name}\n{file}"),
+            None => file.clone(),
+        };
+        if let Some(tag) = tag {
+            if !second.is_empty() {
+                second.push_str(" · ");
+            }
+            second.push_str(tag);
+            label.push_str(&format!(" ({tag})"));
+            tip.push_str(&format!("\nTag: {tag}"));
+        }
+        let sought = Self::sought_of(key, name, tag, says);
+        RowWords { name: words, second, label, tip, sought }
+    }
+
+    /// What the Filter looks in for the row of `key` ([`RowWords::sought`]).
+    fn sought_of(key: ResKey, name: Option<&str>, tag: Option<&str>, says: Says) -> String {
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        let tag = tag.map(str::trim).filter(|t| !t.is_empty() && says.tags);
+        mg_core::text::fold(&format!(
+            "{key}\n{}\n{}",
+            name.unwrap_or_default(),
+            tag.unwrap_or_default()
+        ))
+    }
+}
 
 /// The groups' lists and what they were made for: the workspace's
 /// revision and how many resources the module has (which also tells one
@@ -210,12 +369,12 @@ impl AreaNames {
             if f.made_for.as_ref().is_none_or(|(t, _)| t != typed) {
                 f.areas.clear();
             }
-            // (Every word in its ResRef or its name, in any order.)
+            // (Every word in its file's name, its name or its tag, in any
+            // order: [`RowWords`].)
             let mut matched = std::collections::HashSet::new();
-            for (all, names) in lists {
+            for (all, rows) in lists {
                 for k in all {
-                    let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
-                    if filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name]) {
+                    if filter.finds_folded(&rows.sought(k)) {
                         matched.insert(*k);
                     }
                 }
@@ -446,13 +605,19 @@ struct ObjectRow {
     text: String,
     /// Its name and tag, lowered, for the filter.
     sought: String,
-    /// What the pointer over the row shows: the tag of a row that says
-    /// the name, the name of one that says the tag.
-    tip: String,
+    /// The whole, a line each, for the pointer over its row (the module
+    /// tree's and the Outliner's, cut short or not): its name (`(no
+    /// name)`), and its tag where it has one.
+    whole: String,
     /// Its name and its tag, as they are (trimmed), for the Outliner's
-    /// row: the name, and the tag weak after it.
+    /// row and the module tree's with tags shown: the name (`(no name)`),
+    /// and the tag weak after it.
     name: String,
     tag: String,
+    /// The module tree's row's accessible name with tags shown: `Name
+    /// (tag)`, the one where the other is empty ([`tagged_text`]), told
+    /// apart from the Outliner's beside it ([`object_label`]).
+    tagged: String,
 }
 
 /// A placed object of an area, by its kind and its place in its kind's
@@ -528,22 +693,16 @@ fn area_contents(ws: &Workspace, game: Option<&GameData>, area: ResRef) -> AreaC
                     let tag = tag.trim().to_string();
                     let sought = mg_core::text::fold(&format!("{name}\n{tag}"));
                     let by_tag = kind == mg_area::ObjectKind::Waypoint;
-                    let both = (name.clone(), tag.clone());
-                    let (text, other) = if by_tag { (tag, name) } else { (name, tag) };
-                    let (text, tip) = match (text.is_empty(), other.is_empty()) {
-                        (true, _) => (other, String::new()),
-                        (false, true) => (text, String::new()),
-                        (false, false) => {
-                            let tip = if by_tag {
-                                format!("Name: {other}")
-                            } else {
-                                format!("Tag: {other}")
-                            };
-                            (text, tip)
-                        }
+                    let (first, other) = if by_tag { (&tag, &name) } else { (&name, &tag) };
+                    let text = if first.is_empty() { other.clone() } else { first.clone() };
+                    let shown = if name.is_empty() { NO_NAME } else { name.as_str() };
+                    let whole = match tag.is_empty() {
+                        true => shown.to_string(),
+                        false => format!("{shown}\nTag: {tag}"),
                     };
-                    let (name, tag) = both;
-                    ObjectRow { text, sought, tip, name, tag }
+                    let tagged = tagged_text(&name, &tag);
+                    let tagged = if tagged.is_empty() { NO_NAME.to_string() } else { tagged };
+                    ObjectRow { text, sought, whole, name, tag, tagged }
                 })
                 .collect();
             let mut order: Vec<usize> = (0..rows.len()).collect();
@@ -553,8 +712,13 @@ fn area_contents(ws: &Workspace, game: Option<&GameData>, area: ResRef) -> AreaC
             order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
             let order: Order = order.into();
             let tagged_order = if kind == mg_area::ObjectKind::Waypoint {
-                let keys: Vec<_> =
-                    rows.iter().map(|r| mg_core::text::sort_key(&tagged_text(r))).collect();
+                // (By what the rows say with tags shown: the name, then
+                // the tag.)
+                let said = |r: &ObjectRow| {
+                    let name = if r.name.is_empty() { NO_NAME } else { r.name.as_str() };
+                    mg_core::text::sort_key(&format!("{name}\n{}", r.tag))
+                };
+                let keys: Vec<_> = rows.iter().map(said).collect();
                 let mut tagged: Vec<usize> = (0..rows.len()).collect();
                 tagged.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
                 tagged.into()
@@ -786,35 +950,41 @@ pub(crate) fn contents_ui(
                 room(ui, first);
                 for &index in &shown[first..last] {
                     let object = &rows[index];
-                    let text = match tags {
-                        true => tagged_text(object),
-                        false => object.text.clone(),
-                    };
-                    let text = if text.is_empty() { NO_NAME } else { text.as_str() };
                     let several = chosen.is_some_and(|c| c.contains(&(*kind, index)));
                     let is_marked =
                         marked.is_some_and(|m| m.1 == index) || at_object == Some(index) || several;
+                    let name = if object.name.is_empty() { NO_NAME } else { &object.name };
+                    // (Its row cut with an ellipsis to the panel's width,
+                    // the whole in its tip, the module tree's as the
+                    // Outliner's: made when the area was read, laid out
+                    // only when the tip shows.)
+                    let tip = |how: &'static str| {
+                        move |ui: &mut Ui| _ = ui.label(format!("{}\n{how}", object.whole))
+                    };
                     let r = if outliner {
                         // (Its name, and its tag weak after it, cut to the
                         // panel's width: `LightArea_crop_outl.png`.)
-                        let name = if object.name.is_empty() { NO_NAME } else { &object.name };
-                        let tip = "Click to select it in the area, double-click for its \
+                        let how = "Click to select it in the area, double-click for its \
                                    Properties. Right-click for more.";
                         let label = object_label(&object.name, &object.tag);
                         let row = mg_uikit::TreeRow::new(name).second(&object.tag).label(label);
-                        row.selected(is_marked).show(ui).on_hover_text(tip)
+                        row.selected(is_marked).show(ui).on_hover_ui(tip(how))
                     } else {
                         let how = "Click to go to it in the area, double-click for its \
                                    Properties. Right-click for more.";
-                        // (Both in the row already, with tags shown.)
-                        let tip = if object.tip.is_empty() || tags {
-                            how.to_string()
-                        } else {
-                            format!("{}\n{how}", object.tip)
-                        };
                         // (The kit's row, its fill across the whole row.)
-                        let r = mg_uikit::TreeRow::new(text).selected(is_marked).show(ui);
-                        r.on_hover_text(tip)
+                        // With tags shown, its name and its tag dimmed
+                        // after it, as the Outliner's (said `Name (tag)`,
+                        // told from the Outliner's row beside it); else
+                        // its name, a waypoint's tag.
+                        let row = if tags {
+                            let row = mg_uikit::TreeRow::new(name).label(object.tagged.as_str());
+                            row.second(&object.tag)
+                        } else {
+                            let text = if object.text.is_empty() { NO_NAME } else { &object.text };
+                            mg_uikit::TreeRow::new(text).fit()
+                        };
+                        row.selected(is_marked).show(ui).on_hover_ui(tip(how))
                     };
                     let m = ui.input(|i| i.modifiers);
                     let (command, shift) = (m.command || m.ctrl, m.shift);
@@ -1413,6 +1583,27 @@ fn follow_selection(app: &mut Moonglow) {
     }
 }
 
+impl Moonglow {
+    /// How many resources' rows' words ([`RowWords`]) the module tree has
+    /// made: each when first wanted after the module or an option that
+    /// shapes its groups' lists changes, never for a frame (the tests'
+    /// count).
+    #[doc(hidden)]
+    pub fn tree_words_made(&self) -> u64 {
+        self.area_names.words_made.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// What the module tree's row of `key` says, as last made: its words,
+    /// what is dimmed after them, its accessible name and its tip
+    /// ([`RowWords`]; for the tests).
+    #[doc(hidden)]
+    pub fn tree_row_words(&self, key: ResKey) -> Option<[String; 4]> {
+        let groups = self.area_names.groups.as_ref()?;
+        let w = rows_of(&groups.lists, &key)?.get(&key);
+        Some([w.name.clone(), w.second.clone(), w.label.clone(), w.tip.clone()])
+    }
+}
+
 /// Whether the module tree lists a resource: the module's, of a kind of
 /// its groups.
 pub(crate) fn listed(app: &Moonglow, key: &ResKey) -> bool {
@@ -1572,7 +1763,8 @@ type Shown<'a> = Vec<(&'static str, bool, std::borrow::Cow<'a, [ResKey]>)>;
 /// kinds' rows, and a kind open its placed objects'. A row's name is what
 /// it shows (`text`: a group's or a kind's name without its count; a
 /// resource's, an area's or a blueprint's name where they are listed by
-/// name, else its ResRef; an object's name, or a waypoint's tag).
+/// name, else its ResRef, with its extension where shown; an object's
+/// name, or a waypoint's tag where tags are not shown).
 fn seek(
     shown: &Shown<'_>,
     outs: &Outs,
@@ -1601,9 +1793,10 @@ pub(crate) fn seek_in(
 }
 
 /// A row's text as the module tree shows it, for the letters typed
-/// ([`seek`]): `named` gives a resource's name where it is listed by name,
-/// `contents` an area's placed objects as read, `tags` whether they say
-/// their tags too ([`tagged_text`]).
+/// ([`seek`]): `named` gives a resource's row's words ([`RowWords::name`]:
+/// its name, or its ResRef with its extension where shown), `contents` an
+/// area's placed objects as read, `tags` whether they say their tags too
+/// (dimmed after the name, which is what the letters go by).
 pub(crate) fn row_text(
     at: TreeAt,
     named: &dyn Fn(&ResKey) -> Option<String>,
@@ -1619,20 +1812,22 @@ pub(crate) fn row_text(
                 .flat_map(|(_, c)| c.iter())
                 .find(|c| c.kind == kind)
                 .and_then(|c| c.rows.get(index));
-            let text = row.map(|r| if tags { tagged_text(r) } else { r.text.clone() });
+            // (With tags shown, its name as drawn: the tag after it.)
+            let text = row.map(|r| if tags { r.name.clone() } else { r.text.clone() });
             text.filter(|t| !t.is_empty()).unwrap_or_else(|| NO_NAME.to_string())
         }
     }
 }
 
-/// A placed object's row in the module tree with tags shown (Options ›
-/// General): `Name (tag)`, a waypoint's too; the one where the other is
-/// empty.
-fn tagged_text(row: &ObjectRow) -> String {
-    match (row.name.is_empty(), row.tag.is_empty()) {
-        (false, false) => format!("{} ({})", row.name, row.tag),
-        (true, _) => row.tag.clone(),
-        (false, true) => row.name.clone(),
+/// A placed object's row's accessible name in the module tree with tags
+/// shown (Options › General): `Name (tag)`, a waypoint's too; the one
+/// where the other is empty (its row draws the name, `(no name)`, and the
+/// tag dimmed after it, as the Outliner's).
+fn tagged_text(name: &str, tag: &str) -> String {
+    match (name.is_empty(), tag.is_empty()) {
+        (false, false) => format!("{name} ({tag})"),
+        (true, _) => tag.to_string(),
+        (false, true) => name.to_string(),
     }
 }
 
@@ -1775,8 +1970,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut go = None;
     // The object selected is still to be gone to, next frame.
     let mut object_waits = false;
-    let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
+    let by_name = app.settings.area_names;
     let tags = app.settings.tree_tags;
+    let says =
+        Says { resrefs: app.settings.name_resrefs, tags, extensions: app.settings.tree_extensions };
     let hide_empty = app.settings.tree_hides_empty;
     let filter = filter.clone();
     // (Marked while its tab is the one chosen.)
@@ -1801,7 +1998,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // What the groups list: made when the module or the options that
     // shape the lists change (a module can hold thousands of a kind, and
     // every group was gathered, named and sorted each frame, open or not).
-    let shape = (revision, ws.module.len(), by_name, resrefs, tags);
+    let shape = (revision, ws.module.len(), by_name, says);
     if app.area_names.groups.as_ref().is_none_or(|g| g.shape != shape) {
         let game = app.game.as_deref();
         let mut lists = Vec::with_capacity(GROUPS.len());
@@ -1809,42 +2006,53 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             let mut keys: Vec<ResKey> =
                 ws.module.keys().filter(|k| types.contains(&k.restype)).copied().collect();
             keys.sort();
-            // Areas by name (Options › General): named, and in the names'
-            // order; the filter finds a name or a ResRef.
-            let mut names: HashMap<ResKey, String> = HashMap::new();
+            // Areas and blueprints by name (Options › General): named, and
+            // in the names' order (one without a name by its ResRef).
             let blueprints = types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
             let named = types == &[ResType::ARE] || blueprints;
-            if by_name && named {
+            // (A ResRef two of the group's files share: theirs said with
+            // their extensions, whatever is shown.)
+            let mut refs: HashMap<ResRef, usize> = HashMap::new();
+            if types.len() > 1 {
                 for k in &keys {
-                    let name = if k.restype == ResType::ARE {
-                        app.area_names.name(ws, game, k.resref)
-                    } else {
-                        app.area_names.blueprint(ws, game, *k)
-                    };
-                    // (One without a name keeps its ResRef.)
-                    if !name.trim().is_empty() {
-                        names.insert(*k, named_label(&name, k.resref, resrefs));
+                    *refs.entry(k.resref).or_default() += 1;
+                }
+            }
+            // (What the rows are made from: their words are made when first
+            // wanted, [`Rows`].)
+            let mut read: HashMap<ResKey, (Option<String>, Option<String>)> = HashMap::new();
+            if (by_name && named) || (tags && blueprints) {
+                for k in &keys {
+                    let name = (by_name && named).then(|| {
+                        if k.restype == ResType::ARE {
+                            app.area_names.name(ws, game, k.resref)
+                        } else {
+                            app.area_names.blueprint(ws, game, *k)
+                        }
+                    });
+                    let name = name.filter(|n| !n.trim().is_empty());
+                    // (Tags beside names: a blueprint's, which the Filter
+                    // finds too.)
+                    let tag = (tags && blueprints)
+                        .then(|| app.area_names.blueprint_read(ws, game, *k).1)
+                        .filter(|t| !t.trim().is_empty());
+                    if name.is_some() || tag.is_some() {
+                        read.insert(*k, (name, tag));
                     }
                 }
             }
-            // Tags beside names (Options › General): a blueprint's after
-            // what it is listed by, `Name (tag)`, which the filter finds
-            // too. (Before the names' order is taken: they sort by name.)
-            if tags && blueprints {
-                for k in &keys {
-                    let tag = app.area_names.blueprint_read(ws, game, *k).1;
-                    if !tag.is_empty() {
-                        let label = names.get(k).cloned().unwrap_or_else(|| k.to_string());
-                        names.insert(*k, format!("{label} ({tag})"));
-                    }
-                }
-            }
             if by_name && named {
-                let shown =
-                    |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
+                // (By the name drawn: tags and extensions leave the order.)
+                let shown = |k: &ResKey| match read.get(k) {
+                    Some((Some(n), _)) => n.trim().to_string(),
+                    _ => k.resref.to_string(),
+                };
                 keys.sort_by_cached_key(|k| (mg_core::text::sort_key(&shown(k)), *k));
             }
-            lists.push((keys, names));
+            let shared = (refs.into_iter()).filter(|(_, n)| *n > 1).map(|(r, _)| r).collect();
+            let count = app.area_names.words_made.clone();
+            let made = Default::default();
+            lists.push((keys, Rows { read, shared, says, made, count }));
         }
         let unlisted = (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
             .filter(|a| !app.area_names.listed(ws, *a))
@@ -1968,11 +2176,6 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
               let well = types == &[ResType::ARE];
               in_well(ui, well, (view, others, !filter.is_empty()), |ui| {
                 for &k in keys {
-                    let label = match (names.get(&k), k.restype) {
-                        (Some(name), _) => name.clone(),
-                        (None, ResType::ARE | ResType::DLG | ResType::NSS) => k.resref.to_string(),
-                        _ => k.to_string(),
-                    };
                     // Blueprints drag into an area, as from the palette.
                     let blueprint = mg_area::ObjectKind::from_restype(k.restype).is_some();
                     let sense = if blueprint {
@@ -2048,6 +2251,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         ui.allocate_space(egui::vec2(1.0, height));
                         continue;
                     }
+                    // (Made when first drawn, kept with the group's list:
+                    // [`Rows`].)
+                    let words = names.get(&k);
                     let layout = egui::Layout::left_to_right(egui::Align::Center);
                     // (The row's fill under the arrow drawn before it.)
                     let fill = ui.painter().add(egui::Shape::Noop);
@@ -2069,7 +2275,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         // filled, read as a stack of tiles.) (Named with
                         // its area, said open or not.)
                         let mut button = crate::widgets::icon_only(arrow, "Placed Objects")
-                            .name(format!("Placed Objects in {label}"))
+                            .name(format!("Placed Objects in {}", words.name))
                             .expanded(out);
                         // (On the marked row's fill, in its words' color,
                         // as the kit's rows draw their arrows.)
@@ -2085,14 +2291,45 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         }
                     }
                     // (The kit's row: its fill across the whole row, the
-                    // name after the arrow's column, as the board's.)
+                    // name after the arrow's column, as the board's; what
+                    // follows the name dimmed, as the Outliner's tag, and
+                    // the two cut with an ellipsis to the dock's width,
+                    // the whole in the tip, as the Outliner's rows.)
                     let marked = in_hand || at_row || chosen;
-                    let mut row = mg_uikit::TreeRow::new(label.as_str())
+                    let mut row = mg_uikit::TreeRow::new(words.name.as_str())
+                        .label(words.label.as_str())
                         .selected(marked)
                         .sense(sense)
-                        .fill_under(fill);
+                        .fill_under(fill)
+                        .fit();
+                    if !words.second.is_empty() {
+                        row = row.second(words.second.as_str());
+                    }
+                    // (An area's marks after its words, their room kept
+                    // for them, at most half the row's, so that a long
+                    // name keeps enough of itself to be told by; the marks
+                    // are cut then. The unlisted mark measured this frame;
+                    // the claims mark, which claims.rs draws, as wide as
+                    // it was the frame before.)
+                    let marks_id = egui::Id::new(("tree-area-marks", k.resref));
+                    let unlisted_mark = (is_area && unlisted.contains(&k.resref))
+                        .then(|| egui::RichText::new("(not in the area list)").weak());
                     if is_area {
-                        row = row.arrow_apart();
+                        let claims = ui.data(|d| d.get_temp::<f32>(marks_id)).unwrap_or(0.0);
+                        let mut marks = claims;
+                        if let Some(text) = &unlisted_mark {
+                            let galley = egui::WidgetText::from(text.clone()).into_galley(
+                                ui,
+                                Some(egui::TextWrapMode::Extend),
+                                f32::INFINITY,
+                                egui::TextStyle::Body,
+                            );
+                            let gap = if claims > 0.0 { ui.spacing().item_spacing.x } else { 0.0 };
+                            marks += gap + galley.size().x;
+                        }
+                        let marks = if marks > 0.0 { marks + mg_uikit::tree::ROW_GAP } else { 0.0 };
+                        let share = ui.available_width() * 0.5;
+                        row = row.arrow_apart().keep_after(marks.min(share));
                     }
                     let row = row.show_parts(ui);
                     // (A row out of sight is given this height.)
@@ -2104,22 +2341,30 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     if is_area {
                         // Who holds it (the project's claims table), and
                         // an ARE the module's area list leaves out (the
-                        // game doesn't load it), after its name. (As wide
-                        // as they take: the room given them is not taken
-                        // from the row's layout.)
-                        let after = egui::Rect::from_min_size(row.after, egui::vec2(4096.0, height));
+                        // game doesn't load it), after its name, to the
+                        // row's right end. (The room given them is not
+                        // taken from the row's layout.)
+                        let right = (row.response.rect.right() - mg_uikit::tree::ROW_GAP).max(row.after_words.x);
+                        let after = egui::Rect::from_min_max(
+                            row.after_words,
+                            egui::pos2(right, row.after_words.y + height),
+                        );
                         let mut on =
                             ui.new_child(egui::UiBuilder::new().max_rect(after).layout(layout));
                         // (Their words not selectable: a click on them is
                         // the row's, as their tips are theirs.)
                         on.style_mut().interaction.selectable_labels = false;
                         crate::claims::tree_mark(crate::claims::of(&app.ws), &mut on, k.resref);
-                        if unlisted.contains(&k.resref) {
-                            on.weak("(not in the area list)").on_hover_text(UNLISTED_TIP);
+                        let claims = on.min_rect().width();
+                        if let Some(text) = unlisted_mark {
+                            on.add(egui::Label::new(text).truncate()).on_hover_text(UNLISTED_TIP);
                         }
-                        // (Scrolled sideways to, as the name is.)
-                        if on.min_rect().width() > 0.0 {
-                            ui.expand_to_include_x(on.min_rect().right());
+                        // (The claims mark's width kept for the next frame:
+                        // a row laid out again only when it changes.)
+                        let kept = ui.data(|d| d.get_temp::<f32>(marks_id)).unwrap_or(0.0);
+                        if (claims - kept).abs() > 0.5 {
+                            ui.data_mut(|d| d.insert_temp(marks_id, claims));
+                            ui.ctx().request_repaint();
                         }
                     }
                     let mut r = row.response;
@@ -2196,9 +2441,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                             }
                         }
                     }
-                    if names.contains_key(&k) {
-                        r = r.on_hover_text(k.resref.to_string());
-                    }
+                    // (The whole, a line each: for a row cut short, and for
+                    // the file's type where its extension is not shown.)
+                    r = r.on_hover_text(words.tip.as_str());
                     if blueprint && r.drag_started() {
                         r.dnd_set_drag_payload(crate::palette_view::Dragged(k));
                     }
@@ -2574,7 +2819,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         // Letters typed while the tree has the keys, wherever the pointer
         // is, go to the row whose name begins with them, as in Aurora's
         // (Windows') tree: a pause starts over ([`typed_row`]).
-        let named = |k: &ResKey| lists.iter().find_map(|(_, names)| names.get(k).cloned());
+        let named = |k: &ResKey| Some(rows_of(&lists, k)?.get(k).name.clone());
         let tags = app.settings.tree_tags;
         let text = |at: TreeAt| row_text(at, &named, &app.area_contents, tags);
         let seek_from = |from: Option<TreeAt>, typed: &str| seek(&shown, &outs, from, typed, &text);
@@ -3096,12 +3341,6 @@ fn placeables_menu(ui: &mut Ui, areas: &[ResRef], whose: &str, actions: &mut Vec
     });
 }
 
-/// A named resource in the tree: its name, and its ResRef in parentheses
-/// when asked for (Options › General).
-fn named_label(name: &str, resref: ResRef, resrefs: bool) -> String {
-    if resrefs { format!("{name} ({resref})") } else { name.to_string() }
-}
-
 /// The menu entry for a command that makes something new, from its name:
 /// "Area Wizard" is "New Area…", "New Script" is "New Script…".
 pub(crate) fn new_label(command: &str) -> String {
@@ -3271,9 +3510,10 @@ mod tests {
         let row = |text: &str| ObjectRow {
             text: text.to_string(),
             sought: mg_core::text::fold(text),
-            tip: String::new(),
+            whole: text.to_string(),
             name: text.to_string(),
             tag: String::new(),
+            tagged: text.to_string(),
         };
         let kind = |kind, rows: Vec<ObjectRow>, order: Vec<usize>| {
             let order: Order = order.into();
@@ -3327,11 +3567,23 @@ mod tests {
         use mg_area::ObjectKind::Creature;
         let (_, _, mut contents, a, b) = opened_out();
         let script = ResKey::parse("gate_open", ResType::NSS).unwrap();
-        let names = HashMap::from([(b, "The Bandits' Camp".to_string())]);
-        let mut lists: Vec<GroupList> = vec![(vec![a, b], names), (vec![script], HashMap::new())];
+        // (Each row's words as the groups' lists make them, from the names
+        // a look through goes by.)
+        let words = |keys: &[ResKey], names: &HashMap<ResKey, String>| -> GroupList {
+            let read = |k: &ResKey| Some((*k, (Some(names.get(k)?.clone()), None)));
+            let read = keys.iter().filter_map(read).collect();
+            (keys.to_vec(), Rows { read, ..Rows::default() })
+        };
+        let mut names = HashMap::from([(b, "The Bandits' Camp".to_string())]);
+        let mut lists: Vec<GroupList> =
+            vec![words(&[a, b], &names), words(&[script], &HashMap::new())];
         type Held = HashMap<ResRef, (Read, AreaContents)>;
-        let look = |lists: &[GroupList], filter: &Needle, contents: &Held, also: &[ResKey]| {
-            let own = |k: &ResKey, names: &HashMap<ResKey, String>| {
+        let look = |names: &HashMap<ResKey, String>,
+                    lists: &[GroupList],
+                    filter: &Needle,
+                    contents: &Held,
+                    also: &[ResKey]| {
+            let own = |k: &ResKey| {
                 let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
                 filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name])
             };
@@ -3342,21 +3594,25 @@ mod tests {
                     })
             };
             (lists.iter())
-                .map(|(all, names)| {
-                    (all.iter().filter(|k| own(k, names) || holds(k) || also.contains(k)))
+                .map(|(all, _)| {
+                    (all.iter().filter(|k| own(k) || holds(k) || also.contains(k)))
                         .copied()
                         .collect::<Vec<ResKey>>()
                 })
                 .collect::<Vec<_>>()
         };
         let mut kept = AreaNames::default();
-        let mut shape = (1, 3, true, false, false);
+        let mut shape = (1, 3, true, Says::default());
         let typed = ["gate", "GOBLIN", "gate wp", "b", "bandit", "nothing", "gate open", "a"];
         for typed in typed {
             let filter = Needle::new(typed);
             for _ in 0..2 {
                 kept.find(&filter, shape, &lists, &contents, None);
-                assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]), "{typed}");
+                assert_eq!(
+                    *kept.filtered.found,
+                    look(&names, &lists, &filter, &contents, &[]),
+                    "{typed}"
+                );
             }
         }
         // The objects found, kind by kind in the order listed.
@@ -3373,17 +3629,18 @@ mod tests {
         held.retain(|c| c.kind != Creature);
         kept.read_again(a.resref);
         kept.find(&filter, shape, &lists, &contents, None);
-        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]));
+        assert_eq!(*kept.filtered.found, look(&names, &lists, &filter, &contents, &[]));
         assert_eq!(kept.filtered.found[0], [b]);
         // A tab's rows kept under the Filter, then let go.
         kept.find(&filter, shape, &lists, &contents, Some(&[script]));
-        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[script]));
+        assert_eq!(*kept.filtered.found, look(&names, &lists, &filter, &contents, &[script]));
         assert_eq!(kept.filtered.found[1], [script]);
         kept.find(&filter, shape, &lists, &contents, None);
         assert!(kept.filtered.found[1].is_empty());
         // The groups' lists made again (a resource renamed), and what the
         // areas hold let go (the game data read again).
-        lists[0].1.insert(b, "The Camp".to_string());
+        names.insert(b, "The Camp".to_string());
+        lists[0] = words(&[a, b], &names);
         shape.0 += 1;
         kept.find(&filter, shape, &lists, &contents, None);
         assert!(kept.filtered.found[0].is_empty(), "{:?}", kept.filtered.found);
@@ -3392,8 +3649,105 @@ mod tests {
         assert_eq!(kept.filtered.found[0], [a]);
         contents.clear();
         kept.find(&filter, shape, &lists, &contents, None);
-        assert_eq!(*kept.filtered.found, look(&lists, &filter, &contents, &[]));
+        assert_eq!(*kept.filtered.found, look(&names, &lists, &filter, &contents, &[]));
         assert!(kept.filtered.found[0].is_empty());
+    }
+
+    /// A resource's row under every combination of the options that shape
+    /// it ([`RowWords`], M5's W1): its words, what is dimmed after them, its
+    /// accessible name (which begins with what the row says), its tip, and
+    /// what the Filter finds it by whatever is shown.
+    #[test]
+    fn a_resource_s_row_says_one_rule_under_every_option() {
+        let guard = ResKey::parse("creature007", ResType::UTC).unwrap();
+        let says = |resrefs, tags, extensions| Says { resrefs, tags, extensions };
+        let of = |name, s| RowWords::of(guard, name, Some("GUARD_HENT"), false, s);
+        let parts = |w: &RowWords| (w.name.clone(), w.second.clone(), w.label.clone());
+        let p = |a: &str, b: &str, c: &str| (a.to_string(), b.to_string(), c.to_string());
+        // By its ResRef: without its extension unless asked; said with it.
+        assert_eq!(
+            parts(&of(None, says(false, false, false))),
+            p("creature007", "", "creature007.utc")
+        );
+        assert_eq!(
+            parts(&of(None, says(true, false, false))),
+            p("creature007", "", "creature007.utc")
+        );
+        assert_eq!(
+            parts(&of(None, says(false, false, true))),
+            p("creature007.utc", "", "creature007.utc")
+        );
+        assert_eq!(
+            parts(&of(None, says(false, true, false))),
+            p("creature007", "GUARD_HENT", "creature007.utc (GUARD_HENT)")
+        );
+        // By its name: its ResRef and tag dimmed after it.
+        let named = Some("Hent Fynolds");
+        assert_eq!(
+            parts(&of(named, says(false, false, false))),
+            p("Hent Fynolds", "", "Hent Fynolds")
+        );
+        assert_eq!(
+            parts(&of(named, says(true, false, false))),
+            p("Hent Fynolds", "creature007", "Hent Fynolds (creature007)")
+        );
+        assert_eq!(
+            parts(&of(named, says(true, false, true))),
+            p("Hent Fynolds", "creature007.utc", "Hent Fynolds (creature007.utc)")
+        );
+        assert_eq!(
+            parts(&of(named, says(true, true, false))),
+            p(
+                "Hent Fynolds",
+                "creature007 · GUARD_HENT",
+                "Hent Fynolds (creature007) (GUARD_HENT)"
+            )
+        );
+        assert_eq!(
+            parts(&of(named, says(false, true, true))),
+            p("Hent Fynolds", "GUARD_HENT", "Hent Fynolds (GUARD_HENT)")
+        );
+        assert_eq!(
+            of(named, says(true, true, false)).tip,
+            "Hent Fynolds\ncreature007.utc\nTag: GUARD_HENT"
+        );
+        assert_eq!(
+            of(None, says(false, false, false)).tip,
+            "creature007.utc",
+            "its type in its tip"
+        );
+        for bits in 0..16 {
+            let (resrefs, tags, extensions, by_name) =
+                (bits & 1 > 0, bits & 2 > 0, bits & 4 > 0, bits & 8 > 0);
+            let w = of(by_name.then_some("Hent Fynolds"), says(resrefs, tags, extensions));
+            assert!(w.label.starts_with(&w.name), "said as it reads: {w:?}");
+            assert_eq!(w.second.contains("GUARD_HENT"), tags, "{w:?}");
+            assert_eq!(
+                w.name.ends_with(".utc") || w.second.contains(".utc"),
+                extensions && (resrefs || !by_name),
+                "{w:?}"
+            );
+            // The Filter: its file's name and extension whatever is shown,
+            // its tag where shown, its name where listed by name.
+            for typed in [".utc", "creature007.utc", "CREATURE007", "utc creature"] {
+                assert!(Needle::new(typed).finds_folded(&w.sought), "{typed} {w:?}");
+            }
+            assert_eq!(Needle::new("guard_hent").finds_folded(&w.sought), tags, "{w:?}");
+            assert_eq!(Needle::new("fynolds").finds_folded(&w.sought), by_name, "{w:?}");
+        }
+        // Areas, conversations and scripts by their ResRefs alone.
+        let area = ResKey::parse("area467", ResType::ARE).unwrap();
+        let all = says(true, true, true);
+        assert_eq!(parts(&RowWords::of(area, None, None, false, all)), p("area467", "", "area467"));
+        assert_eq!(RowWords::of(area, None, None, false, all).tip, "area467.are");
+        // Two files of one ResRef in one group (a journal put in by hand
+        // beside the factions' `repute.fac`): with their extensions,
+        // whatever is shown.
+        let journal = ResKey::parse("repute", ResType::JRL).unwrap();
+        let alone = RowWords::of(journal, None, None, false, Says::default());
+        assert_eq!(alone.name, "repute");
+        let shared = RowWords::of(journal, None, None, true, Says::default());
+        assert_eq!(parts(&shared), p("repute.jrl", "", "repute.jrl"));
     }
 
     /// What was read from a resource's stored data is told apart by more

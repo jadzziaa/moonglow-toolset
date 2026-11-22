@@ -311,6 +311,11 @@ fn the_updates_option_turns_automatic_checks_off() {
     h.run();
     h.get_by_label_contains("This copy is updated by Flatpak");
     assert!(h.get_by_label("Check for updates automatically").accesskit_node().is_disabled());
+    // (Its note true of it: Help › Check for Updates… asks nothing there,
+    // and nothing is sent, M5's W7.)
+    h.get_by_label_contains("Moonglow asks GitHub nothing from its sandbox.");
+    assert!(h.query_by_label_contains("still asks").is_none(), "the Flatpak asks nothing");
+    assert!(h.query_by_label_contains("Sent").is_none(), "nothing is sent");
     // Help › Check for Updates… in the Flatpak, whose sandbox has no
     // network: nothing asked, only how Flatpak updates it.
     h.get_by_label("Cancel").click();
@@ -321,6 +326,18 @@ fn the_updates_option_turns_automatic_checks_off() {
     h.get_by_label_contains("This copy is updated by Flatpak: flatpak update");
     assert!(h.query_by_label("Check Again").is_none());
     assert!(h.query_by_label_contains("Couldn't ask GitHub").is_none());
+    // Installed by Scoop, Options says Help › Check for Updates… still
+    // asks, which it does (`check_now`: the Flatpak alone asks nothing).
+    h.state_mut().updates.window = false;
+    h.state_mut().updates.kind = Kind::Managed(Installer::Scoop);
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Updates").click();
+    h.run();
+    h.get_by_label_contains("This copy is updated by Scoop");
+    h.get_by_label_contains("Help › Check for Updates… still asks.");
+    h.get_by_label_contains("Sent, when Help › Check for Updates… asks: one request");
+    assert!(h.query_by_label_contains("at each start").is_none(), "no automatic check there");
 }
 
 /// As the desktop app runs it (jobs in the background): the request goes

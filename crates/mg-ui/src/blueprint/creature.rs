@@ -711,7 +711,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         class_list(f, ui, &list, &all, &domains, &schools, &class_int);
     }
     if ui
-        .add_enabled(!f.several(), egui::Button::new("Levelup Wizard"))
+        .add_enabled(!f.several(), egui::Button::new("Levelup Wizard…"))
         .on_hover_text("Level the creature up by its classes' packages")
         .on_disabled_hover_text("It levels one creature up at a time")
         .clicked()

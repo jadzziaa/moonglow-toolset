@@ -1454,6 +1454,87 @@ fn a_line_shape_s_copies_draw_what_their_lines_would() {
     assert!(shot(&base).data == bare.data);
 }
 
+/// The grid (`Scene::lines`) fades with the fog as the ground does, down
+/// to [`mg_render::GRID_LEAST_IN_FOG`] of itself past the fog's end (M5
+/// V3: its far lines stood bright out of the fog, as if hung in the sky);
+/// without fog it is drawn whole, and Sound Ranges' spheres (copies of a
+/// shape's lines) are drawn whole in the fog too.
+#[test]
+fn the_grid_fades_in_the_fog_down_to_its_least() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let ground = Instance::new(model, Mat4::from_scale(Vec3::new(300.0, 300.0, 1.0)));
+    let area = AreaLight { ambient: Vec3::splat(0.1), ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, 0.0, 3.0),
+        target: Vec3::new(0.0, 40.0, 0.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 1000.0,
+    };
+    let fog = mg_render::Fog { start: 10.0, end: 30.0, color: Vec3::new(0.2, 0.3, 0.6) };
+    // White lines across the view on the ground: before the fog (8 m),
+    // in it (20 m) and past its end (80 m).
+    let along = [8.0f32, 20.0, 80.0];
+    let across = |y: f32| [Vec3::new(-4.0, y, 0.0), Vec3::new(4.0, y, 0.0)];
+    let lines: Vec<mg_render::Line> = (along.iter())
+        .map(|&y| {
+            let [from, to] = across(y);
+            mg_render::Line { from, to, color: [1.0; 4] }
+        })
+        .collect();
+    let sphere = LineShape {
+        lines: Arc::new([[Vec3::new(-4.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0)]]),
+        copies: vec![LineCopy { offset: Vec3::new(0.0, 80.0, 0.0), scale: 1.0, color: [1.0; 4] }],
+    };
+    let (w, h) = (96, 256);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let clip = camera.projection(w as f32 / h as f32) * camera.view();
+    // How much of a white line at `p` is drawn over what is there without
+    // it (its opacity, the line covering whole pixels): the most found
+    // near where `p` falls, of the red channel (the fog's darkest).
+    let opacity = |with: &mg_image::Rgba, bare: &mg_image::Rgba, p: Vec3| {
+        let ndc = clip.project_point3(p);
+        let x = ((ndc.x + 1.0) / 2.0 * w as f32) as u32;
+        let y = ((1.0 - ndc.y) / 2.0 * h as f32) as i32;
+        (-2..=2)
+            .filter_map(|dy| {
+                let y = u32::try_from(y + dy).ok().filter(|y| *y < h)?;
+                let (a, b) = (f32::from(with.pixel(x, y)[0]), f32::from(bare.pixel(x, y)[0]));
+                (b < 235.0).then(|| (a - b) / (255.0 - b))
+            })
+            .fold(0.0f32, f32::max)
+    };
+    let least = mg_render::GRID_LEAST_IN_FOG;
+    for fogged in [true, false] {
+        let base = Scene {
+            instances: vec![ground.clone()],
+            area,
+            fog: fogged.then_some(fog),
+            ..Default::default()
+        };
+        let bare = r.render_image(&gpu, &NoAssets, &base, &camera, w, h);
+        let grid = Scene { lines: lines.clone(), ..base.clone() };
+        let with = r.render_image(&gpu, &NoAssets, &grid, &camera, w, h);
+        let name = if fogged { "grid-in-fog.png" } else { "grid-without-fog.png" };
+        save(&with, &mg_testkit::output_dir("render").join(name));
+        let seen: Vec<f32> = along.iter().map(|&y| opacity(&with, &bare, Vec3::Y * y)).collect();
+        eprintln!("fog {fogged}: {seen:?}");
+        if fogged {
+            assert!(seen[0] > 0.95, "before the fog, whole: {seen:?}");
+            assert!(seen[1] > least + 0.1 && seen[1] < 0.9, "in the fog, fading: {seen:?}");
+            assert!((seen[2] - least).abs() < 0.06, "past its end, its least: {seen:?}");
+        } else {
+            assert!(seen.iter().all(|&a| a > 0.95), "without fog, whole: {seen:?}");
+        }
+        // The spheres' line past the fog's end: whole.
+        let shapes = Scene { line_shapes: vec![sphere.clone()], ..base.clone() };
+        let with = r.render_image(&gpu, &NoAssets, &shapes, &camera, w, h);
+        let far = opacity(&with, &bare, Vec3::Y * 80.0);
+        assert!(far > 0.95, "a sphere's line, whole (fog {fogged}): {far}");
+    }
+}
+
 #[test]
 fn opacity_makes_an_instance_see_through() {
     let Some(gpu) = gpu() else { return };

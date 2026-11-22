@@ -223,6 +223,15 @@ pub const PAGE_FILL: f32 = 320.0;
 /// The line between columns of pages (`.cw .strip`: `gap: 1px` over
 /// `line`).
 pub const PAGE_COLUMN_LINE: f32 = 1.0;
+/// A page's margins on a scroll of pages under section headings
+/// ([`PageScroll::headings`], the WideArea board's Properties: its
+/// `.content`'s `padding: 8px 4px 8px 8px`); a page after the first
+/// stands [`HEADING_PAGE_GAP`] under the one before, and the last has
+/// `8` under it.
+pub const HEADING_PAGE_MARGIN: egui::Margin = egui::Margin { left: 8, right: 4, top: 8, bottom: 0 };
+/// The room between pages under section headings (WideArea's `.sec-gap`:
+/// `margin-top: 14px`).
+pub const HEADING_PAGE_GAP: f32 = 14.0;
 
 /// What a [`PageList`] did.
 #[derive(Debug)]
@@ -623,6 +632,7 @@ pub struct PageScroll {
     bring: bool,
     estimate: f32,
     columns: usize,
+    headings: bool,
 }
 
 impl PageScroll {
@@ -636,7 +646,51 @@ impl PageScroll {
             bring: false,
             estimate: 400.0,
             columns: 1,
+            headings: false,
         }
+    }
+
+    /// Each page under its name as a section heading (`section_heading`,
+    /// the WideArea board's Properties: `.sec-h`), in
+    /// [`HEADING_PAGE_MARGIN`], [`HEADING_PAGE_GAP`] apart, in place of a
+    /// [`PageBar`] in [`PAGE_MARGIN`]: a panel's pages beside a
+    /// [`PageRail`], which is their index.
+    pub fn headings(mut self, headings: bool) -> Self {
+        self.headings = headings;
+        self
+    }
+
+    /// A page's margins: [`PAGE_MARGIN`] under its bar, or under its
+    /// heading [`HEADING_PAGE_MARGIN`], the gap above a page after the
+    /// first and room under the last.
+    fn margin(&self, i: usize) -> egui::Margin {
+        if !self.headings {
+            return PAGE_MARGIN;
+        }
+        let mut m = HEADING_PAGE_MARGIN;
+        if i > 0 {
+            m.top = HEADING_PAGE_GAP as i8;
+        }
+        if i + 1 == self.pages.len() {
+            m.bottom = HEADING_PAGE_MARGIN.top;
+        }
+        m
+    }
+
+    /// Draws page `i` (`name`) in `child`: its bar, or its heading, and
+    /// what `add` draws, in its margins.
+    fn page_ui(&self, child: &mut Ui, i: usize, first: bool, add: &mut impl FnMut(&mut Ui, usize)) {
+        let (icon, name) = &self.pages[i];
+        if !self.headings {
+            PageBar::new(*icon, name.clone()).first(first).show(child);
+        }
+        egui::Frame::NONE.inner_margin(self.margin(i)).show(child, |ui| {
+            ui.set_min_width(ui.available_width());
+            if self.headings {
+                crate::form::section_heading(ui, name.clone());
+            }
+            add(ui, i);
+        });
     }
 
     /// A page, after those given: its bar's icon and name.
@@ -798,17 +852,13 @@ impl PageScroll {
                         .id(self.id.with(("mg-uikit-page", i)))
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
-                let (icon, name) = &self.pages[i];
+                let name = &self.pages[i].1;
                 // (Each page a group named by it, "Basic page", for a
                 // screen reader and the tests, its bounds the part of it
                 // in sight.)
                 crate::icons::name_group(&child, &format!("{name}{PAGE_GROUP}"));
-                PageBar::new(*icon, name.clone()).first(i == 0).show(&mut child);
                 let before = ui.memory(|m| m.focused());
-                egui::Frame::NONE.inner_margin(PAGE_MARGIN).show(&mut child, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    add(ui, i);
-                });
+                self.page_ui(&mut child, i, i == 0, &mut add);
                 // (The keyboard come to a widget of this page as it was
                 // drawn: a Tab, a click.)
                 let after = ui.memory(|m| m.focused());
@@ -1030,14 +1080,10 @@ impl PageScroll {
                 let column =
                     Rect::from_x_y_ranges(at.x..=at.x + column_w, ui.clip_rect().y_range());
                 child.set_clip_rect(column.intersect(ui.clip_rect()));
-                let (icon, name) = &self.pages[i];
+                let name = &self.pages[i].1;
                 crate::icons::name_group(&child, &format!("{name}{PAGE_GROUP}"));
-                PageBar::new(*icon, name.clone()).first(before.tops[i] < 0.5).show(&mut child);
                 let was = ui.memory(|m| m.focused());
-                egui::Frame::NONE.inner_margin(PAGE_MARGIN).show(&mut child, |ui| {
-                    ui.set_min_width(ui.available_width());
-                    add(ui, i);
-                });
+                self.page_ui(&mut child, i, before.tops[i] < 0.5, &mut add);
                 let after = ui.memory(|m| m.focused());
                 if after.is_some() && after != was {
                     focus_moved = Some(i);

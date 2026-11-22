@@ -1095,3 +1095,201 @@ fn a_placeable_s_check_rows_stand_at_the_form_s_pitch() {
         assert!(pitch[2] < pitch[0] + 6.0, "at {width}: Inventory… apart by {pitch:?}");
     }
 }
+
+/// The page groups ("Basic page") a scroll of pages draws in the Right
+/// Dock, each with where it is in sight (its group's bounds: empty where
+/// it is drawn out of sight).
+fn pages_drawn(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
+    let dock = right_dock_rect(h);
+    (h.query_all(egui_kittest::kittest::by()))
+        .filter_map(|n| {
+            let node = n.accesskit_node();
+            let label = node.label()?;
+            let page = label.strip_suffix(mg_uikit::pages::PAGE_GROUP)?.to_string();
+            let b = node.bounding_box()?;
+            let r = egui::Rect::from_min_max(
+                egui::pos2(b.x0 as f32, b.y0 as f32),
+                egui::pos2(b.x1 as f32, b.y1 as f32),
+            );
+            dock.contains(r.left_top()).then_some((page, r))
+        })
+        .collect()
+}
+
+/// Whether the rail's page `page` is marked as the page shown.
+fn rail_on(h: &Harness<'_, Moonglow>, page: &str) -> bool {
+    let node = h.get_by_label("Pages").get_by_label(page);
+    node.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+}
+
+/// In the wide layout (M5's W2, ruling 12, the WideArea board) the
+/// panel's pages stand one under another on one scroll, each under its
+/// heading, in the rail's order: the rail is their index, a page chosen
+/// there brought to the top and marked as it scrolls into the top; the
+/// page at the top is the page kept, which the panel shows alone at 1600
+/// (one page at a time, the Main board's), and a page chosen there is at
+/// the top again in the wide layout. Not in a dragged out area's window.
+#[test]
+fn the_wide_layout_s_pages_stand_on_one_scroll() {
+    let Some((mut h, area)) = props_area("props-one-scroll", Mode::Tabs, 1600.0) else { return };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let drawn = pages_drawn(&h);
+    let names: Vec<&str> = drawn.iter().map(|(n, _)| n.as_str()).collect();
+    assert!(names.len() >= 3, "several pages on the scroll: {names:?}");
+    assert_eq!(&names[..3], ["Basic", "Inventory", "Lock"], "in the rail's order");
+    for w in drawn.windows(2) {
+        assert!(w[0].1.bottom() <= w[1].1.top() + 0.5, "one under another: {drawn:?}");
+    }
+    assert!(rail_on(&h, "Basic"), "the page at the top marked");
+    // Each under its heading.
+    let dock = right_dock_rect(&h);
+    for (page, r) in &drawn {
+        let heading = (h.query_all_by_label(page).map(|n| n.rect()))
+            .find(|t| dock.contains(t.center()) && t.width() > mg_uikit::pages::PAGE_BUTTON);
+        let t = heading.unwrap_or_else(|| panic!("{page}: no heading"));
+        assert!(r.contains_rect(t) && t.top() - r.top() < 20.0, "{page}'s heading at {t:?}");
+    }
+    // The rail: a page chosen comes to the top, marked.
+    let top = h.get_by_label("Pages").get_by_label("Basic").rect().top() - 4.0;
+    h.get_by_label("Pages").get_by_label("Scripts").click();
+    settle(&mut h);
+    let scripts = pages_drawn(&h).into_iter().find(|(n, _)| n == "Scripts").expect("Scripts");
+    assert!((scripts.1.top() - top).abs() < 1.5, "Scripts at the top: {:?}, {top}", scripts.1);
+    assert!(rail_on(&h, "Scripts") && !rail_on(&h, "Basic"), "Scripts marked");
+    // The rail's keys: Up from Scripts brings Trap to the top.
+    h.get_by_label("Pages").get_by_label("Scripts").focus();
+    settle(&mut h);
+    h.key_press(egui::Key::ArrowUp);
+    settle(&mut h);
+    let trap = pages_drawn(&h).into_iter().find(|(n, _)| n == "Trap").expect("Trap");
+    assert!((trap.1.top() - top).abs() < 1.5, "Up: Trap at the top: {:?}, {top}", trap.1);
+    assert!(rail_on(&h, "Trap"), "Up: Trap marked");
+    h.key_press(egui::Key::ArrowDown);
+    settle(&mut h);
+    assert!(rail_on(&h, "Scripts"), "Down: Scripts again");
+    // Scrolled back by the wheel: the page come to the top is marked.
+    let at = scripts.1.center();
+    h.hover_at(at);
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 200.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    settle(&mut h);
+    assert!(rail_on(&h, "Basic"), "scrolled to its top: Basic marked");
+    // Scrolled a little into Basic, Basic clicked again: its heading back
+    // at the top. (A page's bounds are cut at the scroll's top: its foot
+    // says where it is.)
+    let basic = |h: &Harness<'_, Moonglow>| {
+        pages_drawn(h).into_iter().find(|(n, _)| n == "Basic").expect("Basic drawn").1
+    };
+    let foot = basic(&h).bottom();
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -200.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
+    assert!(basic(&h).bottom() < foot - 20.0, "scrolled into Basic: {:?}, {foot}", basic(&h));
+    assert!(rail_on(&h, "Basic"), "Basic still at the top");
+    h.get_by_label("Pages").get_by_label("Basic").click();
+    settle(&mut h);
+    let back = basic(&h);
+    assert!((back.top() - top).abs() < 1.5 && (back.bottom() - foot).abs() < 1.5, "back: {back:?}");
+    // The page at the top kept: shown alone at 1600.
+    h.get_by_label("Pages").get_by_label("Lock").click();
+    settle(&mut h);
+    h.set_size(egui::vec2(1600.0, 900.0));
+    settle(&mut h);
+    assert!(pages_drawn(&h).is_empty(), "one page at a time at 1600: {:?}", pages_drawn(&h));
+    assert!(rail_on(&h, "Lock"), "the page kept");
+    assert!(page_controls(&h, "Lock") >= 2, "the Lock page shown");
+    h.get_by_label("Pages").get_by_label("Trap").click();
+    settle(&mut h);
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    let top = h.get_by_label("Pages").get_by_label("Basic").rect().top() - 4.0;
+    let trap = pages_drawn(&h).into_iter().find(|(n, _)| n == "Trap").expect("Trap drawn");
+    assert!((trap.1.top() - top).abs() < 1.5, "Trap at the top again: {:?}, {top}", trap.1);
+    // The other chest of the same type: the same place.
+    select(&mut h, area, &[(ObjectKind::Placeable, 1)]);
+    let trap = pages_drawn(&h).into_iter().find(|(n, _)| n == "Trap").expect("Trap drawn");
+    assert!((trap.1.top() - top).abs() < 1.5, "the other chest at Trap: {:?}", trap.1);
+    assert!(rail_on(&h, "Trap"));
+}
+
+/// On one scroll only the pages in sight are drawn (a creature's
+/// fourteen, the longest form): those drawn are each in sight, fewer than
+/// all; at rest no frame asks for another.
+#[test]
+fn only_the_pages_in_sight_are_drawn_on_one_scroll() {
+    let Some((mut h, area)) = props_area("props-one-scroll-sight", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Creature, 0)]);
+    let all = mg_ui::blueprint::instance_pages(ResType::UTC).len();
+    for page in ["Basic", "Feats", "Inventory", "Variables"] {
+        h.get_by_label("Pages").get_by_label(page).click();
+        settle(&mut h);
+        let drawn = pages_drawn(&h);
+        assert!(drawn.iter().any(|(n, _)| n == page), "{page} drawn: {drawn:?}");
+        assert!(drawn.len() < all, "{page}: {} of {all} drawn", drawn.len());
+        for (n, r) in &drawn {
+            assert!(r.height() > 0.0, "{page}: {n} drawn out of sight");
+        }
+        for _ in 0..5 {
+            h.try_run().unwrap_or_else(|e| panic!("{page}: at rest, a frame asks another: {e}"));
+        }
+    }
+}
+
+/// On one scroll Tab goes from field to field down every page, each field
+/// it reaches scrolled whole into sight.
+#[test]
+fn tab_goes_down_the_pages_on_one_scroll() {
+    let Some((mut h, area)) = props_area("props-one-scroll-tab", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    let dock = right_dock_rect(&h);
+    let room = egui::Rect::from_x_y_ranges(rail_left(&h)..=dock.right(), dock.y_range());
+    h.get_all_by_value("Chest - 1").find(is_input).expect("the name").click();
+    settle(&mut h);
+    let mut pages = std::collections::BTreeSet::new();
+    for i in 0..80 {
+        h.key_press(egui::Key::Tab);
+        settle(&mut h);
+        let Some(id) = h.ctx.memory(|m| m.focused()) else { continue };
+        let Some(r) = h.ctx.read_response(id) else { continue };
+        if !room.contains(r.rect.center()) {
+            continue;
+        }
+        assert!(
+            r.interact_rect.contains_rect(r.rect.shrink(1.0)) && room.contains_rect(r.rect),
+            "Tab {i}: a field at {:?} shown at {:?}",
+            r.rect,
+            r.interact_rect
+        );
+        for (page, seen) in pages_drawn(&h) {
+            if seen.contains(r.rect.center()) {
+                pages.insert(page);
+            }
+        }
+    }
+    for page in ["Basic", "Lock", "Trap", "Scripts"] {
+        assert!(pages.contains(page), "Tab reached {page}: {pages:?}");
+    }
+}

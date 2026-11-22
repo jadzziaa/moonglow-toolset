@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:12:20Z }
 ---
 
 # Modules
@@ -20,28 +20,27 @@ a directory), nasher projects (see below) and the game's campaign files
   FOLDER`, another user folder for that run). **A module opens with the
   tabs it had when it was closed**: its areas, scripts, blueprints,
   conversations, placed objects' Properties, the editors of files of
-  their own (a hak, a 2DA, a tileset: by their files), the Options,
-  References (its search made again), the Placeable Gallery, Tile
-  Properties, a tile's view and a hak's copy of a resource, in the same
-  order and places (the main pane, a pane split off the main pane, the windows, each where it was, with the same tabs,
-  and split into the same panes), each pane's tab in front in front,
-  and the one that had the keys has them again. Each shows what it
-  showed: an area's view its camera where it was, a script its scroll,
+  their own (a hak, a 2DA, a tileset: by their files), Module
+  Properties, the Faction and Journal editors, the Talk Table, Advanced
+  Search, the Options, the Plugins tab, the User Manual, References (its
+  search made again), the Appearance Gallery, a tile's view and a hak's
+  copy of a resource, in the same order and places (the main pane, a
+  pane split off the main pane, the windows, each where it was, with the
+  same tabs, and split into the same panes), each pane's tab in front
+  still in front, and the one that had the keys has them again. Each
+  shows what it showed: an area's view its camera where it was, a script its scroll,
   cursor and bookmarks (numbered or not; those past its end, if it
   changed since, are let go), the talk table its line, a conversation
   its selected line, bookmarks and folded
   branches (if the conversation is as it was: changed since, outside
   Moonglow, they would be on other lines, and are let go), a Properties
-  window (and the Options) its page, a model view its camera, a hak its
+  tab (and the Options) its page, a model view its camera, a hak its
   selected resources, a 2DA its selected cell, a tileset its page, tile
   and group, Advanced Search its conditions (what they found is not
-  searched for again: press **Search**). A placed object's Properties are
+  searched for again: press **Find**). A placed object's Properties are
   found again by the object (its tag, its blueprint and where it
   stands), so that an area changed outside Moonglow since gives the
-  same object's, or none. (A record from before Tile Properties was the
-  Right Dock's panel kept its tab: its area opens in Select Tiles with
-  those tiles selected once the area's view is drawn, the panel showing
-  them.) A tab whose area, script, file or other resource is gone is
+  same object's, or none. A tab whose area, script, file or other resource is gone is
   passed over (said in the debug log). The tabs are kept in Moonglow's
   data folder (`open-tabs`, a file a module, by its path; a module
   folder's and a nasher project's by its folder), never in the module;
@@ -51,10 +50,10 @@ a directory), nasher projects (see below) and the game's campaign files
   quits). Only the area in front is read and drawn at first: those
   behind it are when you choose their tabs. A module opened from its
   recovery copy (Recover Unsaved Work) opens with its tabs too. With
-  none kept (the first time, or with Options › General's **Open a
+  none kept (the first time, or with Tools › Options › General's **Open a
   module with the tabs it had when it was closed** off), a module opens
   on the area you opened last in it; the first time, or when that area
-  is gone, on the first the module tree lists (Options › General
+  is gone, on the first the module tree lists (Tools › Options › General
   switches this off too).
 - **A folder is opened with File › Open Folder…** (or the welcome page's
   button): Open Module…'s file dialog picks files, and on Linux it
@@ -66,15 +65,15 @@ a directory), nasher projects (see below) and the game's campaign files
   you want to open this directory as a module?"): **Open Directory**
   opens the folder, **Open .mod File** the `.mod`. It asks wherever the
   `.mod` is opened (Open Module…, Recent Modules, the command line), and
-  Recent Modules remembers which was opened. Options › General's **A
+  Recent Modules remembers which was opened. Tools › Options › General's **A
   .mod with its folder beside it** asks, or always opens the folder (as
   Aurora's Always open module directories does), or always the `.mod`.
   The folder opened is saved into, and with **Write a .mod beside a
-  module folder on save** (Options › General, on) written as the `.mod`
+  module folder on save** (Tools › Options › General, on) written as the `.mod`
   too, as Aurora does: the game and its server load the `.mod`, never
   the folder. The folder is found by its name in any case, as Aurora
   finds it on Windows (`Mymodule/` beside `mymodule.mod` on Linux), and
-  is saved as that `.mod`. The welcome page's Recent modules end a
+  is saved as that `.mod`. The welcome page's Recent Modules end a
   folder's name in `/` and name the folder each is in (`mymodule/ in
   modules`, `mymodule.mod in modules`); the whole path is on hover, as
   in the File menu. `mg` opens the `.mod` it is given, as the server
@@ -87,14 +86,13 @@ a directory), nasher projects (see below) and the game's campaign files
   module is offered as `<name>.mod` in the user folder's `modules`, where
   the game (and Test Module) finds it.
 - **A `.mod` saved by another program while it is open** (Aurora, a
-  build) is read again (Options › General: reloading), resource by
+  build) is read again (Tools › Options › Folders: **Reload haks, override and development when they change**), resource by
   resource, as a module folder's files are: what changed in it, was
   added or removed comes into the module, the log names it, and where
   you have unsaved changes to the same resource, **Changed Outside
   Moonglow** asks which to keep (its resources named as
   `castle.mod/area001.are`). Until you answer, Save doesn't write over
-  the file. (With reloading off it isn't looked at, and Save writes over
-  it, as before.)
+  the file. (With reloading off it isn't looked at, and Save writes over it.)
 - In a module folder a resource is one file, named in lower case
   (`bread.uti`). A file Aurora named otherwise (`bread.UTI`) is read all
   the same and renamed at the next save; where a folder has both, the
@@ -102,15 +100,14 @@ a directory), nasher projects (see below) and the game's campaign files
 - **A module folder is worked on in place**, as in Aurora: keep its
   scripts open in an editor of your own while the module is open here.
   Files saved, added or deleted in the folder by another program are
-  read again a moment after they are written (Options › General:
-  reloading; in the background, as a nasher project's are), and the log
+  read again a moment after they are written (Tools › Options › Folders: **Reload haks, override and development when they change**; in the background, as a nasher project's are), and the log
   says which. A save never writes over them: a file changed outside
   that you did not change here stays as the other program left it, and
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
   which files, and **Changed Outside Moonglow** asks which to keep. A
   script read again is compiled if **Automatically Compile Scripts on
-  Save** is on (Options › Script Editor), as one saved here is, and so
+  Save** is on (Tools › Options › Script Editor), as one saved here is, and so
   are the scripts that include it, a few at a time while you go on
   working, however many a checkout changed (the Status Bar says
   *Compiling scripts changed outside Moonglow…*; with an external
@@ -129,7 +126,7 @@ a directory), nasher projects (see below) and the game's campaign files
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The
   previous version is kept beside it (`mymodule.mod.bak`). With **Create
-  backups of modules** (Options › General), each save also keeps the
+  backups of modules** (Tools › Options › General), each save also keeps the
   module as it was in `<name>.BackupMod`.
 - **File › Close** closes the module, asking first if there are unsaved
   changes; so does quitting.
@@ -137,7 +134,7 @@ a directory), nasher projects (see below) and the game's campaign files
 Moonglow keeps everything in a module it does not understand: fields with
 no editor, unknown resources, unusual orderings. An untouched module saves
 as it was, and so does anything you only looked at, such as an area you
-opened, a Properties window, or the areas Update Instances checked. In a
+opened, a Properties tab, or the areas Update Instances checked. In a
 module folder kept in git, a save changes only the files you actually
 edited, and an edit undone (or a field set back by hand) leaves its file
 as it was.
@@ -190,10 +187,13 @@ back:
 
 **Edit › Find and Replace Text…** (Ctrl+H) opens the Bottom Dock on
 **Search Results**, with the form as the panel's header and what it finds
-listed under it. It finds text players read: the
-module's names, descriptions, conversation lines, the journal and the rest
-(map notes and such), in every language each string has. Ticked on the
-second row, it looks in the fields builders and scripts read too:
+listed under it. Its first row has **Find what**, **Replace with**,
+**Match case**, **Whole words** and **Regular expression**; its second
+ticks what it looks in. It finds text players read: the module's
+**Names**, **Descriptions**, **Conversations**, the **Journal** and
+**Other text** (map notes and such), in every language each string
+has. Ticked on the same row, it looks in the fields builders and
+scripts read too:
 **Tags** (objects' and areas'), **ResRefs** (the fields that name a
 script, a blueprint, a conversation: not a resource's own name, which
 **Rename…** changes with all that names it), **Variables** (their names
@@ -241,8 +241,8 @@ an item property, a class) are found by **Advanced Search** (below).
 **Edit › Advanced Search…** finds the module's blueprints, placed
 objects, areas and conversations by what they hold, not by their tag or
 name. It opens as a tab of its own, which docks beside the others as
-any tab does and keeps what it found while you go to each. Choose what
-to look for:
+any tab does and keeps what it found while you go to each. **Look
+for** chooses what to look for, and **Find** looks:
 - **Variables:** by name, `*` matching any run of letters (`*Deidad*`
   finds `sDeidad` and `nDeidadBonus`), case ignored; and, if given, by
   type and value.
@@ -333,8 +333,9 @@ game's blueprints (`--haks-and-game`):
 
 Each one found in the module is ticked; untick those to leave out (**Tick All**,
 **Tick None**). Then:
-- **Change the N ticked** makes one change to each object, in one step
-  that Undo takes back: **Set a variable** (added, or its type and value
+- **Change the N ticked** (it unfolds) makes one change to each object,
+  chosen in **Change** and made by **Change N Found**, in one step that
+  Undo takes back: **Set a variable** (added, or its type and value
   replaced; an area's goes to its GIT, where the game reads it),
   **Remove a variable**, **Set an event's script** (the events the
   objects found have; a conversation line's script where one was found)
@@ -354,9 +355,10 @@ Each one found in the module is ticked; untick those to leave out (**Tick All**,
   property where the base item takes it. What couldn't be changed (an
   object without that event or field, a door asked for a feat, a
   creature with the feat already) is said, and the search runs again.
-- **Edit the N ticked together** opens blueprints of one type in one
-  window, and objects of one kind placed in one area in one window, as
-  the palette's and the area's Edit Together do; **Choose Areas…** opens
+- **Edit the N ticked together** (it unfolds, a button for each group)
+  opens blueprints of one type in one tab, and objects of one kind
+  placed in one area in one tab, as the palette's and the area's Edit
+  Together do; **Choose N Area(s)…** opens
   the Edit Areas Together section of the Right Dock with the areas of what is ticked (areas found, or
   those the objects found are placed in) ticked.
 
@@ -425,7 +427,7 @@ unpacking or packing between the toolset and git.
   ReadDirectoryChangesW on Windows) which source files another program
   changed, added or deleted (an editor, a `git checkout` that discards
   a change, a `git pull`), and reads those alone a moment after they are
-  written (Options › General, the reloading switch): the log names them,
+  written (Tools › Options › Folders: **Reload haks, override and development when they change**): the log names them,
   and open editors show them. Where the system can't tell it (no watches
   left, a folder it can't watch), it looks at every file every few
   seconds instead; told, it still looks at them all every half minute,
@@ -436,8 +438,8 @@ unpacking or packing between the toolset and git.
   history is cleared (Undo could not take them back from the new file).
 - **A large pull doesn't hold the window.** Moonglow waits for a burst
   of changes to end (a moment with nothing more written), then reads the
-  changed files in the background while you go on working; the status
-  bar says *Reading files changed outside Moonglow…* while it does, and
+  changed files in the background while you go on working; the Status
+  Bar says *Reading files changed outside Moonglow…* while it does, and
   they come into the module all at once when they have been read. On a
   project of 21,000 files, a pull of nearly a thousand is in 2 s from
   its start without a frame of the window over the 144 fps budget, and
@@ -733,12 +735,12 @@ git config merge.mg-claims.driver "mg merge-claims %O %A %B --path %P"
 A team's rules for Moonglow are kept with its module, in version
 control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
 at the root of a module folder. Moonglow reads it when the module opens,
-and again when it changes (with Options › General's reloading off too),
+and again when it changes (with Tools › Options › Folders' reloading switch off too),
 and the log says so; a window open then (Setup Store) follows the rules
 as they are now. A module kept in one file (`.mod`) keeps its own
 beside it, named by it, as its folder holds other modules too:
 `krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
-`krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a
+`krezk.mod`. There, what is a checkout's or a
 builder's own is not read (the log says so): `[claims]`, `[commands]`,
 `[nwsync]`, `[plugins]`, `[builder]` and `.moonglow/user.toml` are a module
 folder's or a nasher project's. Without the file, Moonglow does what it
@@ -840,25 +842,25 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[make_static] keep_tags` | a placeable whose tag these name stays dynamic (one whose tag a script of the module names as text stays dynamic anyway: these are for the tags a script makes up, or names only in a compiled script) | none |
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
-| `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.2.0 | none |
-| `[tags] paste_warning` | which tags a change (a paste, a copy, a tag typed, an object placed, `mg set`) says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area (or, with `"any"`, in other areas too). Set, it wins over the builder's Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
+| `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). | none |
+| `[tags] paste_warning` | which tags a change (a paste, a copy, a tag typed, an object placed, `mg set`) says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area (or, with `"any"`, in other areas too). Set, it wins over the builder's Tools › Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
 | `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has (no object of the area, for a tag of `unique_in_area`) | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
-| `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
-| `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
+| `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`) | `"{code}_{name}"`, where a builder has a code |
+| `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. | no `{kind}` text |
 | `[used] scripts`, `conversations`, `blueprints` | what [Unused](09-build-and-test.md#what-counts-as-used) (Build Module, `mg verify --unused`) counts as used though nothing in the module names it: a script `ExecuteScript` runs by a name made as it runs (`"j_ai_" + sMode`), a blueprint `CreateObject` makes so (any type, by its ResRef), a conversation so started. Build Module's **Mark as Used** and **Counted as Used** write it, and `mg used`; the rest of the file is kept as written. Aurora never touches the file | none |
-| `[tilesets] hidden` | tilesets, by resref or glob (`["zcn01", "z*"]`, whatever their case), that the [Area Wizard](04-areas.md) and Change Tileset leave out of their lists: another version of a set the team would rather builders didn't pick (the game's, its EE facelift, a hak's copy). They stay in the game's load order, and an area on one opens, draws and is named as any other; **Show hidden tilesets** in either window lists them all the same (off as it opens), and Change Tileset always lists the area's own. Since Moonglow 3.16.0 | every tileset listed |
+| `[tilesets] hidden` | tilesets, by resref or glob (`["zcn01", "z*"]`, whatever their case), that the [Area Wizard](04-areas.md) and Change Tileset leave out of their lists: another version of a set the team would rather builders didn't pick (the game's, its EE facelift, a hak's copy). They stay in the game's load order, and an area on one opens, draws and is named as any other; **Show hidden tilesets** in either window lists them all the same (off as it opens), and Change Tileset always lists the area's own. | every tileset listed |
 | `[pack] compile_models` | a nasher project's **Build › Pack** (and `mg build`) compiles the models kept as text (ASCII `.mdl`) into the target's file on the way in, as **Compile Models** does a hak's: each against its supermodel from the project, its haks or the game; one that can't be (errors in its text, its supermodel found nowhere) goes in as the text it is, and the log says why. The project's sources stay text | the models go in as text |
-| `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Options › Areas say | each builder's Options › Areas (off by default) |
+| `[lights] generated` | [Custom Light](04-areas.md#lights-of-any-color-and-reach) (lights of any color and reach, as a model and a placeables.2da row written into a hak) is on (`true`) or off (`false`) for everyone working on the module, whatever their Tools › Options › Area say | each builder's Tools › Options › Area (off by default) |
 | `[lights] hak` | the hak (its name; `.hak` may be left out) Custom Light offers first, where it is one of the module's | none: the builder chooses |
 | `[lights] first_row` | the least placeables.2da row a light takes, past the rows another hak may add later; at most 65535 (the last row the game can carry: past it is a warning, and no light is made) | the end of the table |
 | `[bake] rows` | the placeables.2da rows [Bake Walkmesh to Transform](#baked-walkmeshes) takes (`"16500-16999"`), at most 65535 (the last row the game can carry); a bake never takes a row the game's table holds already | the command isn't offered |
 | `[bake] hak` | the hak (its name; `.hak` may be left out) the baked models (`.mdl`, `.pwk`) go into, in your user folder's `hak`; the first bake puts it at the top of the module's hak list | the command isn't offered |
 | `[bake] names` | what baked models' names begin with (letters, digits and `_`, at most 12: four digits follow) | `"mgbk_"` |
 | `[bake] rows_file` | the rows file, beside the project file (inside the project), which the project's build reads | `"baked_rows.toml"` |
-| `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Options › Language (off by default) |
+| `[talk] typed` | [text typed](#text-typed-into-the-talk-table) goes into the talk table (`true`) or stays the field's own (`false`) for everyone who opens the module, whatever their Tools › Options › Language say; Options shows the project's word and keeps the builder's own switch for other modules | each builder's Tools › Options › Language (off by default) |
 | `[talk] lines` | the custom talk table's lines [text typed](#text-typed-into-the-talk-table) takes (`"100000-149999"`, or `[100000, 149999]`; line 0 is StrRef 16777216), set from Module Properties › Custom Content too | the table's end |
 | `[talk] map` | `mg tlk-alloc`'s map, from the project's root, inside it: the lines it gives keys (in use or retired) are never taken | none |
 | `[talk.builders]` | each builder's own part of the lines, by their code (`ab = "100000-109999"`); a builder without one takes from `lines` past every builder's part | everyone takes from `lines` |
@@ -867,7 +869,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
-| `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Options › Folders |
+| `[nwsync] upload` | the command [Upload](09-build-and-test.md#uploading-to-the-web-server) (Build › Publish to NWSync) runs to send the NWSync folder to the web server, once for each part in turn (`{part}`: `data`, `manifests`, `latest`; `{folder}` the folder), in the folder: its text, or `{ run = "…", windows = "…", unix = "…", input = true }`. Asked about before it first runs, as the commands are. In `.moonglow/user.toml` too, where it wins over the team's | the one in Tools › Options › Folders |
 | `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
 | `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins tab's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 | `[palette.<id>]` | a [palette grouping](#palette-groupings): another way the palettes show their blueprints (Group by), any number of them | the palettes by category alone |
@@ -959,8 +961,7 @@ own, beside their categories: TDoD's placeables by what each one is
 (Tables, Seats, Food) as well as by theme. The palette's
 [Group by](05-blueprints.md#grouped-another-way-group-by) offers each
 grouping in the palettes it is for. Nothing is copied and no palette
-file changes: the game, the DM's Creator and Aurora show the categories
-as before. Each grouping is a table `[palette.<id>]` (its id the key),
+file changes: the game, the DM's Creator and Aurora show the palette's own categories. Each grouping is a table `[palette.<id>]` (its id the key),
 its groups `[[palette.<id>.group]]` in the order they are shown, any
 number of each:
 
@@ -1070,10 +1071,9 @@ kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 - the Script Wizard's names (`ab_sc_001`, `ab_at_001`);
 - **New Script…**, **New Conversation…**, **New NUI Window…** and **Add
   Popup Text…**, whose name starts with the code, the cursor where the
-  name goes (after `ab_`, or before `_ab` with a pattern `{name}_{code}`;
-  since Moonglow 2.13.0);
+  name goes (after `ab_`, or before `_ab` with a pattern `{name}_{code}`);
 - **Import Conversation**'s conversation, named after its file
-  (`ab_night_watch`; since 2.13.0);
+  (`ab_night_watch`);
 - plugins, which ask for a name with `ctx.module:new_name`
   ([Plugin API](17-plugin-api.md)); `ctx.terrain:new_area`'s area is the
   Area Wizard's.
@@ -1083,7 +1083,7 @@ be erased, for a script that must have a name of its own) and a ResRef
 typed in a wizard's ResRef field. Where a typed ResRef hasn't the code,
 the wizard offers a button that puts it in (**Use ab_shop**), and the
 Creature Wizard, where the module has the ResRef typed already, makes
-the next free one from it with the code (`ab_guard`; since 2.13.0).
+the next free one from it with the code (`ab_guard`).
 
 ### Described variables
 
@@ -1177,16 +1177,16 @@ require = "tdod_rental_price"
 
 | Key | What it says | Without it |
 | --- | --- | --- |
-| `[name]` | a variable of that name (in its case), up to 1024 characters (what Aurora's Variables window takes; the game reads longer ones); a glob (`["tdod_rental_*"]`, in quotes, with `*`, `?`, `[abc]` and `{a,b}` alternatives) describes every variable it names that has no description of its own, and is as long as it needs (since Moonglow 2.3.0: before, 64 characters) | |
+| `[name]` | a variable of that name (in its case), up to 1024 characters (what Aurora's Variables window takes; the game reads longer ones); a glob (`["tdod_rental_*"]`, in quotes, with `*`, `?`, `[abc]` and `{a,b}` alternatives) describes every variable it names that has no description of its own, and is as long as it needs | |
 | `type` | `"int"`, `"float"`, `"string"`, `"object"` or `"location"` | any type (said in the log) |
 | `on` | what it goes on: `module`, `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint` (blueprints, placed objects and the items they hold alike) | anything |
 | `values` | the values it takes: `["herb", "ore"]`, or each with what it means, `{ forge = "Smithing" }` | any |
 | `constants`, `prefix` | its values are a script's constants whose names begin so (`constants = "tdod_kind_inc"`, `prefix = "TDOD_KIND_"`): the project's script of that name (any folder of it), the module's, else the game's | |
-| `table`, `column` | its values are a table's rows (the project's table of that name, the module's, its haks' or the game's): an Int's is a row's number (named by its `Label`), a String's a cell of `column`, or without one the row's own `Label` (since Moonglow 2.13.0) | |
+| `table`, `column` | its values are a table's rows (the project's table of that name, the module's, its haks' or the game's): an Int's is a row's number (named by its `Label`), a String's a cell of `column`, or without one the row's own `Label` | |
 | `other = true` | a value not listed is right too (the list is a help) | only those listed |
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
-| `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
+| `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept | kept in the module's files |
 | `requires` | the variables it needs beside it, on the same object (`requires = ["tdod_rental_door"]`): one set without them does nothing the scripts want | not needed |
 | `default` | the value the scripts take where it isn't set (an Int's or a Float's a number): a row named so in the Variables window takes it as its value | |
 | `[[rules]]` (anywhere, each `variable`, `is` and `require`) | where `variable` is set to `is` (or set at all, without `is`), `require` is to be set on the same object too, as a table's rules have a cell filled where another says so | |
@@ -1196,8 +1196,10 @@ What the file doesn't understand is said in the log by line, as for
 `moonglow.toml`, and the rest is read; it is read again when it
 changes.
 
-**In the Variables window** (an object's, a blueprint's, an area's, the
-module's), the name being typed offers the described variables that go
+**In a Variables page and the Variables window** (an object's, a
+blueprint's, an area's, the module's: the page is the list in place,
+the window the one the Advanced page's **Variables (N)…** opens), the name
+being typed offers the described variables that go
 on that object, each with its type and what it goes on, then the
 patterns' (`tdod_rental_*`) by what their names begin with
 (`tdod_rental_`), to type on from. A click takes one, or **Down** and
@@ -1212,7 +1214,8 @@ kind of object, a name in another case or like the project's and
 described nowhere, one only the scripts set) and what a variable needs
 beside it that the object hasn't (*tdod_rental needs tdod_rental_door
 beside it*); a name typed as one with a `default` takes it as its
-value. OK writes it all the same, as you have it.
+value. The window's OK (or, on the page, leaving the field) writes it
+all the same, as you have it.
 
 **Verify Module** (and `mg verify`) holds every variable of the module
 to the descriptions:
@@ -1225,7 +1228,7 @@ to the descriptions:
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
 | `var-requires` | a variable set without one it needs beside it on the same object: its `requires`, or a rule's `require` where its value is the rule's `is` | a warning |
 | `var-script` | a variable kept in a file as another type than every one of the module's scripts reads (or sets) it as, by its name written out (`GetLocalInt(oPC, "tdod_lit")`, not a name a script builds): the script reads that type's empty value, the script and line named. A variable described with a type is held to that instead (`var-type`); it is checked with no `variables.toml` too | a warning |
-| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0; `tdod_rentl_term`: `tdod_rental_*?`, since Moonglow 2.13.0). Verify's **Remove the variable** takes it out | an error: Verify fails |
+| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; `tdod_rentl_term`: `tdod_rental_*?`). Verify's **Remove the variable** takes it out | an error: Verify fails |
 
 A file's own glob of the scripts' may take a builder's typo: a name is
 described by its own entry, else by the first glob that matches it, so
@@ -1239,12 +1242,12 @@ that is a project of its own: `builtin = "var-runtime"`
 
 `mg vars MODULE` lists the descriptions, with the values a script's
 constants and a table's rows give (the game's, the project's and the
-module's haks', since Moonglow 2.13.0; `--on placeable`: those that go
+module's haks'; `--on placeable`: those that go
 on one); `mg vars MODULE --undescribed` lists, in their place, the
 module's variables that no description names, each with its types, what
 it is on and where, and the description it is near (one in another
 case, or the nearest name of those `undescribed` takes: a typo, most
-likely; since Moonglow 2.13.0); `mg areas --var NAME=VALUE` gives a
+likely); `mg areas --var NAME=VALUE` gives a
 described variable its described type ([Command-line
 tools](11-command-line.md)). A plugin reads the descriptions with
 `mg.vars.describe(name)` ([Plugin API](17-plugin-api.md#mg)).
@@ -1296,7 +1299,7 @@ log by line, as the project file's are.
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed
   area in a project that warns of those. The table read again while it
-  asks (a pull, with Options › General's reloading on), its list follows
+  asks (a pull, with Tools › Options › Folders' reloading switch on), its list follows
   it, and with none left the save goes on.
 
 **Claim This Area** and **Release Claim**, in the area's menu in the
@@ -1308,7 +1311,7 @@ claim at once add a line at the same place, under the same number, which
 git calls a conflict: keep both lines (their numbers needn't follow on:
 Moonglow reads the table by its Area column), or let
 [`mg merge-claims`](#merging-in-git) merge the table, as git's merge
-driver, which does so itself (since Moonglow 3.10.0). Commit the table with
+driver, which does so itself. Commit the table with
 your work so that the others see it. An area another builder claimed is
 theirs to release. Without a builder code, Claim is there and off.
 
@@ -1374,14 +1377,13 @@ submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for 
 A command is its text, or a table of `run` (or `windows` and `unix`,
 each for its systems), `label` (its name in the menu; else its name in
 the file, `run_tests` as Run tests), `key` (the keys it asks for, as
-Options › Keyboard writes them), `writes = false` (it writes none of
+Tools › Options › Keyboard writes them), `writes = false` (it writes none of
 the module's files, as a submit: the haks stay open while it runs) and
 `input = true` (it reads what you type: see step 4 below). The
 commands are in **Quick Open** too, under Project, and in
-**Options › Keyboard** under Project Commands, where the keys you choose
+**Tools › Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
-`update` keeps its key from one project to the next; since Moonglow
-2.13.0).
+`update` keeps its key from one project to the next).
 
 Choosing one:
 
@@ -1444,7 +1446,7 @@ Choosing one:
    git is told not to ask there (`GIT_TERMINAL_PROMPT=0`, unless you set
    it yourself), so that it says it can't rather than wait until
    canceled; a password program it is given (`GIT_ASKPASS`, a
-   credential helper) is asked as before.
+   credential helper) is asked.
 5. **Reads the project's files again**: the haks are opened again (where
    they were closed), and
    what the command changed is read as any [change made
@@ -1459,7 +1461,7 @@ this system is there and off.
 ## Recovering unsaved work
 
 While a module has unsaved changes, Moonglow writes a recovery copy of it
-every 5 minutes (Options › General sets how often, or turns it off). The
+every 5 minutes (Tools › Options › General sets how often, or turns it off). The
 copies live in Moonglow's own data folder, never next to the module or in
 the game's folders, and are removed when you save or discard the changes.
 If Moonglow (or the computer) stops first, the next start offers the copy
@@ -1474,8 +1476,8 @@ has the same module open. As in Aurora, open conversations are also backed up as
 
 ## Module Properties
 
-**Edit › Module Properties** (or the top of the module tree), with
-Aurora's pages, listed at its left and standing one after another on
+**Edit › Module Properties** (or the top of the module tree) is a tab
+with Aurora's pages and a Variables page, listed at its left and standing one after another on
 one scroll as a blueprint's do ([the editors](05-blueprints.md#the-editors)):
 a page clicked in the list comes to the top. **OK** and **Cancel** are
 at the right end of its header, which shows the module's name.
@@ -1485,14 +1487,18 @@ at the right end of its header, which shows the module's name.
   moves it).
 - **Events**: the module's event scripts, each with Edit to open it.
 - **Advanced**: the starting date and hour, minutes per hour, dawn and
-  dusk hours, the experience scale, the starting movie, Variables.
+  dusk hours, the experience scale, the starting movie, and **Variables
+  (N)…**, which opens the Variables window.
+- **Variables**: the module's variables, listed in place and edited
+  there, as a blueprint's Variables page is ([Described
+  variables](#described-variables)).
 - **Description**: the module's description.
 - **Custom Content**: the haks the module uses, highest priority first
   (where two have the same resource, the higher one wins; changes apply
   when the module is reopened), and its custom talk table.
 
 Text fields players see (names, descriptions) are localized strings. The
-field shows the language chosen in Options › Language. The **…** button
+field shows the language chosen in Tools › Options › Language. The **…** button
 opens **String Edit**, where each language and gender has its own text, or
 a talk-table reference. The fields work as a blueprint's do (what is typed
 is kept when the page is left, by the pointer or a key), and so do the
@@ -1731,6 +1737,7 @@ its right **Only lines with text**, **Export** (CSV and JSON) and **More**
 where another table is shown, **Module's Table**); then **OK** and
 **Cancel**, or **Close** for a table only looked at. In a narrow editor
 the commands lose their words, then go into More, Find and Go to last.
+
 The chosen line's fields are the Right Dock's **String** panel, what
 names it its **References** panel and the table's own facts its **Talk
 Table** panel (in its window's right pane where the editor floats; in one
@@ -1759,8 +1766,9 @@ tab bar of the three in a window under 1400 points):
   or a script. What you type stays with its line: choose another line, add
   one or remove the last, and the field you typed in goes with its own
   line.
-- **References** (or **Find References** in the header) lists where the
-  module names the chosen line, as does a number typed in the References
+- **References**: its **Find References to Line N** (or **Find
+  References** in the header) lists where the module names the chosen
+  line, as does a number typed in the References
   tab's field: its blueprints', areas', conversations' and journal's
   strings, a palette's category, a soundset's entries, its 2DAs' cells in
   the columns known to hold a line, and a script's call with the number
@@ -1796,8 +1804,7 @@ tab bar of the three in a window under 1400 points):
   import sets the lines the file has and
   leaves the others; the feminine table is a file of its own there and
   is not touched. (A line's sound length is `soundLen`, as `nwn_tlk` has
-  it; files written before 1.20.5 named it `soundLength` and are still
-  read.) From a terminal: `mg tlk-export` and `mg tlk-import`.
+  it; a file that names it `soundLength` is read too.) From a terminal: `mg tlk-export` and `mg tlk-import`.
 - **Only lines with text** leaves the empty lines out of the list, for a
   table with reserved ranges. The selected line stays selected: switch it
   off again and the list is at that line, with the empty ones after it
@@ -1807,12 +1814,27 @@ tab bar of the three in a window under 1400 points):
   File…** makes an empty one: with or without a module open. **Module's
   Table** goes back to the table the module names.
 - **Saving**: **Save** saves the table, as does saving the module; **OK**
-  saves it and closes the editor, **Cancel** closes it, asking first
-  about unsaved changes.
+  saves it and closes the editor, **Cancel** closes it.
 
-With no talk table, the editor says so and the Talk Table panel's
-**Module's Table** makes one in the user folder's `tlk` (with a feminine
-table if you ask) and names it in Module Properties. Its name,
+**Closing the tab** with lines changed in the editor and not saved asks
+first, as a hak's or a 2DA's tab does: **Save**, **Don't Save** or
+**Cancel**, once, whichever way it closes (its ×, Ctrl+W, the tab menu's
+Close, Close Others and Close All, the floating window's close button,
+and the header's Cancel or Close), also while `dialog.tlk` is shown over
+the table (the question names the table behind it, which Save saves).
+For the module's own table the question says
+that **Save** puts its lines into the module, whose Save writes them;
+**Don't Save** takes back the lines changed in the editor. Lines typed
+for the module's fields in other editors alone (a blueprint's name) are
+not asked about: they stay, and the module's Undo takes them back.
+Closing the module, opening another and quitting ask the module's own
+question alone, which counts the talk table's lines.
+
+With no talk table, the editor says so, and the Talk Table panel's
+**Module's Table** section makes one: type its name in **New talk
+table**, tick **With a feminine table** if you want one, and
+**Create** makes it in the user folder's `tlk` and names it in Module
+Properties. Its name,
 as every name Moonglow makes for a resource (a new tileset, a hak's file,
 a line's sound, here or from a plugin), is 1 to 16 letters, digits, `_`
 and `-`, kept in lower case: the game takes more (any 16 characters), but
@@ -1836,9 +1858,8 @@ way to the talk table, Tools › Talk Table, Module Properties' Edit… or
 New… and a 2DA cell's Talk Table, shows the module's table. While
 `dialog.tlk` is shown, Undo and Redo are the module's own, never the
 waiting table's; the module's Save (Ctrl+S) still writes the waiting
-table's unsaved lines, and closing the tab keeps them for that Save
-without asking: the dot on the tab's title is the sign that some are
-there. A Find References look under way in the module's table carries on,
+table's unsaved lines, and closing the tab asks of them first, as
+above: the dot on the tab's title is the sign that some are there. A Find References look under way in the module's table carries on,
 its result there on your return. The Talk Table panel names the table shown. It is
 the table the game data reads: the install's `lang/<language>/data/
 dialog.tlk` (the masculine one: Moonglow shows a line by the masculine
@@ -1874,12 +1895,12 @@ every player; remove the other language's text first.
 
 Aurora writes the text you type into a name or a description into the
 file. A persistent world translated, or one that keeps its text in one
-place, wants it in the talk table instead. With **Options › Language ›
+place, wants it in the talk table instead. With **Tools › Options › Language ›
 Put text typed into the talk table** on (off by default), or the
 project's `[talk] typed = true` (below), text typed becomes a line of
 the module's custom talk table and the field names it by its StrRef:
 
-- **Which fields:** every Properties window's names and descriptions
+- **Which fields:** every Properties tab's names and descriptions
   (blueprints, placed objects, areas, Module Properties, the journal), a
   creature's random name, and a conversation line's text, typed in the
   editor or in Input Text. String Edit keeps every language's text as it
@@ -1896,7 +1917,7 @@ the module's custom talk table and the field names it by its StrRef:
   named in the talk table editor.
 - **A text the table has already:** Moonglow asks: **Use Line N** (the
   field names that line), **Add a Line**, or **Keep in the File**
-  (Aurora's way, for this text). Options › Language can say Use that
+  (Aurora's way, for this text). Tools › Options › Language can say Use that
   line or Add a line without asking. The question stops the editor
   until it is answered (Escape keeps the text in the file), and a
   second such text set meanwhile is asked about after it.
@@ -1911,14 +1932,14 @@ the module's custom talk table and the field names it by its StrRef:
 - **Kept in the file**, with a note in the log once: where the module has
   no custom talk table, or one of a hak's; where a nasher project keeps
   the table in several languages (a line in one would be empty in the
-  others); text typed in another language (Options › Language) than the
+  others); text typed in another language (Tools › Options › Language) than the
   table's; a string with text in another language as well, since the
   game shows any text of a string's own before its talk-table line, to
   every player (`engine_tlk`); and where your lines are all used.
 
 **A team's word:** `[talk] typed = true` in the project's file turns it
 on for everyone who opens the module, whatever their own switch says,
-and `typed = false` off; Options › Language shows the project's word,
+and `typed = false` off; Tools › Options › Language shows the project's word,
 its switch greyed for that module, and keeps the builder's own for
 modules whose project doesn't say. A builder can't turn it off for
 themselves where the project turns it on: a team's text is then all in
@@ -1937,7 +1958,7 @@ ab = "100000-109999"
 cd = "110000-119999"
 ```
 
-**Module Properties › Custom Content › Typed text** sets `lines` (written
+**Module Properties › Custom Content › Typed text lines** sets `lines` (written
 into the project's file, the rest of it kept as written), says which
 builders have parts of their own, and the next free line with how many
 are left. Without `lines`, a line is added at the table's end. The next
@@ -1954,7 +1975,7 @@ none.
 
 **Resources in haks**: when the module and a hak have the same resource,
 the hak's wins in the game. Moonglow warns in the log when you add such a
-resource, or one that replaces the game's own (Options › General). The same
+resource, or one that replaces the game's own (Tools › Options › General). The same
 warnings come however the resource arrives: made in an editor, imported,
 copied from the palette or renamed. An import that brings many says the
 first few and how many more.
@@ -1991,12 +2012,15 @@ folder's files, subfolders included, to look over and save.
   selected and, with the pointer over the editor, its clicks.
 - **Preview** (the Right Dock): the resource chosen: the one clicked (or
   Ctrl+clicked) last where it is selected, the start of a Shift+click run,
-  else the first of those selected by name: a picture (a TGA or DDS; a PLT in each layer's
-  first color) with its size, a sound with **Play** and **Stop** (a
-  `.bmu` holding a WAVE is marked as one the game does not play; it
-  stops when another resource is chosen, or when the Preview is no longer
-  shown: closed, folded, another tab or module in front, the hak closed), a 2DA's rows and columns as the
-  resource browser shows them, a GFF's fields, a text file's text, else
+  else the first of those selected by name: a picture (a TGA or DDS;
+  a PLT in each layer's first color) with its size (a large one read
+  while the window goes on, "Reading the picture…" meanwhile), a sound
+  with **Play** and **Stop** (a `.bmu` holding a WAVE is marked as one
+  the game does not play; it stops when another resource is chosen,
+  when another Play anywhere starts, or when the Preview is no longer
+  shown: closed, folded, another tab or module in front, the hak
+  closed), both with the viewers the read-only tab shows them with, a
+  2DA's rows and columns as the resource browser shows them, a GFF's fields, a text file's text, else
   its first bytes. A model is drawn in 3D, paused until its **Play**,
   with its facts under it (compiled or text, size, nodes, faces,
   vertices, textures, animations, supermodel): where the game reads this
@@ -2009,7 +2033,8 @@ folder's files, subfolders included, to look over and save.
   header's **Close the Preview** puts the resource away until another is
   chosen; **View** or a double click shows it again (the Right Dock
   unfolded on the Preview).
-- **Details** (under the Preview): the hak's **File**, its **Contents**
+- **Details** (under the Preview; in one tab bar with it in a window
+  under 1400 points wide): the hak's **File**, its **Contents**
   ("2706 resources, 183.8 MB"), what it was **Built from** with **Update
   from Folder**, and its **Description**, the hak's own note for people
   (the game doesn't show it): set when you leave the field, save, close
@@ -2114,7 +2139,7 @@ the left **Save**, **Add Row** with its count beside it, **Empty Row**,
 **Delete Row** and **Add Column…** as icons, then **Find** and **Go to**
 and, where some are, **N cells are wrong**; at the right **Values as
 names** (where a description names values) and **Strings as text** as
-icon toggles; then **More ▾**, which holds **Save As File…**, **Take
+icon toggles; then **More**, which holds **Save As File…**, **Take
 Rows…**, **Compact**, **Show Hidden Columns** and **Reset All Widths**;
 and **OK** and **Cancel** at its right end. In a narrow window the
 header's buttons lose their words and then go into More, Find, Go to and
@@ -2198,7 +2223,7 @@ accent color.
   opens; its cells go with it. The same menu renames the column or
   removes it, with its cells (Undo puts it back where it was).
 - **Undo** and **Redo**, the Top Bar's and Edit's, and their keys
-  (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or those set in Options › Keyboard),
+  (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or those set in Tools › Options › Keyboard),
   take the table's steps with the pointer over the editor or its Cell
   and References panels, or the keys in its grid, its Cell panel or its
   columns in the Outliner (after a click there): a paste, a typed cell
@@ -2313,9 +2338,9 @@ in the editor is unsaved; with something unsaved, the editor says so
 over the table, and Save writes the editor's table over the other.
 
 At the header's right end are **OK** and **Cancel**: OK saves the table
-and closes its window; Cancel closes it without saving (what was set in
+and closes its tab; Cancel closes it without saving (what was set in
 its Cell panel too), asking first where there are unsaved changes
-(**Save**, **Don't Save** or **Cancel**), as the window's close button
+(**Save**, **Don't Save** or **Cancel**), as the tab's close button
 does (a table's changes are its own, and the module's Undo does not
 bring them back).
 
@@ -2475,8 +2500,10 @@ plugin reads a description with `mg.twoda.describe`
   the area with nothing placed in it). The window lists the
   module kind by kind (areas, conversations, scripts, the blueprints,
   then the rest by extension); **Kind** lists one kind alone, **Filter**
-  those whose names hold what is typed, and **Select the Listed** and
-  **Clear Them** tick and untick what the two leave. Choosing an archive
+  those whose names hold what is typed, and **Select the N Listed** and
+  **Clear Them** tick and untick what the two leave. Its foot has
+  **Export N…** and **Export N as Files…** (N the resources ticked) and
+  **Cancel**. Choosing an archive
   that is already there asks what Aurora's Export asks, with buttons
   named for what they do: **Append** adds the resources to it (those of
   the same names are replaced, the rest and its description stay;
@@ -2508,12 +2535,12 @@ plugin reads a description with `mg.twoda.describe`
   module folder's or a project's checkout comes before its variable.
 
   The game and Aurora pass an archive's description by (Aurora's
-  Import shows it), so the archive imports as before. `mg export` stamps
+  Import shows it), so the archive imports in them as any other. `mg export` stamps
   its archives the same way. Import says when the base is older than
   the module; bringing the archive in on a branch from that base, and
   merging, is git's (as the warning says).
-- **Export as Files…** (in the Export window, and **Export › Export as
-  Files…** on a resource's right-click menu in the module tree) writes
+- **Export as Files…** (the Export window's **Export N as Files…**, and
+  **Export › Export as Files…** on a resource's right-click menu in the module tree) writes
   resources as loose files, `name.ext`, into a folder you choose: as they
   are now in the toolset, saved or not. A script goes with its compiled
   script (`.ncs`, and `.ndb` if it has one), an area with its `.git` and
@@ -2646,12 +2673,14 @@ plugin reads a description with `mg.twoda.describe`
 ## Areas
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
-size (2 to 32 tiles each way). It opens with the first tileset chosen
-(Aurora chooses none). It is one page: its check boxes read **Launch Area
-Properties dialog** and **Open area in the Area Viewer**, and its footer
-has **Create** (the main button, which Enter presses once a name and a
-tileset are given) and **Cancel**. Its ResRef is made from the name, after [your
-builder code](#your-builder-code) where you have one (the wizard then
-shows it). **Edit › Resize Area…** and **Rotate Area…**
-change the area shown last, as in Aurora. See [Areas](04-areas.md).
- area shown last, as in Aurora. See [Areas](04-areas.md).
+size. It opens with the first tileset chosen (Aurora chooses none). It
+is one page: **Name**, **Tileset**, **Size** (**Tiny**, **Small**,
+**Medium** and **Large**, 2, 4, 8 and 16 tiles each way, or the rows and
+columns typed under them, 2 to 32 each), the check boxes **Open Area
+Properties** and **Open area in the Area Viewer**, and at its foot
+**Create** (the main button, which Enter presses once a name and a
+tileset are given) and **Cancel**. Its ResRef is made from the name,
+after [your builder code](#your-builder-code) where you have one (the
+wizard then shows it under the name). **Edit › Resize Area…** and
+**Rotate Area…** change the area shown last, as in Aurora. See
+[Areas](04-areas.md).

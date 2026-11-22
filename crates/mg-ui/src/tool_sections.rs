@@ -50,6 +50,18 @@ pub(crate) struct Tools {
     /// The share of a stacked Right Dock's column an open tool section
     /// takes, as its seam was last dragged this run ([`share`]).
     pub(crate) share: Option<f32>,
+    /// The commands Edit Areas Together's shared pages pushed this frame,
+    /// known again as they are applied ([`marked`]): the section's own
+    /// steps, which its Cancel All takes back.
+    pub(crate) marks: Vec<mg_edit::Command>,
+    /// What a field of its pages holds typed, set should the field be gone
+    /// before it is left (`Moonglow::held_text`): the section's too.
+    pub(crate) held_mark: Option<mg_edit::Command>,
+    /// Cancel All pressed: made as the next frame begins ([`follow`]).
+    pub(crate) cancel_all: bool,
+    /// Cancel All's Undo under way: the module's history's, never a side
+    /// editor's (`Moonglow::local_undo`).
+    pub(crate) history_only: bool,
 }
 
 /// A tool section's share of its column of stacked sections at first
@@ -173,6 +185,18 @@ pub(crate) fn follow(app: &mut Moonglow) {
         app.light_draft = None;
         app.bake.draft = None;
     }
+    // (What Edit Areas Together's pages pushed last frame was applied as
+    // it ended: none of it is left for a command made elsewhere, the
+    // section hidden or not. Its held text's stays while that text is
+    // held, to be applied as its field goes.)
+    app.tools.marks.clear();
+    let held = app.held_text.as_ref().and_then(|h| h.command.as_ref());
+    if held != app.tools.held_mark.as_ref() {
+        app.tools.held_mark = None;
+    }
+    if std::mem::take(&mut app.tools.cancel_all) {
+        cancel_all(app);
+    }
     match app.tools.go.take() {
         Some(Panel::LightMaker) => crate::light_maker::finish(app),
         Some(Panel::Bake) => crate::bake_view::finish(app),
@@ -191,6 +215,61 @@ pub(crate) fn follow(app: &mut Moonglow) {
         }
         app.tools.was[i] = open;
     }
+}
+
+/// Whether `cmd`, about to be applied, is one Edit Areas Together's shared
+/// pages pushed ([`Tools::marks`]): taken from the marks if so.
+pub(crate) fn marked(app: &mut Moonglow, cmd: &mg_edit::Command) -> bool {
+    if app.area_chooser.is_none() {
+        app.tools.marks.clear();
+        app.tools.held_mark = None;
+        return false;
+    }
+    if let Some(i) = app.tools.marks.iter().position(|m| m == cmd) {
+        app.tools.marks.swap_remove(i);
+        return true;
+    }
+    app.tools.held_mark.take_if(|m| m == cmd).is_some()
+}
+
+/// A command of Edit Areas Together's just applied ([`marked`]): its step
+/// kept as the section's.
+pub(crate) fn made(app: &mut Moonglow) {
+    let Some(ws) = &app.ws else { return };
+    let (Some(step), depth) = (ws.last_step(), ws.undo_depth()) else { return };
+    if let Some(c) = &mut app.area_chooser {
+        c.made_step(step, depth);
+    }
+}
+
+/// Edit Areas Together's Cancel All (ruling 66): the run of the section's
+/// own steps on top of the history ([`crate::area_props::AreaChooser::run`])
+/// made one step and taken back, which one Redo brings back. Never a step
+/// it did not make: an edit made elsewhere, or Undo by hand, stops the run.
+fn cancel_all(app: &mut Moonglow) {
+    // (Q and E's turning or a Ctrl + wheel scaling under way is what Undo
+    // takes back first: after it.)
+    let busy = |v: &crate::area_view::AreaView| v.key_turning() || v.wheel_scaling();
+    if app.area_views.values().any(busy) {
+        app.tools.cancel_all = true;
+        return;
+    }
+    let (Some(c), Some(ws)) = (&mut app.area_chooser, &mut app.ws) else { return };
+    let run = c.run(ws);
+    if run.is_empty() {
+        return;
+    }
+    let n = run.len();
+    let top = ws.undo_depth();
+    if n > 1 && ws.join_last(n, format!("{n} Edits in Edit Areas Together")) {
+        c.joined(&run, ws);
+        // (Their typed lines of the talk table go with the one step; a step
+        // undone above them, its lines with it, is redone that much lower.)
+        app.typed.joined(n, top);
+    }
+    app.tools.history_only = true;
+    app.run(crate::Action::Undo);
+    app.tools.history_only = false;
 }
 
 /// `panel` shown: the Right Dock open on it (or its area's window's right
@@ -228,12 +307,28 @@ pub(crate) fn actions(
     ui: &mut Ui,
     keys: Keys,
     main: Option<(&str, bool, &str)>,
-    (leave, leave_tip): (&str, &str),
+    leave: (&str, &str),
     detail: Option<&str>,
     why: Option<&str>,
 ) -> Option<Answer> {
+    actions_with(ui, keys, main, None, leave, detail, why).0
+}
+
+/// [`actions`] with `other` (its words, whether it is enabled, its tip)
+/// between the main action and `leave`, the dialog pattern's order (Edit
+/// Areas Together's Cancel All); and whether `other` was clicked.
+pub(crate) fn actions_with(
+    ui: &mut Ui,
+    keys: Keys,
+    main: Option<(&str, bool, &str)>,
+    other: Option<(&str, bool, &str)>,
+    (leave, leave_tip): (&str, &str),
+    detail: Option<&str>,
+    why: Option<&str>,
+) -> (Option<Answer>, bool) {
     let margin = egui::Margin { left: 8, right: 8, top: 6, bottom: 6 };
     let mut answer = None;
+    let mut pressed = false;
     egui::Frame::new().inner_margin(margin).show(ui, |ui| {
         ui.horizontal(|ui| {
             if let Some((words, enabled, tip)) = main {
@@ -244,6 +339,10 @@ pub(crate) fn actions(
                 if ui.add(b).clicked() && enabled {
                     answer = Some(Answer::Main);
                 }
+            }
+            if let Some((words, enabled, tip)) = other {
+                let b = mg_uikit::KitButton::new(None, words).enabled(enabled).tip(tip);
+                pressed = ui.add(b).clicked() && enabled;
             }
             let b = mg_uikit::KitButton::new(None, leave).tip(leave_tip);
             if ui.add(b).clicked() {
@@ -272,7 +371,7 @@ pub(crate) fn actions(
     {
         answer = Some(Answer::Leave);
     }
-    answer
+    (answer, pressed)
 }
 
 /// Enter for a tool's main action (`enabled`), after its fields are drawn:
@@ -434,4 +533,23 @@ pub(crate) fn hints(app: &Moonglow, ctx: &egui::Context) -> Option<Vec<mg_uikit:
     }
     hints.push(Hint::keys(["Tab"], "Next field"));
     Some(hints)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What Edit Areas Together's pages pushed and was not applied with
+    /// the frame (a command held back, the section hidden after) is not
+    /// left to count a command made elsewhere as the section's (ruling 66).
+    #[test]
+    fn the_section_s_marks_go_with_the_frame_shown_or_not() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.area_chooser = Some(crate::area_props::AreaChooser::default());
+        let cmd = mg_edit::Command::new("Change", Vec::new());
+        app.tools.marks.push(cmd.clone());
+        app.tools.held_mark = Some(cmd.clone());
+        follow(&mut app);
+        assert!(!marked(&mut app, &cmd), "not the section's a frame later");
+    }
 }

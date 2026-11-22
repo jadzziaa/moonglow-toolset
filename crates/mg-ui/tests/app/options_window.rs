@@ -549,3 +549,80 @@ fn comes_to_rest(mode: Mode) {
     rest(&mut h);
     assert!(h.state().options.is_none(), "Cancel closed it");
 }
+
+/// Options › Verify's field, under its label "Also leave out".
+fn verify_field<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
+    let label = h.get_by_label("Also leave out").rect();
+    (h.get_all_by_role(egui::accesskit::Role::TextInput))
+        .find(|n| (0.0..40.0).contains(&(n.rect().top() - label.top())))
+        .expect("the field under Also leave out")
+}
+
+/// Options › Verify shows whatever it leaves out, where it can be taken
+/// out (M5's W7): what only a player's own content has
+/// (`references:override`, `userpatch`, `workshop`, `local`), which has
+/// no box, is typed in its field, applied, back in the field when Options
+/// opens again (it was taken for a box that is never drawn: out of sight
+/// while it applied, nothing could remove it, and Missing references
+/// opened with every box ticked) and taken out there, the settings
+/// written as typed; a check left out of a plugin not enabled is a box
+/// that ticks it back.
+#[test]
+fn verify_s_words_without_a_box_stay_in_its_field() {
+    let mut app = app_in(Mode::Tabs, Vec::new());
+    app.settings.verify_skip = vec!["tilesets".into(), "gone.plugin/old-check".into()];
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(h);
+        page_row(h, "Verify").click();
+        settle(h);
+    };
+    let ok = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Options header").get_by_label("OK").click();
+        settle(h);
+        assert!(h.state().options.is_none(), "OK closed it");
+    };
+    let type_over = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        verify_field(h).click();
+        settle(h);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.event(egui::Event::Text(text.into()));
+        settle(h);
+    };
+    open(&mut h);
+    type_over(&mut h, "tdod_tiles01.hak, references:override");
+    ok(&mut h);
+    let skip = |h: &Harness<'_, Moonglow>| h.state().settings.verify_skip.clone();
+    assert_eq!(
+        skip(&h),
+        ["tilesets", "gone.plugin/old-check", "tdod_tiles01.hak", "references:override"]
+    );
+    assert!(h.state().settings.saved_text().contains("\"references:override\""));
+    // Opened again: in the field, and Missing references not opened on
+    // boxes that are all ticked.
+    open(&mut h);
+    assert_eq!(
+        verify_field(&h).value().as_deref(),
+        Some("tdod_tiles01.hak, references:override"),
+        "what applies, in sight"
+    );
+    assert!(h.query_by_label("Of creatures").is_none(), "Missing references closed");
+    // The plugin's check, shown though the plugin is not enabled, unticked.
+    let gone = h.get_by_label("gone.plugin/old-check");
+    assert!(!gone.accesskit_node().is_disabled());
+    assert_eq!(gone.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+    // Taken out of the field, and the plugin's check ticked back.
+    type_over(&mut h, "tdod_tiles01.hak");
+    h.get_by_label("gone.plugin/old-check").scroll_to_me();
+    settle(&mut h);
+    h.get_by_label("gone.plugin/old-check").click();
+    settle(&mut h);
+    assert!(h.query_by_label("gone.plugin/old-check").is_some(), "kept while Options is open");
+    ok(&mut h);
+    assert_eq!(skip(&h), ["tilesets", "tdod_tiles01.hak"]);
+    let saved = h.state().settings.saved_text();
+    assert!(!saved.contains("references:override") && !saved.contains("old-check"), "{saved}");
+    assert!(saved.contains("verify_skip:[\"tilesets\",\"tdod_tiles01.hak\"]"), "{saved}");
+}

@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, exporters and importers, wizards, panels, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:55:14Z }
 ---
 
 # Plugins
@@ -14,14 +14,13 @@ doesn't have: **commands** (a batch edit, a report, a generator) and
 plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
-**Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.9) may change in a later release as the people who
-write plugins try it. A plugin written for an earlier version of the API still
-runs (0.2 to 0.9 only added to it); one written for a version this
-Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
-or the plugin, needs an update. What you build with plugins, and what
-you miss, is welcome on the
-[issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).
+**Plugins are experimental.** The plugin API (version 0.9) may change in a
+later release as the people who write plugins try it. A plugin written for
+an older version of the API runs (each version only adds to the one
+before); one written for a version this Moonglow doesn't have is not run:
+the Plugins tab says so, and Moonglow, or the plugin, needs an update.
+What you build with plugins, and what you miss, is welcome on the [issue
+tracker](https://github.com/jadzziaa/moonglow-toolset/issues).
 
 ## What a plugin can and cannot do
 
@@ -58,9 +57,7 @@ A plugin's code runs in a sandbox. It can:
   it was (its files edited by hand, even under the same version, ask
   again), the Plugins tab says how much, and **Forget** there makes
   it ask again. Disabling, removing or installing the plugin anew
-  forgets it too. (What an earlier Moonglow kept by the plugin's
-  version is kept for its code as it is at its first event in 4.0.0,
-  once.)
+  forgets it too.
 
 It cannot open files of its own choosing, write any other file, use the
 network, start other programs, or reach anything of Moonglow's beyond
@@ -77,14 +74,35 @@ enabled plugin's command can change or delete anything in the module it
 is run on. Undo takes it back, and nothing is on disk until you save, but
 install plugins from people you'd trust with the module.
 
+## The Plugins tab
+
+**Plugins › Manage Plugins** opens the **Plugins** tab, a document tab
+like the Appearance Gallery's: beside the other tabs, split beside one,
+or in a window of its own when **Tools › Options › General › Open
+editors** is As Floating Windows. **Ctrl+W** closes it. It works with no
+module open, and is kept with the open tabs.
+
+At its top are a few lines on what a plugin is, the note that plugins
+are experimental, and **Time within a save or a paste** (how long each
+plugin's handlers of a save, a paste or a wizard's Finish may take: see
+[What plugins do by themselves](#what-plugins-do-by-themselves)). Under
+them are **Install from File…**, **Reload** (which reads the plugins
+folder again after you copy a plugin in or change one) and **Open
+Folder** (which opens it, and makes it the first time), then the
+folder's place on your system. The plugins are listed below, and the
+whole page scrolls. What asks a question of you is a dialog over it:
+**Remove…**, replacing a plugin, **Settings…**, the question a
+project's plugins bring, and a plugin's own questions.
+
 ## Installing
 
 A plugin comes as an archive (a `.zip` file) or as a folder.
 
-**From an archive:** **Plugins › Install Plugin from File…** (also
-**Install from File…** in Manage Plugins) takes the archive and puts the
-plugin into Moonglow's plugins folder. Nothing of the plugin runs, and it
-is off until you enable it.
+**From an archive:** **Plugins › Install Plugin from File** (also
+**Install from File…** on the Plugins tab) takes the archive and puts the
+plugin into Moonglow's plugins folder, and brings the Plugins tab to the
+front, where a line says what came of it. Nothing of the plugin runs, and
+it is off until you enable it.
 
 - The archive is checked before anything is written: each plugin it
   holds must have a manifest that reads and was written for this
@@ -107,26 +125,15 @@ in it) into the plugins folder and press **Reload**.
 | --- | --- | --- |
 | `~/.local/share/moonglow/plugins` | `%APPDATA%\Moonglow\plugins` | `~/Library/Application Support/Moonglow/plugins` |
 
-**Plugins › Manage Plugins…** shows where the folder is on your system;
-**Open Folder** opens it (and makes it, the first time), and **Reload**
-reads it again after you copy a plugin in or change one.
-
-Manage Plugins opens the **Plugins** tab, a document tab like the
-Appearance Gallery's: docked, split beside another, or in a window of its
-own when **Options › Open editors** is As Floating Windows. **Ctrl+W**
-closes it. It works with no module open, and is kept with the open tabs.
-The whole page scrolls (the list of plugins is not a small box of its
-own). **Install from File…** opens it too. What asks a question of you
-stays a dialog: **Remove…**, **Replace**, **Settings…**, the question a
-project's plugins bring, and a plugin's own questions. A plugin's panel is
-not the tab: it is as it was.
-
 ## Enabling
 
 Every plugin is **off until you enable it**: installing one runs none of
 its code. The Plugins tab lists each plugin with its version, what it says
 it does, who wrote it, its license, and the commands and checks it adds.
-Tick its box to enable it; Moonglow remembers.
+Tick its box to enable it; Moonglow remembers. **Run Tests**, beside a
+plugin that comes with tests of its own, runs them, and the log says
+what each came to
+([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
 
 A plugin that can't be read is listed with what is wrong (its manifest
 has a fault, its script is missing, or it was written for a version of
@@ -134,12 +141,12 @@ the plugin API this Moonglow doesn't have).
 
 ## Removing
 
-**Remove…** beside a plugin in Manage Plugins deletes the plugin's
+**Remove…** beside a plugin on the Plugins tab deletes the plugin's
 folder, after asking. Your modules are not touched: what the plugin's
 commands changed in them stays.
 
-Remove is there for plugins installed from an archive. A plugin whose
-folder you copied in yourself has none (Moonglow deletes only what it
+Remove is for plugins installed from an archive. For a plugin whose
+folder you copied in yourself it is grayed (Moonglow deletes only what it
 installed): delete its folder, and press **Reload**.
 
 ## A project's own plugins
@@ -152,13 +159,13 @@ checks the project out has them, in step with the module, with nothing
 to install.
 
 **None of them runs until you allow it.** When you open the project,
-Moonglow lists each of its plugins you have not answered for, with what
-it adds: its commands (and the right-click menus they are in), its
-checks, what it does by itself, and the settings it keeps (those the
-team shares are written into `moonglow.toml`). For each, **Allow** or
-**Don't Allow**; **Allow All** allows each of them as it is;
-**Decide Later** leaves them all off now and asks again at the next
-opening (and before it about one of them whose own files change
+Moonglow lists each of its plugins you have not answered for, with what it
+adds: its commands (and the right-click menus they are in), its checks,
+what it does by itself, and the settings it keeps (those the team shares
+are written into `moonglow.toml`). For each, **Allow** or **Don't Allow**;
+**Allow All** (there when more than one is asked about) allows each of
+them as it is; **Decide Later** leaves them all off now and asks again at
+the next opening (and before it about one of them whose own files change
 meanwhile, a pull's; not for other changes in the folder).
 
 - What you allow is the plugin **as it is now**: Moonglow reads its
@@ -169,10 +176,10 @@ meanwhile, a pull's; not for other changes in the folder).
   folder is not part of it.
 - While the project is open, Moonglow looks at its plugins' folder every
   few seconds: a plugin changed there (a pull, an edit) is read again,
-  off until you allow it as it now is, and one new there is asked about,
+  off until you allow it as it is, and one new there is asked about,
   without opening the project again.
 - **Don't Allow** keeps it off, however it changes, and it is not asked
-  about again; tick it in Manage Plugins to allow it later.
+  about again; tick it on the Plugins tab to allow it later.
 - Your answers are **yours alone**, and never in the project: Moonglow
   keeps them in its own folder (`project-plugins.toml` beside the plugins
   folder), by the project's place on your disk, the plugin and the
@@ -184,7 +191,7 @@ meanwhile, a pull's; not for other changes in the folder).
   section in a committed `.moonglow/user.toml`, say) allows nothing, and
   the log says so. `mg` reads the same answers, and `mg plugin allow`
   gives them from a terminal.
-- Manage Plugins lists them under **This project's plugins**, each
+- The Plugins tab lists them under **This Project's Plugins**, each
   marked as the project's, with what you answered. Its box allows it (as
   it is now) or turns it off. They have no Remove: they are the
   project's files.
@@ -199,7 +206,7 @@ own.
 ## Settings
 
 A plugin may keep settings: a team's prefix, your builder code, how
-strict a check is. **Settings…** beside it in Manage Plugins opens them
+strict a check is. **Settings…** beside it on the Plugins tab opens them
 in a form, each with what it is (a tip says more) and where it is kept:
 
 - **yours**: in Moonglow's own folder, for every module (`mg` reads and
@@ -240,25 +247,29 @@ A command made for a kind of object (placeables, creatures…), for
 areas, for tiles or for a kind of resource (scripts) is also in their
 right-click menus: the area view's menu on the objects selected (an
 area's under **The Area**; with nothing selected, on the area), its
-tile menu, the module tree's rows and groups, the palettes' blueprints
-and categories, a Properties window's tab, the script editor's menu, and
-the rows of Find References and Advanced Search. It comes after the
+tile menu, the module tree's rows and groups, the Outliner's rows, the
+palettes' blueprints and categories, the menu of an editor's tab (a
+blueprint's or a placed object's Properties, an area or its Area
+Properties, a script, a conversation),
+the script editor's menu, and the rows of Find References and Advanced
+Search. It comes after the
 menu's own commands, above Variables and Properties, and acts on what
 you clicked: every object selected in the area view, every blueprint
 chosen in the palette, every one of a group or a category. A command may
-be for placed objects alone or blueprints alone. Manage Plugins says
+be for placed objects alone or blueprints alone. The Plugins tab says
 which menus each command is in. Chosen from the Plugins menu instead, it
 acts on what is chosen in the pane you last clicked in (the module tree,
 a palette, an area's view), or else on the objects selected in the area
 view, or else on the blueprints selected in the palette.
 
-A command needs a module open. It runs as other long work does
-([Long work](09-build-and-test.md)): a window names it, shows how far it
-is, and has **Cancel**. If it asks something, the question is in that
-window. A plugin's window is headed by the command's title alone (its
-plugin's name shows when you point at it), and leaves the window behind
-it as it is, not dimmed, so that a color being picked in it can be
-judged on the area. When it is done, the log says what it changed:
+A command needs a module open. It runs as other long work does ([Long
+work](09-build-and-test.md)): a window names it, shows how far it is, and
+has **Cancel**, and the Status Bar shows its name and a bar. If it asks
+something, the question is in that window. A plugin's window is headed by
+the command's title alone (its plugin's name shows when you point at it),
+and leaves the window behind it as it is, not dimmed, so that a color
+being picked in it can be judged on the area. When it is done, the log
+says what it changed:
 
 ```text
 Tag conventions: Fix Creature Tags changed 12 resources (Edit › Undo takes it back)
@@ -290,7 +301,8 @@ back.
 
 A plugin's wizards are in the **Wizards** menu, under Moonglow's own
 (since plugin API 0.6). A wizard asks page by page in its window, with
-**Back**, **Next** (on the last page, **Finish**) and **Cancel**; what
+**< Back**, **Next >** (on the last page, **Finish**) and **Cancel** at
+its foot; what
 you give on one page may change the pages after it, and a page that
 finds something wrong with what you gave says so and stays. Back keeps
 what you typed. Nothing is made until Finish, and what Finish makes is
@@ -298,40 +310,47 @@ one step of Undo; Cancel makes nothing.
 
 ## Panels
 
-A plugin's panels are panes of their own: **Plugins › Panels** shows and
-hides each (a tick beside those shown), and Quick Open finds
-them by name (since plugin API 0.6). A panel opens in a window, which
-you may dock beside the area or the palettes as any window, and it is
-reopened with the module's other windows. It shows what its plugin
-says, in Moonglow's own headings, text, lists, buttons and fields: a
-list's item opens what it names, and a button runs one of the plugin's
-commands, with its own step of Undo. A field (since plugin API 0.9) is
-a form's (text, a number, a tick, a choice, a color) that stays: what
-you set in it stays until the plugin shows another value there (the
-tint of another placeable you select, say), and a field may run one of
-the plugin's commands when you set it (a color when its picker closes,
-text or a number when you leave it, a tick or a choice at once), with
-its own step of Undo. A color field may show the color on the objects
-selected while its picker is open, as a form's does; a choice may show
-a swatch beside each of its options. **Refresh** draws it again; it is
-drawn again by itself after the plugin's commands, and, if its plugin
-says so, after each change of the module (once you stop, while you drag
-or type) or when what is selected changes. Its plugin's code runs beside the window, so a panel never
-slows it down: while it draws, the panel shows what it showed before. A
-panel goes when its plugin is disabled.
+A plugin's panels are tabs of their own: **Plugins › Panels** shows and
+hides each (a tick beside those shown), and Quick Open finds them by name
+(since plugin API 0.6). A panel opens as editors do: as a document tab
+beside the others, which you may split beside the area or another editor,
+or in a window of its own when **Tools › Options › General › Open
+editors** is As Floating Windows. It belongs to no one editor, so it is
+not in the Right Dock, whose panels follow the editor in front: it stays
+where you put it. It is reopened with the other open tabs. **Refresh** at
+its top draws it again, with the plugin's name beside it. It shows what
+its plugin says, in Moonglow's own headings, text, lists, buttons and
+fields: a list's item opens what it names, and a button runs one of the
+plugin's commands, with its own step of Undo. A field (since plugin API
+0.9) is a form's (text, a number, a tick, a choice, a color) that stays:
+what you set in it stays until the plugin shows another value there (the
+tint of another placeable you select, say), and a field may run one of the
+plugin's commands when you set it (a color when its picker closes, text or
+a number when you leave it, a tick or a choice at once), with its own step
+of Undo. A color field may show the color on the objects selected while
+its picker is open, as a form's does; a choice may show a swatch beside
+each of its options. It is drawn again by itself after the plugin's
+commands, and, if its plugin says so, after each change of the module
+(once you stop, while you drag or type) or when what is selected changes.
+Its plugin's code runs beside the window, so a panel never slows it down:
+while it draws, the panel shows what it showed before. A panel goes when
+its plugin is disabled.
 
 ## Checks
 
 An enabled plugin's checks run with **Build › Verify Module**, along with
-Moonglow's own. Their findings are in the log with the rest, as warnings
-or errors, each naming the resource and the field. A check that fails is
-reported as an error too, and the other checks still run.
+Moonglow's own. Their findings are listed with the rest in **Problems**,
+a tab of the Bottom Dock (under its Verify Module heading; the Problems
+switch in the Status Bar opens it and counts them), and in the log, as
+warnings or errors, each naming the resource and the field. A check that
+fails is reported as an error too, and the other checks still run.
 
-A finding may come with a **fix**: a button beside it in the log, which
-says what it does ("Upper-case this tag"). Nothing changes until you
-click it; then its edits go in as one step, which **Undo** takes back,
-and the button says **Fixed** (Undo offers it again). **Fix All** beside
-the first of a check's fixes makes every one of them, as one step. A fix
+A finding may come with a **fix**: a button beside it, in Problems and in
+the log, which says what it does ("Upper-case this tag"). Nothing changes
+until you click it; then its edits go in as one step, which **Undo**
+takes back, and the button says **Fixed** (Undo offers it again).
+**Fix All** (with the count of them) beside the first of a check's fixes
+makes every one of them, as one step. A fix
 whose label ends in "…" asks first: it runs the plugin's command on the
 finding, whose form asks what it needs. A fix is worked out when Verify runs: if
 what it would change has changed since (by hand, or by another fix that
@@ -342,14 +361,16 @@ in its ARE: moved to its GIT).
 
 ## What plugins do by themselves
 
-A plugin may act on what you do, as its manifest says (Manage Plugins
+A plugin may act on what you do, as its manifest says (the Plugins tab
 lists it: "By itself, before a save, reads each resource it writes
-(are): may warn of one, or stop the save").
+(are): may warn of one, or stop the save: <event id>", the id being the
+one the manifest gives the event).
 
 **Before a save.** A plugin may read what the save would write, each
 resource as it was and as it will be, and hold it to a team's rules (an
 area's tag that players' places are kept by, say). If it has something
-to say, nothing is written yet: a window lists it. A **warning** is
+to say, nothing is written yet: a window lists it (**Before Saving**, or
+**Not Saved** for a refusal). A **warning** is
 yours to weigh: **Save Anyway** writes the module as it is, **Cancel**
 writes nothing. A **refusal** stops the save: the window says why, and
 **Close** leaves the module unsaved. Beside either, a plugin may offer a
@@ -357,10 +378,10 @@ fix (Put back TAVERN); clicking it makes the change, as a step Edit ›
 Undo takes back, and saves again, the plugins reading the module as it
 now is. Save As is asked about as Save is. Before a save a plugin never
 changes the module itself: you save what you see. A plugin that fails,
-or takes longer than it may (5 seconds, or as Manage Plugins' **Time
+or takes longer than it may (5 seconds, or as the Plugins tab's **Time
 within a save or a paste** sets it), is a warning in that window ("could not check the save"),
 never a refusal, so a broken plugin never keeps you from saving
-(disable it in Manage Plugins). After a save, a plugin may read what
+(disable it on the Plugins tab). After a save, a plugin may read what
 was written (to copy it somewhere you chose, say).
 
 **On a paste, and on what a wizard makes.** When you place or paste
@@ -379,8 +400,9 @@ made is as Moonglow made it.
 
 ## The console
 
-Manage Plugins has a **Console**: a place to try the plugin API on the
-open module, a line or a few at a time. `mg` and `ctx` are at hand, as in
+The Plugins tab has a **Console** at its foot (click its heading to
+unfold it): a place to try the plugin API on the open module, a line or
+a few at a time, run with **Run**. `mg` and `ctx` are at hand, as in
 a command; what the code returns is shown, and its edits go in as one
 step, as a command's do.
 
@@ -458,11 +480,11 @@ the fields' values by id) and `--answer`, the rest by their defaults
   line. Nothing was changed.
 - **A plugin is not listed.** Its folder needs `plugin.cfg` directly in
   it (not a folder deeper); press **Reload**.
-- **An archive is not installed.** The log and Manage Plugins say why;
+- **An archive is not installed.** The log and the Plugins tab say why;
   of an archive of several plugins, which one is at fault, and none of
   them is installed.
 - **Moonglow misbehaves with a plugin enabled.** Start it with
-  `--no-plugins`: no plugin is loaded, and Manage Plugins says so.
+  `--no-plugins`: no plugin is loaded, and the Plugins tab says so.
   A crash report names the enabled plugins; when you report a problem,
   say whether it happens without them.
 - **"It was written for plugin API …".** The plugin needs another

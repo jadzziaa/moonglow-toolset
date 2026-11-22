@@ -149,6 +149,11 @@ impl SideDoc for tileset_view::TilesetDoc {
                 true
             }
             Err(e) => {
+                // (Not written over a file changed outside: asked again
+                // which to keep, though Later was answered.)
+                if d.theirs.is_some() {
+                    app.ask_outside_again();
+                }
                 app.log.error(e);
                 false
             }
@@ -424,8 +429,8 @@ impl Moonglow {
     /// changes, Save, Don't Save or Cancel is asked first ([`closing_window`],
     /// which closes it), and it stays; without, it may close now.
     pub(crate) fn may_cancel(&mut self, tab: &Tab) -> bool {
-        match self.asked_about(tab) {
-            Some((_, true)) => {
+        match self.asked_about(tab).map(|_| self.closing_asks(tab)) {
+            Some(true) => {
                 if !self.side_closing.contains(tab) {
                     self.side_closing.push_back(tab.clone());
                 }
@@ -437,6 +442,30 @@ impl Moonglow {
             }
             None => true,
         }
+    }
+
+    /// Whether closing `tab` (its ×, Ctrl+W, the tab menu, its window's
+    /// close, its Cancel) asks Save, Don't Save or Cancel first: a side
+    /// editor's, a script's (its Cancel) with unsaved changes; the Talk
+    /// Table tab only where [`Moonglow::talk_asks`].
+    fn closing_asks(&self, tab: &Tab) -> bool {
+        match tab {
+            Tab::TalkTable => self.talk_asks(),
+            _ => self.asked_about(tab).is_some_and(|(_, unsaved)| unsaved),
+        }
+    }
+
+    /// Whether closing the Talk Table tab asks first (the owner's ruling
+    /// of 2026-11-21, M5's W5, with no exception): where lines were
+    /// changed in the table's editor and not saved, also while the tab
+    /// shows the game's `dialog.tlk` over it (the question names the
+    /// table behind, which Save saves). Not for lines typed for the
+    /// module's fields in other editors alone (a blueprint's name): those
+    /// are the module's, which its Undo takes back and its Save (or its
+    /// own question, as it closes) writes, and Don't Save would keep
+    /// them. Closing without asking keeps them for the module's Save.
+    pub(crate) fn talk_asks(&self) -> bool {
+        self.talk.as_ref().is_some_and(|t| t.editable() && t.has_own_unsaved())
     }
 
     /// The side editors' documents follow their tabs where the dock was
@@ -503,7 +532,20 @@ impl Moonglow {
     /// A side editor's tab asked to close: with unsaved changes, it waits
     /// for the question to be answered (after those asked before it), and
     /// stays; without, its document is let go. Whether it may close now.
+    /// The Talk Table tab waits likewise where [`Moonglow::talk_asks`];
+    /// else it closes, nothing let go of (what is unsaved stays for the
+    /// module's Save: the lines behind `dialog.tlk`, those typed in other
+    /// editors).
     pub(crate) fn may_close_side(&mut self, tab: &Tab) -> bool {
+        if *tab == Tab::TalkTable {
+            if !self.talk_asks() {
+                return true;
+            }
+            if !self.side_closing.contains(tab) {
+                self.side_closing.push_back(tab.clone());
+            }
+            return false;
+        }
         match self.side_doc(tab) {
             Some(d) if d.has_unsaved() => {
                 if !self.side_closing.contains(tab) {
@@ -642,10 +684,10 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     // (A document let go meanwhile is not asked about; one saved meanwhile
     // closes, as was asked.)
     while let Some(tab) = app.side_closing.front().cloned() {
-        match app.asked_about(&tab) {
+        match app.asked_about(&tab).map(|_| app.closing_asks(&tab)) {
             None => {}
-            Some((_, false)) => close(app, &tab),
-            Some(_) => break,
+            Some(false) => close(app, &tab),
+            Some(true) => break,
         }
         app.side_closing.pop_front();
     }
@@ -661,6 +703,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let Some((title, _)) = app.asked_about(&tab) else { return };
     let failed = app.failed_saving(&tab).map(failed_text);
+    let notes = talk_notes(app, &tab);
     let more = app.side_closing.len() - 1;
     enum Answer {
         Save,
@@ -672,6 +715,10 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
         .id(egui::Id::new("side-doc-closing"))
         .show_foot(ctx, |ui| {
             ui.label(format!("Save changes to {title}?"));
+            for note in &notes {
+                crate::widgets::fit_min_width(ui, 440.0);
+                ui.add(egui::Label::new(egui::RichText::new(*note).weak()).wrap());
+            }
             if let Some(failed) = &failed {
                 // (A path is long: wide enough to read in a few lines.)
                 crate::widgets::fit_min_width(ui, 440.0);
@@ -733,6 +780,23 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// What the closing question says beside "Save changes to …?" of the
+/// talk table (M5's W5): what its Save does where the table is kept in the
+/// module (it is put into the module, which the module's Save writes; a
+/// table of its own file is written there), and that Don't Save keeps the
+/// lines typed for the module's fields in other editors.
+fn talk_notes(app: &Moonglow, tab: &Tab) -> Vec<&'static str> {
+    let Some(t) = app.talk.as_ref().filter(|_| *tab == Tab::TalkTable) else { return Vec::new() };
+    let mut notes = Vec::new();
+    if t.source == mg_module::talk::Source::Module {
+        notes.push(crate::talk_view::CLOSE_SAVE_NOTE);
+    }
+    if t.has_typed_unsaved() {
+        notes.push(crate::talk_view::CLOSE_TYPED_NOTE);
+    }
+    notes
+}
+
 /// Every question answered: what waited for the answers (closing the
 /// window, Exit, File › Close, another module) goes on, through
 /// [`Moonglow::run`], which looks again at what is unsaved: a document
@@ -749,8 +813,11 @@ fn carry_on(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// A side editor's tab closed, its document let go.
+/// (Noted for Reopen Closed Tab as a close without the question is: the
+/// Talk Table tab; a side editor's is not noted.)
 fn close(app: &mut Moonglow, tab: &Tab) {
     app.forget_side(tab);
+    app.closed(tab);
     if let Some(path) = app.dock.find_tab(tab) {
         app.dock.remove_tab(path);
     }

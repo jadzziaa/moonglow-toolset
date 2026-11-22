@@ -111,7 +111,21 @@ pub struct DialogView {
     /// Find: the pointer over it or its tree with the keys, nothing typed
     /// in), and its tree's own (`*`: the tree with the keys).
     pub(crate) keys_took: (bool, bool),
+    /// Its rows' words as laid out cut to the tree's width ([`cut_words`]),
+    /// by what they were cut from and to: those of this frame, and those
+    /// of the frame before, which a row takes again where nothing changed.
+    cuts: CutWords,
+    /// How many times a row's words were laid out anew ([`cut_words`]).
+    cuts_made: u64,
+    /// Where its tree's rows end on the right, as last drawn.
+    rows_right: f32,
 }
+
+/// Rows' words laid out ([`DialogView::cuts`]): this frame's, the last's.
+type CutWords = (
+    std::collections::HashMap<u64, std::sync::Arc<egui::Galley>>,
+    std::collections::HashMap<u64, std::sync::Arc<egui::Galley>>,
+);
 
 /// A change of a conversation, from one fingerprint to another: how it
 /// numbered the lines anew, and what it took from the editor.
@@ -147,6 +161,20 @@ pub fn fingerprint(g: &Gff) -> u64 {
 }
 
 impl DialogView {
+    /// How many times its tree laid out a row's words anew: only where the
+    /// words, their font or the tree's width changed, and only for rows in
+    /// sight (M5's W4).
+    pub fn cuts_made(&self) -> u64 {
+        self.cuts_made
+    }
+
+    /// Where its tree's rows end on the right as last drawn: the scroll
+    /// bar's side, a row's words ending the kit's row padding short of it
+    /// (M5's W4).
+    pub fn rows_right(&self) -> f32 {
+        self.rows_right
+    }
+
     /// The fingerprint of the conversation as drawn last (`None`: not
     /// drawn yet): what a module's kept tabs check theirs against.
     pub(crate) fn content(&self) -> Option<u64> {
@@ -771,6 +799,8 @@ pub enum Asked {
     Paste,
     PasteLink,
     Delete,
+    /// Toggle Bookmark (M5's W4): a bookmark put on the line, or taken off.
+    Bookmark,
 }
 
 /// A line the Input Text popup is asking for (Options › Conversation
@@ -1447,6 +1477,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     );
     let (key_find, key_find_next) =
         (pressed(crate::keys::Cmd::DialogFind), pressed(crate::keys::Cmd::DialogFindNext));
+    // (Toggle Bookmark, F5 as the script's: M5's W4, the owner's ruling
+    // 28. A bookmark changes no line: a conversation only looked at takes
+    // one too.)
+    let key_bookmark = pressed(crate::keys::Cmd::DialogBookmark) || asked == Some(Asked::Bookmark);
     let (key_copy, key_cut, key_paste) =
         if here { crate::widgets::copy_cut_paste(ui) } else { (false, false, false) };
     let (key_copy, key_cut, key_paste) = (
@@ -1650,6 +1684,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     if h.test {
         view.test = Some(Vec::new());
     }
+    // (The line chosen as the frame began, as the other commands take it.)
+    if key_bookmark
+        && let Some(r) = sel
+        && let Some(l) = links(&g, r.parent).get(r.pos)
+    {
+        toggle_bookmark(&mut view, (r.parent.child_kind(), link_index(l)));
+    }
     // Find and Replace, and Find Next (Options › Keyboard): the Node
     // section's Search, brought to the front (`search_forward`).
     if key_find || key_find_next {
@@ -1668,10 +1709,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) -> Option<crate::bluepri
     // The tree, in the Options' colours.
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
-    let look = Look::new(&app.settings, ui.visuals().dark_mode, mg_uikit::tokens(ui.ctx()).text_3);
-    let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
+    let mut look =
+        Look::new(&app.settings, ui.visuals().dark_mode, mg_uikit::tokens(ui.ctx()).text_3);
+    look.bookmark_key = app.keymap.label(crate::keys::Cmd::DialogBookmark, ui.ctx());
+    // (Each line cut at the tree's right edge, the owner's ruling 29: the
+    // tree scrolls up and down only. What was laid out the frame before is
+    // taken again where nothing changed: `cut_words`.)
+    view.cuts.1 = std::mem::take(&mut view.cuts.0);
+    let lines = egui::ScrollArea::vertical().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
         mg_uikit::list_rows(ui);
+        view.rows_right = ui.max_rect().right();
+        let width = ui.available_width() - RIGHT_ROOM;
+        look.least = least_line(width, egui::TextStyle::Body.resolve(ui.style()).size);
+        look.levels = tree_levels(ui, width, look.least);
         // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
         if view.scroll != 0 {
             let pitch = mg_uikit::row_pitch(ui);
@@ -1851,6 +1902,33 @@ pub(crate) enum NodeTool {
 /// The Node section's Bookmark's tip.
 pub(crate) const BOOKMARK_TIP: &str = "Bookmark the line chosen, or take its bookmark off";
 
+/// [`BOOKMARK_TIP`] with Toggle Bookmark's key after it (Options ›
+/// Keyboard), where it has one.
+pub(crate) fn bookmark_tip(app: &Moonglow, ctx: &egui::Context) -> String {
+    app.keymap.titled(BOOKMARK_TIP, crate::keys::Cmd::DialogBookmark, ctx)
+}
+
+/// The conversation in front's commands the Command Palette offers, each
+/// with whether it can run now: Toggle Bookmark, where a line is chosen
+/// (M5's W4, the owner's ruling 28). None where no conversation is in
+/// front.
+pub(crate) fn palette_commands(app: &Moonglow) -> Vec<(crate::keys::Cmd, bool)> {
+    let Some(Tab::Dialog(key)) = app.front_tab() else { return Vec::new() };
+    let chosen = app.dialog_views.get(&key).is_some_and(|v| v.selected.is_some());
+    vec![(crate::keys::Cmd::DialogBookmark, chosen)]
+}
+
+/// Runs a command of [`palette_commands`] on the conversation in front:
+/// done as its editor is drawn next, as a row's right-click menu's.
+pub(crate) fn run_palette_command(app: &mut Moonglow, cmd: crate::keys::Cmd) {
+    let Some(Tab::Dialog(key)) = app.front_tab() else { return };
+    if cmd == crate::keys::Cmd::DialogBookmark
+        && let Some(view) = app.dialog_views.get_mut(&key)
+    {
+        view.menu = Some(Asked::Bookmark);
+    }
+}
+
 /// Test's tip, on the header and on the Node section's bar: one name,
 /// "Test", on both (the coordinator's ruling at U14's review: the board's
 /// "Test: click through the conversation" reads as a name and a tip).
@@ -1887,14 +1965,14 @@ pub(crate) fn node_tools_enabled(app: &Moonglow, editor: Option<&Tab>, pass: u64
 }
 
 /// The Node section's tools at its bar's end (the Conversation board's
-/// `.panel-tabs .tools`): Bookmark (where a line is chosen, `bookmark`)
-/// and Test; the one clicked.
-pub(crate) fn node_tools(ui: &mut Ui, bookmark: bool) -> Option<NodeTool> {
+/// `.panel-tabs .tools`): Bookmark (where a line is chosen, `bookmark`;
+/// `tip`, [`bookmark_tip`]) and Test; the one clicked.
+pub(crate) fn node_tools(ui: &mut Ui, bookmark: bool, tip: &str) -> Option<NodeTool> {
     let icon = |icon, name: &str| mg_uikit::IconButton::new(icon, name).icon_only(true);
     let marked = ui
         .add_enabled(bookmark, icon(mg_uikit::Icon::Bookmark, "Bookmark"))
-        .on_hover_text(BOOKMARK_TIP)
-        .on_disabled_hover_text(BOOKMARK_TIP);
+        .on_hover_text(tip)
+        .on_disabled_hover_text(tip);
     let test = ui.add(icon(mg_uikit::Icon::Test, "Test")).on_hover_text(TEST_TIP);
     if marked.clicked() {
         Some(NodeTool::Bookmark)
@@ -1922,13 +2000,20 @@ pub(crate) fn node_tool(app: &mut Moonglow, editor: Option<&Tab>, tool: NodeTool
     match tool {
         NodeTool::Bookmark => {
             if let Some(t) = target {
-                match view.bookmarks.iter().position(|b| *b == t) {
-                    Some(i) => _ = view.bookmarks.remove(i),
-                    None => view.bookmarks.push(t),
-                }
+                toggle_bookmark(view, t);
             }
         }
         NodeTool::Test => view.test = Some(Vec::new()),
+    }
+}
+
+/// A bookmark put on `line`, at the end of `view`'s, or taken off it: the
+/// Node section's Bookmark, Toggle Bookmark's key, a row's right-click
+/// menu and the Command Palette's row alike.
+fn toggle_bookmark(view: &mut DialogView, line: (Kind, u32)) {
+    match view.bookmarks.iter().position(|b| *b == line) {
+        Some(i) => _ = view.bookmarks.remove(i),
+        None => view.bookmarks.push(line),
     }
 }
 
@@ -2528,6 +2613,15 @@ struct Look {
     pc: Color32,
     /// A link's lines.
     link: Color32,
+    /// The most levels a line stands in by, its words keeping at least
+    /// [`Look::least`] beside it in the tree's width ([`tree_levels`]).
+    levels: usize,
+    /// The least room a line's words keep, where the marks after them or
+    /// its depth would leave less ([`LEAST_LINE_EMS`]).
+    least: f32,
+    /// Toggle Bookmark's key (Options › Keyboard), beside its entry in a
+    /// row's right-click menu; empty where it has none.
+    bookmark_key: String,
 }
 
 /// The NPC's and the player's text colors by default, for the dark theme
@@ -2554,6 +2648,9 @@ impl Look {
             npc: rgb(s.dialog_npc_color, npc),
             pc: rgb(s.dialog_pc_color, pc),
             link,
+            levels: usize::MAX,
+            least: 0.0,
+            bookmark_key: String::new(),
         }
     }
 }
@@ -2569,6 +2666,207 @@ const INDENT: f32 = 16.0;
 /// The room a row with no lines under it keeps where another has its
 /// arrow.
 const ARROW_ROOM: f32 = 18.0;
+
+/// The least room a line's words keep in the tree, in ems of the editor's
+/// text (156 points at 13), where a third of the tree's width is less
+/// ([`least_line`]).
+pub const LEAST_LINE_EMS: f32 = 12.0;
+
+/// The least room a line's words keep in a tree `width` wide whose text is
+/// `em` points: [`LEAST_LINE_EMS`] ems, or a third of the width where
+/// that is more. The marks after the words are cut to what they leave,
+/// and a line deeper than the width allows stands in no further than the
+/// level that leaves its words this much, its guides with it (M5's W4: the
+/// owner's ruling 29 cuts each line at the tree's right edge, and neither
+/// the board nor SPEC says how far a deep line stands in).
+pub fn least_line(width: f32, em: f32) -> f32 {
+    (LEAST_LINE_EMS * em).max(width / 3.0)
+}
+
+/// What follows the words of a player's line that ends the conversation
+/// ([`row_label`]): kept whole after them where they are cut.
+const END_WORDS: &str = " [END DIALOGUE]";
+
+/// The room a line of the conversation tree leaves at the tree's right
+/// edge, the kit's tree rows' padding: beside the scroll bar where it is
+/// shown (the kit's scroll bars are solid, never over the rows).
+const RIGHT_ROOM: f32 = mg_uikit::tree::ROW_PADDING_RIGHT;
+
+/// The most levels a line of the conversation tree stands in by in a tree
+/// `width` wide, its words keeping `least` points beside its arrow: at
+/// least one.
+fn tree_levels(ui: &Ui, width: f32, least: f32) -> usize {
+    let arrow = mg_uikit::metrics::ICON_BUTTON + ui.spacing().item_spacing.x;
+    let pad = 2.0 * ui.spacing().button_padding.x;
+    let room = width - arrow - pad - least;
+    ((room / INDENT).floor().max(1.0)) as usize
+}
+
+/// `text` in `font` (`italics`) laid out on one line, cut with an ellipsis
+/// at `room` points (whole where `room` is infinite), its color left to
+/// whoever paints it: from what `view` keeps of this frame and the last,
+/// laid out anew only where the words, the font or the room changed
+/// (counted in [`DialogView::cuts_made`]).
+fn cut_words(
+    ui: &Ui,
+    view: &mut DialogView,
+    text: &str,
+    font: &egui::FontId,
+    italics: bool,
+    room: f32,
+) -> std::sync::Arc<egui::Galley> {
+    use std::hash::{Hash as _, Hasher as _};
+    let room = if room.is_finite() { room.max(1.0).floor() } else { f32::INFINITY };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (text, font, italics, room.to_bits()).hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(galley) = view.cuts.0.get(&key) {
+        return galley.clone();
+    }
+    if let Some(galley) = view.cuts.1.remove(&key) {
+        view.cuts.0.insert(key, galley.clone());
+        return galley;
+    }
+    view.cuts_made += 1;
+    let format = egui::TextFormat {
+        font_id: font.clone(),
+        color: Color32::PLACEHOLDER,
+        italics,
+        ..Default::default()
+    };
+    let mut job = egui::text::LayoutJob::single_section(text.to_owned(), format);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+    let galley = ui.painter().layout_job(job);
+    view.cuts.0.insert(key, galley.clone());
+    galley
+}
+
+/// How a row's line is drawn ([`line_row`]).
+struct LineLook<'a> {
+    /// The row's whole text ([`row_label`]): its accessible name, and its
+    /// tip where its words are cut.
+    label: &'a str,
+    /// It ends the conversation: [`END_WORDS`] kept whole after its words.
+    ends: bool,
+    color: Color32,
+    italics: bool,
+    /// Found by the highlights: drawn behind its words.
+    found: Option<Color32>,
+    selected: bool,
+    /// What follows it: its scripts' marks (each drawn whole or not at
+    /// all), or `?` for a condition with the marks hidden; in their font
+    /// and color.
+    marks: Option<(Vec<String>, egui::FontId, Color32)>,
+}
+
+/// A row's line after its arrow (the Conversation board's `.dl-row .ln`
+/// and `.mks`): its words cut with an ellipsis where they and the marks
+/// after them would run past the tree's right edge ([`RIGHT_ROOM`] short
+/// of it), the marks following them. A mark is drawn whole or not at all:
+/// the words are cut first, down to `least`, then the marks go from the
+/// right (the owner's ruling 29, M5's W4 fix round). A selectable label,
+/// named by the row's whole text (and the marks with no room after it),
+/// as wide as its words; each mark drawn a label named by its words. Laid
+/// out only where it is in sight (a row out of sight keeps its place, its
+/// names and what it answers, and lays out nothing). Its response,
+/// whether its words were cut, and the marks that had no room.
+fn line_row(
+    ui: &mut Ui,
+    view: &mut DialogView,
+    least: f32,
+    line: LineLook<'_>,
+) -> (egui::Response, bool, Vec<String>) {
+    let pad = ui.spacing().button_padding;
+    let gap = ui.spacing().item_spacing.x;
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let height =
+        (ui.fonts_mut(|f| f.row_height(&font)) + 2.0 * pad.y).max(ui.spacing().interact_size.y);
+    let room = (ui.available_width() - RIGHT_ROOM).max(1.0);
+    let whole = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(room, height));
+    let (enabled, selected) = (ui.is_enabled(), line.selected);
+    let named = |r: &egui::Response, name: &str| {
+        r.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, selected, name)
+        });
+    };
+    let mark_named = |r: &egui::Response, words: &str| {
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, enabled, words));
+    };
+    let marks: &[String] = line.marks.as_ref().map_or(&[], |(m, _, _)| m.as_slice());
+    if !ui.is_rect_visible(whole) {
+        let size = egui::vec2(2.0 * pad.x, height);
+        let (_, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+        named(&r, line.label);
+        for m in marks {
+            let (_, marked) = ui.allocate_exact_size(size, egui::Sense::hover());
+            mark_named(&marked, m);
+        }
+        return (r, false, Vec::new());
+    }
+    let words = match line.ends {
+        true => line.label.strip_suffix(END_WORDS).unwrap_or(line.label),
+        false => line.label,
+    };
+    let inf = f32::INFINITY;
+    let end = (line.ends).then(|| cut_words(ui, view, END_WORDS, &font, line.italics, inf));
+    let laid: Vec<_> = match &line.marks {
+        Some((m, f, _)) => m.iter().map(|m| cut_words(ui, view, m, f, false, inf)).collect(),
+        None => Vec::new(),
+    };
+    let end_w = end.as_ref().map_or(0.0, |g| g.size().x);
+    let fixed = 2.0 * pad.x + end_w;
+    // (The most marks kept, from the left, that leave the words their
+    // least room, or their whole width where that is less.)
+    let natural = cut_words(ui, view, words, &font, line.italics, inf).size().x;
+    let want = natural.min(least).min(room - fixed);
+    let marks_w = |k: usize| laid[..k].iter().map(|g| gap + g.size().x).sum::<f32>();
+    let mut kept = laid.len();
+    while kept > 0 && room - fixed - marks_w(kept) < want {
+        kept -= 1;
+    }
+    let text_room = (room - fixed - marks_w(kept)).max(want).max(1.0);
+    let cut = cut_words(ui, view, words, &font, line.italics, text_room);
+    let size = egui::vec2(2.0 * pad.x + cut.size().x + end_w, height);
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    let dropped = marks[kept..].to_vec();
+    match dropped.is_empty() {
+        true => named(&r, line.label),
+        false => named(&r, &format!("{}  {}", line.label, dropped.join("  "))),
+    }
+    // (As egui's selectable label: framed while chosen, under the pointer,
+    // held or with the keyboard's focus.)
+    let painter = ui.painter();
+    if selected || r.widget_state() != egui::widget_style::WidgetState::Inactive {
+        let v = ui.style().interact_selectable(&r, selected);
+        let framed = rect.expand(v.expansion);
+        painter.rect(
+            framed,
+            v.corner_radius,
+            v.weak_bg_fill,
+            v.bg_stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+    let at = egui::pos2(rect.left() + pad.x, rect.center().y - cut.size().y / 2.0);
+    let text = egui::Rect::from_min_size(at, egui::vec2(cut.size().x + end_w, cut.size().y));
+    if let Some(found) = line.found {
+        painter.rect_filled(text, 0.0, found);
+    }
+    let elided = cut.elided;
+    painter.galley(at, cut.clone(), line.color);
+    if let Some(end) = end {
+        painter.galley(egui::pos2(at.x + cut.size().x, at.y), end, line.color);
+    }
+    let color = line.marks.as_ref().map_or(line.color, |(_, _, c)| *c);
+    for (galley, words) in laid.into_iter().zip(marks).take(kept) {
+        let (marked, response) =
+            ui.allocate_exact_size(egui::vec2(galley.size().x, height), egui::Sense::hover());
+        mark_named(&response, words);
+        let y = marked.center().y - galley.size().y / 2.0;
+        ui.painter().galley(egui::pos2(marked.left(), y), galley, color);
+    }
+    (r, elided, dropped)
+}
 
 /// The indent guides of a row `depth` levels under Root drawn at `row`
 /// (the Conversation board's `.gd`): a 1 px line in the theme's `guide`
@@ -2652,20 +2950,32 @@ fn tree(
         } else {
             look.pc
         };
-        let mut rich = RichText::new(label.as_str()).color(color);
-        if linked {
-            rich = rich.italics();
-        }
-        if highlighted(n, hl) {
-            // (Found: the theme's `select`, faint behind the words.)
-            let found = mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3);
-            rich = rich.background_color(found);
-        }
+        // (Found: the theme's `select`, faint behind the words.)
+        let found =
+            highlighted(n, hl).then(|| mg_uikit::tokens(ui.ctx()).select.gamma_multiply(0.3));
+        let chosen = view.selected == Some(row);
+        // (Its scripts' marks, after its words: on the selected row's fill
+        // `on-fill`, the board's; a condition's `?` where they are hidden.)
+        let marks = match look.scripts {
+            true => Some(markers(l, n)).filter(|m| !m.is_empty()).map(|m| {
+                let color = match chosen {
+                    true => mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85),
+                    false => ui.visuals().weak_text_color(),
+                };
+                (m, egui::TextStyle::Small.resolve(ui.style()), color)
+            }),
+            false => cond.is_some().then(|| {
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                (vec!["?".to_string()], font, ui.visuals().weak_text_color())
+            }),
+        };
         // (The selected row filled the whole width of the tree, the board's
         // `.dl-row.sel`, under what the row draws.)
         let fill_at = ui.painter().add(egui::Shape::Noop);
+        // (No further in than leaves its words their least room.)
+        let level = depth.min(look.levels);
         let row_shown = ui.horizontal(|ui| {
-            ui.add_space(depth as f32 * INDENT);
+            ui.add_space(level as f32 * INDENT);
             if children {
                 // (Named with its line, said open or not: a screen reader's
                 // "Collapse [OWNER] - Hello", as the NUI layers' arrows.)
@@ -2686,8 +2996,25 @@ fn tree(
             } else {
                 ui.add_space(ARROW_ROOM);
             }
-            let r =
-                ui.selectable_label(view.selected == Some(row), rich).interact(egui::Sense::drag());
+            let ends = kind == Kind::Reply && !linked && !children;
+            let line = LineLook {
+                label: &label,
+                ends,
+                color,
+                italics: linked,
+                found,
+                selected: chosen,
+                marks,
+            };
+            let (r, cut, no_room) = line_row(ui, view, look.least, line);
+            // (The whole line where its words are cut, as the kit's cut
+            // words have it, and the marks with no room; its condition
+            // after it.)
+            let r = match (cut, no_room.is_empty()) {
+                (false, true) => r,
+                (true, true) => r.on_hover_text(label.as_str()),
+                (_, false) => r.on_hover_text(format!("{label}\n{}", no_room.join("  "))),
+            };
             // (With its conversation: a row dropped on another's tree
             // is not one of its rows.)
             r.dnd_set_drag_payload((key, row));
@@ -2739,6 +3066,18 @@ fn tree(
                         ui.close();
                     }
                 }
+                // (Aurora's Bookmark, with its key as the menus show theirs:
+                // M5's W4, the owner's ruling 28.)
+                ui.separator();
+                let mut entry = egui::Button::new("Bookmark");
+                if !look.bookmark_key.is_empty() {
+                    let keys = mg_uikit::MenuKeys::new(ui, look.bookmark_key.clone());
+                    entry = entry.shortcut_text(keys.atom());
+                }
+                if ui.add(entry).on_hover_text(BOOKMARK_TIP).clicked() {
+                    view.menu = Some(Asked::Bookmark);
+                    ui.close();
+                }
             });
             let r = match cond {
                 Some(c) => r.on_hover_text(format!("Appears when {c} returns TRUE")),
@@ -2760,28 +3099,11 @@ fn tree(
                 r.scroll_to_me(None);
                 view.nudge = false;
             }
-            if look.scripts {
-                let marks = markers(l, n);
-                if !marks.is_empty() {
-                    // (On the selected row's fill, `on-fill`, the board's.)
-                    let words = RichText::new(marks.join("  ")).small();
-                    let words = match view.selected == Some(row) {
-                        true => {
-                            words.color(mg_uikit::tokens(ui.ctx()).on_fill.gamma_multiply(0.85))
-                        }
-                        false => words.weak(),
-                    };
-                    ui.label(words);
-                }
-            } else if cond.is_some() {
-                ui.weak("?");
-            }
         });
-        let chosen = view.selected == Some(row);
         if chosen {
             fill_row(ui, fill_at, row_shown.response.rect);
         }
-        guides(ui, row_shown.response.rect, depth, chosen);
+        guides(ui, row_shown.response.rect, level, chosen);
         // (Once, as `shown_rows` has it.)
         if children && open && path.insert((kind, index)) {
             let under = Parent::Node(kind, index);
@@ -3824,10 +4146,10 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.ctx().request_repaint();
             }
             // (Back: a turn, the reply and the NPC line before it.)
-            ((), crate::widgets::Foot::new().button("<-- Back", !path.is_empty()).leave("Done"))
+            ((), crate::widgets::Foot::new().button("< Back", !path.is_empty()).leave("Done"))
         });
         if let Some(footed) = &footed {
-            if footed.pressed.clicked("<-- Back") {
+            if footed.pressed.clicked("< Back") {
                 path.pop();
                 path.pop();
             }

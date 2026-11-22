@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, exporters and importers, wizards, panels, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:55:14Z }
 ---
 
 # Writing plugins
@@ -22,7 +22,8 @@ later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
 
-Open **Plugins › Manage Plugins…** and press **Open Folder**. In the
+Open **Plugins › Manage Plugins**, which opens the **Plugins** tab, and
+press **Open Folder** there. In the
 plugins folder, make a folder `hello` with two files. The manifest,
 `plugin.cfg`:
 
@@ -53,9 +54,9 @@ mg.command("count", function(ctx)
 end)
 ```
 
-Back in Manage Plugins press **Reload**, tick **Hello**, and with a
-module open choose **Plugins › Count Creatures**. The log says how many
-there are.
+Back on the Plugins tab press **Reload**, tick **Hello**, and with a
+module open choose **Plugins › Count Creatures**. The log (the **Log**
+tab of the Bottom Dock) says how many there are.
 
 What happened: the manifest declared a command, so Moonglow could list it
 without running anything. When you chose it, Moonglow ran `main.luau`,
@@ -236,7 +237,7 @@ running the plugin, to list what it adds.
 | `version` | Needed. The plugin's own version, as you number it. |
 | `api` | Needed. The plugin API it was written for: `"0.9"`, or an earlier one (`"0.8"`, `"0.7"`, `"0.6"`, `"0.5"`, `"0.4"`, `"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
-| `description` | One or two sentences on what it does, shown in Manage Plugins. |
+| `description` | One or two sentences on what it does, shown on the Plugins tab. |
 | `author` | Who wrote it. Repeat the line for each author. |
 | `entry` | The script that registers the handlers; `main.luau` unless given. A file of the plugin's folder. |
 
@@ -249,7 +250,7 @@ running the plugin, to list what it adds.
 | `hint` | What its tip says. |
 | `key` | A key it has until the user chooses another: `Ctrl+Alt+T` (`Ctrl`, `Alt`, `Shift` and a key's name; Ctrl is Cmd on macOS). A key something else has already is reported as a conflict in Options › Keyboard, so choose an unusual one, or none. |
 | `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line; since API 0.5 also a kind's placed objects alone (`"placed creature"`) or its blueprints alone (`"creature blueprint"`), `tile`, and another resource's type (`nss`, `dlg`, `ifo`, `fac`, `jrl`, `2da`, `gui`, `jui`). It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
-| `menu` | The submenu it is in (since API 0.7), in every menu it is in (the right-click menus and the Plugins menu): `"Make"`, or nested with `›` (or `>`) between the names, `"Make › Crafting"`. Each submenu is made once, where the first command naming it is, and holds the commands that name it in the manifest's order; the title is then the command's name within it (`Workbench…`). Quick Open, Options › Keyboard and `mg plugin list` name it by the whole path, `Make › Crafting › Workbench…`, so it is still found by name. Left out, the command is in the menu itself, as before. |
+| `menu` | The submenu it is in (since API 0.7), in every menu it is in (the right-click menus and the Plugins menu): `"Make"`, or nested with `›` (or `>`) between the names, `"Make › Crafting"`. Each submenu is made once, where the first command naming it is, and holds the commands that name it in the manifest's order; the title is then the command's name within it (`Workbench…`). Quick Open, Options › Keyboard and `mg plugin list` name it by the whole path, `Make › Crafting › Workbench`, so it is still found by name. Left out, the command is in the menu itself, as before. |
 
 `[check]`, once for each check:
 
@@ -319,7 +320,7 @@ importers](#exporters-and-importers)):
 | Key | |
 | --- | --- |
 | `id` | Needed. The id the code registers it under (`mg.panel`). |
-| `title` | Needed. Its name in Plugins › Panels and its pane's tab. |
+| `title` | Needed. Its name in Plugins › Panels and its tab's (or window's) title. |
 | `hint` | What its tip says. |
 | `refresh` | When it is drawn again besides when it opens, by its Refresh and after a job of the plugin's: `"edits"` (each change of the module), `"selection"` (what is selected changes), both (`"edits, selection"`) or, left out, neither. |
 
@@ -572,8 +573,8 @@ the command's title.
 A plugin keeps values of its own as **settings** (plugin API 0.4): a
 team's prefix, the builder's code, how strict a check is. The manifest
 declares each (`[setting]`), and Moonglow keeps their values, shows them
-in a form (Manage Plugins › **Settings…**) and hands them to every job.
-The `builder-tags` example has five:
+in a form (**Settings…** beside the plugin on the Plugins tab) and hands
+them to every job. The `builder-tags` example has five:
 
 ```ini
 [setting]
@@ -676,7 +677,7 @@ the rest of each file as it is written.
 A `path` is text to the plugin: the form has a button to choose it (a
 file, or with `pick = "folder"` a folder), but the plugin reads no file
 by it (the sandbox: a team's value comes with the checkout, not from the
-user). It still asks for a file with `ctx.ui:open_file`.
+user). It asks for a file with `ctx.ui:open_file`.
 
 ## Outside the module
 
@@ -829,14 +830,14 @@ MODULE PLUGIN ID SOURCE` reads SOURCE and saves, as `mg plugin run` does
 
 ## Wizards
 
-A wizard asks page by page, with Back, Next and Finish, each page seeing
-what the pages before were given, and edits at the end (since API 0.6).
-It is in the Wizards menu, under Moonglow's own, and runs as a job whose
-window shows its pages. The `store-wizard` example makes a store: a page
-for its name and kind (whose `check` keeps the page until it has a
-name), a page of prices made from the kind chosen (a function of the
-answers so far), and, for a smith or an alchemist, a page of what it
-buys, which a general store skips (its function returns nil):
+A wizard asks page by page, with **< Back**, **Next >** and **Finish**,
+each page seeing what the pages before were given, and edits at the end
+(since API 0.6). It is in the Wizards menu, under Moonglow's own, and runs
+as a job whose window shows its pages. The `store-wizard` example makes a
+store: a page for its name and kind (whose `check` keeps the page until it
+has a name), a page of prices made from the kind chosen (a function of the
+answers so far), and, for a smith or an alchemist, a page of what it buys,
+which a general store skips (its function returns nil):
 
 ```lua
 mg.wizard("new-store", {
@@ -876,8 +877,9 @@ objects is an error, and nothing is saved.
 
 ## Panels
 
-A panel is a pane of its own, beside the area or in a window, as the
-user puts it: Plugins › Panels shows and hides it (since API 0.6). Its
+A panel is a tab of its own, or a window of its own, as Options ›
+General › Open editors opens editors (either may be docked beside the
+area): Plugins › Panels shows and hides it (since API 0.6). Its
 code returns what it shows, a list of elements (headings, text, values,
 separators, buttons that run the plugin's commands, and lists whose
 items open what they name), and Moonglow draws them. It runs when the
@@ -1007,13 +1009,13 @@ does that.
 
 ### A fix for a finding
 
-A finding may carry a **fix**: edits that put it right, offered beside
-the finding in Verify Module's report, and in Problems, as a button, and made only when
-the user clicks it (since API 0.4). `ctx.fix(label)` makes one: its
-`label` is what the button says, and it has `ctx.edit`'s methods
-(`set`, `remove`, `insert`, `remove_item`, `write`…), which record the
-edits and make none. The `tag-conventions` example gives each finding
-the fix of its own tag:
+A finding may carry a **fix**: edits that put it right, offered beside the
+finding in the log, where Verify Module writes it, and in Problems, as a
+button, and made only when the user clicks it (since API 0.4).
+`ctx.fix(label)` makes one: its `label` is what the button says, and it
+has `ctx.edit`'s methods (`set`, `remove`, `insert`, `remove_item`,
+`write`…), which record the edits and make none. The `tag-conventions`
+example gives each finding the fix of its own tag:
 
 ```lua
 mg.check("tag-case", function(ctx)
@@ -1077,9 +1079,9 @@ return rules
 
 ## Trying and testing
 
-- **The console** (Manage Plugins) runs a few lines on the open module
+- **The console** (on the Plugins tab) runs a few lines on the open module
   with `mg` and `ctx` at hand: the quickest way to try a call.
-- **Reload** in Manage Plugins reads the manifest again. The code is
+- **Reload** on the Plugins tab reads the manifest again. The code is
   read anew each time a command runs, so after changing only `main.luau`
   just run the command again.
 - **An error** names the script and the line, in the log; nothing was
@@ -1103,19 +1105,18 @@ Try a new plugin on a copy of your module first.
 
 ### A plugin's own tests
 
-A plugin's tests are files `tests/*.toml` in its folder (plugin API
-0.4). Each names a **fixture**, a small module made for the tests, and
-lists what to run on it and what is to come of it.
-`mg plugin test DIR` runs them all: a line a test (`ok`, or `FAIL` and
-what was not as wanted), a summary, and an exit that fails if one test
-does (or there are none), so that a build pipeline can run it. DIR may
-be a folder of plugins: each one's tests run, its lines under its id
-(since Moonglow 3.3.0). `mg plugin check` reads the test files too,
-without running them: a file that doesn't read, a test of a check,
-command or event the manifest lacks, a fixture that isn't there. In the
-Plugins tab (Plugins › Manage Plugins…), **Run Tests** beside a plugin with tests runs
-them, the log saying what each came to. The
-`tag-conventions` example has one file, `tests/tags.toml`:
+A plugin's tests are files `tests/*.toml` in its folder (plugin API 0.4).
+Each names a **fixture**, a small module made for the tests, and lists
+what to run on it and what is to come of it. `mg plugin test DIR` runs
+them all: a line a test (`ok`, or `FAIL` and what was not as wanted), a
+summary, and an exit that fails if one test does (or there are none), so
+that a build pipeline can run it. DIR may be a folder of plugins: each
+one's tests run, its lines under its id (since Moonglow 3.3.0). `mg plugin
+check` reads the test files too, without running them: a file that doesn't
+read, a test of a check, command or event the manifest lacks, a fixture
+that isn't there. In the Plugins tab (Plugins › Manage Plugins), **Run
+Tests** beside a plugin with tests runs them, the log saying what each
+came to. The `tag-conventions` example has one file, `tests/tags.toml`:
 
 ```toml
 module = "module"
@@ -1316,8 +1317,7 @@ custom talk table the test's data has not (the game may well find it in
 your `tlk/` folder), and the test is told so: in a note, of a test that
 runs them as part of more (`"all"`), and as a problem, of one that names
 `2da-strref`, or `custom-tlk` with its table not there, since that test
-can't test what it is for. Since Moonglow 2.13.0; before, they found
-every custom string missing.
+can't test what it is for.
 
 A test (`[[test]]`) has a `name` and runs one thing:
 
@@ -1359,11 +1359,11 @@ and says what is to come of it (each key may be left out):
 
 Without a game, and with no game folder of its own, a test's
 `ctx.game` is the fixture alone, as Moonglow's is the game with the
-module over it (since Moonglow 2.13.0; before, it was empty): a
+module over it: a
 pipeline with no game runs the tests of a plugin that reads only the
 module (through `ctx.module` or `ctx.game`), and those whose tests bring
 what they read of the game. Haks and folders the plugin writes are not written, nor
-held to anything yet. `mg plugin pack` leaves the `tests` folder out of the
+checked. `mg plugin pack` leaves the `tests` folder out of the
 archive: the tests and their fixtures are the author's.
 
 ## Types in your editor
@@ -1412,7 +1412,7 @@ mg plugin pack hello
 writes `example.hello-0.1.0.zip` (the plugin's id and version; `-o FILE`
 names it otherwise). The plugin is checked first, as `mg plugin check`
 does, and hidden files (`.git`, `.luaurc`) are left out. Whoever gets
-the file installs it with **Plugins › Install Plugin from File…**.
+the file installs it with **Plugins › Install Plugin from File**.
 
 A zip made any other way installs too, if it has what the installer
 looks for:

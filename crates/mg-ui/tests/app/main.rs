@@ -16,6 +16,7 @@ mod areas;
 mod bake;
 mod blueprints;
 mod board_builds;
+mod conversation_lines;
 mod conversation_outliner;
 mod conversation_panels;
 mod conversations;

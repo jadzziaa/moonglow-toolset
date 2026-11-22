@@ -683,6 +683,34 @@ fn a_floating_read_only_tab_says_where_it_is_from_and_its_size() {
     assert!(shown.contains(&tip), "the lock's tip {tip:?} in {shown:?}");
 }
 
+/// A game's script shown read-only: its lines at the script editor's pitch
+/// (the board's 18 points at 13), each line's row 18 high.
+#[test]
+fn a_read_only_script_s_lines_are_the_editor_s_pitch_apart() {
+    let key = ResKey::parse("nw_c2_default1", ResType::NSS).unwrap();
+    let Some(mut h) = opened("ui-w3-read-only-pitch", 1600.0, &[], key) else { return };
+    rest(&mut h);
+    let tab = h.state().editor_area_rect().expect("the editor area");
+    let run = egui_kittest::kittest::by().role(egui::accesskit::Role::Label);
+    let said = |n: &egui_kittest::Node<'_>| n.accesskit_node().value().unwrap_or_default();
+    let first = (h.query_all(run.clone()))
+        .find(|n| said(n).starts_with("//::") && tab.contains(n.rect().center()))
+        .expect("the script's first line")
+        .rect();
+    // (Its lines, the empty ones between them as the gaps: each a row.)
+    let mut rows: Vec<egui::Rect> = (h.query_all(run))
+        .map(|n| n.rect())
+        .filter(|r| r.left() == first.left() && tab.contains(r.center()) && r.top() >= first.top())
+        .collect();
+    rows.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    assert!(rows.len() >= 20, "the script's lines in sight: {rows:?}");
+    for (a, b) in rows.iter().zip(&rows[1..]) {
+        assert_eq!(a.height(), 18.0, "{a:?}");
+        let apart = b.top() - a.top();
+        assert!(apart > 0.0 && apart % 18.0 == 0.0, "{a:?} {b:?}");
+    }
+}
+
 /// The tab comes to rest with each kind it shows (a GFF folded, unfolded
 /// and scrolled, a table, a script, a text, a picture as its bytes, a
 /// model as text, a sound as its bytes), docked and floating, the side
@@ -724,4 +752,396 @@ fn the_read_only_tab_comes_to_rest_with_each_kind() {
         "floating in a window of its own"
     );
     row(&h, "FeatList");
+}
+
+// M5's W6, the owner's ruling 49 ("share the viewers"): a picture or a
+// sound open read-only is shown with the hak editor's Preview's viewers,
+// one code (`mg_ui::viewers`), the bytes a check row of the header's More.
+
+/// The speaker the viewers' tests listen to.
+type Heard = std::rc::Rc<std::cell::RefCell<mg_ui::audio::Silence>>;
+
+/// The game's data with a module open and a user folder whose override
+/// holds `files` (name and bytes), the window `width` by 900, `key` open
+/// read-only in front, sounds going to the speaker returned. `None`
+/// without the game.
+fn viewed_in(
+    name: &str,
+    width: f32,
+    files: &[(&str, Vec<u8>)],
+    key: ResKey,
+) -> Option<(Harness<'static, Moonglow>, Heard)> {
+    viewed_on(name, width, files, key, None)
+}
+
+/// [`viewed_in`] drawn on the GPU's render state `rs` where given.
+fn viewed_on(
+    name: &str,
+    width: f32,
+    files: &[(&str, Vec<u8>)],
+    key: ResKey,
+    rs: Option<egui_wgpu::RenderState>,
+) -> Option<(Harness<'static, Moonglow>, Heard)> {
+    let root = mg_testkit::nwn_root()?;
+    let dir = mg_testkit::scratch_dir(name);
+    let user = user_folder(&dir, &["override"]);
+    for (file, data) in files {
+        std::fs::write(user.join("override").join(file), data).unwrap();
+    }
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, Some(user));
+    app.settings = Mode::Tabs.settings();
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let heard: Heard = Default::default();
+    app.speaker = Box::new(heard.clone());
+    let mut h = match rs {
+        Some(rs) => {
+            app.set_render_state(rs.clone());
+            gpu_harness(app, rs, width, 900.0)
+        }
+        None => harness(app, width, 900.0),
+    };
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    settle(&mut h);
+    Some((h, heard))
+}
+
+/// A picture of `w` by `h` pixels as a TGA, gray.
+fn tga_of(w: u32, h: u32) -> Vec<u8> {
+    let mut image = mg_image::Rgba::new(w, h);
+    image.data.fill(180);
+    mg_image::write_tga(&image)
+}
+
+/// A short silent WAVE (8 kHz, 16-bit, mono).
+fn wav_bytes() -> Vec<u8> {
+    let samples: Vec<u8> = [0i16; 800].iter().flat_map(|s| s.to_le_bytes()).collect();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend((36 + samples.len() as u32).to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    for n in [1u16, 1] {
+        wav.extend(n.to_le_bytes());
+    }
+    for n in [8000u32, 16000] {
+        wav.extend(n.to_le_bytes());
+    }
+    for n in [2u16, 16] {
+        wav.extend(n.to_le_bytes());
+    }
+    wav.extend(b"data");
+    wav.extend((samples.len() as u32).to_le_bytes());
+    wav.extend(samples);
+    wav
+}
+
+fn w6_key(name: &str) -> ResKey {
+    ResKey::from_filename(name).unwrap()
+}
+
+/// The files the viewers' tests open: a TGA, a PLT, a WAV and a kind
+/// with no viewer.
+fn w6_files() -> Vec<(&'static str, Vec<u8>)> {
+    let plt = mg_image::plt::Plt::new(4, 2, vec![[128, 4]; 8]);
+    vec![
+        ("mg_w6pic.tga", tga_of(8, 4)),
+        ("mg_w6plt.plt", plt.write()),
+        ("mg_w6snd.wav", wav_bytes()),
+        ("mg_w6bin.ncs", b"NCS V1.0B\x00\x00\x00\x0d\x2a\x00\x20".to_vec()),
+    ]
+}
+
+/// The read-only header's More's check row `name` clicked (More opened
+/// where it is not open).
+fn more_row(h: &mut Harness<'_, Moonglow>, name: &str) {
+    if h.query_by_label(name).is_none() {
+        h.get_by_label(mg_ui::RESOURCE_HEADER).get_by_label("More").click();
+        settle(h);
+    }
+    h.get_by_label(name).click();
+    settle(h);
+}
+
+/// The node named `name` in the editor area.
+fn in_tab<'h>(h: &'h Harness<'_, Moonglow>, name: &'h str) -> Option<egui_kittest::Node<'h>> {
+    let tab = h.state().editor_area_rect().expect("the editor area");
+    h.query_all_by_label(name).find(|n| tab.contains(n.rect().center()))
+}
+
+/// A picture open read-only is the picture, fitted, its size under it
+/// (the hak Preview's viewer), with the header it had: where it is from,
+/// its kind, Copy to Module and Save As…; its bytes are a check row of
+/// the header's More (Show Bytes), which shows the first bytes as
+/// before, and again the picture. A PLT is a picture (in each layer's
+/// first color). A kind with no viewer is its bytes, with no Show Bytes.
+#[test]
+fn a_picture_open_read_only_is_the_picture() {
+    let pic = w6_key("mg_w6pic.tga");
+    let Some((mut h, _)) = viewed_in("ui-w6-picture", 1600.0, &w6_files(), pic) else { return };
+    let header = mg_ui::RESOURCE_HEADER;
+    let image = in_tab(&h, "mg_w6pic.tga, 8 by 4 pixels").expect("the picture");
+    assert_eq!(image.accesskit_node().role(), egui::accesskit::Role::Image);
+    h.get_by_label(header).get_by_label("Copy to Module");
+    h.get_by_label(header).get_by_label("Save As…");
+    h.get_by_label(header).get_by_label_contains("Read-only: from the override folder");
+    assert!(in_tab(&h, "00000000").is_none(), "no bytes beside it");
+    // Show Bytes, in More.
+    more_row(&mut h, mg_ui::viewers::SHOW_BYTES);
+    let tab = h.state().editor_area_rect().unwrap();
+    let hex = h
+        .query_all_by_label_contains("00000000  ")
+        .find(|n| tab.contains(n.rect().center()))
+        .expect("its first bytes");
+    let node = hex.accesskit_node();
+    let said = node.value().or_else(|| node.label()).unwrap_or_default();
+    assert!(said.contains("00 00 02"), "a TGA's header: {said}");
+    assert!(in_tab(&h, "mg_w6pic.tga, 8 by 4 pixels").is_none(), "the picture away");
+    more_row(&mut h, mg_ui::viewers::SHOW_BYTES);
+    assert!(in_tab(&h, "mg_w6pic.tga, 8 by 4 pixels").is_some(), "the picture again");
+    // A PLT.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(w6_key("mg_w6plt.plt"))));
+    settle(&mut h);
+    assert!(in_tab(&h, "mg_w6plt.plt, 4 by 2 pixels").is_some(), "a PLT's picture");
+    // No viewer: its bytes, as before, and no Show Bytes.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(w6_key("mg_w6bin.ncs"))));
+    settle(&mut h);
+    let tab = h.state().editor_area_rect().unwrap();
+    assert!(
+        h.query_all_by_label_contains("00000000  ").any(|n| tab.contains(n.rect().center())),
+        "its bytes"
+    );
+    // (No More at all where nothing goes into it.)
+    if let Some(more) = h.get_by_label(header).query_by_label("More") {
+        more.click();
+        settle(&mut h);
+    }
+    assert!(h.query_by_label(mg_ui::viewers::SHOW_BYTES).is_none(), "nothing to toggle");
+}
+
+/// A sound open read-only plays with the hak Preview's Play and Stop, on
+/// the Preview channel, one at a time: it stops when its tab is closed,
+/// put behind another or played over by another Play (the tab then says
+/// Play), and says Play again once it ends, or once anything else stops
+/// the Preview channel (at once, before a frame); the window stops asking
+/// for frames then. No sound device: the test's speaker hears it.
+#[test]
+fn a_sound_open_read_only_plays_and_stops_when_unseen() {
+    use mg_ui::audio::Channel;
+    let snd = w6_key("mg_w6snd.wav");
+    let asks = |h: &Harness<'_, Moonglow>| {
+        h.ctx.repaint_causes().iter().any(|c| c.file.ends_with("viewers.rs"))
+    };
+    for way in ["stop", "close", "behind", "another", "ends", "elsewhere"] {
+        let name = format!("ui-w6-sound-{way}");
+        let Some((mut h, heard)) = viewed_in(&name, 1600.0, &w6_files(), snd) else { return };
+        let playing = |heard: &Heard| heard.borrow().channels.get(&Channel::Preview).cloned();
+        in_tab(&h, "A sound, 1.6 KB").expect("its size");
+        assert!(playing(&heard).is_none(), "{way}: not at first");
+        in_tab(&h, "Play").expect("Play").click();
+        h.run_steps(2);
+        assert_eq!(playing(&heard).map(|p| p.0.to_string()), Some("mg_w6snd".into()), "{way}");
+        assert!(in_tab(&h, "Stop").is_some(), "{way}: Stop while it plays");
+        assert!(asks(&h), "{way}: it asks to look again while it plays");
+        match way {
+            "stop" => in_tab(&h, "Stop").unwrap().click(),
+            "close" => close_tab(h.state_mut(), &Tab::Resource(snd)),
+            "behind" => {
+                h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(chicken())))
+            }
+            "another" => {
+                let other = mg_core::ResRef::from_str("mg_w6snd").unwrap();
+                assert!(h.state_mut().play_sound(Channel::Preview, other, 1.0, false));
+            }
+            "elsewhere" => {
+                h.state_mut().stop_sound(Channel::Preview);
+                assert!(!h.state().viewer_plays(), "{way}: let go of at once");
+            }
+            _ => mg_ui::audio::Speaker::stop(&mut *heard.borrow_mut(), Channel::Preview),
+        }
+        settle(&mut h);
+        h.run_steps(2);
+        match way {
+            // (Another's Play holds the channel: the tab no longer.)
+            "another" => assert!(playing(&heard).is_some(), "{way}: the other plays"),
+            _ => assert!(playing(&heard).is_none(), "{way}: stopped"),
+        }
+        if matches!(way, "stop" | "another" | "ends" | "elsewhere") {
+            assert!(in_tab(&h, "Play").is_some(), "{way}: Play again");
+            assert!(in_tab(&h, "Stop").is_none(), "{way}: no Stop");
+        }
+        if way != "another" {
+            assert!(!asks(&h), "{way}: no more asks");
+        }
+    }
+}
+
+/// A large picture (2048 by 2048) is decoded off the frame: while it is
+/// read (held here) the frames go on, the tab saying so, and the window's
+/// own work is under way; then it is shown, decoded once, not again as
+/// frames are drawn; let go of with its tab and decoded anew when opened
+/// again.
+#[test]
+fn a_large_picture_is_decoded_off_the_frame_once() {
+    let big = w6_key("mg_w6big.tga");
+    let files = [("mg_w6big.tga", tga_of(2048, 2048))];
+    mg_ui::viewers::hold(&[big]);
+    let Some((mut h, _)) = ({
+        // (Opened without waiting: the hold keeps it under way.)
+        let root = mg_testkit::nwn_root();
+        match root {
+            None => None,
+            Some(root) => {
+                let dir = mg_testkit::scratch_dir("ui-w6-large");
+                let user = user_folder(&dir, &["override"]);
+                for (file, data) in &files {
+                    std::fs::write(user.join("override").join(file), data).unwrap();
+                }
+                let path = sample_module(&dir);
+                let mut app = game_app(&root, Some(user));
+                app.settings = Mode::Tabs.settings();
+                app.settings.no_last_area = true;
+                app.open_module(&path);
+                let mut h = harness(app, 1600.0, 900.0);
+                settle(&mut h);
+                Some((h, ()))
+            }
+        }
+    }) else {
+        mg_ui::viewers::release(&[big]);
+        return;
+    };
+    let before = mg_ui::viewers::decoded_of(big);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(big)));
+    for _ in 0..5 {
+        h.run();
+    }
+    assert!(in_tab(&h, "Reading the picture…").is_some(), "said while it is read");
+    assert!(h.state().under_way().is_some(), "the window's own work");
+    assert_eq!(mg_ui::viewers::decoded_of(big), before, "not on the frame");
+    mg_ui::viewers::release(&[big]);
+    settle(&mut h);
+    assert!(in_tab(&h, "mg_w6big.tga, 2048 by 2048 pixels").is_some(), "shown");
+    assert_eq!(mg_ui::viewers::decoded_of(big), before + 1, "decoded once");
+    for _ in 0..10 {
+        h.run();
+    }
+    assert_eq!(mg_ui::viewers::decoded_of(big), before + 1, "not again as frames go by");
+    close_tab(h.state_mut(), &Tab::Resource(big));
+    settle(&mut h);
+    // (Let go of a while after it is drawn no more.)
+    let started = std::time::Instant::now();
+    while h.state().read_only_pictures() > 0 && started.elapsed().as_secs() < 10 {
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(h.state().read_only_pictures(), 0, "let go of");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(big)));
+    settle(&mut h);
+    assert!(in_tab(&h, "mg_w6big.tga, 2048 by 2048 pixels").is_some(), "shown again");
+    assert_eq!(mg_ui::viewers::decoded_of(big), before + 2, "decoded anew");
+}
+
+/// Show Bytes on over a picture, longer than a picture unseen is kept
+/// (`model_view::UNSEEN_AFTER`, 2 s): the picture is kept, not read and
+/// decoded anew each 2 s, and the window's own work is done (the review
+/// of M5's W6: it was let go of under its bytes and decoded again for as
+/// long as they showed, never drawn, the window never done).
+#[test]
+fn a_picture_under_its_bytes_is_kept_and_decoded_once() {
+    let pic = w6_key("mg_w6kept.tga");
+    let files = [("mg_w6kept.tga", tga_of(8, 4))];
+    let Some((mut h, _)) = viewed_in("ui-w6-bytes-kept", 1600.0, &files, pic) else { return };
+    let before = mg_ui::viewers::decoded_of(pic);
+    more_row(&mut h, mg_ui::viewers::SHOW_BYTES);
+    let started = std::time::Instant::now();
+    while started.elapsed().as_millis() < 3500 {
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(mg_ui::viewers::decoded_of(pic), before, "not decoded again");
+    assert_eq!(h.state().read_only_pictures(), 1, "kept");
+    assert_eq!(h.state().under_way(), None, "the window's work done");
+    more_row(&mut h, mg_ui::viewers::SHOW_BYTES);
+    assert!(in_tab(&h, "mg_w6kept.tga, 8 by 4 pixels").is_some(), "the picture again");
+    assert_eq!(mg_ui::viewers::decoded_of(pic), before, "the one decoded");
+}
+
+/// A picture whose decode panics says it could not be read and leaves
+/// nothing waiting: the window's own work is done (`settle` returns).
+#[test]
+fn a_picture_whose_decode_fails_leaves_nothing_waiting() {
+    let bad = w6_key("mg_w6bad.tga");
+    let files = [("mg_w6bad.tga", tga_of(8, 4))];
+    mg_ui::viewers::fail(Some(bad));
+    let opened = viewed_in("ui-w6-decode-fails", 1600.0, &files, bad);
+    mg_ui::viewers::fail(None);
+    let Some((h, _)) = opened else { return };
+    assert!(in_tab(&h, "The picture could not be read.").is_some(), "said");
+    assert_eq!(h.state().under_way(), None, "nothing waiting");
+    assert_eq!(h.state().picture_decodes().1, 0);
+}
+
+/// Many pictures opened at once (a session's tabs restored) are decoded
+/// at most four at a time, the rest waiting their turn, each decoded once
+/// at most (one let go of before its turn is not decoded).
+#[test]
+fn many_pictures_are_decoded_a_few_at_a_time() {
+    let names: Vec<String> = (0..7).map(|i| format!("mg_w6many{i}.tga")).collect();
+    let keys: Vec<ResKey> = names.iter().map(|n| w6_key(n)).collect();
+    let files: Vec<(&str, Vec<u8>)> = names.iter().map(|n| (n.as_str(), tga_of(8, 4))).collect();
+    let Some((mut h, _)) = viewed_in("ui-w6-many", 1600.0, &files, keys[0]) else { return };
+    let before: Vec<usize> = keys.iter().map(|k| mg_ui::viewers::decoded_of(*k)).collect();
+    // (Each made in front once, its decode held.)
+    mg_ui::viewers::hold(&keys[1..]);
+    for k in &keys[1..] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(*k)));
+        h.run_steps(2);
+        let started = std::time::Instant::now();
+        while in_tab(&h, "Reading the picture…").is_none() && started.elapsed().as_secs() < 10 {
+            h.run();
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let (workers, waiting) = h.state().picture_decodes();
+    mg_ui::viewers::release(&keys);
+    assert_eq!((workers, waiting), (4, 6), "four at a time, six waiting or under way");
+    settle(&mut h);
+    assert_eq!(h.state().picture_decodes(), (0, 0), "all done");
+    let mut decoded = 0;
+    for (i, k) in keys.iter().enumerate().skip(1) {
+        let n = mg_ui::viewers::decoded_of(*k) - before[i];
+        assert!(n <= 1, "{k} decoded once at most: {n}");
+        decoded += n;
+    }
+    assert!(decoded >= 4, "the held ones decoded: {decoded}");
+}
+
+/// A model open read-only (a layer's copy, or opened so by a plugin) is
+/// drawn in the model viewer, paused, its header the model views' own;
+/// Show as Text in the read-only header's More shows its text as before.
+#[test]
+fn a_model_open_read_only_is_drawn() {
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let Some(rs) = gpu() else { return };
+    let Some((mut h, _)) = viewed_on("ui-w6-model", 1600.0, &[], model, Some(rs)) else { return };
+    let tab = h.state().editor_area_rect().unwrap();
+    let row = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+    assert_eq!(row.len(), 1, "the model's header");
+    assert!(tab.contains_rect(row[0].row), "in the tab");
+    let source = mg_ui::model_view::Source::Resource(model);
+    assert!(!h.state().model_views[&source].playing, "paused");
+    more_row(&mut h, mg_ui::viewers::SHOW_TEXT);
+    let tab = h.state().editor_area_rect().unwrap();
+    assert!(
+        h.query_all_by_label_contains("newmodel").any(|n| tab.contains(n.rect().center())),
+        "its text"
+    );
+    // (Its text in place of the drawing: the view is drawn no more.)
+    let drawn =
+        |h: &Harness<'_, Moonglow>| h.state().model_views.get(&source).and_then(|v| v.drawn_in());
+    let was = drawn(&h);
+    h.run_steps(3);
+    assert_eq!(drawn(&h), was, "not drawn");
 }

@@ -2761,3 +2761,122 @@ fn the_script_editor_has_no_frame_with_the_keys() {
         assert!(framed.is_empty(), "no frame round the code ({light}): {framed:?}");
     }
 }
+
+/// The script editor's lines and gutter as Script.png draws them (M5's
+/// W3, the owner's ruling 21: "match the board"): its lines 18 points
+/// apart at the 13-point text (24 at Options' 17), the line numbers 12
+/// points after the editor's edge and 10 before the text's field, the
+/// text 8 points into it; a click on a line's lower part takes that line;
+/// a line gone to far down (Go to Line, a result's or a bookmark's jump)
+/// is shown whole; and the window comes to rest with the cursor's line
+/// marked.
+#[test]
+fn the_script_editor_has_the_board_s_line_pitch_and_gutter() {
+    let dir = mg_testkit::scratch_dir("ui-script-pitch");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("long", ResType::NSS).unwrap();
+    let text: String = (0..3000).map(|n| format!("int nLine{n} = {n}; // line {n}\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.clone().into_bytes());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = window_harness(app);
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    settle(&mut h);
+    let (a, b) = (script_row(&h, "int nLine0 ").unwrap(), script_row(&h, "int nLine1 ").unwrap());
+    assert_eq!((a.height(), b.top() - a.top()), (18.0, 18.0), "{a:?} {b:?}");
+    // The gutter and the text's field: their room as the board's.
+    let field = h.get_by_role(egui::accesskit::Role::MultilineTextInput).rect();
+    assert_eq!(a.left() - field.left(), 8.0, "the text in its field");
+    let (drawn, band) = Moonglow::script_gutter_for_test(&h.ctx, key).expect("a gutter");
+    // The cursor's line (line 0) marked: its band on its row.
+    assert_eq!(band, Some(a.y_range()), "the current line's band");
+    let char_width = a.width() / "int nLine0 = 0; // line 0".chars().count() as f32;
+    let gutter = 12.0 + 4.0 * char_width + 10.0;
+    assert!((drawn.span() - gutter).abs() < 0.5, "the gutter {drawn:?}, the board's {gutter}");
+    assert_eq!(field.left(), drawn.max, "the field right after the gutter");
+    // The numbers painted on their rows, right-aligned 10 points before
+    // the gutter's end; a bookmark's icon in the 12 points before them.
+    h.state_mut().scripts_mut_bookmark_for_test(key, mg_ui::script_tools::line_start(&text, 3));
+    h.run();
+    h.run();
+    let texts = painted_texts(&h);
+    for n in 0..12 {
+        let row = egui::Rangef::new(a.top() + n as f32 * 18.0, a.top() + (n + 1) as f32 * 18.0);
+        let number = (n + 1).to_string();
+        let at = texts.iter().find(|(t, r)| {
+            *t == number && drawn.contains(r.center().x) && row.contains(r.center().y)
+        });
+        let (_, r) = at.unwrap_or_else(|| panic!("line {number}'s number not on its row"));
+        assert!((r.right() - (drawn.max - 10.0)).abs() < 0.5, "{number} right-aligned: {r:?}");
+    }
+    let pad =
+        egui::Rect::from_x_y_ranges(drawn.min..=drawn.min + 12.0, a.top() + 54.0..=a.top() + 72.0);
+    assert!(painted_inside(&h, pad), "the bookmark's icon before line 4's number");
+    let above = pad.translate(egui::vec2(0.0, -18.0));
+    assert!(!painted_inside(&h, above), "none before line 3's");
+    // For a screen reader: the gutter by what it shows, the field by the
+    // cursor's line (never one string of every number).
+    let gutter = h.get_by_label("Line numbers 1 to 3001");
+    assert_eq!(gutter.rect().x_range(), drawn, "the gutter named");
+    let said = |h: &Harness<'_, Moonglow>| {
+        let field = h.get_by_role(egui::accesskit::Role::MultilineTextInput);
+        field.accesskit_node().description()
+    };
+    assert_eq!(said(&h).as_deref(), Some("Line 1 of 3001"));
+    // A click on line 5's lower part (2 points above its foot, at the
+    // board's pitch from line 0) takes line 5.
+    let low = egui::pos2(a.left() + 30.0, a.top() + 5.0 * 18.0 + 16.0);
+    click_pos(&h, low);
+    h.run();
+    let start = mg_ui::script_tools::line_start(&text, 5);
+    let (at, _) = script_cursor(&h, key).unwrap();
+    assert!((start..start + 20).contains(&at), "line 5 taken: {at}, its start {start}");
+    // Page Down: the cursor as many lines on as are in sight less one, the
+    // text up by as many of the board's rows, the cursor's line in sight.
+    // (Line 30's row: "int nLine5 " also begins another run in the window.)
+    let before = script_row(&h, "int nLine30 ").unwrap();
+    h.key_press(egui::Key::PageDown);
+    settle(&mut h);
+    let (at, _) = script_cursor(&h, key).unwrap();
+    let line = text[..at].matches('\n').count();
+    let n = line - 5;
+    assert!(n >= 10, "a page of lines: {n}");
+    let after = script_row(&h, "int nLine30 ").map_or(f32::NAN, |r| r.top());
+    let moved = before.top() - after;
+    assert!((moved - n as f32 * 18.0).abs() < 0.5, "{n} lines, scrolled {moved}");
+    assert!(script_row_in_sight(&h, &format!("int nLine{line} ")), "line {line} in sight");
+    // A line far down gone to: shown whole.
+    h.state_mut().script_tools.jump = Some((key, mg_ui::script_tools::line_start(&text, 2750)));
+    h.run();
+    h.run();
+    assert!(script_row_in_sight(&h, "int nLine2750 "));
+    settle(&mut h);
+    let row = script_row(&h, "int nLine2750 ").unwrap();
+    let band = Moonglow::script_gutter_for_test(&h.ctx, key).and_then(|(_, b)| b);
+    assert_eq!(band, Some(row.y_range()), "the band follows the cursor");
+    assert_eq!(said(&h).as_deref(), Some("Line 2751 of 3001"), "and the field says it");
+    // With text selected, no band.
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    settle(&mut h);
+    assert_ne!(script_cursor(&h, key).map(|(a, b)| a == b), Some(true), "a selection");
+    let band = Moonglow::script_gutter_for_test(&h.ctx, key).and_then(|(_, b)| b);
+    assert_eq!(band, None, "no band over a selection");
+    h.key_press(egui::Key::ArrowRight);
+    settle(&mut h);
+    // Options › Script Editor's size: the pitch in the board's ratio.
+    h.state_mut().settings.script_style.font_size = 17;
+    h.run();
+    h.run();
+    let (a, b) =
+        (script_row(&h, "int nLine2750 ").unwrap(), script_row(&h, "int nLine2751 ").unwrap());
+    assert_eq!((a.height(), b.top() - a.top()), (24.0, 24.0), "{a:?} {b:?}");
+    // At rest: a frame's run ends asking for no more, and draws the lines
+    // where they were.
+    rest(&mut h);
+    assert!(h.try_run().is_ok(), "the editor keeps asking for frames");
+    assert_eq!(script_row(&h, "int nLine2750 "), Some(a), "moved at rest");
+}

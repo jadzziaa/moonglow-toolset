@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T18:03:05Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -132,7 +132,7 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Syntax highlighting, line numbers | lexer highlighting (EE literals), line numbers, bookmarks marked; no wrapping | ✅ |
+| Syntax highlighting, line numbers | lexer highlighting (EE literals), line numbers, bookmarks marked, the cursor's line marked; no wrapping; lines 18 points apart at the 13-point text and the gutter as the Script board draws them (M5 W3) | ✅ [the_script_editor_has_the_board_s_line_pitch_and_gutter], [a_read_only_script_s_lines_are_the_editor_s_pitch_apart] |
 | Compile (F7: save and compile) | Compile button saves and compiles this script; F7 compiles all | ✅ / — (F7 keeps compiling all) |
 | Compiler pane, double-click jumps to the line | Compiler panel (the Bottom Dock's, or a floating script's window's bottom pane); clicking a message goes to its line, in an include too (opened, or read-only for game scripts) | ✅ [compile_errors_go_to_their_line] |
 | Functions / Variables / Constants lists with Filter; custom ones bold; hover shows the prototype; double-click inserts | same, from `nwscript.nss` and the script with its includes, in the Reference panel (the Right Dock, or the floating script window's right pane; M4's U12): a segmented control over the filter; custom ones in the theme's text, the game's quieter | ✅ [reference_and_help_are_one_body_in_either_host] |
@@ -142,7 +142,7 @@ unless their file (under `crates/`) follows the name.
 | Completion (F2), Enter to pick, `(` added for functions | F2 or Ctrl+Space, arrows, Enter/Tab, Esc | ✅ [script_editor_completion_find_bookmarks] |
 | Find (Ctrl+F), Find Next (F3), Replace (Ctrl+R): match case, whole word, backward, prompt, replace all | same (no per-replacement prompt: Replace does one, Replace All all) | ✅ |
 | Find In Files (open scripts / all module scripts) → Search Results | all module scripts (with unsaved editor text) → the Bottom Dock's Search Results, click opens the line in its script | ✅ |
-| Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle; Ctrl+Shift+1…9 sets, Ctrl+1…9 goes; the gutter shows ◆ or the number; the Bookmarks panel (the Bottom Dock's) | ✅ [script_editor_completion_find_bookmarks] |
+| Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle; Ctrl+Shift+1…9 sets, Ctrl+1…9 goes; the gutter shows the bookmark icon or the number before the line's number; the Bookmarks panel (the Bottom Dock's) | ✅ [script_editor_completion_find_bookmarks] |
 | New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
 | Open (all resources / module / hak) | the resource browser (the Left Dock's Resources panel) and the module tree | ✅ |
 | Options › Script Editor: font, colors of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a color per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
@@ -155,7 +155,7 @@ unless their file (under `crates/`) follows the name.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Tree: Root, NPC lines `[OWNER] - text` / `[tag] - text` (red), PC lines (blue), `[END DIALOGUE]`, `[CONTINUE]`, links gray | same; conditions marked `?` with the script on hover | ✅ |
+| Tree: Root, NPC lines `[OWNER] - text` / `[tag] - text` (red), PC lines (blue), `[END DIALOGUE]`, `[CONTINUE]`, links gray | same; conditions marked `?` with the script on hover; each line cut with an ellipsis at the tree's right edge, its marks and `[END DIALOGUE]` kept after it, the whole line in its tip and its accessible name (M5 W4, the owner's ruling 29) | ✅ [a_long_line_is_cut_at_the_tree_s_right_edge, a_deep_line_keeps_its_least_room] |
 | Add (with Root: a greeting; with a line: a line of the other kind), new conversation with `nw_walk_wp` end scripts | same; the file's fields, order and defaults as Aurora's | ✅ (`aurora_dialog.rs`) [conversation_editor_builds_and_links] |
 | Input Text popup for a new line ("Enter what the NPC/player says next:", the placeholder selected; OK adds it, the parent staying selected; Cancel adds nothing) | the same; with the option off, the new line is selected and its Text field edited in place | ✅ [conversation_options_popup_link_directions_drag_and_backup] |
 | Drag a line onto another: moves it with its branch; Ctrl+drag links them (direction from Options) | the same (Ctrl or Cmd); a line is not dropped into its own branch, nor a link onto Root | ✅ (`dialog.rs` tests) [conversation_options_popup_link_directions_drag_and_backup] |
@@ -171,7 +171,7 @@ unless their file (under `crates/`) follows the name.
 | Comments (node comment; link comment on links) | same | ✅ |
 | Current File: end scripts normal/aborted, Stop Camera Zoom In | the Conversation panel under the Node section (M4 U14), the file's word count in its header | ✅ [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
 | Status bar: line letters/words, file words | over the line's Data: its letters and words (the talk table's text where that is shown: Aurora counts 0) and the file's words | ✅ improvement [a_talk_table_line_counts_the_text_shown] |
-| Bookmarks (list, double-click to go) | Bookmark on the Node section's bar toggles the selected line; the bookmarked lines are listed in the Outliner under the Left Dock's tabs (M4 U15; a floating conversation's at its window's left), a click or Enter going to the line, the rows following their lines | ✅ [the_outliner_lists_the_conversation_s_bookmarks, bookmarks_follow_a_line_moved_by_another_program, conversation_search_bookmarks_and_test] |
+| Bookmarks (list, double-click to go) | Bookmark on the Node section's bar, Bookmark in a line's right-click menu (Aurora's), Toggle Bookmark's key F5 (Options › Keyboard; M5 W4, the owner's ruling 28) and the Command Palette's Toggle Bookmark toggle the selected line; the bookmarked lines are listed in the Outliner under the Left Dock's tabs (M4 U15; a floating conversation's at its window's left), a click or Enter going to the line, the rows following their lines | ✅ [the_outliner_lists_the_conversation_s_bookmarks, bookmarks_follow_a_line_moved_by_another_program, conversation_search_bookmarks_and_test, f5_toggles_the_line_s_bookmark, bookmark_in_the_row_s_menu_and_the_command_palette] |
 | Search: find, replace, match case, whole word, current file / all files in module | the Node section's Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one; Ctrl+F brings it to the front | ✅ (language and gender scopes: English only) [the_line_s_fields_are_the_right_dock_s_or_the_window_s] |
 | Test (click through the conversation) | Test window: greetings, then each line's next lines, Back, Done; conditions not run: each is taken to pass unless switched off in the window | ✅ |
 | Script Wizard (Text Appears When…: abilities, class and level, gender, race, alignment, feats, skills, skill checks, items, local variables, random; Actions Taken: rewards, take gold/XP/items, set locals, attack or open a store, faction change; name sc_NNN/at_NNN, start the editor) | same pages and lists; Finish writes, compiles and sets the script in one undoable command | ✅ (`aurora_script_wizard.rs`: Aurora's five captured scripts byte for byte, all compile) [script_wizard_writes_compiles_and_sets_scripts] |
@@ -240,6 +240,11 @@ Cancel: each change one Undo step (M4 U6, the UI redesign's S2;
 several_of_one_type_edit_together]); a double click on the object shows
 the panel, and its Open in Tab and the object's menu's Properties open
 the window ([a_double_click_shows_the_panel_and_open_in_tab_the_window]).
+In the wide layout the panel shows every page on one scroll, each under
+its heading, drawn only where in sight, its icon rail the index (M5 W2,
+ruling 12; [the_wide_layout_s_pages_stand_on_one_scroll,
+only_the_pages_in_sight_are_drawn_on_one_scroll,
+tab_goes_down_the_pages_on_one_scroll]); narrower, one page at a time.
 Shared parts: Name (`…` for all languages), Tag, palette Category, Blueprint
 ResRef (renames the blueprint, a store's `ResRef` field), Variables…,
 scripts (name, picker, Edit), Comments.
@@ -253,7 +258,7 @@ scripts (name, picker, Edit), Comments.
 | Store (`TdlgStoreEdit`): Basic (mark up/down, identify price, stolen goods, max buy price, gold), Advanced (scripts), Restrictions (will not / will only buy base items), Comments | the same pages | ✅ [store_editor_stocks_prices_and_restricts] (the amount a checked Will Identify / Max Buy Price / Limited Gold starts at is not yet checked against Aurora) |
 | Store inventory (`TdlgInventory`, store mode): item palette, the five store pages, Infinite | an Inventory page: item palette, the pages (by the base item's `StorePanel`), items placed at the first free place in the 10-wide grid, Infinite, Remove | ◐ (a list, not Aurora's icon grid; drag between places not yet) |
 | Door (`TdlgDoorEdit`): Basic (`TfraSituatedBasic`: appearance from doortypes.2da, Generic Appearance from genericdoors.2da, hit points, hardness, saves, plot), Lock (`TfraSituatedLock`), Trap, Area Transition, Scripts (`TfraSituatedScripts`), Advanced (`TfraSituatedAdvanced`: faction, conversation, portrait, initial state, No Interrupt), Description, Comments | the same pages; Generic Appearance writes `GenericType_New` (and the old `GenericType` where the blueprint has it); Hit Points sets `CurrentHP` too; Setup Area Transition: see [Setup Area Transition](#setup-area-transition-tdlgareatransition) | ✅ [door_editor_sets_appearance_lock_and_transition] |
-| Placeable (`TdlgPlaceableEdit`): Basic (appearance from placeables.2da, Static, Useable, Has Inventory), Lock, Trap, Scripts, Advanced (plus Treasure Model), Description, Comments; Inventory… | the same pages; Static disables Useable and Has Inventory; the inventory is a page like the store's | ✅ [placeable_editor_fills_its_inventory] |
+| Placeable (`TdlgPlaceableEdit`): Basic (appearance from placeables.2da, Static, Useable, Has Inventory), Lock, Trap, Scripts, Advanced (plus Treasure Model), Description, Comments; Inventory… | the same pages; Static disables Useable and Has inventory; the inventory is a page like the store's | ✅ [placeable_editor_fills_its_inventory] |
 | The 3D preview in the door and placeable dialogs | the Preview panel beside the editor (M4's U11: the Right Dock, or the window's own pane where it floats), with Pop Out in its header's More; the Basic page's Preview button brings it | ✅ [a_placeable_s_and_a_door_s_model_is_their_preview_panel_s, the_preview_button_and_pop_out] |
 | Portrait (`TdlgPortrait`: portraits.2da thumbnails, a large preview; Characters and Creatures, Placeable Objects and Doors or Plot Characters; race, gender and category filters; double-click or OK) | the portrait's picture beside a filtered list of portraits.2da base resrefs, and Portraits… opens the same Select Portrait window (pictures DDS over TGA, as the engine prefers); older blueprints' `Portrait` resref is kept in step | ✅ [portraits_are_chosen_from_their_pictures] |
 | Load Script Set / Save Script Set | the same buttons under the scripts of creatures, doors, placeables, triggers, encounters and areas: `.ini` files with a `[ResRefs]` section and Aurora's event names (`mg_module::script_set`, as the game's own `data/scr` sets); loading sets every event of the page (those the file leaves out to none) in one undoable step | ✅ [script_sets_save_and_load] (whether Aurora clears the events a set leaves out is not captured) |

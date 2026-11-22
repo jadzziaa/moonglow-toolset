@@ -157,24 +157,8 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         _ => true,
     });
     match &view {
-        Viewing::Picture(texture) => {
-            let size = texture.size_vec2();
-            let caption = format!("{} by {} pixels", size.x, size.y);
-            let area = room.shrink2(egui::vec2(12.0, 12.0)).with_max_y(room.bottom() - 30.0);
-            let fit =
-                (area.width() / size.x.max(1.0)).min(area.height() / size.y.max(1.0)).min(1.0);
-            let shown = egui::Rect::from_center_size(area.center(), size * fit.max(0.01));
-            egui::Image::new(texture).paint_at(ui, shown);
-            let r = ui.interact(shown, ui.id().with("hak-picture"), egui::Sense::hover());
-            r.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Image,
-                    true,
-                    format!("{key}, {caption}"),
-                )
-            });
-            caption_at(ui, room, &caption);
-        }
+        // (The viewers the read-only tab shows them with too: M5's W6.)
+        Viewing::Picture(picture) => picture.ui(ui, key, room),
         Viewing::Sound(data) => sound(app, ui, at, key, data),
         Viewing::Table(table, made) => {
             let label = table.copies[0].0.clone();
@@ -204,87 +188,40 @@ fn say(ui: &mut Ui, words: &str) {
     });
 }
 
-/// A quiet caption at the foot of `room`, centered.
-fn caption_at(ui: &Ui, room: egui::Rect, words: &str) {
-    let t = mg_uikit::tokens(ui.ctx());
-    let font = egui::FontId::proportional(11.0);
-    let galley = ui.painter().layout(words.to_string(), font, t.text_3, room.width() - 20.0);
-    let at =
-        egui::pos2(room.center().x - galley.size().x / 2.0, room.bottom() - 10.0 - galley.size().y);
-    ui.painter().galley(at, galley, t.text_3);
-}
+use crate::viewers::caption_at;
 
-/// The sound the Preview plays stopped, where it is hak `at`'s.
+/// The sound the Preview plays stopped, where it is hak `at`'s (and
+/// still holds the channel).
 fn stop_sound(app: &mut Moonglow, at: usize) {
     if app.haks[at].playing.take().is_some() {
         app.hak_sound = None;
-        app.stop_sound(crate::audio::Channel::Preview);
+        crate::viewers::stop_by(app, &crate::viewers::Player::Hak(app.haks[at].id));
     }
 }
 
-/// A sound's Preview: its Play or Stop in the middle, its size and, for a
-/// WAVE under .bmu, that the game does not play it. While it plays, the
-/// window looks again every while, to say Play once it ends.
+/// A sound's Preview: the sound viewer the read-only tab plays with too
+/// (`viewers::sound_ui`: its Play or Stop, its size, a WAVE under .bmu
+/// said), the hak noting that it plays, for its sound to stop with the
+/// hak closed or another module open (`follow_all`).
 fn sound(app: &mut Moonglow, ui: &mut Ui, at: usize, key: ResKey, data: &Arc<[u8]>) {
-    use crate::audio::Channel;
-    let room = ui.max_rect();
-    let playing = app.haks[at].playing == Some(key) && app.speaker.playing(Channel::Preview);
-    // (Ended: the window looks no more.)
-    if app.haks[at].playing == Some(key) && !playing {
+    use crate::viewers::{Player, Pressed};
+    let by = Player::Hak(app.haks[at].id);
+    // (Ended, or another Play took the channel: the hak lets it go.)
+    if app.haks[at].playing == Some(key) && !crate::viewers::plays(app, &by, key) {
         app.haks[at].playing = None;
         app.hak_sound = None;
     }
-    let (icon, words) = match playing {
-        true => (mg_uikit::Icon::Stop, "Stop"),
-        false => (mg_uikit::Icon::Play, "Play"),
-    };
-    let tip = match playing {
-        true => "Stop the sound",
-        false => "Play the sound",
-    };
-    let b = mg_uikit::KitButton::new(Some(icon), words).tip(tip);
-    let size = egui::vec2(b.width(ui), mg_uikit::metrics::CONTROL_HEIGHT);
-    let place = egui::Rect::from_center_size(room.center() - egui::vec2(0.0, 20.0), size);
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(place));
-    if child.add(b).clicked() {
-        if playing {
-            stop_sound(app, at);
-        } else {
-            let sound = crate::audio::Sound { name: key.resref, data: data.clone() };
-            app.speaker.play(Channel::Preview, sound, 1.0, false);
+    match crate::viewers::sound_ui(app, ui, ui.max_rect(), by, key, data) {
+        Some(Pressed::Play) => {
             app.haks[at].playing = Some(key);
             app.hak_sound = Some((app.haks[at].id, app.module_path()));
         }
+        Some(Pressed::Stop) => {
+            app.haks[at].playing = None;
+            app.hak_sound = None;
+        }
+        None => {}
     }
-    let t = mg_uikit::tokens(ui.ctx());
-    let mut said = vec![format!("A sound, {}", size_words(data.len()))];
-    // (A RIFF file's chunks answer at once: an MP3's first frame would be
-    // searched for.)
-    let wave = data.starts_with(b"RIFF")
-        && mg_audio::container(data).is_some_and(|(c, _)| c == mg_audio::Container::Wave);
-    if key.restype == ResType::BMU && wave {
-        said.push("The game does not play a WAVE under .bmu: music must be MP3".to_string());
-    }
-    let font = egui::FontId::proportional(12.0);
-    let mut y = place.bottom() + 10.0;
-    for (n, line) in said.into_iter().enumerate() {
-        let galley = ui.painter().layout(line.clone(), font.clone(), t.text_3, room.width() - 20.0);
-        let at = egui::pos2(room.center().x - galley.size().x / 2.0, y);
-        let rect = egui::Rect::from_min_size(at, galley.size());
-        y += galley.size().y + 2.0;
-        ui.painter().galley(at, galley, t.text_3);
-        // (Read by a screen reader as the words they are.)
-        let r = ui.interact(rect, ui.id().with(("hak-sound-said", n)), egui::Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &line));
-    }
-    if app.haks[at].playing.is_some() {
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
-    }
-}
-
-/// A size in words ("4.6 MB", "5 bytes").
-fn size_words(n: usize) -> String {
-    size(n as u64)
 }
 
 /// A model's Preview: its 3D view, paused until its Play (a model's

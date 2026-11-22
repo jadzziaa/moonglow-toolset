@@ -128,6 +128,7 @@ pub mod trace;
 mod transfer;
 mod tree;
 pub mod updates;
+pub mod viewers;
 pub use browser::RESOURCE_HEADER;
 pub use outliner::OUTLINER;
 pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES};
@@ -877,6 +878,12 @@ pub struct Moonglow {
     /// open then (`hak_view::follow_all` stops it with the hak closed or
     /// another module).
     pub(crate) hak_sound: Option<(u32, Option<PathBuf>)>,
+    /// The sound a resource's viewer plays on the Preview channel (a hak's
+    /// Preview, a read-only tab: `viewers`), whose it is: another Play
+    /// anywhere takes the channel and lets it go.
+    pub(crate) viewer_sound: Option<viewers::Playing>,
+    /// The window's picture decodes, a few at a time (`viewers`).
+    pub(crate) decodes: viewers::Decodes,
     /// The 2DAs open in the table editor.
     pub tables: Vec<table_view::TableDoc>,
     pub(crate) next_table: u32,
@@ -1071,8 +1078,8 @@ pub struct Moonglow {
     /// The area editor's tool sections' own state (M4's U29: a tool opened
     /// since the last frame, a main action to make).
     pub(crate) tools: tool_sections::Tools,
-    /// Bake Walkmesh to Transform (`bake_view`): its window, its steps'
-    /// rows files, the save's question.
+    /// Bake Walkmesh to Transform (`bake_view`): its Right Dock panel, its
+    /// steps' rows files, the save's question.
     pub bake: bake_view::BakeState,
     /// The settings Custom Light was last written with, offered next.
     pub last_light: mg_module::lights::LightSpec,
@@ -1695,6 +1702,8 @@ impl Moonglow {
             project_keys_from: Vec::new(),
             haks: Vec::new(),
             hak_sound: None,
+            viewer_sound: None,
+            decodes: Default::default(),
             next_hak: 0,
             tables: Vec::new(),
             next_table: 0,
@@ -2280,6 +2289,9 @@ impl Moonglow {
         // (Each hak followed: what was made of one that changed let go, a
         // description typed set where its field was left, M4's U21.)
         hak_view::follow_all(self, ui.ctx());
+        // (A resource viewer's sound stopped where it is drawn no more,
+        // read-only pictures unseen a while let go: M5's W6.)
+        viewers::follow(self, ui.ctx());
         // (A Bottom Dock panel a script asked to the front last frame.)
         search_results::follow(self);
         problems::follow(self);
@@ -2406,6 +2418,8 @@ impl Moonglow {
             self.window_bars(ui);
         });
         ui.set_clip_rect(whole_clip);
+        // (Over the editor area's widgets beside it, M5's W8.)
+        shell::right_edge_seam(self, ui);
         // (What a NUI designer's panels changed where its editor was not
         // drawn after them, M4's U18.)
         nui_view::follow(self, ui.ctx());
@@ -3198,6 +3212,14 @@ impl Moonglow {
         (made.0, made.1, self.tools.walks)
     }
 
+    /// How often Edit Areas Together worked out what its Cancel All would
+    /// take back (M5's W2): when the history or its steps change, never
+    /// every frame. For the tests.
+    #[doc(hidden)]
+    pub fn areas_together_runs(&self) -> u64 {
+        self.area_chooser.as_ref().map_or(0, |c| c.runs)
+    }
+
     /// The areas Edit Areas Together has ticked (none where it is closed),
     /// and its row chosen by the keys. For the tests.
     #[doc(hidden)]
@@ -3214,6 +3236,27 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn read_only_counts(&self) -> (usize, usize) {
         browser::read_only_counts()
+    }
+
+    /// How many pictures the read-only tabs keep decoded (let go of a
+    /// while after their tabs are drawn no more). For the tests.
+    #[doc(hidden)]
+    pub fn read_only_pictures(&self) -> usize {
+        self.browser.pictures.len()
+    }
+
+    /// Whether a resource's viewer has the Preview channel's sound (its
+    /// button says Stop). For the tests.
+    #[doc(hidden)]
+    pub fn viewer_plays(&self) -> bool {
+        self.viewer_sound.is_some()
+    }
+
+    /// The window's picture decodes: threads decoding, and pictures waiting
+    /// or being decoded. For the tests.
+    #[doc(hidden)]
+    pub fn picture_decodes(&self) -> (usize, usize) {
+        (self.decodes.workers(), self.decodes.pending())
     }
 
     /// How many times NUI window `key`'s Bindings table walked the window
@@ -5250,8 +5293,8 @@ impl Moonglow {
             Action::Close => self.close(),
             Action::Undo | Action::Redo => {
                 // (Over a hak's, a 2DA's, a tileset's or the talk table's
-                // editor, its own.)
-                if self.local_undo(action == Action::Redo) {
+                // editor, its own; not Edit Areas Together's Cancel All.)
+                if !self.tools.history_only && self.local_undo(action == Action::Redo) {
                     return;
                 }
                 // (A Ctrl + wheel scaling under way is what Undo takes
@@ -5702,6 +5745,8 @@ impl Moonglow {
         self.warn_shadowing(&cmd);
         // Claimed areas kept read-only, protected names asked about.
         claims::gate(self, &cmd)?;
+        // (One of Edit Areas Together's: its step kept for its Cancel All.)
+        let ours = tool_sections::marked(self, &cmd);
         // (Where what the open Properties windows show goes.)
         let followed = blueprint::follow::followed(self, &cmd.edits);
         let Some(ws) = &mut self.ws else { return Ok(()) };
@@ -5724,6 +5769,9 @@ impl Moonglow {
         self.typed.prune(ws.undo_depth(), ws.redo_depth());
         ws.apply(cmd)?;
         self.typed.applied();
+        if ours {
+            tool_sections::made(self);
+        }
         blueprint::follow::retarget(self, followed);
         blueprint::after_apply(self, derived);
         tag_clash::check(self, &tagged.1, tagged.0, false);
@@ -6829,6 +6877,9 @@ impl Moonglow {
         if self.look_at_palettes() {
             ui.ctx().request_repaint();
         }
+        // (The tilesets open in their editor, changed outside: with or
+        // without game data, as their watch heard it.)
+        self.reload_changed_tilesets(ui.ctx());
         // (Not under a job, which reads the game data and the module.)
         if self.busy() {
             return;
@@ -7602,7 +7653,7 @@ fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameDat
             }
         },
         None => {
-            log.warn("No Neverwinter Nights installation found; choose it in Tools > Options.");
+            log.warn("No Neverwinter Nights installation found; choose it in Tools › Options.");
             None
         }
     }

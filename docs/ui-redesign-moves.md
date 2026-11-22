@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T06:09:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T17:36:19Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -69,7 +69,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Night | Header, Day \| Night ✓ M4 U3 |
 | Lighting, Shadows and their kinds and quality, Fog, Fade Geometry | Lighting popover ✓ M4 U3 (Lighting its switch; in the wide row one Shadows toggle with the kinds held or right-clicked) |
 | Shaders, Grass, Tile Border, Animations | Lighting popover ✓ M4 U3 (in the wide board's order: Animations, Grass, Tile border, Shaders) |
-| Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges | Overlays popover, with a master switch ✓ M4 U3 (Walkmesh… folded into its two rows; one Walkmesh toggle in the wide row) |
+| Grid, Minimap, Ground walkmesh, Object walkmeshes, Sound Ranges | Overlays popover, with a master switch ✓ M4 U3 (Walkmesh… folded into its two rows; one Walkmesh toggle in the wide row; M5 W2, ruling 11: the popover's rows without icons, as the board, the toggles unfolded into the row keeping theirs) |
 | Sounds, Ambient, Music | Audio popover ✓ M4 U3 |
 | Area Properties | Header, right end ✓ M4 U3 |
 | To Scratch, Save as Prefab… | Header, More button ✓ M4 U3 (Select Tiles, Paint, Reorient Camera and Go to Start Location were there too until U4's shelf and compass) |
@@ -80,7 +80,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | Hint line | Status Bar, as key caps ✓ M3 T12 (each state's hints, a note of what is in hand or why a step was refused at their head; the line under the toolbar is gone) |
 | The strip's right-click menu (which buttons to show) | The header's right-click menu ✓ M4 U3 (anywhere on the row; a hidden control gone from the row, its popover and the wide row) |
 | Palette: type picker, Standard and Custom, search, List and Gallery, New…, More, Group By | Palette panel, in the same order ✓ M4 U6 (in the narrow dock the types' dropdown with Standard and Custom beside it, Expand All and Collapse All at the Group By row's end, that row drawn there with Category alone, grayed, where the project offers no grouping) |
-| A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab ✓ M4 U6 (the Right Dock's lower section with every tool but Select Tiles; one object or several of one type, a mixed selection said; each change applied at once, one Undo step; a double click shows it in front, ruling Q1; Open in Tab and the context menu's Properties open the window with OK and Cancel; one page at a time, the window's) |
+| A placed object's properties window | Properties panel under the Palette, its pages as an icon rail, with Open in Tab ✓ M4 U6 (the Right Dock's lower section with every tool but Select Tiles; one object or several of one type, a mixed selection said; each change applied at once, one Undo step; a double click shows it in front, ruling Q1; Open in Tab and the context menu's Properties open the window with OK and Cancel; one page at a time, the window's; M5 W2, ruling 12: in the wide layout every page on one scroll under its heading, as the WideArea board, the rail its index, the page at the top kept per type) |
 
 
 #### At 3440 by 1440
@@ -482,7 +482,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Export N as Files… | Icon in the panel header | ✓ M3 T4 |
 | List rows: name, layer, indented overridden copies | Same rows with a kind icon | ✓ M3 T4 (cut with an ellipsis at the dock's width, whole in the row's tip) |
 | Up, Down, Page, Home, End, Enter, Esc | Status Bar hints | ✓ M3 T12 (Up or Down Move in the list and Enter Open while its list has the keys, Double Click Open, Right Click More, Find's key with the pointer over it: the Resources board's) |
-| Read-only tab: Copy to Module, Save As… | Editor header, with a note | ✓ M4 U23 (the lock and where it is from, its kind, Copy to Module and Save As… at the right end; Edit… for a 2DA) |
+| Read-only tab: Copy to Module, Save As… | Editor header, with a note | ✓ M4 U23 (the lock and where it is from, its kind, Copy to Module and Save As… at the right end; Edit… for a 2DA); M5 W6: a picture, a sound or a model shown with the hak editor's Preview's viewers, its first bytes (a model's text) by More's Show Bytes (Show as Text) |
 | Tab title "name (read-only)" | Kept as the document tab's name | ✓ (as it was) |
 | Read-only GFF tree | The GFF view's three columns, read-only | ✓ M4 U23 (name, type, value; the rows in sight alone drawn; folds kept while the tab lives) |
 
@@ -581,7 +581,7 @@ Every control of the screens mocked in the second round and its home in the mock
 - Build Module: Results as Problems, the options as a panel. ✓ M4 U28 (by the owner's Q4(a): Results and Counted as Used in Problems, the options and Build, Mark as Used, Export… and Done kept in the dialog; Verify's findings in Problems too, Q5(a))
 - Plugins: a manager kept open, a Right Dock panel or a tab. ✓ M4 U29 (a document tab, as the Appearance Gallery: docked, split or a window of its own, Ctrl + W, with no module open; Remove, Replace, Settings and the plugins' questions stay dialogs; plugin panels unchanged, Q3(a))
 - Hak Pak Conflict Analysis, Resources Used, Claims Table, Areas Not Yours: Bottom Dock tabs. ✓ M4 U28 (the first three, each closed by Close Report; Areas Not Yours stays the question a save asks, a dialog)
-- Edit Areas Together: a Properties-style panel. ✓ M4 U29 (a Right Dock section: Open in Tab and Close at its top, a rail of Areas and Area Properties' shared pages, the same code as the window's, "≠" where the areas differ; its checklist takes Up, Down, Page Up, Page Down, Home, End and Space)
+- Edit Areas Together: a Properties-style panel. ✓ M4 U29 (a Right Dock section: Open in Tab and Close at its top, a rail of Areas and Area Properties' shared pages, the same code as the window's, "≠" where the areas differ; its checklist takes Up, Down, Page Up, Page Down, Home, End and Space; M5 W2, ruling 66: Cancel All between Open in Tab and Close takes back the section's own edits since the areas were ticked, back to the last edit made elsewhere, as one step Redo brings back; Escape stays Close)
 - Light maker, Bake Walkmesh to Transform: the area editor's Right Dock. ✓ M4 U29 (Custom Light and Bake Walkmesh to Transform as Right Dock sections while open, their area in front; the main action and Cancel at the top, Enter and Escape; they close with their area's tab)
 - Stay dialogs: wizards, confirmations, Rename, Adjust Location, the pickers, NWSync publish. ✓ M4 U27, U28, U29 (each in `dialog_pattern`'s table with the footer U27 gave it: the wizards, Rename (scripts' and References'), Adjust Location, Select Portrait and the other pickers, Publish to NWSync, the confirmations; U28 and U29 moved none of them)
 

@@ -232,6 +232,12 @@ impl Ground {
         self.levels.get(index).copied().flatten()
     }
 
+    /// The ground level of the tile `p` is over ([`Ground::tile_level`]),
+    /// where `p` is in the area and its tile has a walkmesh.
+    pub fn level_at(&self, p: Vec2) -> Option<f32> {
+        self.tile_level(self.tile_at(p)?)
+    }
+
     /// The ground's height at `p` nearest to `near` (bridges and floors
     /// above others have several).
     pub fn height(&self, p: Vec2, near: f32) -> Option<f32> {

@@ -135,6 +135,20 @@ pub(crate) fn lines(state: &State) -> Option<(usize, usize)> {
     state.source_lines
 }
 
+impl crate::Moonglow {
+    /// Where the NUI source view drew its chosen control's band last, top
+    /// to bottom, for tests.
+    #[doc(hidden)]
+    pub fn nui_source_band_for_test(ctx: &egui::Context) -> Option<egui::Rangef> {
+        ctx.data(|d| d.get_temp::<Option<egui::Rangef>>(band_id())).flatten()
+    }
+}
+
+/// What [`crate::Moonglow::nui_source_band_for_test`] reads.
+fn band_id() -> egui::Id {
+    egui::Id::new("nui-source-band")
+}
+
 /// The name of the switch's position designer `state` shows (its open-tabs
 /// record's `page`).
 pub(crate) fn switch_name(state: &State) -> &'static str {
@@ -351,7 +365,8 @@ fn body(app: &mut Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) {
     let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
     let laid = &mut state.source_laid;
     laid.begin(ui, &palette);
-    let numbers = laid.numbers(ui, draft.lines, &Default::default(), &[None; 10], &palette);
+    laid.numbers(ui, draft.lines, &palette);
+    let gutter_width = laid.gutter_width();
     // (Not typed in, the galley laid out for this text: the text is not
     // compared again. Typed in, `LaidOut` finds what changed.)
     let made_with = (draft.made, crate::script_layout::fonts_made(&ctx), ctx.pixels_per_point());
@@ -359,15 +374,6 @@ fn body(app: &mut Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) {
         .filter(|(with, look, _)| !focused && *with == made_with && *look == palette)
         .map(|(_, _, galley)| galley);
     let mut laid_out = None;
-    let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| match &kept {
-        Some(galley) => galley.clone(),
-        None => {
-            let galley = laid.text(ui, text.as_str(), &palette);
-            laid_out = Some(galley.clone());
-            galley
-        }
-    };
-    let row = ui.fonts_mut(|f| f.row_height(&palette.font()));
     if let Some(start) = select {
         let mut s = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
         let a = char_at(&draft.text, start);
@@ -387,18 +393,49 @@ fn body(app: &mut Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) {
         |ui| {
             let room = ui.available_height();
             ui.horizontal_top(|ui| {
-                ui.add(egui::Label::new(numbers).selectable(false));
+                // (The script editor's gutter and text, side by side:
+                // `script_layout`'s.)
+                ui.spacing_mut().item_spacing.x = 0.0;
                 // (The cursor's line marked, under the text: the board's.)
                 let under = ui.painter().add(egui::Shape::Noop);
+                let (gutter, numbers) =
+                    ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
+                crate::script_layout::name_gutter(&numbers, draft.lines);
+                let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| match &kept {
+                    Some(galley) => galley.clone(),
+                    None => {
+                        let galley = laid.text(ui, text.as_str(), &palette);
+                        laid_out = Some(galley.clone());
+                        galley
+                    }
+                };
                 let out = egui::TextEdit::multiline(&mut draft.text)
                     .code_editor()
                     .desired_width(f32::INFINITY)
                     .desired_rows(1)
                     .min_size(egui::vec2(0.0, room))
                     .id(id)
-                    .frame(mg_uikit::code_frame())
+                    .frame(crate::script_layout::text_frame())
                     .layouter(&mut layouter)
                     .show(ui);
+                let none = Default::default();
+                let marks = crate::script_layout::Marks { bookmarks: &none, numbered: &[None; 10] };
+                let color = palette.colors[0];
+                laid.paint_gutter(
+                    ui,
+                    gutter.left(),
+                    &out.galley,
+                    out.galley_pos,
+                    None,
+                    color,
+                    marks,
+                );
+                // (A line's place: its row's, as the text is laid out.)
+                let rows = |line: usize| {
+                    let r = out.galley.rows.get(line).or(out.galley.rows.last())?;
+                    let top = out.galley_pos.y + r.pos.y;
+                    Some(egui::Rangef::new(top, top + r.size.y))
+                };
                 // (Named for a screen reader by what it shows.)
                 let said = match of {
                     SourceOf::Window => SOURCE_TEXT,
@@ -412,21 +449,29 @@ fn body(app: &mut Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) {
                     || ui.input(|i| i.pointer.any_pressed())
                         && out.response.response.contains_pointer();
                 cursor = out.cursor_range.map(|r| usize::from(r.primary.index));
-                if let Some((a, _)) = state.source_lines {
+                // (The field's cursor, kept while it has no keyboard too:
+                // the design's choice puts it on its control's line.)
+                let kept = egui::text_edit::TextEditState::load(&ctx, id);
+                let at = (out.cursor_range.map(|r| r.primary))
+                    .or_else(|| kept.and_then(|s| s.cursor.char_range()).map(|r| r.primary))
+                    .unwrap_or_default();
+                let line = out.galley.layout_from_cursor(at).row + 1;
+                crate::script_layout::describe_line(&out.response.response, line, draft.lines);
+                let drawn = state.source_lines.and_then(|(a, _)| rows(a));
+                if let Some(y) = drawn {
                     let field = out.response.response.rect;
-                    let band = egui::Rect::from_x_y_ranges(
-                        field.x_range(),
-                        field.top() + a as f32 * row..=field.top() + (a + 1) as f32 * row,
-                    );
+                    let band = egui::Rect::from_x_y_ranges(field.x_range(), y);
                     let fill = mg_uikit::tokens(&ctx).accent.gamma_multiply(0.14);
                     ui.painter().set(under, egui::Shape::rect_filled(band, 0.0, fill));
                 }
-                if let Some((line, _)) = state.source_lines.filter(|_| select.is_some()) {
-                    let top = out.response.response.rect.top() + line as f32 * row;
-                    let at = egui::Rect::from_min_size(
-                        egui::pos2(out.response.response.rect.left(), top),
-                        egui::vec2(1.0, row),
-                    );
+                // (What was drawn this frame, none included: never a band
+                // an earlier frame drew.)
+                ctx.data_mut(|d| d.insert_temp(band_id(), drawn));
+                if let Some(y) =
+                    state.source_lines.filter(|_| select.is_some()).and_then(|(l, _)| rows(l))
+                {
+                    let left = out.response.response.rect.left();
+                    let at = egui::Rect::from_x_y_ranges(left..=left + 1.0, y);
                     ui.scroll_to_rect(at, Some(egui::Align::Center));
                 }
             });

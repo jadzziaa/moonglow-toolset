@@ -41,8 +41,9 @@ pub use reach::{Frustum, box_corners, box_of};
 #[doc(hidden)]
 pub use renderer::ViewKept;
 pub use renderer::{
-    DEPTH_FORMAT, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, STALE_TEXTURES_KEPT,
-    STALE_TEXTURES_KEPT_INTEGRATED, Targets, TextureMemory, attenuation_params, tint_light,
+    DEPTH_FORMAT, Drawn, GAME_WATER, GRID_LEAST_IN_FOG, GameProgram, MAX_LIGHTS, Renderer,
+    STALE_TEXTURES_KEPT, STALE_TEXTURES_KEPT_INTEGRATED, Targets, TextureMemory,
+    attenuation_params, tint_light,
 };
 /// Moonglow's own shaders, each as wgpu is given it (a name, and its
 /// WGSL), at the samples a pixel the renderer draws with (1, and the

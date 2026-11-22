@@ -1137,25 +1137,41 @@ pub(crate) fn options_page(ui: &mut egui::Ui, o: UpdateOptions, here: &UpdatesHe
     ui.check_box(o.prereleases, "Include pre-releases").on_hover_text(
         "Offer newer pre-releases too, to try before they are out. Off: releases only.",
     );
-    ui.weak(
-        "Sent: one request to GitHub (api.github.com) at each start and once a day while \
-         Moonglow runs, for the latest release's version, notes and page (with Include \
-         pre-releases, the twenty newest releases'): nothing about you, your modules or this \
-         computer. Offline, or when GitHub doesn't answer, nothing is said. Help › Check for \
-         Updates… asks at once. Installing downloads the release's package for this copy and \
-         its checksums (SHA256SUMS, signed) from github.com, and installs it only if they \
-         verify.",
-    );
+    // (The Flatpak's sandbox has no network: nothing is sent from it, as
+    // Help › Check for Updates… there says. Scoop's and Nix's copies have
+    // no automatic check: only what Check for Updates… sends.)
+    let flatpak = installer == Some(Installer::Flatpak);
+    if installer.is_some() && !flatpak {
+        ui.weak(
+            "Sent, when Help › Check for Updates… asks: one request to GitHub \
+             (api.github.com) for the latest release's version, notes and page (with Include \
+             pre-releases, the twenty newest releases'): nothing about you, your modules or \
+             this computer.",
+        );
+    } else if !flatpak {
+        ui.weak(
+            "Sent: one request to GitHub (api.github.com) at each start and once a day while \
+             Moonglow runs, for the latest release's version, notes and page (with Include \
+             pre-releases, the twenty newest releases'): nothing about you, your modules or \
+             this computer. Offline, or when GitHub doesn't answer, nothing is said. Help › \
+             Check for Updates… asks at once. Installing downloads the release's package for \
+             this copy and its checksums (SHA256SUMS, signed) from github.com, and installs it \
+             only if they verify.",
+        );
+    }
     if let Some(i) = installer {
         ui.add_space(4.0);
+        // (Scoop's and Nix's copies still ask when asked to: only the
+        // automatic check is off. The Flatpak asks nothing.)
+        let asks = if flatpak {
+            "Moonglow asks GitHub nothing from its sandbox. Help › Check for Updates… says how \
+             to update."
+        } else {
+            "Moonglow doesn't check by itself; Help › Check for Updates… still asks."
+        };
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            format!(
-                "This copy is updated by {}: {}. Moonglow doesn't check by itself; Help › \
-                 Check for Updates… still asks.",
-                i.name(),
-                i.how()
-            ),
+            format!("This copy is updated by {}: {}. {asks}", i.name(), i.how()),
         );
     } else if let Some(why) = cannot {
         ui.add_space(4.0);

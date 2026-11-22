@@ -167,7 +167,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         return;
     }
     if f.int("HasInventory") == 0 {
-        ui.weak("The placeable has no inventory (Basic › Has Inventory).");
+        ui.weak("The placeable has no inventory (Basic › Has inventory).");
         return;
     }
     let key = f.key;

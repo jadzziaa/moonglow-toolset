@@ -155,7 +155,8 @@ pub(crate) fn in_game_folder(app: &Moonglow, path: &Path) -> bool {
 /// browser shows the rest (fields, text, a compiled model as its text, the
 /// first bytes).
 pub(crate) enum Viewing {
-    Picture(egui::TextureHandle),
+    /// (Decoded off the frame: `viewers`, the read-only tab's too.)
+    Picture(crate::viewers::Picture),
     Sound(std::sync::Arc<[u8]>),
     /// (With which reading of it this is: `browser::made`.)
     Table(Box<mg_module::table_layers::Layered>, u64),
@@ -253,31 +254,12 @@ fn viewing(
     let game = app.game.clone();
     let rm = game.as_deref().map(|g| &g.resman);
     let plain = |data: &[u8]| Viewing::Plain(crate::browser::plain(key, data, rm));
-    let picture = |rgba: mg_image::Rgba| {
-        let rgba = rgba.top_down();
-        let size = [rgba.width as usize, rgba.height as usize];
-        let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba.data);
-        let name = format!("hak-view-{key}");
-        Viewing::Picture(ctx.load_texture(name, image, egui::TextureOptions::LINEAR))
-    };
     match key.restype {
-        ResType::TGA | ResType::DDS => match mg_image::read(key.restype, &data) {
-            Ok(t) => picture(t.to_rgba()),
-            Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
-        },
-        ResType::PLT => match mg_image::plt::Plt::read(&data) {
-            // (In each layer's first color, from the game's palettes.)
-            Ok(plt) => {
-                let palettes: Vec<Option<std::sync::Arc<mg_image::Rgba>>> = match app.loader() {
-                    Some(mut l) => mg_image::plt::PALETTES.iter().map(|p| l.palette(p)).collect(),
-                    None => vec![None; 10],
-                };
-                let refs: [Option<&mg_image::Rgba>; 10] =
-                    std::array::from_fn(|i| palettes.get(i).and_then(|p| p.as_deref()));
-                picture(plt.colorize(&refs, [0; 10]))
-            }
-            Err(e) => Viewing::Plain(crate::browser::Plain::Error(e.to_string())),
-        },
+        // (A PLT in each layer's first color, from the game's palettes;
+        // decoded off the frame, as the read-only tab's: M5's W6.)
+        t if crate::viewers::is_picture(t) => {
+            Viewing::Picture(crate::viewers::Picture::decode(app, ctx, key, data.into()))
+        }
         ResType::WAV | ResType::BMU => {
             let data: std::sync::Arc<[u8]> = data.into();
             match mg_audio::Stream::open(data.clone()) {
@@ -666,8 +648,10 @@ pub(crate) fn follow_all(app: &mut Moonglow, ctx: &egui::Context) {
         }
     }
     if stop {
-        if app.hak_sound.take().is_some() {
-            app.stop_sound(crate::audio::Channel::Preview);
+        // (Only where the hak's sound still holds the channel: another
+        // Play anywhere has taken it since.)
+        if let Some((id, _)) = app.hak_sound.take() {
+            crate::viewers::stop_by(app, &crate::viewers::Player::Hak(id));
         }
         for d in &mut app.haks {
             d.playing = None;
@@ -1067,7 +1051,7 @@ fn extracting_window(app: &mut Moonglow, ctx: &egui::Context) {
     extract_as_job(app, extracting.plan, extracting.dir, skip);
 }
 
-fn size(n: u64) -> String {
+pub(crate) fn size(n: u64) -> String {
     match n {
         n if n >= 1 << 30 => format!("{:.2} GB", n as f64 / f64::from(1u32 << 30)),
         n if n >= 1 << 20 => format!("{:.1} MB", n as f64 / f64::from(1u32 << 20)),

@@ -9,7 +9,11 @@
 //! one type edited together (each field changed set on each), each change
 //! applied at once as one Undo step, nothing written by a control not
 //! touched. Its pages are a rail of icons at its left (the kit's
-//! `PageRail`), the page shown kept per type of object. Its header says
+//! `PageRail`), the page shown kept per type of object; in the wide layout
+//! (the WideArea board; M5's W2, ruling 12) every page stands on one
+//! scroll under its heading, drawn where in sight, the rail their index
+//! (a click brings a page's heading to the top, the page at the top
+//! marked), the page at the top kept per type of object. Its header says
 //! what is shown ("Placeable", "3 placeables") and holds Open in Tab, which
 //! opens the Properties window of today (a tab or a window, with OK and
 //! Cancel) on the same objects; while one of those is open on them, the
@@ -210,8 +214,15 @@ pub(crate) fn page_icon(page: &str) -> mg_uikit::Icon {
 /// The panel's body (module comment), drawn for `editor` (the active
 /// docked area, or a dragged out one in its window); `titled`: its
 /// section's header is over it (else, sharing the Right Dock's one tab
-/// bar under 1400, it draws its detail and Open in Tab at its own top).
-pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, titled: bool) {
+/// bar under 1400, it draws its detail and Open in Tab at its own top);
+/// `one_scroll`: every page on one scroll (the wide layout's Right Dock,
+/// [`one_scroll`]), else the page shown alone.
+pub(crate) fn panel(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    editor: Option<&Tab>,
+    (titled, one_scroll): (bool, bool),
+) {
     let Some(area) = area_of(editor) else { return };
     // (The pane F6 is at outlined, as the other panes are.)
     let keys = crate::palette_view::Keys::Properties;
@@ -284,16 +295,25 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
         rail = rail.page(page_icon(p), *p);
     }
     let mut left = ui.new_child(egui::UiBuilder::new().max_rect(whole));
+    let was = at;
     let shown = rail.show(&mut left, &mut at);
     if focus && let Some(r) = shown.pages.get(at) {
         r.request_focus();
     }
+    // (On one scroll, a page chosen on the rail, or the page at the top
+    // clicked again, has its heading brought to the top.)
+    let bring = shown.changed || shown.pages.get(was).is_some_and(egui::Response::clicked);
     page = Some(pages[at]);
     app.panel_pages.insert(restype, pages[at]);
     // The page beside it, 8 in from the rail and 4 from the dock's edge,
-    // 8 under its top (the boards' `.content`).
+    // 8 under its top (the boards' `.content`); on one scroll, those are
+    // each page's margins, the scroll's bar at the dock's edge.
     let room = whole.with_min_x(whole.left() + mg_uikit::pages::PAGE_RAIL + 8.0);
     let room = room.with_max_x(room.right() - 4.0).with_min_y(room.top() + 8.0);
+    let room = match one_scroll {
+        true => whole.with_min_x(whole.left() + mg_uikit::pages::PAGE_RAIL),
+        false => room,
+    };
     let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room).id_salt("page"));
     body.set_clip_rect(room.intersect(ui.clip_rect()));
     let path = paths[0].clone();
@@ -311,6 +331,16 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
     };
     let (held, is_viewed) = crate::blueprint::looked_at(app, &git);
     let page = page.unwrap_or(pages[0]);
+    // (On one scroll: kept by the type of object, so that another chest
+    // shows the place the last was left at.)
+    let mut top = at;
+    let all = one_scroll.then(|| crate::blueprint::AllPages {
+        id: egui::Id::new(("properties-scroll", restype)),
+        pages: &pages,
+        top: &mut top,
+        bring,
+        panel: true,
+    });
     let shown = crate::blueprint::FormShown {
         key: git,
         path,
@@ -321,7 +351,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
         held,
         is_viewed,
         heading: Some((page, readout)),
-        all: None,
+        all,
     };
     // (Its fields' ids follow their objects as a window's do, should an
     // edit renumber them while one is typed in: `follow::window_id`.)
@@ -331,6 +361,11 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
     app.panel_form = true;
     crate::blueprint::form_ui(app, &mut body, shown);
     app.panel_form = false;
+    // (The page at the top of the scroll is the page kept: the narrow
+    // layout and Open in Tab show it.)
+    if one_scroll {
+        app.panel_pages.insert(restype, pages[top]);
+    }
     // (A field typed in here is the panel's: no window drawn after it
     // this frame claims it for its Cancel.)
     let pass = ui.ctx().cumulative_pass_nr();
@@ -338,6 +373,16 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, title
         held.panel = true;
     }
     ui.advance_cursor_after_rect(whole);
+}
+
+/// Whether the Properties panel drawn by `host` stands every page on one
+/// scroll: in the Right Dock of the wide layout alone (the WideArea board
+/// draws them so; Main, LightArea, Floating and AreaPaint at 1600 draw
+/// one page, and so does a dragged out area's window). By the window's
+/// width (`Yields::wide`), not the dock's or a column's, so that a seam
+/// or an edge dragged never turns it over.
+pub(crate) fn one_scroll(app: &Moonglow, host: crate::shell::Host) -> bool {
+    host == crate::shell::Host::Dock && app.yields.wide
 }
 
 /// What the panel says in place of the fields, in a page's room (8 in).

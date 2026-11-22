@@ -15,6 +15,8 @@ asks:
   - "When does ReachCache invalidate its LightGrid::reaching results, and does light colour flicker affect it?"
   - "Why is the area084 idle view slower than the pointer view in frame_perf, and how do I compare FRAME_SHOTS pictures?"
 ---
+**Correction, 2026-11-21 (M5 V3):** "within budget" no longer holds for area084. Since V3 opens the camera over area084's raised ground (about 34 m up), frame_perf's six "all selected, walkmesh" rows draw the whole area from 120 m while turning and stand over the budget (about 12 ms with a game client running; the overlays about 2 ms of it). By the owner's ruling they are named in `KNOWN_OVER` under the deferred "The largest areas in full view". Before V3 these views looked from under the ground and drew little. See `the-area-views-grid-and-overlays-take-no-fog-a-camera-under.md`.
+
 ## Decided
 - Sound Ranges draws copies of a shape per dot count (`mg_render::LineShape`, `sound_shapes()` in area_view.rs, built once): the renderer keeps each shape's lines in a buffer keyed by the `Arc`'s pointer (held in the cache so the pointer stays theirs) and sends only the copies. A whole-frame cache of `Vec<Line>` would not have worked: 2-5 of 299 sounds change dot count most frames as the camera turns.
 - `ReachCache` (reach.rs): LightGrid::reaching results keyed by the ball's bits, kept while every light's position, cutoff and priority are bit-equal to the last frame's; two generations (now/before) so only the last frame's meshes are kept. Colour changes (flicker) don't invalidate.

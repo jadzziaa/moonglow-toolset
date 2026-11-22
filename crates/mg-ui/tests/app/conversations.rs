@@ -356,7 +356,7 @@ fn conversation_search_bookmarks_and_test() {
     h.get_by_label("NPC: A traveller.");
     h.get_by_label("[END DIALOGUE]");
     assert_eq!(h.state().dialog_views[&key].test.as_ref().unwrap().len(), 2);
-    click(&mut h, "<-- Back");
+    click(&mut h, "< Back");
     assert!(h.state().dialog_views[&key].test.as_ref().unwrap().is_empty());
     click(&mut h, "Done");
     assert!(h.state().dialog_views[&key].test.is_none());
@@ -580,7 +580,9 @@ fn conversation_lines_show_their_scripts_and_play_as_the_game_plays_them() {
     h.run();
     // The lines name their scripts and journal updates.
     h.get_by_label("if c_seen");
-    h.get_by_label("do a_hello  journal q_intro 10");
+    // (Each mark its own label: M5's W4 draws a mark whole or not at all.)
+    h.get_by_label("do a_hello");
+    h.get_by_label("journal q_intro 10");
     dialog_click(&mut h, "Scripts");
     assert!(h.state().settings.dialog_hide_scripts);
     assert!(h.query_by_label("if c_seen").is_none());

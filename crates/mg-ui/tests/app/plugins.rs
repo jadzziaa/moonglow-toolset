@@ -1817,7 +1817,7 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     assert!(h.state().plugins.project_asking.is_empty());
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     settle(&mut h);
-    h.get_by_label("This project's plugins").scroll_to_me();
+    h.get_by_label("This Project's Plugins").scroll_to_me();
     h.run();
     h.get_by_label("You said no: it is off.");
     // Enabled from the Plugins tab: allowed as it is now.
@@ -1899,7 +1899,7 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Plugins));
     settle(&mut h);
-    h.get_by_label("This project's plugins").scroll_to_me();
+    h.get_by_label("This Project's Plugins").scroll_to_me();
     h.run();
     h.get_by_label("Settings…").click();
     h.run();

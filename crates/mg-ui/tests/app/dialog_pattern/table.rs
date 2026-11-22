@@ -25,7 +25,7 @@ pub(crate) const ORDERS: &[(&str, &[&str], Option<&str>)] = &[
     ("copy_as.rs:window#1", &["Create Copy", "Cancel"], None),
     ("creature_wizard.rs:window#1", &["< Back", "Next >", "Finish", "Cancel"], Some(WIZARD)),
     ("dialog_view.rs:editor#1", &["Cancel"], None),
-    ("dialog_view.rs:test_window#1", &["<-- Back", "Done"], None),
+    ("dialog_view.rs:test_window#1", &["< Back", "Done"], None),
     ("dialog_view.rs:text_panel#1", &["OK", "Cancel"], None),
     ("faction_view.rs:editor#1", &["OK", "Cancel"], None),
     ("faction_view.rs:editor#2", &["OK", "Cancel"], None),

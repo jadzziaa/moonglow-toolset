@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), exporters, importers, wizards and panels (their fields), ctx.selection, ctx.open and ctx.values, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:55:14Z }
 ---
 
 # Plugin API reference
@@ -55,7 +55,7 @@ A **finding** is a table:
 | `message` | What is wrong. Needed. |
 | `at` | Where in the resource: a field, a row. |
 | `severity` | `"warning"` or `"error"`; else the check's, from the manifest. |
-| `fix` | Its fix, made with `ctx.fix` (below; since API 0.4): offered beside the finding in Verify Module's report (and in Problems), made only when the user asks. |
+| `fix` | Its fix, made with `ctx.fix` (below; since API 0.4): offered beside the finding in the log, where Verify Module writes it (and in Problems), made only when the user asks. |
 
 ### `mg.vars`
 
@@ -170,7 +170,7 @@ a hak it writes (`ctx.hak`, `folder:to_hak`) goes with them, as a
 command's.
 
 A **wizard**'s `pages` are asked one at a time, in the window of its
-job: each with **Back** (not on the first), **Next** (on the last,
+job: each with **< Back** (grayed on the first), **Next >** (on the last,
 **Finish**) and **Cancel**. A page is a table, or a function `(ctx,
 answers) -> page?` that makes one from what was answered so far; one
 that returns nil is skipped (where every page after the one shown is
@@ -191,7 +191,8 @@ on it. The pages, their functions and their checks only read (one that
 edits fails); `finish(ctx, answers)` edits, as a command, all of it one
 step of Undo. Cancel, or closing the window, makes nothing.
 
-A **panel** is a pane of its own (Plugins › Panels), which shows what
+A **panel** is a tab of its own, or a window as Options › General ›
+Open editors says (Plugins › Panels shows it), which shows what
 its handler returns: a list of elements, each a table with its `type`,
 or text alone (a `text`). Moonglow draws them; the panel never draws.
 
@@ -242,7 +243,9 @@ end)
 mg.command("set-tint", function(ctx)
   local tint = ctx.values.tint   -- "#rrggbb"; nil when not run from the panel
 end)
-``` The handler runs when the panel opens, by its
+```
+
+The handler runs when the panel opens, by its
 **Refresh**, after a job of its plugin's ends (a command, an import, a
 wizard), and as its manifest's `refresh` says: after each change of the
 module (`"edits"`: an edit, Undo, Redo; edits one after another, a
@@ -273,7 +276,7 @@ whole module anyway.
 | --- | --- |
 | `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree (or of each of the rows chosen), an area, the tiles selected in an area's view (since API 0.5), every blueprint of a palette's category or every resource of a group of the module tree (since 0.5), what a Properties window edits (its tab's menu; since 0.5), the script open (the script editor's menu; since 0.5), or what a row of Find References or of Advanced Search is on (the ticked ones, where it is one of them; since 0.5). From the Plugins menu, Quick Open or a key: what is chosen in the pane last clicked in (the module tree, a palette, an area's view: its objects, or in tile mode its tiles; since 0.5; a panel an editor brings to the main window's docks, or to its own window's panes where it floats, counts as that editor's pane: the Palette's and the Preview's the palette's, an area's other panels the area's view, and a press in a panel of an editor with no pane of its own leaves the pane as it was), else the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
 | `ctx.values` | The values of the fields of the panel the command was run from (a button's, a list item's or a field's command; since API 0.9), by field id, as a form's come back: text, a number, true or false, a choice's text, a color as `"#rrggbb"`. An empty table for a command run from anywhere else (a menu, a key, a fix, `mg plugin run`), and in every other handler. |
-| `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`); a copy the resource browser opened as one layer has it (an overridden copy, read-only), that resource with its type as `kind` and its `layer`. Several edited together in one Properties window: the first, with `together` listing them all (since API 0.5). |
+| `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area, and so is the Right Dock's Properties section beside it (what that shows is `ctx.selection`); an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`); a copy the resource browser opened as one layer has it (an overridden copy, read-only), that resource with its type as `kind` and its `layer`. Several edited together in one Properties window: the first, with `together` listing them all (since API 0.5). |
 
 An entry:
 
@@ -313,7 +316,7 @@ and none of the plugin's code runs when nothing is.
 | `resource-saved` (0.4) | a save wrote | for each resource it wrote | none |
 | `object-placed` (0.4) | objects are placed in an area: from a palette, the Placeable Gallery, a light, Create Waypoint, Setup Store's store | once | in the placing's own step of Undo |
 | `object-pasted` (0.4) | objects are pasted into an area (a prefab too) | once | in the paste's own step of Undo |
-| `resource-created` (0.4) | a wizard (area, creature, item, placeable, door…, and since Moonglow 3.3.0 the Script Wizard), Add to Palette, Setup Store, a copy (Copy As), and since 3.3.0 New Script, a new NUI window and an import (Import, a NUI window imported) make resources | for each resource made | in the making's own step of Undo |
+| `resource-created` (0.4) | a wizard (area, creature, item, placeable, door…, and since Moonglow 3.3.0 the Script Wizard), Add to Palette, Setup Store, a copy (Copy… in the module tree, Edit Copy… in a palette), and since 3.3.0 New Script, a new NUI window and an import (Import, a NUI window imported) make resources | for each resource made | in the making's own step of Undo |
 
 | | |
 | --- | --- |
@@ -355,18 +358,18 @@ doubled.
 
 **At once.** `resource-saving`, `object-placed`, `object-pasted` and
 `resource-created` run at once, within what the user does: a save waits
-for them, a paste goes in with their edits. Each plugin's handlers of
-one event have 5 seconds (all of a save's resources together; Manage
-Plugins sets another time, since Moonglow 3.3.0); past
-that, the handler is stopped. Nobody is asked anything
-(`ctx.ui:confirm` is false, a form nil, no file or folder is given),
-and nothing is written outside the module (a hak, a folder: the
-handler fails). A handler that fails, or runs out of time, is said in
-the log; its edits are left out, and the paste or the making goes on as
-Moonglow made it. Before a save it is a warning ("could not check the
-save"), never a refusal: a broken plugin can't keep a module from being
-saved (Manage Plugins disables it). `module-opened`, `module-saved` and
-`resource-saved` run afterwards, as jobs, as a command does.
+for them, a paste goes in with their edits. Each plugin's handlers of one
+event have 5 seconds (all of a save's resources together; the Plugins
+tab's **Time within a save or a paste** sets another, since Moonglow
+3.3.0); past that, the handler is stopped. Nobody is asked anything
+(`ctx.ui:confirm` is false, a form nil, no file or folder is given), and
+nothing is written outside the module (a hak, a folder: the handler
+fails). A handler that fails, or runs out of time, is said in the log; its
+edits are left out, and the paste or the making goes on as Moonglow made
+it. Before a save it is a warning ("could not check the save"), never a
+refusal: a broken plugin can't keep a module from being saved (disable it
+on the Plugins tab). `module-opened`, `module-saved` and `resource-saved`
+run afterwards, as jobs, as a command does.
 
 **What fires none:** what a plugin makes itself (its command's
 `ctx.terrain:new_area`, `ctx.edit:write_gff`: a plugin's making is not
@@ -404,7 +407,7 @@ and without anything that changes in the window while it runs.
 | `ctx.module:raw(name, path?)` | A GFF resource with every field's type, as `mg gff` writes it: fields as `{ type = "…", value = … }`, structs with `__struct_id`, the root with `__data_type`. With `path`, the struct there alone. |
 | `ctx.module:text(name)` | A resource as text (a script, a 2DA), converted from the module's codepage. |
 | `ctx.module:bytes(name)` | A resource as it is, a string of bytes. |
-| `ctx.module:new_name(name, kind)` | A name (`name.ext`) for a new resource of a kind (`"utc"`, `"dlg"`, `"are"`…), made from `name` (`"Gate Guard"`) as the window makes one: with the builder's code where the project's pattern puts it (Edit › Builder Code…, `[resrefs] pattern`), the first the module hasn't (`ab_gateguard.utc`, `ab_gateguard001.utc`; an area's as the Area Wizard numbers them). Write it with `ctx.edit`. Since Moonglow 2.13.0. |
+| `ctx.module:new_name(name, kind)` | A name (`name.ext`) for a new resource of a kind (`"utc"`, `"dlg"`, `"are"`…), made from `name` (`"Gate Guard"`) as the window makes one: with the builder's code where the project's pattern puts it (Edit › Builder Code, `[resrefs] pattern`), the first the module hasn't (`ab_gateguard.utc`, `ab_gateguard001.utc`; an area's as the Area Wizard numbers them). Write it with `ctx.edit`. Since Moonglow 2.13.0. |
 
 ### Plain values
 
@@ -781,13 +784,13 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 - Text must fit the module's codepage (Windows-1252, unless a hak of the
   module has an `encoding.2da`).
 
-## What the API doesn't have yet
+## What the API doesn't have
 
-Plugins can't yet react to the selection changed (but a panel's
+Plugins can't react to the selection changed (but a panel's
 `refresh`), an area opened or a field typed into (but a panel's field's
 `command`), warn of a paste or refuse one, add their own editors, draw
-in the area view or a panel, be offered in File › Open by a file's type,
+in the area view or a panel, be offered to open a file by its type,
 change what is selected, write files other than haks and those of a folder the user
-chose, or read a file a setting's path names. These are planned for later versions of the API; what
+chose, or read a file a setting's path names. What
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

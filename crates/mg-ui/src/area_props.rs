@@ -1298,6 +1298,10 @@ fn variables_page(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::variables_page(f.app, ui, target, &moved[0].1, locked);
 }
 
+/// What [`AreaChooser::run`]'s length was worked out for: the step on top
+/// of the history, its depth, the steps kept, whether they are the ticks'.
+type RunKey = (Option<u64>, usize, usize, bool);
+
 /// Edit Areas Together (its Right Dock section, M4's U29): the areas
 /// ticked, and the filters that narrow the list they are ticked in.
 #[derive(Debug, Clone, Default)]
@@ -1351,6 +1355,24 @@ pub(crate) struct AreaChooser {
     /// How often the rows shown, and the set, were worked out (for tests:
     /// never every frame).
     pub(crate) made: (u64, u64),
+    /// The steps of the history its shared pages made since the areas were
+    /// ticked (`steps_at`: the `chosen_at` they were made at), each with
+    /// the depth of the history it was made at: Cancel All's
+    /// ([`AreaChooser::run`]).
+    steps: Vec<(u64, usize)>,
+    steps_at: u64,
+    /// Whether a field of its pages held text typed as it was last drawn
+    /// (Cancel All takes it back too: the field is left as it is pressed).
+    typing: bool,
+    /// The field of its pages with the keyboard and its text as it took
+    /// them: typed in only once the text differs.
+    typed_from: Option<(egui::Id, String)>,
+    /// [`AreaChooser::run`]'s length and what it was worked out for (the
+    /// step on top and the history's depth, the steps kept and whether
+    /// they are the ticks'): again only when one changes.
+    run_seen: Option<(RunKey, usize)>,
+    /// How often it was worked out (for tests: never every frame).
+    pub(crate) runs: u64,
 }
 
 /// What [`AreaChooser`]'s rows shown were worked out for: the list's
@@ -1391,6 +1413,77 @@ const FLAG_FILTERS: [(u32, &str, &str, &str); 3] = [
 ];
 
 impl AreaChooser {
+    /// A step its shared pages made, `depth` the history's after it.
+    pub(crate) fn made_step(&mut self, step: u64, depth: usize) {
+        if self.steps_at != self.chosen_at {
+            self.steps.clear();
+            self.steps_at = self.chosen_at;
+        }
+        self.steps.push((step, depth));
+    }
+
+    /// Where in [`AreaChooser::steps`] the run of its own steps on top of
+    /// the history is, last first: the step on top its, made at that depth,
+    /// then each made one below the other (a step undone by hand, never
+    /// made again, is passed over). An edit made elsewhere between two
+    /// ends it; empty where the step on top is not its, or the areas were
+    /// ticked again since.
+    pub(crate) fn run(&self, ws: &mg_edit::Workspace) -> Vec<usize> {
+        let (Some(top), depth) = (ws.last_step(), ws.undo_depth()) else { return Vec::new() };
+        if self.steps_at != self.chosen_at {
+            return Vec::new();
+        }
+        let Some(at) = self.steps.iter().rposition(|s| *s == (top, depth)) else {
+            return Vec::new();
+        };
+        let mut run = vec![at];
+        let mut want = depth;
+        for (i, &(step, d)) in self.steps[..at].iter().enumerate().rev() {
+            if !ws.step_done(step) {
+                continue;
+            }
+            if d + 1 != want {
+                break;
+            }
+            run.push(i);
+            want = d;
+        }
+        run
+    }
+
+    /// How many steps [`AreaChooser::run`] holds, kept while the history's
+    /// top and depth and the steps are as they were (not every frame).
+    pub(crate) fn run_len(&mut self, ws: &mg_edit::Workspace) -> usize {
+        let key =
+            (ws.last_step(), ws.undo_depth(), self.steps.len(), self.steps_at == self.chosen_at);
+        if let Some((seen, n)) = self.run_seen
+            && seen == key
+        {
+            return n;
+        }
+        self.runs += 1;
+        let n = self.run(ws).len();
+        self.run_seen = Some((key, n));
+        n
+    }
+
+    /// The run ([`AreaChooser::run`]) made one step of the history: kept as
+    /// that one, at the depth of its first, and the steps after it (undone,
+    /// to be redone) each that much lower.
+    pub(crate) fn joined(&mut self, run: &[usize], ws: &mg_edit::Workspace) {
+        let (Some(&last), Some(&first)) = (run.first(), run.last()) else { return };
+        let fewer = run.len() - 1;
+        let depth = self.steps[first].1;
+        for s in &mut self.steps[last + 1..] {
+            s.1 = s.1.saturating_sub(fewer);
+        }
+        let step = ws.last_step().unwrap_or(self.steps[last].0);
+        self.steps[last] = (step, depth);
+        for &i in &run[1..] {
+            self.steps.remove(i);
+        }
+    }
+
     /// Whether Enter is Open in Tab: on the Areas page alone, two areas or
     /// more ticked (the section's key and its hint ask the same).
     pub(crate) fn enter_opens(&self) -> bool {
@@ -1636,6 +1729,16 @@ pub(crate) const TOGETHER_PAGES: [&str; 7] =
 const TOGETHER_OPEN_TIP: &str =
     "Open the ticked areas' Area Properties in a tab or window of their own, with OK and Cancel";
 
+/// Its Cancel All's tip: the rule (ruling 66).
+const CANCEL_ALL_TIP: &str =
+    "Take back the edits made here since the areas were ticked, up to one made elsewhere";
+
+/// Why Cancel All is disabled: nothing made here.
+const CANCEL_ALL_NONE: &str = "Nothing has been edited here since the areas were ticked";
+
+/// Why Cancel All is disabled: what was made here is under another step.
+const CANCEL_ALL_UNDER: &str = "An edit made elsewhere or Undo came after the edits made here";
+
 /// What the ticked areas' set was worked out for ([`AreaChooser`]'s
 /// `set`): the module's revision, `chosen_at`, whether areas are said by
 /// name, how often the project's files were read.
@@ -1665,7 +1768,24 @@ pub(crate) fn together_panel(
     let keys = crate::palette_view::Keys::AreasTogether;
     let main = Some(("Open in Tab", n >= 2, TOGETHER_OPEN_TIP));
     let leave = ("Close", "Close Edit Areas Together");
-    let mut answer = crate::tool_sections::actions(ui, keys, main, leave, detail, None);
+    // (What the last frame's pages set is applied by now.)
+    app.tools.marks.clear();
+    // (Cancel All between them, the dialog pattern's order: ruling 66.)
+    let run = app.ws.as_ref().map_or(0, |ws| c.run_len(ws));
+    let can = run > 0 || c.typing;
+    let tip = match (can, c.steps_at == c.chosen_at && !c.steps.is_empty()) {
+        (true, _) => CANCEL_ALL_TIP,
+        (false, false) => CANCEL_ALL_NONE,
+        (false, true) => CANCEL_ALL_UNDER,
+    };
+    let other = Some(("Cancel All", can, tip));
+    let (mut answer, cancel) =
+        crate::tool_sections::actions_with(ui, keys, main, other, leave, detail, None);
+    if cancel {
+        app.tools.cancel_all = true;
+        ui.ctx().request_repaint();
+    }
+    c.typing = false;
     let whole = ui.available_rect_before_wrap();
     let mut rail = mg_uikit::pages::PageRail::new("areas-together-pages");
     for p in TOGETHER_PAGES {
@@ -1852,10 +1972,33 @@ fn together_page(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, page: &st
         page_body(app, ui, page, on);
     });
     app.panel_form = false;
+    // (A text field of the page with the keyboard, its text changed since
+    // it took the keys: what is typed in it is set as the press on Cancel
+    // All leaves it, and taken back with the rest, so Cancel All is
+    // enabled. Focused and unchanged, there is nothing to take.)
+    let room = ui.clip_rect();
+    let in_room =
+        |id: egui::Id| ui.ctx().read_response(id).is_some_and(|r| room.contains_rect(r.rect));
+    let focused = ui.memory(|m| m.focused());
+    let field = focused.filter(|id| in_room(*id)).and_then(|id| Some((id, app.buffers.get(&id)?)));
+    c.typing = match (field, &c.typed_from) {
+        (Some((id, now)), Some((from_id, from))) if id == *from_id => now != from,
+        (Some((id, now)), _) => {
+            c.typed_from = Some((id, now.clone()));
+            false
+        }
+        (None, _) => {
+            c.typed_from = None;
+            false
+        }
+    };
     // (A field typed in here is the section's: no window drawn after it
     // this frame claims it for its Cancel.)
     if let Some(held) = app.held_text.as_mut().filter(|h| h.window.is_none() && h.drawn == pass) {
         held.panel = true;
+        // (Its Cancel All's, should the field be gone before it is left.)
+        c.typing |= held.command.is_some();
+        app.tools.held_mark = held.command.clone();
     }
     if viewed {
         let ours = |k: &ResKey| {
@@ -1866,6 +2009,12 @@ fn together_page(app: &mut Moonglow, ui: &mut Ui, c: &mut AreaChooser, page: &st
             let now = ui.input(|i| i.time);
             ui.data_mut(|d| d.insert_temp(refused_id, now));
             ui.ctx().request_repaint();
+        }
+    }
+    // (What the page set is the section's, its Cancel All's: ruling 66.)
+    for a in app.actions.iter().skip(pending) {
+        if let Action::Apply(cmd) | Action::ApplyTyped(cmd) | Action::ApplyMade(cmd, _) = a {
+            app.tools.marks.push(cmd.clone());
         }
     }
 }

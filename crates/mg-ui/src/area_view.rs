@@ -77,11 +77,40 @@ impl Orbit {
         }
     }
 
+    /// [`Orbit::overview`] with its target at the ground's level where it
+    /// looks, the area's middle (`ground`'s level of the tile there, else
+    /// of the nearest tile with one, else 0): some tilesets build their
+    /// ground above the tiles' height (Medieval City 2, 5 m), and from a
+    /// target at the tiles' height, zoomed in, the camera was under that
+    /// ground (M5 V3, the owner's ruling). The middle, as that is where the
+    /// view looks and where a zoom from it comes down.
+    pub fn overview_over(area: &AreaModel, ground: Option<&Ground>) -> Orbit {
+        let mut o = Orbit::overview(area);
+        if let Some(g) = ground {
+            o.target.z = ground_level(area, g, o.target.truncate()).unwrap_or(0.0);
+        }
+        o
+    }
+
     pub fn camera(&self) -> Camera {
         let mut c = Camera::orbit(self.target, self.distance, self.yaw, self.pitch);
         c.far = c.far.max(self.distance * 4.0 + 400.0);
         c
     }
+}
+
+/// The ground's level at `at` ([`Ground::level_at`]: the tile's there),
+/// else that of the tile nearest `at` that has one (a tile with no
+/// walkmesh in the middle); `None` where no tile has one.
+fn ground_level(area: &AreaModel, ground: &Ground, at: Vec2) -> Option<f32> {
+    ground.level_at(at).or_else(|| {
+        (area.tiles.iter().enumerate())
+            .filter_map(|(i, t)| {
+                Some((ground.tile_level(i)?, t.position.truncate().distance_squared(at)))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(z, _)| z)
+    })
 }
 
 /// The wheel over a 3D view in a frame (the area view's, the model
@@ -538,6 +567,26 @@ pub struct AreaView {
     /// Their faces in the area, with each one's object; read again when the
     /// area is.
     object_faces: Option<Vec<([Vec3; 3], usize)>>,
+    /// Counted up each time the area is read again or reloaded (its
+    /// ground and its objects' walkmeshes may have changed): the walkmesh
+    /// overlays' kept meshes are made again.
+    overlay_generation: u64,
+    /// The ground's walkmesh overlay as last made, and what for: kept
+    /// while the camera, the view's rect and the area stay as they were.
+    walk_mesh: Option<(OverlayKey, std::sync::Arc<egui::Mesh>)>,
+    /// The objects' walkmesh overlay as last made (its faces and their
+    /// edges), and what for.
+    #[allow(clippy::type_complexity)]
+    object_walk_mesh:
+        Option<(ObjectOverlayKey, std::sync::Arc<egui::Mesh>, Vec<(Vec<Pos2>, Color32)>)>,
+    /// How many times the ground's and the objects' walkmesh overlays
+    /// have been made (the tests' count of a kept one).
+    pub overlay_builds: [u64; 2],
+    /// Sound Ranges' sounds as last read from the GIT, and the
+    /// workspace's revision and the selection they were read at: read
+    /// again only when either changes ([`sound_ranges_of`]).
+    #[allow(clippy::type_complexity)]
+    sound_ranges_kept: Option<((u64, Vec<(ObjectKind, usize)>), Vec<SoundRange>)>,
     /// Tiles are selected rather than objects (Aurora's Select Terrain).
     pub tile_mode: bool,
     /// The selected tiles (column, row).
@@ -850,12 +899,18 @@ impl Watching {
     /// After a picture is drawn (`frame`, by `camera`, into `targets`, at
     /// `now`): a look at it, if one is due. The tiles expected are the
     /// frame's drawn whole (not a brush's see-through preview), and those
-    /// that would be drawn but failed (`failed`: their middles).
+    /// that would be drawn but failed (`failed`: their middles), each at
+    /// its ground's level (`ground`'s, where it is read): Medieval City 2
+    /// builds its ground 5 m above its tiles' height, and a camera between
+    /// the two, under the ground, expected the ground it couldn't see and
+    /// failed (M5 V3).
+    #[allow(clippy::too_many_arguments)]
     fn after_drawing(
         &mut self,
         vp: &crate::model_view::Viewport3d,
         frame: &mg_render::Scene,
         failed: &[glam::Vec3],
+        ground: Option<&Ground>,
         camera: &mg_render::Camera,
         targets: &mg_render::Targets,
         now: f64,
@@ -887,14 +942,20 @@ impl Watching {
             .filter(|i| i.tile && !i.grass && i.opacity >= 1.0 && !i.model.meshes.is_empty())
             .map(|i| i.transform.w_axis.truncate())
             .collect();
-        tiles.extend_from_slice(failed);
+        let mut failed = failed.to_vec();
+        for p in tiles.iter_mut().chain(&mut failed) {
+            if let Some(z) = ground.and_then(|g| g.level_at(p.truncate())) {
+                p.z = z;
+            }
+        }
+        tiles.extend_from_slice(&failed);
         let (w, h) = targets.size;
         let aspect = w as f32 / h.max(1) as f32;
         let expected = watch::expected(&tiles, camera, aspect);
         let failed = if failed.is_empty() {
             watch::Expected(Vec::new())
         } else {
-            watch::expected(failed, camera, aspect)
+            watch::expected(&failed, camera, aspect)
         };
         let drawn = &vp.renderer.drawn;
         let ready = drawn.game_pending == 0 && drawn.textures_pending == 0;
@@ -1046,6 +1107,7 @@ impl AreaView {
         self.walkable = None;
         self.object_walks = Default::default();
         self.object_faces = None;
+        self.overlay_generation += 1;
         self.drawn = None;
     }
 
@@ -1180,6 +1242,11 @@ impl AreaView {
             object_walkmesh: false,
             object_walks: Default::default(),
             object_faces: None,
+            overlay_generation: 0,
+            walk_mesh: None,
+            object_walk_mesh: None,
+            overlay_builds: [0; 2],
+            sound_ranges_kept: None,
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
@@ -2863,8 +2930,9 @@ fn show(
     other_tileset: bool,
 ) {
     view.object_faces = None;
+    view.overlay_generation += 1;
     if view.orbit.is_none() {
-        view.orbit = Some(Orbit::overview(&model));
+        view.orbit = Some(Orbit::overview_over(&model, view.ground.as_ref()));
         view.night = model.lighting.night_by_default();
     }
     // What couldn't be read or found is named in the log, once (the
@@ -3687,7 +3755,8 @@ fn viewport(
         vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         // (The watch: a look at what was drawn, now and then.)
         let failed = scene.failed_tiles(shown, &hidden);
-        view.watching.after_drawing(vp, &frame, &failed, &camera, targets, now);
+        let ground = view.ground.as_ref();
+        view.watching.after_drawing(vp, &frame, &failed, ground, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
         view.textures_drawn = vp.renderer.textures_read();
@@ -3965,9 +4034,44 @@ fn beside(points: &[Pos2], rect: Rect) -> bool {
         || points.iter().all(|p| p.y > rect.max.y)
 }
 
+/// What a walkmesh overlay's mesh was made for: the camera (its matrix
+/// and near plane), the view's rect and the area as read
+/// ([`AreaView::overlay_generation`]). The same again: the mesh is kept.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OverlayKey {
+    matrix: glam::Mat4,
+    near: f32,
+    rect: Rect,
+    generation: u64,
+}
+
+impl OverlayKey {
+    fn of(view: &AreaView) -> Option<OverlayKey> {
+        let to_screen = view.projector()?;
+        Some(OverlayKey {
+            matrix: to_screen.matrix,
+            near: to_screen.near,
+            rect: to_screen.rect,
+            generation: view.overlay_generation,
+        })
+    }
+}
+
+/// What the objects' walkmesh overlay was made for: as [`OverlayKey`],
+/// and the selection, the kinds shown and the faces Bake Walkmesh to
+/// Transform shows.
+#[derive(Clone, Debug, PartialEq)]
+struct ObjectOverlayKey {
+    at: OverlayKey,
+    selection: Vec<(ObjectKind, usize)>,
+    show: [bool; 9],
+    baked: Vec<[Vec3; 3]>,
+}
+
 /// The ground's walkmesh over the view: walkable faces (surfacemat.2da
-/// `Walk`) green, the others red. (Every face of a large area, each
-/// frame the camera moves: a tile wholly out of the view is passed by,
+/// `Walk`) green, the others red. (Every face of a large area, made
+/// again only when the camera, the view's rect or the area changes, and
+/// kept while they rest: a tile wholly out of the view is passed by,
 /// and a face wholly in front of the eye is put on screen without being
 /// cut, as [`AreaView::screen_polygon`] would leave it.)
 fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
@@ -3975,6 +4079,13 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         return;
     }
     view.read_walkable(app);
+    let Some(key) = OverlayKey::of(view) else { return };
+    if let Some((kept, mesh)) = &view.walk_mesh
+        && *kept == key
+    {
+        ui.painter_at(view.rect).add(egui::Shape::Mesh(mesh.clone()));
+        return;
+    }
     let (Some(ground), Some(walkable), Some(camera), Some(to_screen)) =
         (view.ground.as_ref(), view.walkable.as_ref(), view.camera(), view.projector())
     else {
@@ -4013,7 +4124,10 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             fan(&mut mesh, points, color);
         }
     }
-    ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
+    let mesh = std::sync::Arc::new(mesh);
+    view.overlay_builds[0] += 1;
+    view.walk_mesh = Some((key, mesh.clone()));
+    ui.painter_at(view.rect).add(egui::Shape::Mesh(mesh));
 }
 
 /// Where a placed sound may play from (the Sound Ranges switch), if its
@@ -4052,16 +4166,24 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
 }
 
 /// The positional sounds whose distances Sound Ranges draws (none while
-/// it is off or the sounds are hidden), read from the area's GIT.
-fn sound_ranges_of(app: &mut Moonglow, view: &AreaView) -> Vec<SoundRange> {
+/// it is off or the sounds are hidden), read from the area's GIT, in its
+/// list's order; kept while the workspace's revision and the selection
+/// stay as they were (an area of 317 sounds was read every frame).
+fn sound_ranges_of(app: &mut Moonglow, view: &mut AreaView) -> Vec<SoundRange> {
     if !view.overlay(view.sound_ranges) || !view.show[ObjectKind::Sound.index()] {
         return Vec::new();
     }
-    let chosen = view.selected_set();
     let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let key = (ws.revision(), view.selection.clone());
+    if let Some((kept, ranges)) = &view.sound_ranges_kept
+        && *kept == key
+    {
+        return ranges.clone();
+    }
+    let chosen = view.selected_set();
     let Ok(doc) = ws.doc(&view.git()) else { return Vec::new() };
     let list = doc.root.list(ObjectKind::Sound.list()).unwrap_or(&[]);
-    (list.iter().enumerate())
+    let ranges: Vec<SoundRange> = (list.iter().enumerate())
         .map(|(index, s)| (index, crate::area_audio::PlacedSound::from_git(s)))
         .filter(|(_, s)| s.positional)
         .map(|(index, s)| SoundRange {
@@ -4070,7 +4192,9 @@ fn sound_ranges_of(app: &mut Moonglow, view: &AreaView) -> Vec<SoundRange> {
             max: s.max_distance,
             chosen: chosen.contains(&(ObjectKind::Sound, index)),
         })
-        .collect()
+        .collect();
+    view.sound_ranges_kept = Some((key, ranges.clone()));
+    ranges
 }
 
 /// Sound Ranges in the picture, as Aurora draws them (captured
@@ -4112,10 +4236,11 @@ fn sound_range_shapes(
             |along: f32, tan: f32| along.abs() > depth * tan + radius * (1.0 + tan * tan).sqrt();
         depth < -radius || beside(p.x, tan_x) || beside(p.y, tan_y)
     };
-    let by_index: std::collections::HashMap<usize, &SoundRange> =
-        ranges.iter().map(|r| (r.index, r)).collect();
+    // (`ranges` are in the GIT's order, as [`sound_ranges_of`] reads
+    // them: each found by its index without a map made each frame.)
     for &(index, position) in placed {
-        let Some(&range) = by_index.get(&index) else { continue };
+        let Ok(at) = ranges.binary_search_by_key(&index, |r| r.index) else { continue };
+        let range = &ranges[at];
         if out_of_sight(position, range.min.max(range.max)) {
             continue;
         }
@@ -4229,12 +4354,27 @@ fn sound_circle(centre: Vec3, radius: f32, points: usize) -> Vec<Vec3> {
 /// Placeables' and doors' walkmeshes over the view: placeables orange,
 /// doors blue, the selection's brighter; and while Bake Walkmesh to
 /// Transform is open on this area, the selection's as baked, green.
+/// (Made again only when what it shows or the camera changes, as the
+/// ground's is: [`ObjectOverlayKey`].)
 fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     if !view.overlay(view.object_walkmesh) {
         return;
     }
     let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) else { return };
     let baked = crate::bake_view::after_faces(app, model, view.area);
+    let Some(at) = OverlayKey::of(view) else { return };
+    let key = ObjectOverlayKey { at, selection: view.selection.clone(), show: view.show, baked };
+    if let Some((kept, mesh, edges)) = &view.object_walk_mesh
+        && *kept == key
+    {
+        let painter = ui.painter_at(view.rect);
+        painter.add(egui::Shape::Mesh(mesh.clone()));
+        for (p, color) in edges {
+            outline(&painter, p, Stroke::new(1.0, *color));
+        }
+        return;
+    }
+    let baked = &key.baked;
     if view.object_faces.is_none() {
         view.object_faces = Some(view.object_walks.faces(game, model));
     }
@@ -4259,7 +4399,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
     }
     let green = crate::bake_view::after_color();
-    for corners in &baked {
+    for corners in baked {
         // (A little above the walkmesh as it is, to be seen over it.)
         let lifted = corners.map(|c| c + Vec3::Z * 0.08);
         let points = view.screen_polygon(&lifted, None);
@@ -4271,10 +4411,13 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 230)));
     }
     let painter = ui.painter_at(view.rect);
-    painter.add(egui::Shape::mesh(mesh));
-    for (p, color) in edges {
-        outline(&painter, &p, Stroke::new(1.0, color));
+    let mesh = std::sync::Arc::new(mesh);
+    painter.add(egui::Shape::Mesh(mesh.clone()));
+    for (p, color) in &edges {
+        outline(&painter, p, Stroke::new(1.0, *color));
     }
+    view.overlay_builds[1] += 1;
+    view.object_walk_mesh = Some((key, mesh, edges));
 }
 
 /// The area header's controls to show, ticked (its right-click menu, one
@@ -5812,7 +5955,7 @@ fn camera_input(
         && ui.input(|i| keys.pressed(i, Cmd::Overview))
         && let Some(model) = &view.model
     {
-        view.orbit = Some(Orbit::overview(model));
+        view.orbit = Some(Orbit::overview_over(model, view.ground.as_ref()));
     }
 }
 

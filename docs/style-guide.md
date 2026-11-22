@@ -27,7 +27,9 @@ interface text: they keep their own, longer style.
 - tabs and pages (**Basic**, **Visual Transform**);
 - menus and their items (**Edit › Change Tileset…**);
 - buttons, toolbar buttons and their names in tips (**Give to the
-  Selection**, **Show All**, **Go to Start Location**);
+  Selection**, **Show All**, **Go to Start Location**), except that a
+  button whose title names a control keeps that control's own casing
+  (**Swap layout · content**, as Layers names the swap layout);
 - a tool or mode with a name of its own that the manual uses, even when
   its control is a switch or a checkbox (**📌 Exact Tile**, **All Tiles
   (Ignore Fit)**);

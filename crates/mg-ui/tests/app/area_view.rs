@@ -9167,3 +9167,68 @@ fn u29_pictures_custom_light() {
         }
     }
 }
+
+/// Medieval City 2 builds its ground 5 m above its tiles' height: its
+/// area opens looking down at its middle with the target on that ground
+/// (M5 V3, the owner's ruling), so the camera is over the ground at the
+/// opening distance and at the nearest zoom, and the overview's key puts
+/// it back there. (From a target at the tiles' height, a zoom took the
+/// camera under the ground, where nothing of it is drawn.)
+#[test]
+fn a_raised_ground_s_area_opens_with_the_camera_over_its_ground() {
+    let Some((mut h, area)) =
+        area_harness_with("open-raised", "tcm02", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    settle(&mut h);
+    let check = |h: &Harness<'_, Moonglow>, what: &str| {
+        let view = &h.state().area_views[&area];
+        let o = view.orbit.expect("the view's camera");
+        let ground = view.focus_at(view.rect.center()).expect("the ground under the middle");
+        assert!(ground.z > 4.0, "{what}: tcm02's ground is raised: {ground}");
+        assert!((o.target.z - ground.z).abs() < 0.01, "{what}: {o:?} over {ground}");
+        for distance in [o.distance, 1.0] {
+            let eye = mg_ui::area_view::Orbit { distance, ..o }.camera().eye;
+            assert!(eye.z > ground.z + 0.5, "{what}: at {distance} m the eye is at {eye}");
+        }
+    };
+    check(&h, "as it opens");
+    // Moved off and down, then View the Whole Area's key (5).
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target, o.distance) = (glam::Vec3::new(3.0, 3.0, 0.0), 12.0);
+    }
+    h.hover_at(h.state().area_views[&area].rect.center());
+    h.run_steps(2);
+    h.key_press(egui::Key::Num5);
+    settle(&mut h);
+    assert_ne!(h.state().area_views[&area].orbit.unwrap().distance, 12.0, "the overview again");
+    check(&h, "the overview again");
+}
+
+/// Where the tile under the area's middle has no ground level (no
+/// walkmesh), the opening target takes the nearest tile's level that has
+/// one (Medieval City 2: 5 m), not 0.
+#[test]
+fn the_opening_target_takes_the_nearest_tile_s_level_where_the_middle_has_none() {
+    let Some((h, area)) = area_harness_with("open-gap", "tcm02", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    let app = h.state();
+    let (Some(game), Some(model)) = (app.game.as_deref(), app.area_views[&area].model.as_ref())
+    else {
+        panic!("the area read")
+    };
+    let mut gap = model.clone();
+    let middle = glam::Vec2::new(gap.width as f32 * 5.0, gap.height as f32 * 5.0);
+    let under = mg_area::tile_at(gap.width, gap.tiles.len(), middle.x, middle.y).unwrap();
+    gap.tiles[under].model = None;
+    let ground = mg_area::walk::Ground::new(game, &gap);
+    assert_eq!(ground.level_at(middle), None, "no level under the middle");
+    let raised = (0..gap.tiles.len()).filter_map(|i| ground.tile_level(i)).next().unwrap();
+    assert!(raised > 4.0, "tcm02's ground is raised: {raised}");
+    let o = mg_ui::area_view::Orbit::overview_over(&gap, Some(&ground));
+    assert!((o.target.z - raised).abs() < 0.01, "the nearest tile's level: {o:?}");
+}

@@ -614,3 +614,70 @@ fn bake_says_why_it_is_disabled_under_its_actions() {
     );
     assert!(dock.contains_rect(why), "in sight: {why:?}");
 }
+
+/// The ground's and the objects' walkmesh overlays are made once and kept
+/// while nothing they show changes (a frame at rest draws the kept one),
+/// and made again when the camera moves, the view's rect changes, the
+/// area is edited (an object moved) or, for the objects', the selection
+/// changes; a kept overlay draws as the one just made (pixel for pixel).
+#[test]
+fn the_walkmesh_overlays_are_kept_until_what_they_show_changes() {
+    let Some((mut h, area, _, _)) = bake_harness("kept", None) else { return };
+    let out = mg_testkit::output_dir("ui-walkmesh-kept");
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        (view.walkmesh, view.object_walkmesh) = (true, true);
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.pitch, o.distance) = (Vec3::new(20.0, 18.0, 0.0), 1.0, 22.0);
+    }
+    settle(&mut h);
+    let builds = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].overlay_builds;
+    // (The picture at one clock: the area's animations as they were.)
+    let picture = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().area_views.get_mut(&area).unwrap().set_clock(10.0);
+        h.run_steps(1);
+        h.render().expect("render")
+    };
+    let made = builds(&h);
+    assert!(made[0] > 0 && made[1] > 0, "both drawn: {made:?}");
+    let fresh = picture(&mut h);
+    // At rest: frames go by (the clock held: what the area's emitters
+    // show stays as it was), nothing made again, the same picture.
+    for _ in 0..6 {
+        picture(&mut h);
+    }
+    let kept = picture(&mut h);
+    assert_eq!(builds(&h), made, "at rest");
+    fresh.save(out.join("made.png")).unwrap();
+    kept.save(out.join("kept.png")).unwrap();
+    assert!(fresh.as_raw() == kept.as_raw(), "a kept overlay draws as the one made");
+    // Each change makes them again (the ground's: not the selection).
+    let again = |h: &mut Harness<'_, Moonglow>, what: &str, ground: bool| {
+        let was = builds(h);
+        settle(h);
+        h.run_steps(2);
+        let now = builds(h);
+        assert!(now[1] > was[1], "{what}: the objects' made again ({was:?} -> {now:?})");
+        assert_eq!(now[0] > was[0], ground, "{what}: the ground's ({was:?} -> {now:?})");
+        let at_rest = builds(h);
+        h.run_steps(4);
+        assert_eq!(builds(h), at_rest, "{what}: then kept");
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw += 0.2;
+    again(&mut h, "the camera turned", true);
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().distance = 18.0;
+    again(&mut h, "the camera nearer", true);
+    h.set_size(egui::vec2(1200.0, 860.0));
+    again(&mut h, "the window smaller", true);
+    let git = ResKey::new(area, ResType::GIT);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("Placeable List", 1),
+        label: "X".into(),
+        value: Some(mg_gff::Value::Float(25.0)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Move", vec![edit])));
+    again(&mut h, "an armoire moved", true);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 1)];
+    again(&mut h, "an armoire selected", false);
+}

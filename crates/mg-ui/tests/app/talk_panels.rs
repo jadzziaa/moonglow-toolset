@@ -1640,9 +1640,10 @@ fn dialog_tlk_shows_in_the_talk_table_tab_and_the_module_s_table_waits() {
 /// Cancel after a round trip (the module's table, `dialog.tlk`, the
 /// module's table again): one span, as if the tab never left; Don't Save
 /// leaves the file as it was, both edits gone. And the tab closed while it
-/// shows `dialog.tlk` with unsaved lines behind it does what its × does on
-/// the module's table: closes, the unsaved lines kept for the module's
-/// Save, the game's copy let go of.
+/// shows `dialog.tlk` with unsaved lines behind it (only looked at: M5's
+/// W5, nothing asked) closes, the unsaved lines kept for the module's
+/// Save, the game's copy let go of; closed by its × on the module's own
+/// table, it asks first (the owner's ruling of 2026-11-21).
 #[test]
 fn cancel_and_close_across_dialog_tlk() {
     let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-cancel", 1600.0);
@@ -1674,18 +1675,25 @@ fn cancel_and_close_across_dialog_tlk() {
     let held = h.state().game_talk.as_ref().unwrap().table.clone();
     h.get_by_label(talk_view::TALK_HEADER).get_by_label("Close").click();
     settle(&mut h);
-    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed, as its × closes");
-    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "the line kept for the module's Save");
+    assert_eq!(talk_asked(&h), 1, "asked with dialog.tlk shown, as its × asks");
+    answer(&mut h, "Don't Save");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed");
+    let kept = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+    assert!(!kept, "the line behind it taken back");
     assert_eq!(Arc::strong_count(&held), 1, "the game's copy let go of");
-    // The same close on the module's own table: as its × closes it.
+    // The module's own table closed by its ×: asked first.
     let mut h = talk_window(Mode::Tabs, "ui-talk-one-tab-close-own", 1600.0);
     open_own(&mut h);
     choose(&mut h, Which::Module, 3);
     type_in(&mut h, "Text", "c");
-    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::TalkTable));
+    click_tab_close(&mut h, &Tab::TalkTable);
     settle(&mut h);
-    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed, no question");
-    assert!(h.state().talk.as_ref().unwrap().is_dirty(), "the line kept, as above");
+    assert_eq!(talk_asked(&h), 1, "asked");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "open while asked");
+    answer(&mut h, "Don't Save");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed");
+    let kept = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+    assert!(!kept, "its line taken back");
 }
 
 /// With `dialog.tlk` shown, the module's table waiting behind it takes
@@ -2080,4 +2088,347 @@ fn the_panels_follow_changed_game_data_at_once() {
     h.state_mut().game = Some(Arc::new(mg_rules::GameData::new(mg_resman::ResMan::new(), tlk)));
     h.step();
     assert!(shows(&h, "Text", "Well met again."), "String in the same frame as the list");
+}
+
+/// How a test closes the Talk Table tab (M5's W5).
+#[derive(Clone, Copy, Debug)]
+enum Closing {
+    /// The tab's ×.
+    TabX,
+    /// The tab menu's Close (`Action::CloseTabs` of the tab alone, as a
+    /// middle click asks too).
+    MenuClose,
+    /// Ctrl+W over the editor.
+    CtrlW,
+    /// Close Others on another tab: every tab but that one.
+    CloseOthers,
+    /// Close All: every tab.
+    CloseAll,
+    /// The × of the floating window the tab is in.
+    WindowX,
+}
+
+/// Closes the Talk Table tab as `how` does, and lets the window come to
+/// rest.
+fn close_talk(h: &mut Harness<'_, Moonglow>, how: Closing) {
+    let all: Vec<Tab> = h.state().dock.iter_all_tabs().map(|(_, t)| t.clone()).collect();
+    match how {
+        Closing::TabX => click_tab_close(h, &Tab::TalkTable),
+        Closing::MenuClose => {
+            h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TalkTable]))
+        }
+        Closing::CtrlW => {
+            let title = h.state().tab_rect(&Tab::TalkTable).expect("its tab drawn");
+            h.hover_at(title.center_bottom() + egui::vec2(0.0, 120.0));
+            h.step();
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::W);
+        }
+        Closing::CloseOthers => {
+            let keep = all.iter().find(|t| **t != Tab::TalkTable && t.closeable()).cloned();
+            let others = all.into_iter().filter(|t| Some(t) != keep.as_ref()).collect();
+            h.state_mut().actions.push(mg_ui::Action::CloseTabs(others));
+        }
+        Closing::CloseAll => h.state_mut().actions.push(mg_ui::Action::CloseTabs(all)),
+        Closing::WindowX => click_window_close(h, &Tab::TalkTable),
+    }
+    settle(h);
+}
+
+/// How many talk table closing questions are on screen (by their words:
+/// the module's own question, also "Unsaved Changes", names the module).
+fn talk_asked(h: &Harness<'_, Moonglow>) -> usize {
+    h.query_all_by_label_contains("Save changes to the talk table").count()
+}
+
+/// Presses the button `word` of the question on screen ("Unsaved
+/// Changes"), and lets the window come to rest.
+fn answer(h: &mut Harness<'_, Moonglow>, word: &str) {
+    h.get_by_label("Unsaved Changes").get_by_label(word).click();
+    settle(h);
+}
+
+/// How many "Save changes to …?" questions of any kind are on screen.
+fn any_asked(h: &Harness<'_, Moonglow>) -> usize {
+    h.query_all_by_label_contains("Save changes to").count()
+}
+
+/// Closing the Talk Table tab with a line changed in its editor and not
+/// saved asks Save, Don't Save or Cancel (the owner's ruling of
+/// 2026-11-21), once, by every way the tab closes: its ×, the tab menu's
+/// Close, Ctrl+W, Close Others, Close All, the × of its floating window.
+/// Escape is Cancel: the tab stays with its line; asked again, Don't Save
+/// closes it, the file as it was and nothing unsaved kept; Save writes the
+/// line to the table's file and closes it. Either way it is noted for
+/// Reopen Closed Tab, which brings it back.
+#[test]
+fn closing_the_talk_table_tab_asks_once_by_every_way() {
+    use Closing::*;
+    for (n, how) in [TabX, MenuClose, CtrlW, CloseOthers, CloseAll, WindowX].into_iter().enumerate()
+    {
+        let mode = if matches!(how, WindowX) { Mode::Floating } else { Mode::Tabs };
+        let mut h = talk_window(mode, &format!("ui-talk-close-asks-{n}"), 1600.0);
+        open_own(&mut h);
+        let file = h.state().talk.as_ref().unwrap().source.file().unwrap().to_path_buf();
+        let before = std::fs::read(&file).unwrap();
+        choose(&mut h, Which::Module, 3);
+        let was = line(&h, 3).text;
+        type_in(&mut h, "Text", "a");
+        close_talk(&mut h, how);
+        assert_eq!((talk_asked(&h), any_asked(&h)), (1, 1), "{how:?}: asked once");
+        assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "{how:?}: open meanwhile");
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        assert_eq!(any_asked(&h), 0, "{how:?}: Escape answers Cancel");
+        assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "{how:?}: Cancel keeps it");
+        assert_eq!(line(&h, 3).text, format!("{was}a"), "{how:?}: the line kept");
+        // (Close Others and Close All closed the others meanwhile: the
+        // tab alone is closed again, as its menu's Close.)
+        let again = if matches!(how, CloseOthers | CloseAll) { MenuClose } else { how };
+        close_talk(&mut h, again);
+        assert_eq!(talk_asked(&h), 1, "{how:?}: asked again");
+        let save = n % 2 == 1;
+        answer(&mut h, if save { "Save" } else { "Don't Save" });
+        settle(&mut h);
+        assert_eq!(any_asked(&h), 0, "{how:?}: asked no more");
+        assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "{how:?}: closed");
+        let dirty = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+        assert!(!dirty, "{how:?}: nothing unsaved kept");
+        let now = std::fs::read(&file).unwrap();
+        if save {
+            let saved = mg_tlk::Tlk::read(&now).unwrap();
+            assert_eq!(
+                saved.entries[3].text,
+                format!("{was}a").into_bytes(),
+                "{how:?}: Save wrote the line"
+            );
+        } else {
+            assert_eq!(now, before, "{how:?}: Don't Save left the file as it was");
+        }
+        // (Reopen Closed Tab's keys.)
+        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::T);
+        settle(&mut h);
+        assert!(h.state().dock.find_tab(&Tab::TalkTable).is_some(), "{how:?}: reopened");
+        assert_eq!(any_asked(&h), 0);
+    }
+}
+
+/// Closing the Talk Table tab asks nothing where nothing of its own editor
+/// is unsaved: a clean table; lines
+/// typed for the module's fields in other editors alone (a blueprint's
+/// name: the module's, which its Undo takes back), by its × or its
+/// Cancel. Where the tab's own
+/// line and a typed one are both unsaved, the question says that Don't
+/// Save keeps the typed one, and it does.
+/// The owner's ruling 35 has no exception: with the game's `dialog.tlk`
+/// shown in the tab over the module's table with a line not saved,
+/// closing the tab asks once, naming the table behind; Save saves it and
+/// closes, Cancel keeps both.
+#[test]
+fn the_talk_table_tab_asks_with_dialog_tlk_in_front() {
+    for (way, word) in [(Closing::TabX, "Save"), (Closing::CtrlW, "Cancel")] {
+        let mut h = talk_window(Mode::Tabs, "ui-talk-close-game", 1600.0);
+        open_own(&mut h);
+        choose(&mut h, Which::Module, 3);
+        type_in(&mut h, "Text", "c");
+        show(&mut h, Which::Game);
+        let name = h.state().talk.as_ref().unwrap().name.clone();
+        close_talk(&mut h, way);
+        assert_eq!(talk_asked(&h), 1, "{way:?}: asked once with dialog.tlk shown");
+        let named = format!("Save changes to the talk table {name}?");
+        assert!(h.query_by_label_contains(&named).is_some(), "{way:?}: names the table behind");
+        answer(&mut h, word);
+        assert_eq!(any_asked(&h), 0, "{way:?}: answered");
+        let open = h.state().dock.find_tab(&Tab::TalkTable).is_some();
+        let dirty = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+        match word {
+            "Save" => assert!(!open && !dirty, "{way:?}: saved and closed"),
+            _ => assert!(open && dirty, "{way:?}: Cancel keeps it and its line"),
+        }
+    }
+}
+
+#[test]
+fn the_talk_table_tab_closes_unasked_where_nothing_of_its_own_is_unsaved() {
+    // A clean table.
+    let mut h = talk_window(Mode::Tabs, "ui-talk-close-clean", 1600.0);
+    open_own(&mut h);
+    close_talk(&mut h, Closing::TabX);
+    assert_eq!(any_asked(&h), 0, "clean: nothing asked");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "clean: closed");
+    // A line typed for a module's field alone.
+    let mut h = talk_window(Mode::Tabs, "ui-talk-close-typed", 1600.0);
+    open_own(&mut h);
+    let typed = Line { text: "Typed in a blueprint.".into(), ..our_line(5) };
+    h.state_mut().talk.as_mut().unwrap().put_typed(5, &typed).unwrap();
+    settle(&mut h);
+    close_talk(&mut h, Closing::TabX);
+    assert_eq!(any_asked(&h), 0, "typed alone: nothing asked");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "typed alone: closed");
+    assert!(h.state().talk.as_ref().unwrap().has_typed_unsaved(), "kept for the module");
+    // (Its Cancel likewise.)
+    open_own(&mut h);
+    h.get_by_label(talk_view::TALK_HEADER).get_by_label("Cancel").click();
+    settle(&mut h);
+    assert_eq!(any_asked(&h), 0, "typed alone, Cancel: nothing asked");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "typed alone, Cancel: closed");
+    assert!(h.state().talk.as_ref().unwrap().has_typed_unsaved(), "still kept");
+    // Both: asked, saying what Don't Save keeps.
+    let mut h = talk_window(Mode::Tabs, "ui-talk-close-both", 1600.0);
+    open_own(&mut h);
+    h.state_mut().talk.as_mut().unwrap().put_typed(5, &typed).unwrap();
+    choose(&mut h, Which::Module, 3);
+    let was = line(&h, 3).text;
+    type_in(&mut h, "Text", "d");
+    close_talk(&mut h, Closing::TabX);
+    assert_eq!(talk_asked(&h), 1, "both: asked");
+    assert!(h.query_by_label(talk_view::CLOSE_TYPED_NOTE).is_some(), "says the typed line stays");
+    assert!(h.query_by_label(talk_view::CLOSE_SAVE_NOTE).is_none(), "a file's table: no word");
+    answer(&mut h, "Don't Save");
+    settle(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed");
+    let t = h.state().talk.as_ref().unwrap();
+    assert_eq!(t.line(3).text, was, "its own line taken back");
+    assert_eq!(t.line(5).text, "Typed in a blueprint.", "the typed line kept");
+}
+
+/// A table kept in the module: the question says that its Save puts the
+/// lines into the module, whose Save writes them; Save does so (the module
+/// changed, the table clean, the tab closed).
+#[test]
+fn the_talk_question_says_what_save_does_for_the_module_s_table() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-close-module", 1600.0);
+    h.state_mut().talk.as_mut().unwrap().source = mg_module::talk::Source::Module;
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    let was = line(&h, 3).text;
+    type_in(&mut h, "Text", "e");
+    let modified = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().is_modified();
+    assert!(!modified(&h), "the module as saved");
+    close_talk(&mut h, Closing::TabX);
+    assert_eq!(talk_asked(&h), 1);
+    assert!(h.query_by_label(talk_view::CLOSE_SAVE_NOTE).is_some(), "says what Save does");
+    assert!(h.query_by_label(talk_view::CLOSE_TYPED_NOTE).is_none(), "nothing typed elsewhere");
+    answer(&mut h, "Save");
+    assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "closed");
+    assert!(modified(&h), "the lines put into the module, for its Save");
+    let t = h.state().talk.as_ref().unwrap();
+    assert!(!t.is_dirty());
+    assert_eq!(t.line(3).text, format!("{was}e"));
+}
+
+/// Quitting, File › Close, opening another module and opening the same
+/// one again (as File › Recent reloads it) with the Talk Table
+/// tab open and a line of its own not saved ask the module's question
+/// alone, once: not the tab's as well (the module's Save writes the
+/// table, its Don't Save lets it go).
+#[test]
+fn closing_the_module_asks_of_the_talk_table_once() {
+    for (n, action) in ["quit", "close", "open", "reopen"].into_iter().enumerate() {
+        let mut h = talk_window(Mode::Tabs, &format!("ui-talk-close-module-{n}"), 1600.0);
+        open_own(&mut h);
+        choose(&mut h, Which::Module, 3);
+        type_in(&mut h, "Text", "f");
+        let other = mg_testkit::scratch_dir(&format!("ui-talk-close-other-{n}"));
+        let other = sample_module(&other);
+        let same = h.state().ws.as_ref().unwrap().module.location.as_ref().unwrap().path().into();
+        h.state_mut().actions.push(match action {
+            "quit" => mg_ui::Action::CloseWindow,
+            "close" => mg_ui::Action::Close,
+            "open" => mg_ui::Action::OpenModule(other),
+            _ => mg_ui::Action::OpenModule(same),
+        });
+        settle(&mut h);
+        assert_eq!((any_asked(&h), talk_asked(&h)), (1, 0), "{action}: the module's alone");
+        answer(&mut h, "Don't Save");
+        settle(&mut h);
+        assert_eq!(any_asked(&h), 0, "{action}: asked once");
+        match action {
+            "quit" => assert!(h.state().quit_requested, "quit"),
+            "reopen" => {
+                let kept = h.state().talk.as_ref().is_some_and(|t| t.is_dirty());
+                assert!(!kept, "reopen: the line let go of, the module read again");
+            }
+            _ => assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "{action}: gone"),
+        }
+    }
+}
+
+/// Close All with the talk table and a tileset both unsaved asks of each
+/// in turn, once, the talk table first (its tab's order); Cancel at the
+/// first keeps both open and asks nothing more, Don't Save at each closes
+/// both.
+#[test]
+fn close_all_asks_of_each_unsaved_tab_in_turn() {
+    let mut h = talk_window(Mode::Tabs, "ui-talk-close-all-two", 1600.0);
+    open_own(&mut h);
+    choose(&mut h, Which::Module, 3);
+    type_in(&mut h, "Text", "f");
+    let dir = mg_testkit::scratch_dir(&Mode::Tabs.dir("ui-talk-close-all-two-set"));
+    let set = dir.join("zzt01.set");
+    let text = "[GENERAL]\r\nName=ZZT01\r\n[TILES]\r\nCount=0\r\n[GROUPS]\r\nCount=0\r\n";
+    std::fs::write(&set, text).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), set);
+    settle(&mut h);
+    h.state_mut().tilesets[0].change(|f| f.set("GENERAL", "Transition", "5"));
+    settle(&mut h);
+    let tileset = Tab::Tileset(h.state().tilesets[0].id);
+    let all = || -> mg_ui::Action {
+        mg_ui::Action::CloseTabs(vec![Tab::ModuleProperties, Tab::TalkTable, tileset.clone()])
+    };
+    let open = |h: &Harness<'_, Moonglow>, tab: &Tab| h.state().dock.find_tab(tab).is_some();
+    h.state_mut().actions.push(all());
+    settle(&mut h);
+    assert_eq!((any_asked(&h), talk_asked(&h)), (1, 1), "the talk table first, alone");
+    answer(&mut h, "Cancel");
+    assert_eq!(any_asked(&h), 0, "Cancel: nothing more asked");
+    assert!(open(&h, &Tab::TalkTable) && open(&h, &tileset), "Cancel: both kept");
+    assert!(h.state().tilesets[0].is_dirty(), "Cancel: the tileset's change kept");
+    h.state_mut().actions.push(all());
+    settle(&mut h);
+    assert_eq!(talk_asked(&h), 1, "asked again");
+    answer(&mut h, "Don't Save");
+    assert_eq!((any_asked(&h), talk_asked(&h)), (1, 0), "then the tileset, once");
+    assert!(h.query_by_label_contains("Save changes to zzt01").is_some(), "by its name");
+    answer(&mut h, "Don't Save");
+    assert_eq!(any_asked(&h), 0, "each asked once");
+    assert!(!open(&h, &Tab::TalkTable) && !open(&h, &tileset), "both closed");
+}
+
+/// A talk table kept in a file (the module's own in `tlk/`, or another
+/// opened by Open File…) with a line not saved, as another module is
+/// opened: the module's question alone, once; its Save writes the table's
+/// file, and the next module opens without it.
+#[test]
+fn a_file_talk_table_across_a_module_switch() {
+    for other_file in [false, true] {
+        let name = format!("ui-talk-switch-file-{other_file}");
+        let mut h = talk_window(Mode::Tabs, &name, 1600.0);
+        open_own(&mut h);
+        if other_file {
+            let dir = mg_testkit::scratch_dir(&Mode::Tabs.dir(&format!("{name}-lines")));
+            let mut t = Table::create("lines", &dir, mg_core::Language::ENGLISH, false);
+            for n in 0..10 {
+                t.add_line(&our_line(n)).unwrap();
+            }
+            t.save().unwrap();
+            let open = vec![dir.join("lines.tlk")];
+            h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open, ..Default::default() });
+            h.state_mut().actions.push(mg_ui::Action::TalkFile(false));
+            settle(&mut h);
+            assert_eq!(h.state().talk.as_ref().unwrap().name, "lines", "Open File…'s table");
+        }
+        let file = h.state().talk.as_ref().unwrap().source.file().unwrap().to_path_buf();
+        let before = std::fs::read(&file).unwrap();
+        choose(&mut h, Which::Module, 3);
+        type_in(&mut h, "Text", "f");
+        let other = sample_module(&mg_testkit::scratch_dir(&format!("{name}-other")));
+        h.state_mut().actions.push(mg_ui::Action::OpenModule(other));
+        settle(&mut h);
+        assert_eq!((any_asked(&h), talk_asked(&h)), (1, 0), "{other_file}: the module's alone");
+        answer(&mut h, "Save");
+        assert_eq!(any_asked(&h), 0, "{other_file}: asked once");
+        assert_ne!(std::fs::read(&file).unwrap(), before, "{other_file}: its file written");
+        assert!(h.state().talk.is_none(), "{other_file}: not carried to the next module");
+        assert!(h.state().dock.find_tab(&Tab::TalkTable).is_none(), "{other_file}: its tab gone");
+    }
 }

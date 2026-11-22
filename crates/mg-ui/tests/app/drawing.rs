@@ -2010,9 +2010,11 @@ fn a_tint_being_picked_draws_on_the_rug() {
 /// One source shown in two places in a frame (the Preview panel's
 /// blueprint, and its model's own tab) shared one view and one set of
 /// targets, made twice a frame at two sizes, both pictures sampling the
-/// last (the review's B19): the second place says where the preview is.
-/// The tab keeps its view (the Preview panel is drawn after the editor
-/// area, as the Preview window was), the Preview panel saying so.
+/// last (the review's B19). The tab keeps its view (the Preview panel is
+/// drawn after the editor area, as the Preview window was), and the
+/// Preview panel shows the picture the tab drew, fitted, a line over it
+/// saying so (the owner's ruling 19, "one shared preview", M5's W6): one
+/// picture drawn a pass, shown in both places ([`shared_once_a_pass`]).
 #[test]
 fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     let Some((mut h, _area)) = area_harness("preview-twice") else { return };
@@ -2030,6 +2032,7 @@ fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     assert_eq!(said.len(), 1, "and said in the other");
     let preview = h.state().preview_panel_rect().expect("the Preview panel");
     assert!(preview.contains(said[0].center()), "said in the Preview panel: {said:?} {preview:?}");
+    shared_once_a_pass(&mut h, &source, preview, "a model's tab");
     // Its tab closed: the Preview panel draws it.
     close_tab(h.state_mut(), &Tab::Model(chest));
     settle(&mut h);
@@ -2038,16 +2041,92 @@ fn a_preview_shown_twice_in_a_frame_is_drawn_once() {
     h.render().expect("render").save(dir.join("once.png")).unwrap();
 }
 
+/// The Preview panel's shared picture steers the one camera: a drag over
+/// it turns the view, and the frame that shows it is asked for at once
+/// (the picture was drawn this pass already, before the drag moved the
+/// camera; without the ask, the last step of a drag showed only at the
+/// next event). The view paused, nothing else asks for frames.
+#[test]
+fn the_shared_preview_s_drag_turns_the_one_camera_at_once() {
+    use mg_ui::model_view::{SHARED_PICTURE, Source};
+    let Some((mut h, _area)) = area_harness("preview-shared-drag") else { return };
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(chest)));
+    h.state_mut().palette.selected = Some(chest);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    settle(&mut h);
+    let source = Source::Resource(chest);
+    h.state_mut().model_views.get_mut(&source).unwrap().playing = false;
+    settle(&mut h);
+    let shared = h.get_by_label(SHARED_PICTURE).rect();
+    let (at, to) = (shared.center(), shared.center() + egui::vec2(40.0, 0.0));
+    let was = h.state().model_views[&source].orbit;
+    h.hover_at(at);
+    h.step();
+    h.drag_at(at);
+    h.step();
+    h.hover_at(to);
+    h.step();
+    let now = h.state().model_views[&source].orbit;
+    assert!((now.yaw - was.yaw).abs() > 0.1, "turned: {was:?} {now:?}");
+    // (What the drag's pass asked for, read in the pass after it.)
+    h.step();
+    let asked = h.ctx.repaint_causes().iter().any(|c| c.file.ends_with("model_view.rs"));
+    assert!(asked, "a frame asked for: {:?}", h.ctx.repaint_causes());
+    h.drop_at(to);
+    settle(&mut h);
+}
+
+/// The view of `source`, drawn in one place and shown in the Preview
+/// panel (`preview`, its rect) as well: over a few frames it draws one
+/// picture a pass and the panel shows that picture each pass (one render,
+/// not two); the panel's shared picture stands in the panel and is the
+/// model's picture, not an empty one (its pixels differ across it).
+fn shared_once_a_pass(
+    h: &mut Harness<'_, Moonglow>,
+    source: &mg_ui::model_view::Source,
+    preview: egui::Rect,
+    name: &str,
+) {
+    let counts = |h: &Harness<'_, Moonglow>| {
+        let v = &h.state().model_views[source];
+        (v.renders(), v.followed(), v.drawn_in().unwrap_or(0))
+    };
+    let (r0, f0, p0) = counts(h);
+    h.run_steps(6);
+    let (r1, f1, p1) = counts(h);
+    let (renders, followed, passes) = (r1 - r0, f1 - f0, p1 - p0);
+    assert!(renders >= 6, "{name}: drawn each frame: {renders}");
+    assert!(renders <= passes, "{name}: once a pass at most: {renders} in {passes}");
+    assert_eq!(followed, renders, "{name}: the panel shows each picture drawn, not its own");
+    let shared = h.get_by_label(mg_ui::model_view::SHARED_PICTURE).rect();
+    assert!(preview.contains_rect(shared), "{name}: in the Preview panel: {shared:?}");
+    let image = h.render().expect("render");
+    let ppp = h.ctx.pixels_per_point();
+    let at = |x: f32, y: f32| {
+        let (x, y) = ((x * ppp) as u32, (y * ppp) as u32);
+        image.get_pixel(x.min(image.width() - 1), y.min(image.height() - 1)).0
+    };
+    let mut seen = std::collections::HashSet::new();
+    for i in 0..9 {
+        for j in 0..9 {
+            let x = shared.left() + shared.width() * (i as f32 + 0.5) / 9.0;
+            let y = shared.top() + shared.height() * (j as f32 + 0.5) / 9.0;
+            seen.insert(at(x, y));
+        }
+    }
+    assert!(seen.len() > 3, "{name}: a picture, not one color: {seen:?}");
+}
+
 /// The same with the blueprint's own editor open, the blueprint also
 /// chosen in the palette (since M4's U11 its model is its own Preview
 /// panel's, not its Appearance page's). Docked in front of the area, the
 /// docks are the blueprint's: its Preview draws it, the palette's is not
 /// drawn, nothing is said. As a floating window, its window's pane draws
 /// it (the window is drawn with the editor area) and the main Right
-/// Dock's Preview, beside the area, says the model is shown elsewhere
+/// Dock's Preview, beside the area, shows that picture, saying so
 /// (drawn after the editor area while an open tab may show its model,
-/// `model_view::a_tab_may_show`; deferred: "A preview shown twice in a
-/// frame").
+/// `model_view::a_tab_may_show`; the owner's ruling 19).
 #[test]
 fn a_blueprint_s_own_preview_keeps_its_view_beside_the_palette_s() {
     const ELSEWHERE: &str = mg_ui::model_view::SHOWN_ELSEWHERE;
@@ -2086,6 +2165,7 @@ fn a_blueprint_s_own_preview_keeps_its_view_beside_the_palette_s() {
             assert_eq!(said.len(), 1, "{name}: said in the other place");
             let preview = h.state().preview_panel_rect().expect("the Preview panel");
             assert!(preview.contains(said[0].center()), "{name}: said in the dock: {said:?}");
+            shared_once_a_pass(&mut h, &source, preview, name);
         }
         // The editor closed: the palette's Preview draws the model.
         close_tab(h.state_mut(), &Tab::Blueprint(bandit));
@@ -2095,6 +2175,79 @@ fn a_blueprint_s_own_preview_keeps_its_view_beside_the_palette_s() {
         assert!(h.state().model_views[&source].holds_targets());
         assert_eq!(h.query_all_by_label(mg_ui::model_view::MODEL_HEADER).count(), 1);
     }
+}
+
+/// The owner's ruling 19 ("one shared preview", M5's W6), what "the
+/// same" is: a blueprint floating with its own Preview and the palette's
+/// Preview beside the area read the same copy of it (the module's, with
+/// the editor's unsaved edits written in: `model_view::resource_data`),
+/// so they are one view, one picture a pass, an edit in the editor seen in
+/// both; the palette's choice another blueprint, each place draws its own,
+/// nothing shared.
+#[test]
+fn one_shared_preview_shows_the_editor_s_edits_and_two_blueprints_draw_apart() {
+    use mg_ui::model_view::{SHOWN_ELSEWHERE, Source};
+    let Some((mut h, _area)) = area_harness("preview-shared-edit") else { return };
+    h.set_size(egui::vec2(2200.0, 1000.0));
+    let key = ResKey::parse("live_shared", ResType::UTC).unwrap();
+    let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap().into_owned();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "copy",
+            vec![
+                mg_edit::Edit::SetResource { key, data: Some(data) },
+                set("Appearance_Type", mg_gff::Value::Word(6)),
+                set("Appearance_Head", mg_gff::Value::Byte(1)),
+            ],
+        )));
+        app.settings.window_places = vec![("creature".to_string(), "window".to_string())];
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        app.palette.selected = Some(key);
+        app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    }
+    settle(&mut h);
+    let source = Source::Resource(key);
+    let head = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let p = h.state().model_views[&source].preview().expect("a preview");
+        p.parts.iter().map(|p| p.model.clone()).filter(|m| m.contains("_head")).collect()
+    };
+    assert_eq!(head(&h), ["pmh0_head001"]);
+    let preview = h.state().preview_panel_rect().expect("the Preview panel");
+    assert_eq!(h.query_all_by_label(SHOWN_ELSEWHERE).count(), 1, "shared");
+    shared_once_a_pass(&mut h, &source, preview, "as saved");
+    // An edit in the editor, not saved: the one view shows it, in both.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Head",
+        vec![set("Appearance_Head", mg_gff::Value::Byte(3))],
+    )));
+    h.run_steps(4);
+    assert_eq!(head(&h), ["pmh0_head003"], "the edit seen");
+    assert_eq!(h.query_all_by_label(SHOWN_ELSEWHERE).count(), 1, "still shared");
+    shared_once_a_pass(&mut h, &source, preview, "edited");
+    // Another blueprint chosen in the palette: two views, each drawn.
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    h.state_mut().palette.selected = Some(chest);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    h.run_steps(6);
+    let counts = |h: &Harness<'_, Moonglow>, s: &Source| {
+        let v = &h.state().model_views[s];
+        (v.renders(), v.followed())
+    };
+    let other = Source::Resource(chest);
+    let (a0, b0) = (counts(&h, &source), counts(&h, &other));
+    h.run_steps(6);
+    let (a1, b1) = (counts(&h, &source), counts(&h, &other));
+    assert!(a1.0 - a0.0 >= 6 && b1.0 - b0.0 >= 6, "both drawn: {a0:?} {a1:?} {b0:?} {b1:?}");
+    assert_eq!((a1.1 - a0.1, b1.1 - b0.1), (0, 0), "nothing shared");
+    assert_eq!(h.query_all_by_label(SHOWN_ELSEWHERE).count(), 0);
 }
 
 /// The sky under a high camera: Chapter1's `map_m1q1a` seen whole, from

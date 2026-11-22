@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-15T05:19:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:07:34Z }
 ---
 
 # Differences from Aurora
@@ -12,16 +12,26 @@ Moonglow aims to do what Aurora does and write what Aurora writes. Where
 it differs, it is on purpose:
 
 - **Edits apply as you make them**, each one undoable step, and **undo
-  is unlimited** (Aurora's area undo has a set number of levels). The
-  editors' windows (a blueprint's Properties, a placed object's, Module
-  and Area Properties, a conversation, the journal, the factions) still
-  have **OK** and **Cancel** as Aurora's do: Cancel sets back what was
-  changed in the window since it was opened, as one step. A 2DA, a hak,
-  a tileset, the talk table and a script are saved when you ask, so
-  their OK saves and closes, and their Cancel closes as last saved
-  (after asking).
-- **Tabs and windows, not dialogs**: every editor is a tab or a window
-  that stays open beside the others; areas stay in the main pane.
+  is unlimited** (Aurora's area undo has a set number of levels). A
+  placed object's **Properties** in the Right Dock, and a tile's **Tile
+  Properties**, have no OK or Cancel: each change is a step of its own,
+  which Edit › Undo takes back. The editors that open as tabs (a
+  blueprint's Properties, a placed object's opened with **Open in Tab**,
+  Module and Area Properties, a conversation, the journal, the factions)
+  have **OK** and **Cancel** at the right end of their header, meaning
+  what Aurora's do: Cancel sets back what was changed in the tab since it
+  was opened, as one step. A 2DA, a hak, a tileset, the talk table and a
+  script are saved when you ask, so their OK saves and closes, and their
+  Cancel closes as last saved (after asking).
+- **Tabs and docks, not dialogs**: every editor is a document tab that
+  stays open beside the others (or a window of its own, with Options ›
+  General's **Open editors** set to As Floating Windows; areas are always
+  tabs). Some of Aurora's dialogs are panels here, in the Bottom Dock:
+  Find Instance's hits are in **Search Results**, Build Module's results
+  in **Problems**, and the Hak Pak Conflict Analysis is a report tab.
+  Moonglow's own Find and Replace Text and Verify Module list theirs
+  there too, and Edit Areas Together, Custom Light and Bake Walkmesh to
+  Transform are sections of the Right Dock.
 - **The Welcome tab** is the start page, not a dialog at start.
 - **Stores are Stores everywhere**: the area view's filters, the module
   tree, the palettes, Verify, Find Instance, the wizards and the
@@ -35,7 +45,7 @@ it differs, it is on purpose:
   settings of Options › General's **A .mod with its folder beside it**
   (ask, the folder, or the `.mod`, which Aurora has not). A module
   folder also opens by itself, with no `.mod` beside it (**File › Open
-  Folder…**), as Aurora's Open lists only `.mod` files.
+  Folder**), as Aurora's Open lists only `.mod` files.
 - **Recovery copies** of unsaved work are offered back after a crash
   (Aurora has none).
 - **Sounds** fade with distance from where the area view looks. There is
@@ -46,7 +56,8 @@ it differs, it is on purpose:
   the box, switched off, as "Not yet").
 - **userpatch.ini's haks** (the HD Pack and the like) and **Steam
   Workshop content** can be read as the game reads them (Options ›
-  General, both off by default as in Aurora, which can't read them);
+  Folders, under Game Content; both off by default as in Aurora, which
+  can't read them);
   Verify warns of a reference only they or your `override` folder
   satisfy.
 - **Environment maps** on creatures and items are always drawn, as the
@@ -95,12 +106,16 @@ it differs, it is on purpose:
   locks are kept in Moonglow's data folder instead.
 - **An exported archive says what it was made from** (the module's git
   commit, Moonglow's version, the module's name) after its description,
-  and Import warns when the module is at another commit now.
-- **Blueprint previews** in the door and placeable windows are a
-  **Preview** button that opens the model viewer.
+  and Import warns when the module is at another commit.
+- **Blueprint previews**: Aurora draws a door's or a placeable's model
+  inside its properties window; Moonglow shows it in the Right Dock's
+  **Preview** panel beside the blueprint's tab (its **Preview** button
+  brings the panel to the front), and from a placed object's Properties
+  in the Right Dock, **Preview** opens the model viewer.
 - **Renaming custom blueprints in the palette** is done in the blueprint's
   editor (in Aurora 1.89 the palette's in-place rename does nothing).
-- **The Creature Template tab** is not shown (Aurora 1.89 hides it too).
+- **The Creature Template page** is not shown (Aurora 1.89 hides its tab
+  too).
 - **A creature's sound set and faction** are on its Basic page (the sound
   set after the gender), not Advanced: builders asked to choose them
   with the rest.
@@ -111,16 +126,17 @@ it differs, it is on purpose:
   choices are Moonglow's own, made as Aurora's made items show (the same
   tables, strengths, number of properties and most an item is worth),
   not draw for draw.
-- **The renderer** draws with the game's own shaders (the area view's
-  and the model viewer's **Shaders**, on by default), compiled from the
-  game and the module's haks: each mesh with the program the game would
-  choose for it, as read from the game's client. Water, particles and
-  the sky are drawn by Moonglow's own shader, which closely approximates
-  the game's stock lighting (checked against the game's screenshots) and
-  draws everything with the switch off. Either way a mesh is drawn as the
-  game draws it: a texture's `bumpyshinytexture` reflects nothing, normal
-  and specular maps show only with a render hint, a DXT1's transparent
-  texels are black.
+- - **The renderer** draws with the game's own shaders (**Shaders**, in
+  the area header's Lighting popover and in the model viewer's header, on
+  by default), compiled from the game and the module's haks: each mesh
+  with the program the game would choose for it, as read from the game's
+  client; the sky, grass, particles and shiny water too
+  ([Areas](04-areas.md)). With the switch off, Moonglow draws everything
+  with its own shader, which closely approximates the game's stock
+  lighting (checked against the game's screenshots). Either way a mesh is
+  drawn as the game draws it: a texture's `bumpyshinytexture` reflects
+  nothing, normal and specular maps show only with a render hint, a DXT1's
+  transparent texels are black.
 
 - **Static keeps a placeable's visual transform.** Aurora takes a
   placeable's visual transform off when **Static** is ticked; Moonglow's
@@ -151,13 +167,13 @@ it differs, it is on purpose:
   - **One step, on the window's OK.** Aurora writes the current object's
     link only on its Properties' OK, so its Cancel leaves the target
     leading to an object that leads nowhere. Moonglow writes both ends and
-    the waypoints on the window's OK, one step to undo, which the
-    Properties' Cancel leaves whole.
+    the waypoints on Setup Area Transition's own OK, one step to undo,
+    which a Cancel of the object's Properties tab leaves whole.
   - **Lines, not questions.** Aurora asks before going on when a tag is
     still its blueprint's, to save the current area, and before replacing
     a link. Moonglow needs no save, and says the rest in the window, under
     its lists, before OK is pressed.
 
-Not done yet: the Conversation Editor's Scrap tab (the clipboard holds one
-copied or cut branch), and the Sound Wizard's category filter (the sound
+Moonglow has no Conversation Editor Scrap tab (the clipboard holds one
+copied or cut branch) and no Sound Wizard category filter (the sound
 picker opens filtered to ambient or positional sounds instead).

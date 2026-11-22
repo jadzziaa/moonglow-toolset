@@ -252,6 +252,11 @@ pub(crate) fn shown_by_tabs(app: &Moonglow) -> (Vec<Source>, bool) {
                 tiles = true;
                 None
             }
+            // (A model open read-only is drawn in the model viewer: M5's W6.)
+            crate::Tab::Resource(k) if k.restype == ResType::MDL => Some(Source::Resource(*k)),
+            crate::Tab::ResourceCopy { key, layer } if key.restype == ResType::MDL => {
+                Some(Source::Copy { key: *key, layer: layer.clone() })
+            }
             tab => Source::of_editor(tab).or_else(|| Source::of_tab(tab)),
         })
         .collect();
@@ -347,6 +352,13 @@ pub struct ModelView {
     /// since): framed again when the picture's shape changes, so that a
     /// tall, narrow view (the Preview panel's) shows the model whole.
     framed: bool,
+    /// Where its picture was last drawn in the window (for the tests).
+    shown_at: Option<egui::Rect>,
+    /// Its pictures drawn, all told (once a pass at most), and how many
+    /// times a second place showed the picture drawn in the first (the
+    /// owner's ruling 19, "one shared preview"): for the tests.
+    renders: u64,
+    followed: u64,
 }
 
 /// What the viewer shows: a model or blueprint (from the module or the
@@ -950,6 +962,13 @@ impl ModelView {
         (self.particles, self.dangly) = (None, None);
         self.part_particles.clear();
         self.chunk_models.clear();
+        // (Another model, framed anew where the camera is where Frame put
+        // it: a 2 m wagon changed to a 5 m table in its form was cut at
+        // the sides of a tall Preview. Moved by hand, it stays; a model's
+        // file read again keeps its camera.)
+        if self.framed && !model {
+            self.frame();
+        }
     }
 
     fn open(app: &Moonglow, source: &Source) -> ModelView {
@@ -987,6 +1006,8 @@ impl ModelView {
             orbit: Orbit { target: Vec3::ZERO, yaw, pitch, distance: 5.0 },
             targets: None,
             shown_in: None,
+            renders: 0,
+            followed: 0,
             last_frame: None,
             particles: None,
             part_particles: HashMap::new(),
@@ -1000,6 +1021,7 @@ impl ModelView {
             rest_box: None,
             aspect: 1.0,
             framed: false,
+            shown_at: None,
         };
         view.frame();
         view
@@ -1039,11 +1061,7 @@ impl ModelView {
     /// of the box around its pause). (The model is there exactly when the
     /// composed preview is: both come of one `compose`.)
     pub fn frame(&mut self) {
-        let Some(c) = &self.composed else { return };
-        // (What it reaches as it is stood: its meshes' boxes, tighter than
-        // the one box round them all.)
-        let reached = c.reached_in(self.animation.as_deref(), self.time);
-        let stood: Vec<Vec3> = reached.iter().map(|p| self.stand.transform_point3(*p)).collect();
+        let stood = self.reached();
         let Some((min, max)) = mg_render::box_of(stood.iter().copied()) else { return };
         self.orbit.target = (min + max) * 0.5;
         self.orbit.distance = fitting_distance(&self.orbit, &stood, self.aspect);
@@ -1085,8 +1103,22 @@ const GROUND_SHADOW_OPACITY: f32 = 0.6;
 /// camera sees 20° either way up and down, and across as much more or
 /// less as the picture is wider or narrower), so that a tall creature
 /// fills a tall view's height and a wide door a narrow view's width.
+///
+/// Fitted for every turn about the up axis at once (M5's W8, the owner's
+/// ruling "preview turn: a"): each point as the ring it sweeps as the
+/// model turns about the target's up line (its height and its distance
+/// from that line), so that a drag or an arrow key never carries a framed
+/// model out of the picture and its size holds while it turns; a long
+/// model shows a little smaller at the first view's yaw than a fit for
+/// that yaw alone would make it. (The distance a point needs is, at
+/// each turn, the largest of sums of terms linear in its distance from
+/// the line and its height: convex in them, so the rings at the corners
+/// of the hull of those pairs alone need fitting.)
 fn fitting_distance(orbit: &Orbit, corners: &[Vec3], aspect: f32) -> f32 {
     const ROOM: f32 = 1.08;
+    /// Points round each ring (5° apart: a ring's chord falls short of
+    /// its arc by under 0.4% of its radius, well within `ROOM`).
+    const RING: usize = 72;
     let up_tan = 20f32.to_radians().tan();
     let across_tan = up_tan * aspect.max(0.05);
     let cam = orbit.camera();
@@ -1098,14 +1130,51 @@ fn fitting_distance(orbit: &Orbit, corners: &[Vec3], aspect: f32) -> f32 {
         return radius / up_tan.min(across_tan).atan().sin() * ROOM;
     }
     let up = right.cross(fwd);
-    let mut distance = 0.1f32;
-    for c in corners {
+    let rings = hull_of(corners.iter().map(|c| {
         let rel = *c - orbit.target;
-        let (x, y, toward) = (rel.dot(right), rel.dot(up), -rel.dot(fwd));
-        let need = toward + (x.abs() * ROOM / across_tan).max(y.abs() * ROOM / up_tan);
-        distance = distance.max(need).max(toward + 0.1);
+        (rel.truncate().length(), rel.z)
+    }));
+    let mut distance = 0.1f32;
+    for (out, height) in rings {
+        for k in 0..RING {
+            let (sin, cos) = (k as f32 * std::f32::consts::TAU / RING as f32).sin_cos();
+            let rel = Vec3::new(out * cos, out * sin, height);
+            let (x, y, toward) = (rel.dot(right), rel.dot(up), -rel.dot(fwd));
+            let need = toward + (x.abs() * ROOM / across_tan).max(y.abs() * ROOM / up_tan);
+            distance = distance.max(need).max(toward + 0.1);
+        }
     }
     distance
+}
+
+/// The corners of the convex hull of `points` (all of them where fewer
+/// than three, or in a line).
+fn hull_of(points: impl Iterator<Item = (f32, f32)>) -> Vec<(f32, f32)> {
+    let mut p: Vec<(f32, f32)> = points.collect();
+    p.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    p.dedup();
+    if p.len() < 3 {
+        return p;
+    }
+    let cross = |o: (f32, f32), a: (f32, f32), b: (f32, f32)| {
+        (a.0 - o.0) * (b.1 - o.1) - (a.1 - o.1) * (b.0 - o.0)
+    };
+    let mut hull: Vec<(f32, f32)> = Vec::with_capacity(p.len() + 1);
+    for pass in [false, true] {
+        let start = hull.len();
+        let order: Box<dyn Iterator<Item = &(f32, f32)>> =
+            if pass { Box::new(p.iter().rev()) } else { Box::new(p.iter()) };
+        for &q in order {
+            while hull.len() >= start + 2
+                && cross(hull[hull.len() - 2], hull[hull.len() - 1], q) <= 0.0
+            {
+                hull.pop();
+            }
+            hull.push(q);
+        }
+        hull.pop();
+    }
+    if hull.is_empty() { p } else { hull }
 }
 
 fn ground_model() -> Model {
@@ -1236,6 +1305,30 @@ impl ModelView {
     pub fn drawn_in(&self) -> Option<u64> {
         self.shown_in
     }
+
+    /// How many pictures it has drawn (at most one a pass).
+    pub fn renders(&self) -> u64 {
+        self.renders
+    }
+
+    /// How many times a second place in a pass showed its picture.
+    pub fn followed(&self) -> u64 {
+        self.followed
+    }
+
+    /// Where its picture was last drawn in the window.
+    pub fn shown_at(&self) -> Option<egui::Rect> {
+        self.shown_at
+    }
+
+    /// The points what it shows reaches as it stands now, as it is stood
+    /// (its meshes' boxes' corners, a skinned mesh's vertices): what Frame
+    /// fits in the picture (none without a composed preview).
+    pub fn reached(&self) -> Vec<Vec3> {
+        let Some(c) = &self.composed else { return Vec::new() };
+        let reached = c.reached_in(self.animation.as_deref(), self.time);
+        reached.iter().map(|p| self.stand.transform_point3(*p)).collect()
+    }
 }
 
 pub(crate) fn info(app: &Moonglow, source: &Source) -> Option<String> {
@@ -1256,9 +1349,12 @@ fn info_line(model: &GpuModel, composed: Option<&Composed>) -> String {
     line
 }
 
-/// What a view shown a second time in a frame says (deferred: "A preview
-/// shown twice in a frame").
-pub const SHOWN_ELSEWHERE: &str = "The preview is shown elsewhere in the window.";
+/// What a view shown a second time in a pass says over the picture it
+/// shares with the first (the owner's ruling 19, "one shared preview").
+pub const SHOWN_ELSEWHERE: &str = "The same picture as the other preview of this model.";
+
+/// The name of that shared picture, for a screen reader and the tests.
+pub const SHARED_PICTURE: &str = "Preview shared with the other";
 
 /// The width of the header's Animation box (the Creature board's 104).
 const ANIMATION_BOX: f32 = 104.0;
@@ -1286,12 +1382,14 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
     let mut view = app.model_views.remove(&key).expect("just inserted");
     // (Shown in another place in this pass already: the Preview panel's
     // blueprint and a floating window's own, a tile's view and its model's
-    // tab. A view has one camera and one set of targets: drawn here too,
-    // they were made twice a frame at two sizes, and both pictures showed
-    // the last.)
+    // tab, a model open read-only and its model's tab. A view has one
+    // camera and one set of targets: drawn here too, they were made twice
+    // a frame at two sizes, and both pictures showed the last. The second
+    // place shows the picture the first drew, fitted, its drag and wheel
+    // turning the one camera: the owner's ruling 19, "one shared preview".)
     let pass = ui.ctx().cumulative_pass_nr();
     if view.shown_in == Some(pass) {
-        ui.weak(SHOWN_ELSEWHERE);
+        follow(ui, &mut view);
         app.model_views.insert(key, view);
         return false;
     }
@@ -1660,7 +1758,49 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),
     );
+    view.renders += 1;
+    view.shown_at = Some(response.rect);
+    steer(ui, &mut view, &response);
+    app.model_views.insert(key, view);
+    pop_out
+}
 
+/// A second place's view of a source drawn already in this pass (the
+/// owner's ruling 19, "one shared preview"): the picture the first drew,
+/// fitted to the room (its shape the first's), under a line
+/// that says so; its drag and wheel turn, move and zoom the one camera
+/// (seen in both places from the next frame). Nothing is drawn again, no
+/// target is made or sized, the camera is not framed for this shape.
+fn follow(ui: &mut egui::Ui, view: &mut ModelView) {
+    view.followed += 1;
+    // (No picture to share, no model or no GPU: nothing said over an empty
+    // room; the first place says why.)
+    let Some((_, id)) = view.targets.as_ref().filter(|_| view.model.is_ok()) else { return };
+    let id = *id;
+    ui.weak(SHOWN_ELSEWHERE);
+    let room = ui.available_rect_before_wrap();
+    if room.width() < 8.0 || room.height() < 8.0 {
+        return;
+    }
+    let aspect = view.aspect.max(0.01);
+    let size = match room.width() / room.height() > aspect {
+        true => egui::vec2(room.height() * aspect, room.height()),
+        false => egui::vec2(room.width(), room.width() / aspect),
+    };
+    let shown = egui::Rect::from_center_size(room.center(), size);
+    egui::Image::new(egui::load::SizedTexture::new(id, size)).paint_at(ui, shown);
+    let response = ui.allocate_rect(room, egui::Sense::click_and_drag());
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, SHARED_PICTURE));
+    steer(ui, view, &response);
+}
+
+/// A view's camera turned by a drag, moved by a right or middle drag, and
+/// zoomed by the wheel over `response` (its picture), as the area view's;
+/// moved, a frame asked for (the picture was drawn this pass already, and
+/// the second place's drag would show only at the next event).
+fn steer(ui: &egui::Ui, view: &mut ModelView, response: &egui::Response) {
+    let was = view.orbit;
     // Orbit, pan, zoom.
     let o = &mut view.orbit;
     if response.dragged_by(egui::PointerButton::Primary) {
@@ -1700,8 +1840,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
     if moved {
         view.framed = false;
     }
-    app.model_views.insert(key, view);
-    pop_out
+    if view.orbit != was {
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Pictures of blueprints, models, creatures' looks and tiles as they look

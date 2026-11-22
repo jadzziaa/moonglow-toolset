@@ -933,3 +933,391 @@ pub(crate) fn outlined_whole(h: &mut Harness<'_, Moonglow>, rect: egui::Rect) {
     let foot = egui::pos2(rect.center().x, rect.bottom() - 1.5);
     assert!(near(foot, false), "foot: {rect:?}");
 }
+
+/// Edit Areas Together on four areas with the first two ticked.
+fn two_ticked(name: &str) -> Harness<'static, Moonglow> {
+    let mut h = together_harness(name, 4, 1280.0, 720.0);
+    open_together(&mut h);
+    for _ in 0..2 {
+        key(&mut h, Key::ArrowDown);
+        key(&mut h, Key::Space);
+    }
+    h
+}
+
+/// Area `name`'s ARE fields `labels`, as integers (a ResRef as 1 where set,
+/// 0 where empty).
+fn fields_of(h: &mut Harness<'_, Moonglow>, name: &str) -> (Option<i64>, Option<i64>, String) {
+    let key = ResKey::parse(name, ResType::ARE).unwrap();
+    let root = &h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().root;
+    let enter = root.resref("OnEnter").map(|r| r.to_string()).unwrap_or_default();
+    (root.integer("DayNightCycle"), root.integer("IsNight"), enter)
+}
+
+/// Area `name`'s Tag.
+fn tag_of(h: &mut Harness<'_, Moonglow>, name: &str) -> String {
+    let key = ResKey::parse(name, ResType::ARE).unwrap();
+    let root = &h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().root;
+    String::from_utf8_lossy(root.string("Tag").unwrap_or_default()).into_owned()
+}
+
+/// The section's Cancel All: whether it is enabled, and its tip.
+fn cancel_all(h: &Harness<'_, Moonglow>) -> bool {
+    !h.get_by_label("Cancel All").accesskit_node().is_disabled()
+}
+
+/// Cancel All clicked.
+fn press_cancel_all(h: &mut Harness<'_, Moonglow>) {
+    h.get_by_label("Cancel All").click();
+    settle(h);
+}
+
+/// The Events page's OnEnter set to `script`, the field left with Tab.
+fn on_enter(h: &mut Harness<'_, Moonglow>, script: &str) {
+    rail(h, "Events");
+    let dock = right_dock_rect(h);
+    let mut fields: Vec<egui::Rect> = (h.query_all_by_role(egui::accesskit::Role::TextInput))
+        .map(|f| f.rect())
+        .filter(|r| dock.contains_rect(*r))
+        .collect();
+    fields.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    click_pos(h, fields[0].center());
+    settle(h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.event(egui::Event::Text(script.into()));
+    settle(h);
+}
+
+/// Ruling 66: Cancel All takes back every edit the section made since the
+/// areas were ticked (a choice, a script typed), on every area ticked and
+/// none other, as one step: one Redo brings both back, one Undo takes them
+/// again. Disabled while nothing is made, and again once the ticks change.
+#[test]
+fn cancel_all_takes_back_the_section_s_edits_as_one_step() {
+    let mut h = two_ticked("w2-cancel-all");
+    assert!(!cancel_all(&h), "nothing made yet: disabled");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    on_enter(&mut h, "my_enter");
+    key(&mut h, Key::Tab);
+    let made = (Some(0), Some(1), "my_enter".to_string());
+    let before = (Some(1), Some(0), String::new());
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a), made, "{a}: both edits made");
+    }
+    assert!(cancel_all(&h), "edits made: enabled");
+    press_cancel_all(&mut h);
+    for a in ["area0000", "area0001", "area0002"] {
+        assert_eq!(fields_of(&mut h, a), before, "{a}: both taken back");
+    }
+    assert!(!cancel_all(&h), "taken back: disabled");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a), made, "{a}: one Redo brings both back");
+    }
+    assert_eq!(fields_of(&mut h, "area0002"), before, "the unticked one untouched");
+    assert!(cancel_all(&h), "brought back: Cancel All again");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(fields_of(&mut h, "area0001"), before, "one Undo takes both again");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    // The ticks changed: what was made before is not the section's to take.
+    rail(&mut h, "Areas");
+    key(&mut h, Key::ArrowDown);
+    key(&mut h, Key::Space);
+    assert_eq!(ticked(&h).len(), 3);
+    assert!(!cancel_all(&h), "the ticks changed: disabled");
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a), made, "{a}: kept");
+    }
+}
+
+/// An edit made elsewhere: area0000's Tag set to `tag` (as another tab would).
+fn tag_elsewhere(h: &mut Harness<'_, Moonglow>, tag: &str) {
+    let are = ResKey::parse("area0000", ResType::ARE).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: Default::default(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    settle(h);
+    assert_eq!(tag_of(h, "area0000"), tag);
+}
+
+/// Ruling 66: Cancel All never takes back an edit it did not make. An edit
+/// made elsewhere on top (an area's Tag) disables it; the section's edits
+/// after it are taken back, that edit and the section's before it kept. An
+/// edit of the section taken back by hand with Undo is not taken back
+/// twice: Cancel All takes the section's edits before and after it and no
+/// more, and one Redo puts them back.
+#[test]
+fn cancel_all_never_takes_back_an_edit_it_did_not_make() {
+    let dark = (Some(0), Some(1), String::new());
+    let mut h = two_ticked("w2-cancel-others");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    tag_elsewhere(&mut h, "ELSEWHERE");
+    assert!(!cancel_all(&h), "an edit made elsewhere on top: disabled");
+    click_in_sight(&mut h, "Cycle Day and Night");
+    settle(&mut h);
+    assert_eq!(fields_of(&mut h, "area0001").0, Some(1), "cycling again");
+    press_cancel_all(&mut h);
+    assert_eq!(fields_of(&mut h, "area0001"), dark, "the edit after it taken back, not before");
+    assert_eq!(tag_of(&mut h, "area0000"), "ELSEWHERE", "the edit made elsewhere kept");
+    assert!(!cancel_all(&h), "nothing of the section's on top: disabled");
+
+    // Undo by hand, between two edits of the section, over one made
+    // elsewhere before them.
+    let mut h = two_ticked("w2-cancel-undo");
+    tag_elsewhere(&mut h, "BEFORE");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    on_enter(&mut h, "my_enter");
+    key(&mut h, Key::Tab);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(fields_of(&mut h, "area0000"), dark, "OnEnter undone by hand");
+    on_enter(&mut h, "other_enter");
+    key(&mut h, Key::Tab);
+    assert_eq!(fields_of(&mut h, "area0001"), (Some(0), Some(1), "other_enter".into()));
+    press_cancel_all(&mut h);
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a), (Some(1), Some(0), String::new()), "{a}: both back");
+    }
+    assert_eq!(tag_of(&mut h, "area0000"), "BEFORE", "the edit made elsewhere before kept");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    let both = (Some(0), Some(1), "other_enter".to_string());
+    assert_eq!(fields_of(&mut h, "area0001"), both, "one Redo: both again");
+}
+
+/// Ruling 66: a script typed and not yet left enables Cancel All, which
+/// takes it back with the rest; Escape stays Close (the dialog pattern:
+/// Escape presses what leaves).
+#[test]
+fn cancel_all_takes_back_what_is_still_typed() {
+    let mut h = two_ticked("w2-cancel-typed");
+    on_enter(&mut h, "half_typed");
+    assert!(cancel_all(&h), "typed: enabled");
+    press_cancel_all(&mut h);
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a).2, "", "{a}: what was typed taken back");
+    }
+    assert!(h.state().areas_together_ticked().is_some(), "the section stays");
+    key(&mut h, Key::Escape);
+    key(&mut h, Key::Escape);
+    assert!(h.state().areas_together_ticked().is_none(), "Escape: Close");
+}
+
+/// Ruling 66: the actions row in the dialog pattern's order (the main
+/// action, the others, what leaves): Open in Tab, Cancel All, Close; what
+/// Cancel All would take back is worked out when the history changes, not
+/// in each frame at rest.
+#[test]
+fn cancel_all_stands_between_open_in_tab_and_close_and_is_not_worked_out_each_frame() {
+    let mut h = two_ticked("w2-cancel-row");
+    let dock = right_dock_rect(&h);
+    let at = |h: &Harness<'_, Moonglow>, label: &str| {
+        (h.get_all_by_label(label).map(|n| n.rect()))
+            .find(|r| dock.contains_rect(*r))
+            .unwrap_or_else(|| panic!("no {label} in the dock"))
+    };
+    let (open, cancel, close) = (at(&h, "Open in Tab"), at(&h, "Cancel All"), at(&h, "Close"));
+    assert!(open.right() <= cancel.left() && cancel.right() <= close.left(), "the order");
+    assert!((open.center().y - cancel.center().y).abs() < 1.0, "one row");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    assert!(cancel_all(&h));
+    let before = h.state().areas_together_runs();
+    for _ in 0..10 {
+        h.hover_at(right_dock_rect(&h).center());
+        h.run_steps(1);
+    }
+    assert_eq!(h.state().areas_together_runs(), before, "not worked out each frame");
+    click_in_sight(&mut h, "Always Bright");
+    settle(&mut h);
+    assert!(h.state().areas_together_runs() > before, "worked out again as the history changed");
+}
+
+/// Ruling 66: Cancel All's Undo is the module's, never a hak editor's, even
+/// with the pointer over that editor (where Undo is the hak's): the hak
+/// keeps its file, the areas are back.
+#[test]
+fn cancel_all_is_the_module_s_undo_over_a_hak_editor() {
+    let dir = mg_testkit::scratch_dir("w2-cancel-hak-file");
+    let file = dir.join("mg_one.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
+    let mut h = two_ticked("w2-cancel-hak");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    settle(&mut h);
+    h.state_mut().haks[0].hak.add_files(std::slice::from_ref(&file));
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::AreasTogether));
+    settle(&mut h);
+    let items = |h: &Harness<'_, Moonglow>| h.state().haks[0].hak.items().len();
+    assert_eq!(items(&h), 1);
+    // (Pressed by its accessible action, the pointer over the hak's editor,
+    // where Undo would be the hak's.)
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run_steps(1);
+    h.get_by_label("Cancel All").click_accesskit();
+    settle(&mut h);
+    assert_eq!(items(&h), 1, "the hak's step kept");
+    for a in ["area0000", "area0001"] {
+        assert_eq!(fields_of(&mut h, a), (Some(1), Some(0), String::new()), "{a}: back");
+    }
+}
+
+/// Which of its two reasons Cancel All's tip gives, disabled: "none"
+/// (nothing edited here since the ticks) or "under" (an edit made
+/// elsewhere or Undo came after); "" for neither.
+fn cancel_reason(h: &mut Harness<'_, Moonglow>) -> &'static str {
+    let at = h.get_by_label("Cancel All").rect().center();
+    h.hover_at(at);
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    let shows = |h: &Harness<'_, Moonglow>, words: &str| h.query_by_label_contains(words).is_some();
+    let reason = match (
+        shows(h, "Nothing has been edited here since the areas were ticked"),
+        shows(h, "came after the edits made here"),
+    ) {
+        (true, false) => "none",
+        (false, true) => "under",
+        _ => "",
+    };
+    h.hover_at(egui::pos2(2.0, 2.0));
+    settle(h);
+    reason
+}
+
+/// Ruling 66: Cancel All disabled says why, each reason in its case:
+/// nothing edited here since the ticks, or Undo or an edit made elsewhere
+/// after the section's.
+#[test]
+fn cancel_all_says_which_of_its_reasons_keeps_it_disabled() {
+    let mut h = two_ticked("w2-cancel-reasons");
+    assert!(!cancel_all(&h));
+    assert_eq!(cancel_reason(&mut h), "none", "nothing made yet");
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert!(!cancel_all(&h));
+    assert_eq!(cancel_reason(&mut h), "under", "Undo came after");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    tag_elsewhere(&mut h, "ELSEWHERE");
+    assert!(!cancel_all(&h));
+    assert_eq!(cancel_reason(&mut h), "under", "an edit made elsewhere came after");
+}
+
+/// Ruling 66: a field of the section with the keyboard and nothing typed
+/// in it leaves Cancel All disabled, nothing to take back; typed in, it
+/// enables it.
+#[test]
+fn cancel_all_waits_for_a_field_with_the_keys_to_be_typed_in() {
+    let mut h = two_ticked("w2-cancel-focused");
+    on_enter(&mut h, "");
+    // (on_enter typed nothing over nothing: the field has the keys, its
+    // text as it took them.)
+    assert!(!cancel_all(&h), "focused, unchanged: disabled");
+    assert_eq!(cancel_reason(&mut h), "none");
+    h.event(egui::Event::Text("x".into()));
+    settle(&mut h);
+    assert!(cancel_all(&h), "typed in: enabled");
+}
+
+/// Ruling 66 with typed text on: a talk-table line typed elsewhere after
+/// the section's edits and undone is redone at its new depth once Cancel
+/// All made the section's steps one (`TypedState::joined`): Redo twice
+/// brings the section's edits and then the line back.
+#[test]
+fn cancel_all_keeps_a_typed_line_undone_above_it_for_redo() {
+    use mg_module::talk::{Line, Table};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("w2-cancel-typed-line");
+    let user = user_folder(&dir, &[]);
+    let path = areas_module(&dir, 4);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_CUSTOM_TLK, ExoString::from("mg_typed"));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let line = |text: &str| Line {
+        text: text.into(),
+        feminine: None,
+        sound: String::new(),
+        sound_length: 0.0,
+    };
+    let mut t = Table::create("mg_typed", &user.join("tlk"), Language::ENGLISH, true);
+    t.add_line(&line("The Keep")).unwrap();
+    t.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.settings.talk_typed = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 720.0);
+    settle(&mut h);
+    h.state_mut().settings.hide_palettes = true;
+    settle(&mut h);
+    open_together(&mut h);
+    for _ in 0..2 {
+        key(&mut h, Key::ArrowDown);
+        key(&mut h, Key::Space);
+    }
+    // Two edits in the section.
+    rail(&mut h, "Visual");
+    click_in_sight(&mut h, "Always Dark");
+    settle(&mut h);
+    on_enter(&mut h, "my_enter");
+    key(&mut h, Key::Tab);
+    let made = (Some(0), Some(1), "my_enter".to_string());
+    assert_eq!(fields_of(&mut h, "area0001"), made);
+    // A name typed elsewhere (the unticked area's), a line of the table.
+    let are = ResKey::parse("area0003", ResType::ARE).unwrap();
+    let name = LocString::from_text(Language::ENGLISH, Gender::Male, "Castle Krezk");
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: mg_edit::GffPath::root(),
+        label: "Name".into(),
+        value: Some(mg_gff::Value::LocString(name)),
+    };
+    let cmd = mg_edit::Command::new("Name", vec![edit]);
+    h.state_mut().actions.push(mg_ui::Action::ApplyTyped(cmd));
+    settle(&mut h);
+    let lines = |h: &Harness<'_, Moonglow>| {
+        let t = h.state().talk.as_ref().unwrap();
+        (t.len(), (t.len() > 1).then(|| t.line(1).text.clone()))
+    };
+    assert_eq!(lines(&h), (2, Some("Castle Krezk".into())), "typed into the table");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    assert_eq!(lines(&h).0, 1, "Undo takes the line");
+    assert!(cancel_all(&h), "the section's edits on top again");
+    press_cancel_all(&mut h);
+    assert_eq!(fields_of(&mut h, "area0001"), (Some(1), Some(0), String::new()));
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    assert_eq!(fields_of(&mut h, "area0001"), made, "one Redo: the section's edits");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    settle(&mut h);
+    assert_eq!(lines(&h), (2, Some("Castle Krezk".into())), "the second: the line back");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let back = ws.doc(&are).unwrap().root.locstring("Name").cloned().unwrap();
+    assert_eq!(back.strref.0, mg_core::StrRef::CUSTOM_FLAG + 1, "the name names it");
+}

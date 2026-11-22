@@ -50,7 +50,7 @@ fn group<'t>(h: &'t Harness<'_, Moonglow>) -> egui_kittest::Node<'t> {
 }
 
 /// The conversation's line chosen.
-fn chosen(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<Row> {
+pub(crate) fn chosen(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<Row> {
     h.state().dialog_views[&key].selected
 }
 
@@ -225,7 +225,7 @@ fn branching() -> mg_gff::Gff {
 
 /// The branching conversation `talk` open As Tabs in a window 1600 by
 /// 900, its tree with the keys.
-fn branching_window(name: &str) -> (Harness<'static, Moonglow>, ResKey) {
+pub(crate) fn branching_window(name: &str) -> (Harness<'static, Moonglow>, ResKey) {
     let dir = mg_testkit::scratch_dir(name);
     let path = sample_module(&dir);
     let key = ResKey::parse("talk", ResType::DLG).unwrap();
@@ -306,7 +306,7 @@ fn bookmarks_follow_a_line_moved_by_another_program() {
 
 /// The x of the vertical lines drawn in the theme's `guide` color, each
 /// with its span, as the last frame painted them.
-fn guides_drawn(h: &Harness<'_, Moonglow>) -> Vec<(f32, egui::Rangef)> {
+pub(crate) fn guides_drawn(h: &Harness<'_, Moonglow>) -> Vec<(f32, egui::Rangef)> {
     let t = mg_uikit::tokens(&h.ctx);
     guides_in(h, &[t.guide, t.guide_hover, t.guide_on_fill])
 }
@@ -429,6 +429,7 @@ fn a_conversation_s_hints_are_as_bound() {
         "Alt, Up: Move up",
         "*: Open branch",
         "Ctrl, F: Find",
+        "F5: Bookmark",
         words.as_str(),
     ];
     says(&mut h, &all, &[]);
@@ -527,7 +528,7 @@ fn a_conversation_s_hints_are_as_bound() {
 
 /// Frames until the Status Bar says each of `what` and none of `not`,
 /// each said one drawn in the bar, for ten seconds at most.
-fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
+pub(crate) fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
     let started = std::time::Instant::now();
     loop {
         let now = h.state().status_said();
@@ -689,7 +690,7 @@ fn a_long_list_of_bookmarks_scrolls() {
 /// A module with the conversations `names`, each `g`, open in `mode` in
 /// a window `size`, the window sizes kept `kept` (a kind's remembered
 /// window), their tabs opened in their order.
-fn window_with(
+pub(crate) fn window_with(
     mode: Mode,
     name: &str,
     names: &[&str],
@@ -1063,11 +1064,12 @@ fn a_bookmark_on_a_link_s_row_is_its_line_s() {
 }
 
 /// A tree forty lines deep (the review could not reach it): its deepest
-/// row, gone to from its bookmark and scrolled to sideways, has a guide
-/// for each of its forty levels, each where its level's arrow is from the
-/// tree's left edge, wherever the tree is scrolled to.
+/// row, gone to from its bookmark, has a guide for each of its forty
+/// levels, each where its level's arrow is from the tree's left edge (at
+/// 1920 the tree has room for them all beside the line's least room, a
+/// third of its width; the tree no longer scrolls sideways since M5's W4).
 #[test]
-fn a_deep_tree_draws_every_guide_scrolled_sideways() {
+fn a_deep_tree_draws_every_guide() {
     let mut g = new_dialog();
     let mut parent = Parent::Root;
     for i in 0..40 {
@@ -1079,7 +1081,7 @@ fn a_deep_tree_draws_every_guide_scrolled_sideways() {
         "ui-dialog-deep",
         &["talk"],
         &g,
-        egui::vec2(1600.0, 900.0),
+        egui::vec2(1920.0, 1080.0),
         Vec::new(),
     );
     let key = keys[0];

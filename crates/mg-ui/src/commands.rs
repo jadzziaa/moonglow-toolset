@@ -2113,6 +2113,9 @@ pub(crate) enum Choice {
     Entry(crate::plugin_kinds::Added, String, String),
     /// A project's command (`[commands]`), by its name.
     Project(String),
+    /// A key command of the editor in front (Options › Keyboard's other
+    /// groups): the conversation's Toggle Bookmark (M5's W4).
+    Editor(keys::Cmd),
 }
 
 /// A command as Quick Open lists it.
@@ -2178,7 +2181,15 @@ pub(crate) fn found(app: &Moonglow) -> Vec<Row> {
         enabled: c.run.is_some(),
         choice: Choice::Project(c.name),
     });
-    window.chain(plugins).chain(entries).chain(project).collect()
+    // (The editor in front's, by its group's name: the conversation's.)
+    let editor = crate::dialog_view::palette_commands(app).into_iter().map(|(cmd, enabled)| Row {
+        choice: Choice::Editor(cmd),
+        label: cmd.name().to_string(),
+        menu: cmd.group().name().to_string(),
+        key_id: cmd.id().to_string(),
+        enabled,
+    });
+    window.chain(editor).chain(plugins).chain(entries).chain(project).collect()
 }
 
 /// Runs a command as its menu row does (Quick Open's rows).
@@ -2191,6 +2202,7 @@ pub(crate) fn run_choice(app: &mut Moonglow, ctx: &egui::Context, choice: Choice
         }
         // (Saved first, asked as from File › Project.)
         Choice::Project(name) => app.actions.push(Action::ProjectCommand(name)),
+        Choice::Editor(cmd) => crate::dialog_view::run_palette_command(app, cmd),
     }
 }
 

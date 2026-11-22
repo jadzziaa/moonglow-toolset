@@ -1642,8 +1642,8 @@ fn the_hak_editor_shows_pictures_sounds_and_tables() {
         h.get_by_label(name).click_secondary();
         h.run();
         h.get_all_by_label("View").last().unwrap().click();
-        h.run();
-        h.run();
+        // (A picture decoded off the frame: waited for, M5's W6.)
+        settle(&mut *h);
         let shown = h.state().haks[0].viewing().unwrap();
         assert_eq!(shown.0.to_string(), name);
         shown.1

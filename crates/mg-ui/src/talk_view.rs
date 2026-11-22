@@ -1032,6 +1032,16 @@ pub const OPEN_FILE: &str = "Open File…";
 pub const NEW_FILE: &str = "New File…";
 pub const MODULE_S_TABLE: &str = "Module's Table";
 
+/// What the tab's closing question says of Save, for a table kept in the
+/// module (M5's W5): the table's Save puts its lines into the module.
+pub const CLOSE_SAVE_NOTE: &str =
+    "Save puts its lines into the module, and the module's Save writes them.";
+
+/// What the tab's closing question says of Don't Save, where lines were
+/// typed for the module's fields in other editors too.
+pub const CLOSE_TYPED_NOTE: &str =
+    "Don't Save keeps the lines typed in other editors: the module's Undo takes them back.";
+
 /// What the header asked that needs no table open, or that leaves it:
 /// Open File…, New File…, the exports and imports, Module's Table.
 fn run_asked(app: &mut Moonglow, which: Which, asked: &Asked) {

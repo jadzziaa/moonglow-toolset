@@ -3510,7 +3510,7 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
     h.run();
     page(&mut h, "Classes");
     h.run();
-    h.get_by_label("Levelup Wizard").click();
+    h.get_by_label("Levelup Wizard…").click();
     h.run();
     // Fighter 1 to 5, as captured in Aurora (aurora_levelup.rs).
     h.state_mut().levelup.as_mut().expect("the wizard").slots[0].1 = 5;
@@ -3552,7 +3552,7 @@ fn the_levelup_wizard_takes_a_class_past_level_sixty() {
     h.run();
     page(&mut h, "Classes");
     h.run();
-    h.get_by_label("Levelup Wizard").click();
+    h.get_by_label("Levelup Wizard…").click();
     h.run();
     assert_eq!(h.state().levelup.as_ref().expect("the wizard").slots[0].1, 70, "as it is");
     // One less comes back to the most the wizard gives; one more does not
@@ -3591,7 +3591,7 @@ fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
     h.run();
     page(&mut h, "Classes");
     h.run();
-    h.get_by_label("Levelup Wizard").click();
+    h.get_by_label("Levelup Wizard…").click();
     h.run();
     // Wizard 1, as captured in Aurora on a placed bandit.
     h.state_mut().levelup.as_mut().expect("the wizard").slots.push((10, 1, 0));

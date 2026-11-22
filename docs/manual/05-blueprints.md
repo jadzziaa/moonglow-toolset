@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Blueprints
-description: Blueprints - palettes, the blueprint editors and wizards, and instances.
+description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T03:53:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:08:19Z }
 ---
 
 # Blueprints
@@ -20,18 +20,27 @@ blueprints by type. Its header, from
 the top:
 
 - **The types**: a row of icons (tiles, creatures, doors, encounters,
-  items, placeables, sounds, stores, triggers, waypoints, prefabs),
-  one click each; the pointer over an icon names it, and the type shown
-  is named under the row. The icons go to a second and a third row in
-  a pane narrower than the eleven of them, and are a dropdown with their
-  names in a very narrow one. The type shown last is the one the
+  items, placeables, sounds, stores, triggers, waypoints, prefabs, the
+  game's invisible lights and the start location), one click each; the
+  pointer over an icon names it, and the type shown is named under the
+  row. The icons go to a second and a third row in a pane narrower than
+  the thirteen of them, and are a dropdown with their names in a very
+  narrow one (under 300 points), with Standard and Custom beside it.
+  **Lights** lists the game's invisible lights, placed with a click in
+  an area (and, where they are turned on, [lights of any color and
+  reach](04-areas.md#lights-of-any-color-and-reach)); **Start Location**
+  puts the module's start location where you next click in an area. The type shown last is the one the
   palettes open on the next time Moonglow starts, with what was typed
   in the search and the categories left open.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
-- **The search**, the pane's width; its clear button clears it. What is typed opens
-  every category with a match (close one again as you look); cleared,
-  each category is open or closed again as it was before the search,
-  in the List and the Gallery alike.
+- **The search**, the pane's width; its clear button clears it. It
+  shows the blueprints that have every word you type in their name,
+  resref or tag, in any order (`chest secret`); if none has them all,
+  close matches, letters in order (`lngswd` finds Longsword). What is
+  typed opens every category with a match (close one again as you look;
+  a blueprint it finds that arrives later, made, copied in or named so,
+  opens its category too); cleared, each category is open or closed
+  again as it was before the search, in the List and the Gallery alike.
 - **The list's toolbar**, right over the list, in this order: the two
   arrows open and close every category, the count says how many
   blueprints the list has (or the search found), the two view buttons
@@ -42,8 +51,11 @@ the top:
   for the slider (a Right Dock under about 370 points), it takes a row
   of its own under the others.
 - **Group by** and **Then by Category**, under the toolbar, where the
-  project groups the palette another way (below), and with the Gallery
-  on (**Category**, grayed, where the project offers no other).
+  project groups the palette another way (below), with the Gallery on,
+  and in a very narrow pane (**Category**, grayed, where the project
+  offers no other). In the very narrow pane the two arrows that open and
+  close every category end the Group by row instead of starting the
+  toolbar.
 
 - **Standard**: the game's blueprints (and those of the module's haks),
   in the game's categories.
@@ -97,6 +109,8 @@ module's palette take a few hundredths of a second. `mg find
 --palette-group Kind/Tables` lists a group's blueprints on the
 [command line](11-command-line.md).
 
+### Custom palettes and categories
+
 **The custom palettes change only where you change a blueprint.** A save
 leaves a palette as it is, byte for byte (and its nasher JSON file
 untouched), unless a blueprint of its type was added, changed, renamed or
@@ -136,9 +150,6 @@ it back); the blueprint stays where it is.
 
 A right click on a blueprint, on a category or in the room under the
 list offers **New Creature…** (or the kind shown): the wizard New… opens.
-A filter typed opens every category with a match; they can be closed
-again while it stands. A blueprint it finds that arrives later (made,
-copied in or named so) opens its category too. Home and End go to the list's top and bottom.
 
 **Categories…** (under **More**) edits the categories blueprints of the type
 shown go in: **Add Category**, **Add Group** (a branch that holds
@@ -154,7 +165,7 @@ follow it.
   while you hold it. The
   module's own categories show in the order you give them, in the
   palette and in the blueprints' Category lists (the game's show by
-  name, as in Aurora). With **Options › General › List a blueprint's
+  name, as in Aurora). With **Tools › Options › General › List a blueprint's
   categories alphabetically** on, the Category lists are in alphabetical
   order instead; the palette keeps yours.
 - A renamed category keeps its blueprints. **Remove** on one the
@@ -162,7 +173,7 @@ follow it.
   **Move and Remove** (or **Keep It**); with OK they are moved there
   and the category is removed, one step to undo, and Cancel moves
   nothing.
-- A name is written as the game reads text in its language (Options ›
+- A name is written as the game reads text in its language (Tools › Options ›
   Language), so that the DM's Creator in the game shows it as typed; a
   name with letters that text cannot hold is refused, and says so. For
   a name in each player's language, as the game's own categories have
@@ -174,22 +185,16 @@ follow it.
   category is still named by it, and Cancel adds none; until then the
   list shows the name, and several moved in one go take a line each.
 - **Use the Game's Categories** drops the module's list.
-- Aurora reads custom categories from palette files kept in a module too
-  (a builder who keeps them so reports it; Moonglow's own check against
-  Aurora is still to do), so the module's categories should show there
-  as they are. Whether Aurora shows a category that has a name written
-  out rather than a talk-table string was not tried.
+- Aurora reads custom categories from palette files kept in a module
+  too, so the module's categories should show there as they are.
+
+### Choosing, placing and the keys
 
 Choose a blueprint to place it in an area, or drag it there. Hover over
 one to see its resref, tag and, for creatures, doors, items and
 placeables, a picture; for the others, what there is to say of them (a
 sound's sounds, a trigger's kind, an encounter's creatures, a store's
 prices, a waypoint's map note).
-
-**The search** (the box above the list) shows the blueprints that have every
-word you type in their name, resref or tag, in any order (`chest secret`).
-If none has them all, it shows close matches, letters in order (`lngswd`
-finds Longsword).
 
 A row is one line: a name too long for the pane is cut short, and the
 pointer over it shows it whole, with its ResRef, tag and challenge
@@ -208,7 +213,8 @@ come to is selected, as by a click. **Left** on a blueprint goes to its
 category; on a category it closes it, or goes to the one it is in.
 **Right** opens a category, and goes into one that is open. **Enter**
 opens the blueprint's editor (a standard one is viewed), as a double
-click does, and opens or closes a category. While the
+click does, and opens or closes a category. **Home** and **End** go to
+the list's top and bottom. While the
 keys are on a category, the blueprint selected stays in hand. The keys
 are the palette's, wherever the pointer is (Ctrl+F goes to its search;
 there Escape clears what is typed, and Escape again, or Down, goes back
@@ -216,48 +222,54 @@ to the list), until the
 pointer is back in an area's view, where they move the camera again;
 W, A, S and D move it all along.
 
-The palette's buttons:
+### List and Gallery
+
+**List** and **Gallery**, the two view buttons of the list's toolbar,
+choose how the palette shows its blueprints. **Gallery** shows them as
+pictures in a grid rather than a list of names, to choose by eye (creatures, doors, items and
+placeables, the types with a model, and waypoints by their flags).
+Whether it is on is kept between sessions. With Gallery on, the
+toolbar has the pictures' **size** slider after the view buttons (it
+takes a row of its own where the pane is too narrow for it), the same
+size as the Appearance Gallery's, kept; the pictures grow to fill the
+pane's width. Each category's heading says how many blueprints it
+has. A picture has its name under it on up to two lines (a longer one
+ends in an ellipsis), and the ResRef or challenge rating on a third
+where Options show them. A picture is clicked, dragged and
+right-clicked as a name is; with the keys (click a picture or a
+category, or Down from the search), Up and Down go a row of pictures
+at a time and Left and Right a picture (Left from the first: to its
+category), Home and End to the list's first and last row (a category
+or a picture), Page Up and Page Down a list's height of rows (headings
+and closed categories count as rows), and the row they reach is
+brought into sight. While the Gallery has the keys with nothing held
+to place (a category clicked), the Status Bar lists its own (**Drag**
+Place, **Up** / **Down** Row of pictures, **Left** / **Right** One
+picture, **Click** Select, **Alt** + **Right Drag** Turn where the
+area's selection turns, **Ctrl** + **Drag** Move view); with a picture
+clicked, its blueprint is held to place, and the Status Bar shows
+placing's hints (**Placing** and the ResRef, **Click** Place,
+**Shift** + **Click** Place more, the turn) with the Gallery's arrows
+after them. The pointer resting on a picture shows it larger with its
+name, ResRef, Tag (read from its blueprint once, for the picture
+hovered) and challenge rating left of the Right Dock, never over the
+dock or the picture (above or below it where there is no room beside
+the dock), and not while something is dragged. In a window 2560
+points wide or more, the Gallery's column of the Right Dock is 480
+points wide (drag the line between the columns to change it; that
+width is kept). The pictures are made a few at a time as they come
+into sight, and only those in sight and the row after them. A shield is pictured from its front (its model
+faces its bearer), and a thing made for a wall from the side that
+shows it; the light goes round with the view. Each fills its picture
+as it stands, a long or tall thing too (a dragon, a banner).
+
+### The right-click menu
+
+A blueprint's right-click menu in the palette, and what its commands
+lead to:
 
 - **Edit**: open a custom blueprint in its editor (or double-click it).
-- **List** and **Gallery** (the two view buttons of the list's toolbar): Gallery shows the blueprints as pictures in a grid rather than a
-  list of names, to choose by eye (creatures, doors, items and
-  placeables, the types with a model, and waypoints by their flags).
-  Whether it is on is kept between sessions. With Gallery on, the
-  toolbar has the pictures' **size** slider after the view buttons (it
-  takes a row of its own where the pane is too narrow for it), the same
-  size as the Appearance Gallery's, kept; the pictures grow to fill the
-  pane's width. Each category's heading says how many blueprints it
-  has. A picture has its name under it on up to two lines (a longer one
-  ends in an ellipsis), and the ResRef or challenge rating on a third
-  where Options show them. A picture is clicked, dragged and
-  right-clicked as a name is; with the keys (click a picture or a
-  category, or Down from the search), Up and Down go a row of pictures
-  at a time and Left and Right a picture (Left from the first: to its
-  category), Home and End to the list's first and last row (a category
-  or a picture), Page Up and Page Down a list's height of rows (headings
-  and closed categories count as rows), and the row they reach is
-  brought into sight. While the Gallery has the keys with nothing held
-  to place (a category clicked), the Status Bar lists its own (**Drag**
-  Place, **Up** / **Down** Row of pictures, **Left** / **Right** One
-  picture, **Click** Select, **Alt** + **Right Drag** Turn where the
-  area's selection turns, **Ctrl** + **Drag** Move view); with a picture
-  clicked, its blueprint is held to place, and the Status Bar shows
-  placing's hints (**Placing** and the ResRef, **Click** Place,
-  **Shift** + **Click** Place more, the turn) with the Gallery's arrows
-  after them. The pointer resting on a picture shows it larger with its
-  name, ResRef, Tag (read from its blueprint once, for the picture
-  hovered) and challenge rating left of the Right Dock, never over the
-  dock or the picture (above or below it where there is no room beside
-  the dock), and not while something is dragged. In a window 2560
-  points wide or more, the Gallery's column of the Right Dock is 480
-  points wide (drag the line between the columns to change it; that
-  width is kept). The pictures are made a few at a time as they come
-  into sight, and only those in sight and the row after them. A shield is pictured from its front (its model
-  faces its bearer), and a thing made for a wall from the side that
-  shows it; the light goes round with the view. Each fills its picture
-  as it stands, a long or tall thing too (a dragon, a banner).
-- **Replace Selected › Replace Selected with This** (a blueprint's
-  right-click menu): the objects of that type selected in the area become
+- **Replace Selected › Replace Selected with This**: the objects of that type selected in the area become
   ones of this blueprint, made as [Update Instances](#update-instances) makes them
   (Aurora has no command to replace; its Update Instances is the same
   remaking): where they stand, facing as they face, with their visual
@@ -270,60 +282,6 @@ The palette's buttons:
   its transform, as ticking Static does. Locked objects are left. One
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.
-- **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
-  Appearances…** under **More** in the palette's Placeables): a tab
-  whose header holds **Placeables**, **Creatures** and **Doors** (which
-  table's appearances), **Find**, the size slider and the count ("838
-  appearances (appearance.2da)", or "12 of 838" while Find narrows it;
-  where the tab is narrow, the slider and the count go into the header's
-  **…** menu); under it a line says what a click does now, with **Use
-  the Selection** where it was opened for one object (with a placeable
-  selected in the area and the Placeables shown: "A click takes a
-  placeable to place. Right click gives it to the 1 placeable
-  selected."). Where Find leaves none, it says "No appearance matches." The picture
-  clicked (or the one the arrow keys moved to) shows in the Right Dock's
-  **Preview** (its model, still: the play button sets it moving) and
-  **Appearance** (its row: the name, label and model, and a creature's
-  model type, size, movement rate, personal space, height and blood
-  color, a placeable's sound, shadow size and static, a door's sound and
-  whether it blocks sight); floating, the tab takes the two panels into
-  its own window. The Status Bar names what the mouse does here (Click
-  Give the appearance or Take to place, Right Click Menu where the
-  menu's **Give to the Selection** gives it, Drag Place in an area,
-  Double Click and the wizard it opens; only those true at the moment)
-  and, at its right, the count the header says ("838 appearances", or
-  "12 of 838 appearances" while Find narrows it). Every appearance in
-  `placeables.2da`, `appearance.2da` or `genericdoors.2da` as a picture
-  (a creature's: the creature it gives appearances to as it is, its
-  head, colors, phenotype and what it wears, in each appearance; else a
-  plain body), those that are only an effect (flames,
-  sparks, shafts of light) too. It is a tab like any other: it opens in a
-  window of its own, and can be docked beside the area or maximized. A
-  click on a placeable's picture takes it to place, as the palette's
-  click does: it shows see-through where it would go as the pointer
-  moves over the area's view, Q and E turn it, and a click there places a
-  plain, static placeable of that appearance, named for it and of no
-  blueprint (Shift + click: another; right click or Escape: stop). Drag a
-  picture into the area's view to place one the same way. A creature's
-  or a door's picture, clicked, is given to the objects of that kind
-  selected in the area shown; a placeable's is given from its right-click
-  menu, **Give to the Selection**. The tab stays open to try another. A
-  **double click** makes a blueprint of the appearance: the Placeable or
-  Door Wizard (the Creature Wizard for a creature) opens with it, named
-  for it, and the blueprint's Properties open after, as for a palette's
-  blueprint. **Find** narrows it by name, and the
-  slider sets how large the pictures are at least: they grow to fill the
-  tab's width (the palette's Gallery has the same slider, and the size is
-  kept). A model the palettes don't offer can be chosen here. A picture
-  framed in red, marked **No model**, is a row with no model to draw (see
-  "An appearance with no model" below); the pointer resting on it says
-  why.
-- **Gallery…** beside the appearance in a placeable's, creature's or
-  door's Properties (a blueprint's, or a placed one's) opens the gallery
-  at that object's
-  own appearance, so its neighbours in the table are beside it; a click
-  gives it to that placeable (**Use the Selection** goes back to the
-  area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
   as its editor shows it (or double-click it). It can't be changed
   there: its fields are dimmed and take no typing, but their text can
@@ -334,122 +292,23 @@ The palette's buttons:
 - **Copy › Copy ResRef** and **Copy › Copy Tag**: the blueprint's, to
   paste (in a script), without opening it.
 - **Export…** (a custom blueprint, or the several selected): the Export
-  window with them chosen, as File › Export.
-- **Lists of choices** (an appearance, a race, a part, a palette
-  category, an item property's spell) work alike everywhere, the 2DA
-  editor's, Area Properties' and Advanced Search's too. One of more than 12 rows is in its
-  names' order (parts and costs keep their numbers' order, an item
-  property's values in Advanced Search too, categories the palette's
-  unless Options › General sorts them); one of more than 30 has a
-  **Filter** field above its rows, which narrows them by name (case and
-  accents aside: `arbol` finds `Árbol`) or to a row's number, and opens
-  at the row chosen, as quick with a table of tens of thousands of rows
-  as with a short one. They take
-  the arrow keys once clicked or reached with Tab: Up and Down choose
-  the one before and after, Page Up and Page Down ten away, Home and End
-  the first and last. Every other dropdown takes them the same way: a
-  creature's Alignment, the Mouse cursor and Text bubble, and those of
-  Options, Module Properties, the conversation, NUI, 2DA and tileset
-  editors, the wizards, the resource browser and Advanced Search, and a
-  described variable's dropdown of its values. Open, or with its box clicked,
-  a list of choices takes letters too, as lists do on every desktop
-  (a long list types into its Filter field instead): a letter goes to
-  the first choice that begins with it, the same letter again to the
-  next, and letters typed together to the one that begins with them all
-  (after a second's rest, typing begins anew). The lists of commands (Add
-  hak…) and of ticks (a 2DA's flags) take them too:
-  Down opens one, Up and Down (Home, End) go along its rows, and Enter or
-  Space does what a click there does (a command closes the list; a tick
-  leaves it open for the next). Escape closes a list and gives up the
-  keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
-  door's Appearance type and Generic appearance, show each appearance's
-  picture beside the row the pointer rests on (Appearance type's **Use
-  Generic Appearance**: the generic door chosen), and the chosen one's with
-  the pointer resting on the list's box: leave it there and the picture
-  follows the arrow keys. An item's lists of its model and parts (a
-  model, a weapon's parts' shapes and colors, an armor's parts) show the
-  item as it would be with each, its inventory icon beside its model,
-  the same way (on a woman where the item is shown on one); an armor
-  part's, that part alone beside them too. A creature's Appearance list
-  shows the creature as it is in each appearance: its head, colors,
-  gender, phenotype and what it wears (what it may not wear left off, as
-  the game does). A body or armor part's list
-  takes the mouse wheel too, with the pointer resting on it: down to the
-  next part, up to the one before, without opening it.
+  window with them chosen, as File › Export….
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered, after your builder code where you have one, named as
   Aurora's Edit Copy names it: without `nw_`, the first free number after
   the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
   The copy's window keeps it with **OK** (or its tab's close button, unless
-  **Closing a window cancels its changes** is on in Options › General);
+  **Closing a window cancels its changes (as Aurora)** is on in Tools ›
+  Options › General);
   its **Cancel** (or Escape) takes the copy back with what you changed in
   it, as one step that Undo takes back, so a copy made only to try
   something leaves nothing behind, as in Aurora. The module tree's
   **Copy…** of a blueprint, and an area object's **Add to Palette**
   (the new blueprint, and the object named for it), do the same. A
   wizard's blueprint is made at **Finish**, and stays when the window it
-  opens is cancelled, as in Aurora.
+  opens is canceled, as in Aurora.
 - **Delete**: remove a custom blueprint from the module.
-- **The model in the Preview panel:** a creature's, an item's, a
-  placeable's and a door's editor (a blueprint's, or a placed object's
-  Properties) brings the Right Dock's **Preview** panel with its own
-  model, alone, where the area's tab has the Palette and the Preview of
-  the palette's choice; in a floating window it is the window's own
-  right pane where the window leaves the form at least 972 points beside
-  it (a new window asks for the form's 980 and the pane's 281, as much
-  as the screen allows: a window narrower than that, as on a screen of
-  1920 or less beside the area's docks, or one left at a narrower size,
-  shows no pane, and the Preview button opens the model in a tab or
-  window of its own). A change
-  shows as you make it. Over the model is one header row:
-  **Animation**, **Play** or **Pause**, **Frame**, the **Lights**,
-  **Shadow** and **Shaders** switches and **Export Files…**, with what
-  has no room in its **More** (and **Pop Out**, always there); the
-  panel's own header says the model's name, its nodes, meshes and parts
-  and its supermodel. The Status Bar gives the view's ways beside it:
-  Drag to turn the view, Right Drag or Middle Drag to move it, Wheel to
-  zoom, Shift + Wheel to zoom finer. The **Preview** button (a
-  creature's Basic page, a placeable's and a door's, an item's) brings
-  the panel to the front, the dock unfolded; where none is drawn (the
-  area's Properties panel, a window too narrow for its pane) it opens
-  the model viewer in a tab or window of its own.
-- **An appearance with no model**: when the row an appearance names (a
-  placeable's `placeables.2da` row, a door's `doortypes.2da` row or a
-  generic door's `genericdoors.2da` row, a creature's `appearance.2da`
-  row) has no model to draw, a line in red under the field says why, and
-  the Preview panel says it too: the row isn't in the table,
-  it names no model, it is reserved (its model is `USER`: rows a table
-  keeps for builders), or the model it names is in neither the module,
-  its haks nor the game, as in "No model: plc_x99 (placeables.2da row
-  451, ModelName) isn't in the module, its haks or the game". The game
-  draws nothing for such an object, and Aurora's area view often crashes
-  on one: choose another appearance, or add the model to a hak. An
-  item's Base type name says so when it isn't a `baseitems.2da` row, and
-  a waypoint's Appearance type when its `waypoint.2da` row has no flag
-  to draw (the game draws no waypoint: the area view shows none for it).
-  A creature that is a body of parts (Human, Elf…) has no model when
-  its skeleton isn't there (`pmh0`: its gender, race letter and
-  phenotype, or the phenotype's default).
-  Past the appearance, the models the object's parts name are checked
-  too, a line under the field for each one that is in neither the
-  module, its haks nor the game, as in "No model: wswls_t_250 (its
-  ModelPart3) isn't in the module, its haks or the game": an item's
-  pieces (a weapon's three, a helmet's or a ring's one, a cloak's) and
-  an armor's parts (on a man or a woman of phenotype 0), and a body's
-  head and parts. The game draws the rest of the object without that
-  part. An item with no model of its own at all is drawn as its base
-  item's `DefaultModel` (as the game draws its own potions), which is
-  said only when that is missing too.
-  Verify (Build › Verify) reports the same objects by the same rule
-  (a part's model as a warning, placed or not), and also each model of
-  the module's or a hak's that an object names and that is there but
-  can't be read, with why: "Unreadable model: plc_crate9
-  (placeables.2da row 451, ModelName) is there and can't be read: …".
-  The Appearance lists mark each such row "(no model)" after its name,
-  so you see it before you choose it, and the palette's Gallery marks a
-  blueprint whose appearance has no model with **No model** in a red
-  frame where its picture would be.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
   shield from its front. A blueprint
@@ -457,7 +316,74 @@ The palette's buttons:
   encounter) shows its fields instead, and a store what it sells, page
   by page.
 - **Update Instances** (custom blueprints): remake the objects placed
-  from the blueprint.
+  from the blueprint ([below](#update-instances)).
+- **Add to Favorites** (or **Remove from Favorites**), **Find
+  References** (a **References** tab listing where the module places or
+  names it, each line going there), and **Remove from Palette** (above)
+  are on the same menu, with the
+  plugins' commands for the type last.
+
+### The Appearance Gallery
+
+**Tools › Appearance Gallery…**, or **All Appearances…** under
+**More** in the palette's Placeables, opens the **Appearance Gallery**:
+a tab
+whose header holds **Placeables**, **Creatures** and **Doors** (which
+table's appearances), **Find**, the size slider and the count ("838
+appearances (appearance.2da)", or "12 of 838" while Find narrows it;
+where the tab is narrow, the slider and the count go into the header's
+**⋯** (More)); under it a line says what a click does, with **Use
+the Selection** where it was opened for one object (with a placeable
+selected in the area and the Placeables shown: "A click takes a
+placeable to place. Right click gives it to the 1 placeable
+selected."). Where Find leaves none, it says "No appearance matches." The picture
+clicked (or the one the arrow keys moved to) shows in the Right Dock's
+**Preview** (its model, still: the play button sets it moving) and
+**Appearance** (its row: the name, label and model, and a creature's
+model type, size, movement rate, personal space, height and blood
+color, a placeable's sound, shadow size and static, a door's sound and
+whether it blocks sight); floating, the tab takes the two panels into
+its own window. The Status Bar names what the mouse does here (Click
+Give the appearance or Take to place, Right Click Menu where the
+menu's **Give to the Selection** gives it, Drag Place in an area,
+Double Click and the wizard it opens; only those true at the moment)
+and, at its right, the count the header says ("838 appearances", or
+"12 of 838 appearances" while Find narrows it). Every appearance in
+`placeables.2da`, `appearance.2da` or `genericdoors.2da` as a picture
+(a creature's: the creature it gives appearances to as it is, its
+head, colors, phenotype and what it wears, in each appearance; else a
+plain body), those that are only an effect (flames,
+sparks, shafts of light) too. It is a tab like any other: it opens as a
+tab or in a window of its own as **Tools › Options › General › Open editors**
+says, and can be docked beside the area or maximized. A
+click on a placeable's picture takes it to place, as the palette's
+click does: it shows see-through where it would go as the pointer
+moves over the area's view, Q and E turn it, and a click there places a
+plain, static placeable of that appearance, named for it and of no
+blueprint (Shift + click: another; right click or Escape: stop). Drag a
+picture into the area's view to place one the same way. A creature's
+or a door's picture, clicked, is given to the objects of that kind
+selected in the area shown; a placeable's is given from its right-click
+menu, **Give to the Selection**. The tab stays open to try another. A
+**double click** makes a blueprint of the appearance: the Placeable or
+Door Wizard (the Creature Wizard for a creature) opens with it, named
+for it, and the blueprint's Properties open after, as for a palette's
+blueprint. **Find** narrows it by name, and the
+slider sets how large the pictures are at least: they grow to fill the
+tab's width (the palette's Gallery has the same slider, and the size is
+kept). A model the palettes don't offer can be chosen here. A picture
+framed in red, marked **No model**, is a row with no model to draw (see
+"An appearance with no model" below); the pointer resting on it says
+why.
+
+**Gallery…** beside the appearance in a placeable's, creature's or
+door's Properties (a blueprint's, or a placed one's) opens the gallery
+at that object's
+own appearance, so its neighbors in the table are beside it; a click
+gives it to that object (**Use the Selection** goes back to the
+area's selection).
+
+### Several blueprints together
 
 **Ctrl+click** chooses several custom blueprints of one type, and
 **Shift+click** those from the one selected to the one clicked, in its
@@ -517,17 +443,6 @@ about a feat it lacks is asked of one creature only). The Levelup
 Wizard levels one creature at a time. Moving an item from one of them
 to another, and a held item's own Properties, are for one at a time.
 
-A custom category's right-click menu updates the instances of every
-blueprint in it, and **Edit › Update All Instances…** those of every
-blueprint the module has.
-
-Long lists are in the order of their names: a creature's feats and
-spells, and dropdowns of more than a dozen choices (appearances, base
-items, sound sets…). Short ones keep the game's order, where it means
-something (movement rates, difficulties). The Creature Wizard offers the
-racial types that have a name, and a monster's portraits whatever its
-gender.
-
 ### Update Instances
 
 Update Instances remakes each object placed from a blueprint, as Aurora's
@@ -535,13 +450,18 @@ does. It keeps where the object stands, which way it faces, a trigger's
 or encounter's outline and a visual transform. Everything else comes from
 the blueprint, including the object's tag, name, scripts, local variables
 and a door's transition. A window lists the objects it would change:
-- **Every area**, or **only** the area shown.
-- **Untick** objects to leave them as they are.
-- **Update** changes the rest as one undoable step, and the log lists
+- **Every area**, or **Only** the area shown (named).
+- **Untick** objects to leave them as they are; **All** and **None**
+  tick or untick every one.
+- **Update N** (the number ticked) changes them as one undoable step, and the log lists
   each object updated: its area, kind, tag and blueprint.
 - **List Again** shows when objects were added to or removed from one of
   the areas with the window open (the list is of the areas as they
   were): Update waits until the objects are listed again, all ticked.
+
+A custom category's right-click menu updates the instances of every
+blueprint in it, and **Edit › Update All Instances…** those of every
+blueprint the module has.
 
 An item's blueprint reaches the items that placed objects hold as well:
 in a chest, in a creature's pack and what it has equipped, on a store's
@@ -552,7 +472,9 @@ stolen, a store's endless supply); how many of it there are is the
 blueprint's, as in Aurora (a stack of twenty arrows becomes the
 blueprint's stack: untick it to keep it).
 
-New blueprints come from the **Wizards** menu (or the palette's New). Each
+### Wizards
+
+New blueprints come from the **Wizards** menu (or the palette's **New…**). Each
 type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
 category and a name, then opens the new blueprint's properties. The Name
@@ -561,7 +483,8 @@ Aurora makes them (after [your builder code](03-modules.md#your-builder-code),
 in a project where you have one): type others there to choose your own.
 A ResRef the module has already is refused there; one taken between that
 page and **Finish** gives the next free one from it, and no blueprint is
-replaced.
+replaced. The Creature Wizard offers the racial types that have a name,
+and a monster's portraits whatever its gender.
 
 Each wizard (the Creature Wizard and the blueprint wizards) shows a step
 list at its left ("Step N of M", with a check on the steps done, the
@@ -599,10 +522,12 @@ field, and at the right of a description's heading (which names the
 language edited, "Description English"), edits the text in every
 language.
 
-Each blueprint opens as a tab with Aurora's pages. Its header shows
-the blueprint's kind, its name and its ResRef (in a narrow window the
-ResRef goes first, then the name is cut short), and at its right end
-**OK** and **Cancel**. Its window opens 980 points wide where the
+Each blueprint opens with Aurora's pages, as a tab or in a window of
+its own as **Tools › Options › General › Open editors** says (a tab at
+first), or where you last put an editor of its kind. Its header shows the blueprint's kind (its icon), its
+name and its ResRef (in a narrow window the ResRef is left out first,
+then the name is cut short), and at its right end **OK** and
+**Cancel**. Its window opens 980 points wide where the
 screen has the room (Module and Area Properties 930), enough for the
 page list and a page's widest layout beside it. The pages are listed at the left, each with its
 icon: they stand one after another on one scroll, each under a bar with
@@ -617,13 +542,15 @@ creature's fourteen pages cost what the few in view do.
 
 A page's fields are grouped in sections under bold headings: a
 creature's Basic page has Identity (its names and tag), Race and
-Appearance, Palette (its challenge rating and category), Portrait and
+Appearance (race, appearance, phenotype, gender and sound set),
+Palette (its challenge rating, category and faction), Portrait and
 Conversation, with its Description across the page under them; its
 Statistics page has Ability Scores, Armor Class, Hit Points and Saves.
 Where the page is wide enough, its sections flow into columns at least
 440 points wide each, down the first column and on down the next (Tab
-goes in the same order): two columns in a docked editor at 1600, one in
-a window at its first width. Where the room beside the page list holds
+goes in the same order): two where the page has 912 points or more (a
+docked editor with a side dock folded, a wide window), one in a docked
+editor beside both docks at 1600 and in a window at its first width. Where the room beside the page list holds
 four columns of 480 points or more (a docked editor on a 3440-wide
 screen: six), the pages themselves stand side by side in columns, no
 more columns than the form has pages, each page under the
@@ -661,7 +588,7 @@ would ask for (its Total cost and Required level show each change), then
 press **Cancel** or Escape, and the item, its cost and level are as they
 were. (Aurora's window drops its changes when closed by its close button too.
 Moonglow's tab close button keeps them, as OK does, unless **Closing a window
-cancels its changes (as Aurora)** is on in Options › General: then
+cancels its changes (as Aurora)** is on in Tools › Options › General: then
 closing the window any way but OK (its tab's close button, the tab's **Close**,
 **Close Others** or **Close All**, Ctrl+W) does what its Cancel does,
 as one step that Undo takes back, and Edit Copy's copy closed so is not
@@ -673,8 +600,8 @@ together; the game's own
 blueprint, shown to look at, has **Close**. Module Properties, Area
 Properties (of one area or several) have them at their header's right
 end too, over their pages listed the same way; the conversation editor,
-the journal, the faction editor and the raw fields view have the same
-two under them. There Cancel sets back the fields and lists the window
+the journal and the faction editor have the same two at their header's
+right end, and the raw fields view under its fields. There Cancel sets back the fields and lists the window
 changed (a conversation's lines, a journal's categories), each field
 alone (an area's music, not its sounds with it); a file the window made
 (`module.jrl`, `repute.fac`) is gone again, and where a faction was
@@ -686,19 +613,20 @@ or with its window closed, it is set as it goes, and Cancel sets that
 back too. Fields Moonglow does not show are kept as they are.
 
 The editors of files saved when asked (a 2DA, a hak, a tileset, the
-talk table, a script) have **OK** and **Cancel** too: OK saves (a new
+talk table, a script) have **OK** and **Cancel** at their header's right
+end too: OK saves (a new
 hak asks where; a script's Save puts its text into the module) and
 closes the window; Cancel closes it as last saved, asking first where
 there are unsaved changes (**Save**, **Don't Save** or **Cancel**). The
 talk table's and a script's close buttons keep what is unsaved for the module's
-Save, as before; their Cancel drops it. (Closing a window cancels its
+Save; their Cancel drops it. (Closing a window cancels its
 changes leaves these editors' close buttons as they are.) A talk table found in a hak has
 **Close**.
 
 Shared parts:
 
 - **Name** and other text players see: localized strings (the **…**
-  button opens String Edit). With Options › Language › Put text typed
+  button opens String Edit). With Tools › Options › Language › Put text typed
   into the talk table on, what you type goes into the module's custom
   talk table as a line of its own, and the field names it: see [Text
   typed into the talk table](03-modules.md#text-typed-into-the-talk-table).
@@ -707,8 +635,8 @@ Shared parts:
   [Modules](03-modules.md)); Edit Copy makes a copy under another name.
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
-- **Variables…**: local variables the object starts with, in a window
-  whose edges are dragged to size it; the same list is the **Variables**
+- **Variables (N)…** (N: how many it has): local variables the object
+  starts with, in a window whose edges are dragged to size it; the same list is the **Variables**
   page of every Properties window (after Advanced; an item's after
   Properties), edited in place: what you change there is set when you
   leave the field you typed in (a variable added or deleted, a set
@@ -722,8 +650,8 @@ Shared parts:
   it: pick a color there, and its text is the color's. On the page, a
   color is set as its picker closes, one step of Undo, and while it is
   being picked the area view draws a placed object with it (its tint
-  shown as you drag across the picker). A placed object's opens from its right-click menu too, in
-  the area or the module tree. **Variable sets** carry variables from
+  shown as you drag across the picker). A placed object's opens from its right-click menu too
+  (**Variables…**), in the area or the module tree. **Variable sets** carry variables from
   one object to another, in any module. **Save Set…** keeps them under a
   name (a set of that name is replaced, which is said under the name);
   **Save to File…** saves them as a set file (`.vars.json`)
@@ -783,8 +711,11 @@ Shared parts:
   within the field's limits. Held down, an arrow goes on after a moment;
   **Up** and **Down** in the field do the same. A click, a key or a
   whole held run is one undoable step.
-- **Advanced**: the palette category, and **Update Instances** (every
-  type but waypoints; see above).
+- **Category**: the palette category, on Basic (an item's General): a
+  placed object's says "(placed in an area)".
+- **Advanced** (an item's Description) ends with **Variables (N)…**
+  (above) and, for a blueprint of every type but waypoints, **Update
+  Instances** ([above](#update-instances)).
 - **Visuals** (creatures, items, placeables, doors; triggers have the
   last part only): what Enhanced Edition's scripts can change about an
   object's look, set from the start. Aurora has no fields for these. The
@@ -838,7 +769,7 @@ Shared parts:
     names its own shaders (`customshadervs`, `customshaderfs`); declare
     each parameter in it too (`parameter int Name 0`). With
     [Shaders](04-areas.md#the-header) on, the area view and the
-    blueprint's view draw them (since Moonglow 3.10.0).
+    blueprint's view draw them.
   - **Tint**, at the top of a placeable's page, where its model has a
     material that takes one: The Domains of Dread's colorways, the color
     its scripts give a placeable's fabric as the module loads. A material
@@ -863,23 +794,136 @@ Shared parts:
     bubble (its name, or text that replaces it or goes before or after
     it), whether it is highlighted and named on mouse-over and with Tab,
     and how far away it can be seen (45 m unless set).
+- **Lists of choices** (an appearance, a race, a part, a palette
+  category, an item property's spell) work alike everywhere, the 2DA
+  editor's, Area Properties' and Advanced Search's too. One of more than
+  12 rows is in its names' order, as a creature's feats and spells are
+  (parts and costs keep their numbers' order, an item property's values
+  in Advanced Search too, categories the palette's unless Tools ›
+  Options › General sorts them), and a shorter one keeps the
+  game's order, where it means something (movement rates,
+  difficulties); one of more than 30 has a
+  **Filter** field above its rows, which narrows them by name (case and
+  accents aside: `arbol` finds `Árbol`) or to a row's number, and opens
+  at the row chosen, as quick with a table of tens of thousands of rows
+  as with a short one. They take
+  the arrow keys once clicked or reached with Tab: Up and Down choose
+  the one before and after, Page Up and Page Down ten away, Home and End
+  the first and last. Every other dropdown takes them the same way: a
+  creature's Alignment, the Mouse cursor and Text bubble, and those of
+  Options, Module Properties, the conversation, NUI, 2DA and tileset
+  editors, the wizards, the resource browser and Advanced Search, and a
+  described variable's dropdown of its values. Open, or with its box clicked,
+  a list of choices takes letters too, as lists do on every desktop
+  (a long list types into its Filter field instead): a letter goes to
+  the first choice that begins with it, the same letter again to the
+  next, and letters typed together to the one that begins with them all
+  (after a second's rest, typing begins anew). The lists of commands (Add
+  hak…) and of ticks (a 2DA's flags) take them too:
+  Down opens one, Up and Down (Home, End) go along its rows, and Enter or
+  Space does what a click there does (a command closes the list; a tick
+  leaves it open for the next). Escape closes a list and gives up the
+  keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
+  door's Appearance type and Generic appearance, show each appearance's
+  picture beside the row the pointer rests on (Appearance type's **Use
+  Generic Appearance**: the generic door chosen), and the chosen one's with
+  the pointer resting on the list's box: leave it there and the picture
+  follows the arrow keys. An item's lists of its model and parts (a
+  model, a weapon's parts' shapes and colors, an armor's parts) show the
+  item as it would be with each, its inventory icon beside its model,
+  the same way (on a woman where the item is shown on one); an armor
+  part's, that part alone beside them too. A creature's Appearance list
+  shows the creature as it is in each appearance: its head, colors,
+  gender, phenotype and what it wears (what it may not wear left off, as
+  the game does). A body or armor part's list
+  takes the mouse wheel too, with the pointer resting on it: down to the
+  next part, up to the one before, without opening it.
+- **The model in the Preview panel:** a creature's, an item's, a
+  placeable's and a door's editor (a blueprint's, or a placed object's
+  Properties) brings the Right Dock's **Preview** panel with its own
+  model, alone, where the area's tab has the Palette and the Preview of
+  the palette's choice; in a floating window it is the window's own
+  right pane where the window leaves the form at least 972 points beside
+  it (a new window asks for the form's 980 and the pane's 281, as much
+  as the screen allows: a window narrower than that, as on a screen of
+  1920 or less beside the area's docks, or one left at a narrower size,
+  shows no pane, and the Preview button opens the model in a tab or
+  window of its own). A change
+  shows as you make it. The model is framed whole whatever the panel's
+  shape (until you move or zoom the view), and stays whole, at the same
+  size, as the view turns; a new appearance is framed
+  anew. Over the
+  model is one header row:
+  **Animation**, **Play** or **Pause**, **Frame**, the **Lights**,
+  **Shadow** and **Shaders** switches and **Export Files…**, with what
+  has no room in its **⋯** (More), and **Pop Out**, always there; the
+  panel's own header says the model's name, its nodes, meshes and parts
+  and its supermodel. The Status Bar gives the view's ways beside it:
+  Drag to turn the view, Right Drag or Middle Drag to move it, Wheel to
+  zoom, Shift + Wheel to zoom finer. The **Preview** button (a
+  creature's Basic page, a placeable's and a door's, an item's) brings
+  the panel to the front, the dock unfolded; where none is drawn (the
+  area's Properties panel, a window too narrow for its pane) it opens
+  the model viewer in a tab or window of its own.
+- **An appearance with no model**: when the row an appearance names (a
+  placeable's `placeables.2da` row, a door's `doortypes.2da` row or a
+  generic door's `genericdoors.2da` row, a creature's `appearance.2da`
+  row) has no model to draw, a line in red under the field says why, and
+  the Preview panel says it too: the row isn't in the table,
+  it names no model, it is reserved (its model is `USER`: rows a table
+  keeps for builders), or the model it names is in neither the module,
+  its haks nor the game, as in "No model: plc_x99 (placeables.2da row
+  451, ModelName) isn't in the module, its haks or the game". The game
+  draws nothing for such an object, and Aurora's area view often crashes
+  on one: choose another appearance, or add the model to a hak. An
+  item's Base type name says so when it isn't a `baseitems.2da` row, and
+  a waypoint's Appearance type when its `waypoint.2da` row has no flag
+  to draw (the game draws no waypoint: the area view shows none for it).
+  A creature that is a body of parts (Human, Elf…) has no model when
+  its skeleton isn't there (`pmh0`: its gender, race letter and
+  phenotype, or the phenotype's default).
+  Past the appearance, the models the object's parts name are checked
+  too, a line under the field for each one that is in neither the
+  module, its haks nor the game, as in "No model: wswls_t_250 (its
+  ModelPart3) isn't in the module, its haks or the game": an item's
+  pieces (a weapon's three, a helmet's or a ring's one, a cloak's) and
+  an armor's parts (on a man or a woman of phenotype 0), and a body's
+  head and parts. The game draws the rest of the object without that
+  part. An item with no model of its own at all is drawn as its base
+  item's `DefaultModel` (as the game draws its own potions), which is
+  said only when that is missing too.
+  Verify (**Build › Verify Module**, or **Verify** on the Top Bar) reports the same objects by the same rule
+  (a part's model as a warning, placed or not), and also each model of
+  the module's or a hak's that an object names and that is there but
+  can't be read, with why: "Unreadable model: plc_crate9
+  (placeables.2da row 451, ModelName) is there and can't be read: …".
+  The Appearance lists mark each such row "(no model)" after its name,
+  so you see it before you choose it, and the palette's Gallery marks a
+  blueprint whose appearance has no model with **No model** in a red
+  frame where its picture would be.
 
 ### Creatures
 
-Basic (name, race, gender, sound set, faction, portrait, appearance,
-conversation; the sound set and the faction are on Advanced in Aurora;
+Basic (names and tag; race, appearance with its **Gallery…**,
+phenotype, gender and **Sound set**; challenge rating, category and
+**Faction** with **Edit Factions**, which opens the faction editor;
+portrait; conversation and **No interrupt**; the sound set and the
+faction are on Advanced in Aurora; the Sound set list is narrowed by
+gender (**Both**, Male, Female) and by type (**All** or a type of
+soundsettype.2da), as Aurora's is, and **Play Sample** beside it plays
+the set's Selected sound;
 the races are those of racialtypes.2da with a name, as in Aurora: a row
 with only a label, `DELETED` or CEP's `CEP_RESERVED`, is not listed),
 **Statistics** (abilities, saves, armor class, hit points, speed, each
 number with Aurora's arrows; the
 saves are the game's, also past level 20 with several classes, where
 Aurora's are not, and the abilities count the epic Great feats),
-**Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
+**Appearance** (body parts, colors, wings, tail), **Classes**
 (classes and levels, a cleric's domains and a wizard's school, the
 familiar and animal companion; **Levelup Wizard…** levels the creature up
 by the classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
 class and level, as the Feats page: see below), **Special Abilities**, **Inventory**, Scripts,
-Advanced, Visuals, Comments.
+Advanced, Variables, Visuals, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
@@ -916,7 +960,7 @@ that names none, or one portraits.2da lacks, leaves the portrait as it is.
   parts, it gets them (each 1, no belt or shoulders) and head 1 in the
   same step, since the game draws no body without them. A head of 0, or
   none, is no head: the game draws the neck alone. **Pop
-  Out**, in the Preview's More, moves the model to a tab or window of its
+  Out**, in the Preview's **⋯** (More), moves the model to a tab or window of its
   own (to keep elsewhere); the panel says so, and **Bring Back** returns
   it there.
 - **Feats** shows the feats the creature has beside the list to choose
@@ -1007,7 +1051,8 @@ A domain or school left **Not set** is the game's to choose.
   items **Add to Backpack**, **Equip** and **Properties**. Properties
   opens the item's blueprint: you can edit the module's blueprints and
   view the game's. **Find in Palette** chooses the item's blueprint in
-  the palette on the left. It looks in the standard palette first, then
+  the page's item palette (at the slots' left, or over them in a narrow
+  window). It looks in the standard palette first, then
   the custom one. It opens the blueprint's category, scrolls the tree to
   it, and clears any search that hides it. It is grayed out if the
   blueprint is in neither palette, for example because the blueprint was
@@ -1017,7 +1062,8 @@ A domain or school left **Not set** is the game's to choose.
 - **Between inventories, and within one:** drag an item from one object's
   inventory (a creature's backpack or equipment, a placeable's contents,
   a store's page) onto another's list or a creature's slot to move it
-  there, as it is; hold Ctrl as you let go to copy it instead (a copy of
+  there, as it is (onto a store, to the page its kind goes on: see
+  [Stores](#stores)); hold Ctrl as you let go to copy it instead (a copy of
   it as it is; from the game's blueprint, shown to look at, it is always
   a copy). An item carried from a placed object to a blueprint is
   made from its blueprint there, as a blueprint holds only that (and the
@@ -1069,8 +1115,10 @@ A domain or school left **Not set** is the game's to choose.
   its categories are the custom palette's (no Familiars or Summoned
   Monsters, as in Aurora); and its Name page takes a ResRef and Tag of
   your own.
-- **Portraits…** chooses the portrait from the game's, by race and
-  gender: **Select Portrait** opens at the one the object has, its
+- **Portraits…** chooses the portrait from the game's: **Select
+  Portrait** shows **Characters and Creatures**, **Placeable Objects and
+  Doors** or **Plot Characters**, narrowed by **Race** and **Gender**,
+  with the one chosen large at the right. It opens at the one the object has, its
   portraits in rows that fill the room (the space left over goes
   between them), in a well with its scroll bar. A click chooses one,
   the arrow keys, Home, End, Page Up and Page Down move the choice;
@@ -1102,10 +1150,10 @@ sides together); the item's model shows in the Preview panel beside the
 editor and follows each change; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and an armor's inventory icon is then the one a
 woman's inventory shows (the game has no woman's icon of a cloak). Shown
-on is Options › General's **Show armor and cloaks on a woman**, kept
+on is Tools › Options › General's **Show armor and cloaks on a woman**, kept
 when Moonglow closes: inventories, a store's pages, the palette's
 pictures and its Preview show armor and cloaks so too), **Properties** (the item
-properties its base item allows, with their parameters; **Search** over the list finds a property or one of its choices, a spell of Cast Spell, by every word typed), Visuals,
+properties its base item allows, with their parameters; **Search** over the list finds a property or one of its choices, a spell of Cast Spell, by every word typed), Variables, Visuals,
 Description, Comments. Moonglow recomputes the item's cost with every
 change, as the game computes it. A stack can exceed its base item's
 limit (Aurora stops there; the game keeps the stack whole). Charges go up
@@ -1134,10 +1182,12 @@ Moonglow keeps the ones an armor already has.
 
 Basic (name, appearance, initial state, hit points, saves, plot, static,
 usable, has inventory), **Lock** (locked, key, DCs), **Trap**, **Area
-Transition** (where a door leads: a door, area transition trigger or
-waypoint), Scripts,
-Advanced, Visuals, Description, Comments. A placeable with an inventory
-has an **Inventory** page. It can have one without being usable: players
+Transition** (a door's: where it leads, a door, area transition
+trigger or waypoint), Scripts, Advanced, Variables, Visuals,
+Description, Comments. A placeable's **Inventory** page, after Basic,
+holds what it holds where **Has inventory** is ticked (else it says
+there is none). A placeable can have an inventory without being
+usable: players
 can't open it, but scripts can reach what it holds.
 
 **Setup Area Transition…**, on a door's or an area transition trigger's
@@ -1231,23 +1281,27 @@ has none).
 ### Triggers and encounters
 
 Triggers: Basic (generic, area transition or trap), Area Transition, Trap,
-Scripts, Advanced, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
+Scripts, Advanced, Variables, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
 the fewest and most creatures it spawns, 1 to 8: a minimum typed above the
 maximum raises the maximum to it, as Aurora's does; respawns), **Creature List** (from the creature palette, with unique
 creatures marked; right-click a palette row and choose **Properties** to
-open the creature's blueprint), Scripts, Advanced, Comments.
+open the creature's blueprint), Scripts, Advanced, Variables, Comments.
 
 ### Stores
 
 Basic (name, sell markup and buy markdown, identify price, stolen goods,
-the most it pays for an item, its gold),
-Advanced, **Restrictions** (base items the store will not buy, or will
-only buy), Comments, and the **Inventory** in its store pages (Armor,
+the most it pays for an item, its gold), the **Inventory**, Advanced,
+Variables, **Restrictions** (base items the store will not buy, or will
+only buy) and Comments. The Inventory stands in its store pages (Armor,
 Weapons, Potions & Scrolls, Rings & Amulets, Miscellaneous), each item
 optionally infinite, and listed with what the store sells it for and
 buys it for: its cost at the store's sell mark up and buy mark down,
 rounded down and 1 gp at the least, as Aurora's Inventory shows them (a
-buyer's Appraise is the game's to add).
+buyer's Appraise is the game's to add). An item added, pasted, dropped
+from the palette or dragged in from another inventory goes on the page
+its kind belongs on, whichever page is shown (a sword dropped on Potions
+& Scrolls goes to Weapons), and that page is then shown; one moved in
+from another store keeps its own infinite mark.
 
 Wherever items are added from the item palette (a store's or a
 placeable's inventory, a creature's backpack), the item chosen in the
@@ -1261,14 +1315,12 @@ Basic (the sounds, volume, **Play** and **Stop** to hear them),
 **Positioning** (everywhere in the area, or from a place, with its
 distances), **Advanced** (active, play style: once, repeating or seamlessly
 looping; random or in order; interval and its variation; times of day;
-pitch and volume variation), Comments.
+pitch and volume variation), Variables, Comments.
 
 ### Waypoints
 
-Basic (name, tag, appearance, map note), Advanced, Description, Comments.
-
-Right-click a blueprint in a palette › **Find References** to see where
-the module places or names it.
+Basic (name, tag, appearance, map note), Advanced, Variables,
+Description, Comments.
 
 ## Instances
 
@@ -1283,7 +1335,10 @@ page stands its item palette over its slots). There is no OK or Cancel: each cha
 module's at once, one step that **Edit › Undo** (Ctrl+Z) takes back.
 Several objects of one type selected are edited together (each field
 changed is set on each; ≠ marks where they differ); a selection of
-several types says so and shows no fields. In an area another builder
+several types says so and shows no fields. With nothing selected the
+panel says how to choose ("Click an object to see its properties here,
+or drag a box over several of one type."); with the start location
+selected, that its menu's **Adjust Location…** places it exactly. In an area another builder
 holds, in a project that keeps those read-only, the fields are only
 looked at.
 
@@ -1297,9 +1352,20 @@ pages fit its width: the fields fill it, the rows of several controls
 wrap, and a page's tables stand their columns under one another (a
 creature's ability scores show each total and bonus as "12 (+1)", the
 racial modifier in its tip). With the keyboard on the pages' icons (F6),
-Up and Down show the page before or after. **Open in Tab**, at the
+Up and Down show the page before or after. In the wide layout (a window
+2560 points wide or more, [The main window](02-main-window.md)) the
+panel shows every page on one scroll instead, each under its heading
+in the icons' order, and the icons are its index: the page at the top
+is marked, a page clicked comes to the top (the page at the top
+clicked again brings its heading back), the wheel scrolls through
+them all, and Tab goes from page to page, the field it reaches scrolled
+into sight. Only the pages in sight are drawn. The page at the top is
+kept for each type of object, as the page shown is in a narrower
+window: another
+chest shows the place the last one was left at, and a narrower window
+shows that page alone. **Open in Tab**, at the
 panel's header's end (under 1400, at its top), and right-click ›
-**Properties** open the Properties window as before, a tab or a window as Options › General ›
+**Properties** open the Properties window, a tab or a window as Tools › Options › General ›
 Open editors says, with **OK** and **Cancel**; while it is open, the
 panel leaves those objects' fields to it. Changing an instance changes
 neither its blueprint nor other instances. **Reuse › Add to

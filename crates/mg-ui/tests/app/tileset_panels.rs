@@ -1384,3 +1384,330 @@ fn the_tile_s_3d_view_rests_until_played() {
     settle(&mut h);
     assert!(!view(&h).0, "paused again, at rest");
 }
+
+/// Steps the window until `done` holds (the watch of the open tilesets'
+/// files hears another program's write off the window's thread, and a
+/// burst once it is quiet a moment): at most ten seconds.
+#[track_caller]
+fn outside_wait(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Moonglow) -> bool) {
+    let started = std::time::Instant::now();
+    while !done(h.state()) {
+        assert!(started.elapsed().as_secs() < 10, "never: {what}: {:?}", h.state().log.entries);
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    settle(h);
+}
+
+/// Steps the window for `ms` milliseconds, as time goes by with nothing
+/// asked of it (what a watch would hear by then, it has).
+fn outside_quiet(h: &mut Harness<'_, Moonglow>, ms: u64) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(ms) {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    settle(h);
+}
+
+/// How many log lines have `what`.
+fn logged(h: &Harness<'_, Moonglow>, what: &str) -> usize {
+    h.state().log.entries.iter().filter(|(_, m)| m.contains(what)).count()
+}
+
+/// The watch begun on the tileset open, and its first hearing over.
+fn watched(h: &mut Harness<'_, Moonglow>) {
+    outside_quiet(h, 600);
+}
+
+/// A tileset's file changed by another program while it is open, with no
+/// unsaved change here (M5's W5, the owner's ruling of 2026-11-21: "reread
+/// on change"): the editor shows the file as it is now, as saved, its
+/// history gone, the page and the tile chosen kept; five writes in a burst
+/// are read once; a file written whole and moved into place, twice, is read
+/// each time; a tile chosen that the file no longer has is let go of; with
+/// Options' reloading off nothing is read.
+#[test]
+fn a_tileset_changed_outside_is_read_again() {
+    let (mut h, path, _) = tileset_window(Mode::Tabs, "ui-w5-reread", 1600.0, None, false);
+    h.state_mut().tilesets[0].tile = Some(2);
+    // (A step to undo, of a change since saved: not unsaved.)
+    h.state_mut().tilesets[0].change(|f| f.set("TILE0", "PathNode", "B"));
+    h.state_mut().tilesets[0].save().unwrap();
+    settle(&mut h);
+    assert!(doc(&h).has_undo() && !doc(&h).is_dirty());
+    watched(&mut h);
+    let model = |app: &Moonglow, n: usize| {
+        app.tilesets[0].tileset().map(|t| t.tiles[n].model.clone()).unwrap_or_default()
+    };
+    let theirs = |m: &str| {
+        SET.replace("Model=tcn01_a02_01", &format!("Model={m}")).replace("PathNode=A", "PathNode=B")
+    };
+    std::fs::write(&path, theirs("zzt01_b01_01")).unwrap();
+    outside_wait(&mut h, "read again", |app| model(app, 2) == "zzt01_b01_01");
+    let d = doc(&h);
+    assert!(!d.is_dirty() && !d.has_undo() && !d.has_redo(), "as saved, no history");
+    assert_eq!((d.page, d.tile), (Page::Tiles, Some(2)), "the page and the tile kept");
+    assert!(h.query_all_by_value("zzt01_b01_01").next().is_some(), "the form shows it");
+    assert_eq!(logged(&h, "read again (changed outside Moonglow)"), 1);
+    // A burst: read once.
+    for n in 0..5 {
+        std::fs::write(&path, theirs(&format!("zzt01_c0{n}_01"))).unwrap();
+    }
+    outside_wait(&mut h, "the burst's last", |app| model(app, 2) == "zzt01_c04_01");
+    outside_quiet(&mut h, 800);
+    assert_eq!(logged(&h, "read again (changed outside Moonglow)"), 2, "the burst read once");
+    // Written whole and moved into place, twice.
+    for m in ["zzt01_d01_01", "zzt01_d02_01"] {
+        let part = path.with_extension("part");
+        std::fs::write(&part, theirs(m)).unwrap();
+        std::fs::rename(&part, &path).unwrap();
+        outside_wait(&mut h, m, |app| model(app, 2) == m);
+    }
+    // The tile chosen gone from the file.
+    let two = theirs("x").replace("[TILES]\r\nCount=3", "[TILES]\r\nCount=2");
+    let two = &two[..two.find("[TILE2]").unwrap()];
+    std::fs::write(&path, format!("{two}[GROUPS]\r\nCount=0\r\n")).unwrap();
+    outside_wait(&mut h, "two tiles", |app| {
+        app.tilesets[0].tileset().is_some_and(|t| t.tiles.len() == 2)
+    });
+    assert_eq!(doc(&h).tile, None, "the tile chosen let go of");
+    // Reloading off: nothing read.
+    h.state_mut().settings.no_auto_reload = true;
+    settle(&mut h);
+    std::fs::write(&path, theirs("zzt01_e01_01")).unwrap();
+    outside_quiet(&mut h, 1200);
+    assert_eq!(set(&h).tiles.len(), 2, "not read with reloading off");
+}
+
+/// A tileset's file changed by another program while it has unsaved
+/// changes here: Moonglow's are kept and Changed Outside Moonglow asks
+/// which to keep, as for a script; meanwhile Save does not write over the
+/// file, and refused it asks again after Later. Keep Moonglow's: Save
+/// writes ours over theirs. Take the Files': the editor shows theirs.
+#[test]
+fn a_tileset_changed_outside_with_unsaved_edits_asks_which_to_keep() {
+    let (mut h, path, id) = tileset_window(Mode::Tabs, "ui-w5-conflict", 1600.0, None, false);
+    watched(&mut h);
+    let asked = |h: &Harness<'_, Moonglow>| h.query_by_label("Changed Outside Moonglow").is_some();
+    let theirs = SET.replace("Model=tcn01_a02_01", "Model=zzt01_f01_01");
+    let round = |h: &mut Harness<'_, Moonglow>, theirs: &str, ours: &str| {
+        h.state_mut().tilesets[0].change(|f| f.set("GENERAL", "Transition", ours));
+        settle(h);
+        std::fs::write(&path, theirs).unwrap();
+        outside_wait(h, "asked", |app| !app.outside_conflicts().is_empty());
+        assert_eq!(h.state().outside_conflicts(), std::slice::from_ref(&path));
+        assert!(asked(h), "Changed Outside Moonglow on screen");
+        assert!(doc(h).file.text().contains(&format!("Transition={ours}")), "ours kept");
+        assert_eq!(set(h).tiles[2].model, "tcn01_a02_01", "theirs not taken");
+    };
+    round(&mut h, &theirs, "5");
+    assert_eq!(logged(&h, "has unsaved changes here: Moonglow's is kept"), 1);
+    // Later, then Save: refused, asked again.
+    h.get_by_label("Later").click();
+    settle(&mut h);
+    assert!(!asked(&h), "Later");
+    h.get_by_label(TILESET_HEADER).get_by_label("Save").click();
+    settle(&mut h);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs, "not written over");
+    assert!(asked(&h), "asked again");
+    // Keep Moonglow's: Save writes ours.
+    h.get_by_label("Keep Moonglow's").click();
+    settle(&mut h);
+    assert!(!asked(&h) && h.state().outside_conflicts().is_empty());
+    assert!(doc(&h).is_dirty(), "not saved over theirs yet");
+    tool(&h, "Undo").click();
+    settle(&mut h);
+    assert!(doc(&h).is_dirty(), "undone to the text read: still not the file's");
+    tool(&h, "Redo").click();
+    settle(&mut h);
+    outside_quiet(&mut h, 800);
+    assert!(!asked(&h), "not asked again of the same file");
+    // (The file looked at again, as the watch's walk does: the change
+    // answered is not asked about again.)
+    std::fs::write(&path, &theirs).unwrap();
+    outside_quiet(&mut h, 900);
+    assert!(!asked(&h) && h.state().outside_conflicts().is_empty(), "answered once");
+    h.get_by_label(TILESET_HEADER).get_by_label("Save").click();
+    settle(&mut h);
+    let ours = std::fs::read_to_string(&path).unwrap();
+    assert!(ours.contains("Transition=5") && !ours.contains("zzt01_f01_01"), "ours written");
+    assert!(!doc(&h).is_dirty());
+    // (Changed again at once, before the watch hears the save: its own
+    // write, not another program's, asks nothing of the unsaved change.)
+    h.state_mut().tilesets[0].change(|f| f.set("TILE0", "PathNode", "C"));
+    outside_quiet(&mut h, 800);
+    assert!(!asked(&h) && doc(&h).tileset().is_some(), "our own save heard as no change");
+    assert!(doc(&h).is_dirty(), "the change after it kept");
+    h.state_mut().tilesets[0].undo();
+    settle(&mut h);
+    assert!(!doc(&h).is_dirty());
+    // Take the Files'.
+    round(&mut h, &theirs, "6");
+    h.get_by_label("Take the Files'").click();
+    settle(&mut h);
+    assert!(!asked(&h) && h.state().outside_conflicts().is_empty());
+    assert_eq!(set(&h).tiles[2].model, "zzt01_f01_01", "theirs taken");
+    assert!(!doc(&h).is_dirty() && !doc(&h).has_undo());
+    assert_eq!(h.state().tilesets[0].id, id);
+}
+
+/// A tileset's file emptied, cut off before its tiles or deleted by
+/// another program keeps the editor as it was (the last state that read),
+/// and the log says so once for each (what Check found stays current: it
+/// is of the editor's text, which is as checked); written whole again, it
+/// is read. What Check found follows the text read: said changed, then
+/// current again with the text checked put back.
+#[test]
+fn a_tileset_file_half_written_or_gone_keeps_the_last_good_state() {
+    let (mut h, path, id) = tileset_window(Mode::Tabs, "ui-w5-broken", 1600.0, None, false);
+    let finding = mg_module::doctor::Finding {
+        severity: mg_module::doctor::Severity::Error,
+        check: "set-model".into(),
+        source: "tileset".into(),
+        resource: ResKey::parse("zzt01", ResType::SET).unwrap(),
+        at: "[TILE1] Model".into(),
+        message: "model zzt01_a02_01 isn't in the haks or the game".into(),
+    };
+    tv::record_check(h.state_mut(), id, std::slice::from_ref(&finding));
+    watched(&mut h);
+    let before = doc(&h).file.text().to_string();
+    let cut = &SET[..SET.find("[TILES]").unwrap()];
+    for (n, broken) in ["", cut].into_iter().enumerate() {
+        std::fs::write(&path, broken).unwrap();
+        outside_wait(&mut h, "said", |app| {
+            app.log.entries.iter().filter(|(_, m)| m.contains("can't be read as a tileset")).count()
+                == n + 1
+        });
+        assert_eq!(doc(&h).file.text(), before, "the last good state kept");
+        assert!(!doc(&h).is_dirty());
+    }
+    std::fs::remove_file(&path).unwrap();
+    outside_wait(&mut h, "said gone", |app| {
+        app.log.entries.iter().any(|(_, m)| m.contains("can't be read now"))
+    });
+    assert_eq!(doc(&h).file.text(), before, "kept, the file gone");
+    assert_eq!(h.state().problems.sets()[0].stale, None, "of the editor's text, as checked");
+    // (Made and deleted again in a moment: still unreadable, not said
+    // again.)
+    std::fs::write(&path, SET).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    outside_quiet(&mut h, 900);
+    assert_eq!(logged(&h, "can't be read now"), 1, "said once");
+    let theirs = SET.replace("Model=tcn01_a02_01", "Model=zzt01_g01_01");
+    std::fs::write(&path, &theirs).unwrap();
+    outside_wait(&mut h, "read again", |app| {
+        app.tilesets[0].tileset().is_some_and(|t| t.tiles[2].model == "zzt01_g01_01")
+    });
+    assert_eq!(h.state().problems.sets()[0].stale, Some(Stale::Changed), "not what was checked");
+    std::fs::write(&path, SET).unwrap();
+    outside_wait(&mut h, "the checked text back", |app| {
+        app.tilesets[0].tileset().is_some_and(|t| t.tiles[2].model == "tcn01_a02_01")
+    });
+    assert_eq!(h.state().problems.sets()[0].stale, None, "current again");
+}
+
+/// A tileset the game data reads from the override, open in the tileset
+/// editor and drawn by an open area: changed by another program, the
+/// editor shows it and the area's view and the tiles palette read it again
+/// (the watch of the folders the game data reads).
+#[test]
+fn a_tileset_in_the_override_changed_outside_is_redrawn() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = mg_testkit::scratch_dir("ui-w5-override");
+    let user = user_folder(&dir, &["override"]);
+    let set = {
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let game = mg_resman::ResMan::for_game(&install).unwrap();
+        game.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap().into_owned()
+    };
+    let path = user.join("override/ttr01.set");
+    std::fs::write(&path, &set).unwrap();
+    let Some((mut h, area)) =
+        area_harness_with("ui-w5-override", "ttr01", None, 4, Some(user), &|_, _, _| {})
+    else {
+        return;
+    };
+    settle(&mut h);
+    tv::open_path(h.state_mut(), path.clone());
+    settle(&mut h);
+    watched(&mut h);
+    let tileset = mg_core::ResRef::from_str("ttr01").unwrap();
+    // (The tileset's tile the area's first tile is, as its view drew it.)
+    let drawn = |app: &Moonglow| {
+        let view = app.area_views.get(&area)?;
+        let tile = view.model.as_ref()?.tiles.first()?;
+        Some((tile.id, tile.model.clone()))
+    };
+    outside_wait(&mut h, "the area drawn", |app| drawn(app).is_some());
+    let (id, _) = drawn(h.state()).unwrap();
+    let parsed = mg_set::Tileset::parse(&set, mg_core::Codepage::default()).unwrap();
+    let model = parsed.tiles[id as usize].model.clone();
+    let text = String::from_utf8_lossy(&set).into_owned();
+    let section = text.find(&format!("[TILE{id}]")).unwrap();
+    let at = section + text[section..].find(&format!("Model={model}")).unwrap();
+    let mut theirs = text.clone();
+    theirs.replace_range(at..at + 6 + model.len(), "Model=ttr01_w5_00");
+    std::fs::write(&path, theirs).unwrap();
+    outside_wait(&mut h, "the editor's", |app| {
+        app.tilesets[0].tileset().is_some_and(|t| t.tiles[id as usize].model == "ttr01_w5_00")
+    });
+    outside_wait(&mut h, "the game data's", |app| {
+        app.tileset(tileset).is_some_and(|t| t.tiles[id as usize].model == "ttr01_w5_00")
+    });
+    outside_wait(&mut h, "the area's view", |app| {
+        drawn(app).is_some_and(|(_, m)| m.as_deref() == Some("ttr01_w5_00"))
+    });
+    assert!(logged(&h, "Reloaded override") >= 1, "the override read again");
+}
+
+/// Text typed into a tileset's field and not yet set when its file changes
+/// outside is set first, so that it counts as an unsaved change: kept, and
+/// asked about (Changed Outside Moonglow), never lost to the file's text.
+#[test]
+fn text_typed_when_the_file_changes_outside_is_kept_and_asked_about() {
+    let (mut h, path, _) = tileset_window(Mode::Tabs, "ui-w5-typed", 1600.0, None, false);
+    h.state_mut().tilesets[0].tile = Some(2);
+    settle(&mut h);
+    watched(&mut h);
+    field_with(&h, "tcn01_a02_01").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    field_with(&h, "tcn01_a02_01").type_text("zzt01_typed");
+    settle(&mut h);
+    assert!(!doc(&h).is_dirty(), "typed, not yet set");
+    std::fs::write(&path, SET.replace("Model=tcn01_a01_01", "Model=zzt01_theirs")).unwrap();
+    outside_wait(&mut h, "asked", |app| !app.outside_conflicts().is_empty());
+    let t = set(&h);
+    assert_eq!(t.tiles[2].model, "zzt01_typed", "what was typed set and kept");
+    assert_eq!(t.tiles[0].model, "tcn01_a01_01", "theirs not taken");
+}
+
+/// Text typed into another tileset's field (its tab in front of the one
+/// whose file changed) keeps the keyboard and stays unset: the keyboard is
+/// taken only from a field of the editor whose file changed.
+#[test]
+fn text_typed_in_another_editor_keeps_the_keyboard_when_a_file_changes_outside() {
+    let (mut h, path, first) = tileset_window(Mode::Tabs, "ui-w5-typed-other", 1600.0, None, false);
+    let other = set_file(&Mode::Tabs.dir("ui-w5-typed-other-2"));
+    tv::open_path(h.state_mut(), other);
+    settle(&mut h);
+    let second = h.state().tilesets.iter().position(|d| d.id != first).unwrap();
+    h.state_mut().tilesets[second].page = Page::Tiles;
+    h.state_mut().tilesets[second].tile = Some(2);
+    settle(&mut h);
+    watched(&mut h);
+    field_with(&h, "tcn01_a02_01").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    field_with(&h, "tcn01_a02_01").type_text("zzt01_typed");
+    settle(&mut h);
+    std::fs::write(&path, SET.replace("Model=tcn01_a01_01", "Model=zzt01_theirs")).unwrap();
+    outside_wait(&mut h, "the first read again", |app| {
+        app.tilesets.iter().any(|d| {
+            d.id == first && d.tileset().is_some_and(|t| t.tiles[0].model == "zzt01_theirs")
+        })
+    });
+    assert!(h.ctx.memory(|m| m.focused()).is_some(), "the other's field keeps the keyboard");
+    assert!(!h.state().tilesets[second].is_dirty(), "its text not set by the change");
+}

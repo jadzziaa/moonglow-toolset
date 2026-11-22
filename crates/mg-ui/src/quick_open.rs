@@ -22,9 +22,10 @@
 //! nss`) ([`Query`]).
 //!
 //! Within a group (the rule [`rank`] keeps, held by the unit tests): first
-//! those that open in an editor or a viewer of their own, then those
-//! shown only as their bytes (a compiled script, a debug file, a texture,
-//! a sound: [`has_own_view`]), each half in the order that follows. The
+//! those that open in an editor or a viewer of their own (a picture and a
+//! sound among them), then those shown only as their bytes (a compiled
+//! script, a debug file, a walkmesh: [`has_own_view`]), each half in the
+//! order that follows. The
 //! whole of what is typed (its words joined by one space, case and
 //! accents aside) equal to a field, then a field that starts with it, then
 //! one where it starts a word (after a character that is no letter or
@@ -205,14 +206,16 @@ impl Query {
 
 /// Whether a resource opens in an editor or a viewer of its own: a tab of
 /// its kind (`Tab::for_resource`: a script, an area, a blueprint, a model,
-/// any other GFF's tree...), or, read-only, a 2DA's table or a text
-/// (`browser::resource_ui`); not one shown only as its bytes (a compiled
-/// script, a script's debug file, a texture, a sound, a walkmesh). Quick
-/// Open lists those first.
+/// any other GFF's tree...), or, read-only, a 2DA's table, a text, a
+/// picture or a sound (`browser::resource_ui`, the viewers since M5's W6);
+/// not one shown only as its bytes (a compiled script, a script's debug
+/// file, a walkmesh). Quick Open lists those first.
 pub(crate) fn has_own_view(key: ResKey) -> bool {
     Tab::for_resource(key).is_some()
         || key.restype == ResType::TWODA
         || crate::browser::TEXT_TYPES.contains(&key.restype)
+        || crate::viewers::is_picture(key.restype)
+        || crate::viewers::is_sound(key.restype)
 }
 
 /// An area's or a blueprint's name, shown, and folded to be found by.
@@ -1710,6 +1713,7 @@ fn why(app: &Moonglow, choice: &Choice) -> String {
         Choice::Window(id) => id.why_disabled(app).to_string(),
         Choice::Plugin(..) | Choice::Entry(..) if no_module => "Open a module first".into(),
         Choice::Project(_) => "The project's file gives this command nothing to run".into(),
+        Choice::Editor(_) => "Choose a line first".into(),
         // (An exporter for what is selected: `plugin_entry_enabled`.)
         Choice::Entry(kind, plugin, id) => {
             let entries = app.plugin_entries(*kind);
@@ -1750,7 +1754,7 @@ fn resource_hit(part: &Part, i: usize, game: bool) -> Hit {
 /// A command's row.
 fn command_hit(app: &Moonglow, ctx: &egui::Context, row: &commands::Row) -> Hit {
     let icon = match row.choice {
-        Choice::Window(_) | Choice::Project(_) => Icon::Command,
+        Choice::Window(_) | Choice::Project(_) | Choice::Editor(_) => Icon::Command,
         Choice::Plugin(..) | Choice::Entry(..) => Icon::Plugin,
     };
     Hit {
@@ -2377,19 +2381,20 @@ mod tests {
             assert_eq!(best, by_rule, "{typed}");
         }
         // (Those with a view of their own first, whatever their match: a
-        // compiled script and a texture after every source and blueprint,
-        // in the match's order among themselves.)
+        // compiled script after every source, blueprint and texture (a
+        // picture's viewer since M5's W6), in the match's order among
+        // themselves.)
         let (_, best) = game.find(&Query::new("tree"), &[], 8);
         let files: Vec<&str> = best.iter().map(|&i| game.file(i as usize)).collect();
         let order = [
             "tree.nss",
+            "tree.tga",
             "tree.utp",
             "zz_tree000.nss",
+            "zz_tree000.tga",
             "zz_tree000.utp",
             "tree.ncs",
-            "tree.tga",
             "zz_tree000.ncs",
-            "zz_tree000.tga",
         ];
         assert_eq!(files, order);
         // (Hidden: the module has it.)
@@ -2482,8 +2487,9 @@ mod tests {
     }
 
     /// What has a view of its own (a tab of its kind, a 2DA's table, a
-    /// text) and what opens only as its bytes, as `Tab::for_resource` and
-    /// the Resources panel's view have them.
+    /// text, since M5's W6 a picture's or a sound's viewer) and what opens
+    /// only as its bytes, as `Tab::for_resource` and the Resources panel's
+    /// view have them.
     #[test]
     fn what_opens_in_a_view_of_its_own() {
         for t in [ResType::NSS, ResType::ARE, ResType::UTC, ResType::DLG, ResType::MDL] {
@@ -2492,7 +2498,10 @@ mod tests {
         for t in [ResType::TWODA, ResType::TXT, ResType::SET, ResType::GIT] {
             assert!(has_own_view(key("x", t)), "{t:?}");
         }
-        for t in [ResType::NCS, ResType::NDB, ResType::TGA, ResType::DDS, ResType::WAV] {
+        for t in [ResType::TGA, ResType::DDS, ResType::PLT, ResType::WAV, ResType::BMU] {
+            assert!(has_own_view(key("x", t)), "{t:?}");
+        }
+        for t in [ResType::NCS, ResType::NDB, ResType::WOK] {
             assert!(!has_own_view(key("x", t)), "{t:?}");
         }
     }

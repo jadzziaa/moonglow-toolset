@@ -133,6 +133,9 @@ pub enum Cmd {
     DialogFind,
     /// The conversation editor's search, run again.
     DialogFindNext,
+    /// A bookmark put on the conversation's line chosen, or taken off (the
+    /// Node section's Bookmark; F5, as the script's Toggle Bookmark).
+    DialogBookmark,
     /// File › Close.
     Close,
     /// File › Exit.
@@ -170,7 +173,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 84] = [
+    pub const ALL: [Cmd; 85] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -231,6 +234,7 @@ impl Cmd {
         Cmd::DeleteLine,
         Cmd::DialogFind,
         Cmd::DialogFindNext,
+        Cmd::DialogBookmark,
         Cmd::Close,
         Cmd::Exit,
         Cmd::CloseTab,
@@ -329,6 +333,7 @@ impl Cmd {
             Cmd::DeleteLine => ("delete-line", Some("Delete Line"), Conversation),
             Cmd::DialogFind => ("dialog-find", Some("Find and Replace"), Conversation),
             Cmd::DialogFindNext => ("dialog-find-next", Some("Find Next"), Conversation),
+            Cmd::DialogBookmark => ("dialog-bookmark", Some("Toggle Bookmark"), Conversation),
             Cmd::Close => ("close", None, General),
             Cmd::Exit => ("exit", None, General),
             Cmd::CloseTab => ("close-tab", None, General),
@@ -451,6 +456,9 @@ impl Cmd {
             // finds again (Ctrl+F4, its key for closing the module, closes a tab here).
             Cmd::DialogFind => vec![k(CTRL, Key::F), k(CTRL, Key::R)],
             Cmd::DialogFindNext => vec![k(NONE, Key::F3)],
+            // (The script's Toggle Bookmark's: Aurora's conversation editor
+            // gives its Bookmark no key. M5's W4, the owner's ruling 28.)
+            Cmd::DialogBookmark => vec![k(NONE, Key::F5)],
             // (No key at first: Ctrl+F4, Aurora's for it, closes a tab.)
             Cmd::Close => Vec::new(),
             // Aurora's.

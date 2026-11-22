@@ -330,7 +330,7 @@ impl Moonglow {
         condition: bool,
     ) {
         let Some(game) = &self.game else {
-            self.log.error("The Script Wizard needs the game data (Tools > Options)");
+            self.log.error("The Script Wizard needs the game data (Tools › Options)");
             return;
         };
         let lists = Arc::new(mg_module::script_wizard::Lists::load(game));

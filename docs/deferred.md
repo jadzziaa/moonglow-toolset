@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T02:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T21:04:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -182,7 +182,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (676 tiles, 16,000 meshes) with the wheel zooming over all of it: 7.5
   to 9.6 ms a frame since 2 November (9.1 to 10.8 before;
   `frame_perf`'s `sound_ranges_frames_at_144`, named in its
-  `KNOWN_OVER`), its draws encoded in 6.1 ms (7.4); TDoD's synthetic
+  `KNOWN_OVER`; since 21 November, when M5's V3 opened the area with
+  its camera over its ground, about 34 m up, also the wheel of the nine
+  views after "close", which zooms out over all of it from where that
+  view left the camera: 8.6 to 10.3 ms, and its "all selected,
+  walkmesh" view, the whole area drawn from 120 m while turning: 11.4
+  to 13.0 ms, of which the overlays are about 2, both named there too),
+  its draws
+  encoded in 6.1 ms (7.4); TDoD's synthetic
   woods (33,000 meshes in sight, 25,000 draws of meshes mostly drawn
   once each) 14 to 31 ms, as before. Done that day: the lights' sets
   numbered as a mesh's lights are chosen and a mesh's choice found by
@@ -360,23 +367,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   that capture alone. Whether Moonglow's Properties window should sort
   them so too is not checked; the choice is to confirm. (S) (the review
   of November 2026, G8)
-- **A preview shown twice in a frame, the owner's call:** a 3D view
-  shown in two places in one frame (the Right Dock's Preview of the
-  palette's choice beside an area, and the same model's tab, or since
-  M4's U11 the same blueprint's editor floating in a window with its own
-  Preview in the window's pane: the tab or window keeps it, the panel's
-  body being drawn after the editor area since M3 T6, as the Preview
-  window was; or, more rarely, two forms of one blueprint open at once,
-  several edited together whose first it is and the blueprint alone,
-  whose own Previews show one view) is drawn in the first, and the
-  second says "The preview is shown elsewhere in the window." (the
-  review's B19), rather than
-  getting targets of its own. A blueprint's own Preview no longer meets
-  it beside its model's tab (Pop Out): it says "The preview is in a
-  window of its own." with Bring Back, as its Appearance page did. The
-  wording, and whether the second should draw too, are asked. (S) (the
-  review of November 2026, B19; restated by M4's U11, still the
-  owner's call)
 
 ## Bulk editing
 
@@ -911,6 +901,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   load order without `ashlw_033`. Waits on his hak list or a blueprint.
   (His armor showing only a head and pelvis was Beamdog's HD bodies,
   drawn whole since 1.34.1.) (S–M)
+- **Zoom in the picture viewer, the owner's call:** the hak editor's
+  Preview and a read-only tab show a picture with one viewer
+  (`viewers::Picture`, M5's W6). It is fitted to its room and never
+  enlarged, with no zoom, so a 2048 by 2048 texture is never seen at
+  1:1. W6's brief asked for zoom "by the viewer's own controls", but
+  the hak viewer has none. Adding zoom (the wheel, a 1:1 toggle,
+  panning) would go beyond the viewer the owner's ruling 49 said to
+  share. Asked: whether it gets zoom, and with which controls. (S–M)
+  (the review of M5, reviewer C, W6)
 
 ## The main window and its panes
 
@@ -1212,6 +1211,22 @@ contribution itself states as not done or not checked.
   `[TILE1869573190]` (one section, no hang). What to do with a file
   whose count lies is asked. (S) (what the fixers of the review of
   November 2026 saw on the way)
+- **A tileset kept in the module, changed, not redrawn in open areas:**
+  the areas and the Tiles palette draw a tileset from the game data
+  (`GameData`, the install, haks, override and development folders),
+  which a tileset changed outside in one of those is read again into
+  (M5's W5) with every area view reloaded; a `.set` kept inside the
+  module (or put into it) changes only the game data's module layer,
+  in place (`update_module_layer`, which forgets the tables for a 2DA,
+  the Appearance marks for a model and the drawn textures, not the
+  tilesets read nor the areas drawn from them), so an open area keeps
+  drawing the tileset as it was until it is opened again. Redrawing
+  them means dropping the game data's tileset and every area and
+  palette made from it on a module change too, which reloads every
+  open area for any `.set` change of the module's: a change to how the
+  module layer and the views meet, beyond what the answer asked (the
+  editor's own file, at any path, is read again).
+  (M) (the review of M5's W5)
 
 ## The install, starting and crashes
 

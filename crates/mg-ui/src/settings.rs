@@ -873,12 +873,18 @@ pub struct Settings {
     /// slider's; `None`: the usual size).
     pub tile_variant_side: Option<u16>,
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
-    /// the module tree (where it lists by name) and the palettes.
+    /// the palettes, and in the module tree (where it lists by name) the
+    /// ResRef dimmed after the name (`tree::RowWords`).
     pub name_resrefs: bool,
-    /// Options > General: Show tags beside names: `Name (tag)` in the
-    /// module tree, for blueprints and placed objects (a waypoint's name,
-    /// then its tag). A builder's ask.
+    /// Options > General: Show tags beside names: in the module tree, the
+    /// tags of blueprints and placed objects dimmed after their names (a
+    /// waypoint's name, then its tag), as the Outliner's. A builder's ask.
     pub tree_tags: bool,
+    /// Options > General: Show file extensions in the module tree:
+    /// blueprints, NUI windows, the journal and factions listed by their
+    /// file names (`guard.utc`), rather than their ResRefs alone (off, the
+    /// board's; the owner's ruling 7 of M5).
+    pub tree_extensions: bool,
     /// Options > General: Set the portrait with the appearance: a
     /// creature given another appearance takes the portrait its
     /// appearance.2da row names (`PORTRAIT`), where portraits.2da has
@@ -2498,14 +2504,19 @@ mod tests {
             assert!(!back.contains("toolbar_icons_only"), "written without it");
             let old = fields_of(text).expect("fields");
             let kept: Vec<_> = old.into_iter().filter(|(n, _)| n != "toolbar_icons_only").collect();
-            // (Two fields came after the file, from develop's Builders'
-            // asks: written at their defaults, the rest as it was.)
+            // (Three fields came after the file, two from develop's
+            // Builders' asks and M5's W1's: written at their defaults, the
+            // rest as it was.)
             let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
                 .expect("fields")
                 .into_iter()
                 .partition(|(n, _)| !kept.iter().any(|(k, _)| k == n));
-            let defaults = [("tree_tags", "false"), ("appearance_portrait", "false")]
-                .map(|(n, v)| (n.to_string(), v.to_string()));
+            let defaults = [
+                ("tree_tags", "false"),
+                ("tree_extensions", "false"),
+                ("appearance_portrait", "false"),
+            ]
+            .map(|(n, v)| (n.to_string(), v.to_string()));
             assert_eq!(added, defaults, "only the fields added since, at their defaults");
             assert_eq!(written, kept, "nothing else changed");
             // (Its settings as written: a few not their defaults.)

@@ -181,6 +181,44 @@ fn the_watch_stays_quiet_with_the_camera_to_the_sky() {
     picture(&mut h, "sky");
 }
 
+/// Medieval City 2 builds its ground 5 m above its tiles' height (0): a
+/// view brought down near the ground from the overview (whose target is
+/// at the tiles' height) has its camera under that ground, where nothing
+/// of it is drawn (its underside isn't) and nothing of it is to be
+/// expected. The watch expected the ground at the tiles' height, found
+/// none of it drawn and failed, blaming the driver (M5 V3). From above
+/// the ground, the ground is expected and found drawn.
+#[test]
+fn the_watch_stays_quiet_with_the_camera_under_a_raised_ground() {
+    let Some((app, rs, area)) = area_app("watch-raised", "tcm02", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    let mut h = watched(app, rs);
+    {
+        // Tilted down and zoomed in, as the mouse does, from a target at
+        // the tiles' height (as the overview put it before it was put on
+        // the ground; as Ctrl + Shift lowers it): the eye 1.3 m up, the
+        // ground at 5.
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target.z, o.pitch, o.distance) = (0.0, 0.16, 8.0);
+    }
+    let under = watch_for(&mut h, area, 10.0, |_, _| {});
+    eprintln!("under: {under:?}");
+    picture(&mut h, "under_raised_ground");
+    assert!(!failed(&under), "{under:?}");
+    assert!(under[3..].iter().all(|v| *v == Verdict::Quiet(Quiet::BelowFloor)), "{under:?}");
+    assert_eq!(h.state().renderer_check.trouble, None);
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.target.z, o.pitch, o.distance) = (5.0, 0.7, 30.0);
+    }
+    let above = watch_for(&mut h, area, 6.0, |_, _| {});
+    eprintln!("above: {above:?}");
+    assert!(above[2..].iter().all(|v| *v == Verdict::Quiet(Quiet::Drawn)), "{above:?}");
+    picture(&mut h, "above_raised_ground");
+}
+
 /// The game's shaders warming up (their programs made on the worker, from
 /// nothing: no cache) with every draw blanked meanwhile: no look counts
 /// while a mesh waits for a pipeline, nor for the first seconds after.

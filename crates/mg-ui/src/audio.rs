@@ -174,11 +174,19 @@ impl Moonglow {
             return false;
         }
         self.warn_silent(role, name, found, &data);
+        // (The Preview channel taken from a resource's viewer, which then
+        // says Play: one sound at a time.)
+        if channel == Channel::Preview {
+            self.viewer_sound = None;
+        }
         self.speaker.play(channel, Sound { name, data }, volume.clamp(0.0, 1.0), looped);
         true
     }
 
     pub fn stop_sound(&mut self, channel: Channel) {
+        if channel == Channel::Preview {
+            self.viewer_sound = None;
+        }
         self.speaker.stop(channel);
     }
 }

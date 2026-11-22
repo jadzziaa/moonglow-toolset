@@ -202,6 +202,9 @@ impl Moonglow {
         if self.thumbnails.reading() > 0 {
             return Some("pictures being read");
         }
+        if self.decodes.busy() {
+            return Some("a picture being decoded");
+        }
         if self.area_views.values().any(crate::area_view::AreaView::reading) {
             return Some("an area being read");
         }

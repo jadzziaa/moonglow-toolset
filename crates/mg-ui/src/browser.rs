@@ -89,6 +89,14 @@ pub struct Browser {
     /// An Export as Files into a folder that has some of the files: asked
     /// about before any is written over.
     pub(crate) exporting: Option<Exporting>,
+    /// The read-only tabs whose first bytes are shown in place of their
+    /// viewer (a picture, a sound, a model: the header's More's Show Bytes
+    /// or Show as Text, M5's W6), by key and layer, while the window runs.
+    pub(crate) bytes_shown: std::collections::HashSet<(ResKey, Option<String>)>,
+    /// The read-only tabs' pictures kept decoded, by key and layer, with
+    /// when each was last drawn: let go of a while after
+    /// ([`let_go_of_pictures`]).
+    pub(crate) pictures: std::collections::HashMap<(ResKey, Option<String>), f64>,
 }
 
 /// A 2DA's read-only view.
@@ -1022,6 +1030,16 @@ pub(crate) struct Viewed {
     /// Which reading this is, of all made ([`made`]): what is kept for
     /// its content (a 2DA's view) is this one's alone.
     made: u64,
+    /// Its first bytes as the tab shows them in place of its viewer (a
+    /// picture's, a sound's: Show Bytes), made once, when first asked.
+    bytes: std::sync::OnceLock<LongText>,
+}
+
+impl Viewed {
+    /// Its first bytes in hexadecimal, made once.
+    fn bytes(&self) -> &LongText {
+        self.bytes.get_or_init(|| hex(&self.data[..self.data.len().min(512)]).into())
+    }
 }
 
 /// A number no other reading of a resource has had: what is made from
@@ -1042,6 +1060,15 @@ enum Content {
     Text(LongText),
     Binary(LongText),
     Error(String),
+    /// A TGA, a DDS or a PLT, shown as the hak editor's Preview shows it
+    /// (`viewers`, M5's W6); decoded off the frame (made in
+    /// [`resource_ui`], which has the window).
+    Picture(Option<crate::viewers::Picture>),
+    /// A WAV or a BMU, played as the hak editor's Preview plays it.
+    Sound(std::sync::Arc<[u8]>),
+    /// A model, drawn in the model viewer; its text (a compiled model's
+    /// as it compiles from) made once, when Show as Text asks for it.
+    Model(std::sync::OnceLock<LongText>),
 }
 
 /// A text shown read-only, drawn by its lines in sight ([`LongText::ui`]):
@@ -1094,19 +1121,8 @@ impl LongText {
         {
             return jobs.clone();
         }
-        let whole = crate::script_view::highlight(&self.text, palette);
-        let mut jobs = vec![egui::text::LayoutJob::default()];
-        for section in &whole.sections {
-            let piece = &whole.text[section.byte_range.start.0..section.byte_range.end.0];
-            for (at, part) in piece.split('\n').enumerate() {
-                if at > 0 {
-                    jobs.push(egui::text::LayoutJob::default());
-                }
-                if !part.is_empty() {
-                    jobs.last_mut().expect("one").append(part, 0.0, section.format.clone());
-                }
-            }
-        }
+        // (Each line as the script editor lays it out: its pitch.)
+        let jobs = crate::script_view::highlight_lines(&self.text, palette);
         let jobs = std::sync::Arc::new(jobs);
         *kept = Some((*palette, jobs.clone()));
         jobs
@@ -1127,6 +1143,9 @@ impl LongText {
             None => egui::TextStyle::Monospace.resolve(ui.style()),
         };
         let (height, wide) = ui.fonts_mut(|f| (f.row_height(&font), f.glyph_width(&font, 'm')));
+        // (A script's lines the script editor's distance apart, as egui
+        // rounds them: `show_rows` counts the lines in sight by it.)
+        let height = palette.map_or(height, |p| p.row_height(ui.ctx().pixels_per_point()));
         let jobs = palette.map(|p| self.colored(p));
         ui.scope(|ui| {
             // (A line under the last, as one text's lines are.)
@@ -1165,6 +1184,26 @@ pub(crate) fn resource_count(app: &Moonglow, key: ResKey, layer: Option<&str>) -
         n => format!("{n} bytes"),
     };
     Some(format!("{key} from {}, {bytes}", v.origin))
+}
+
+/// The read-only tabs' pictures not drawn for a while (their tabs closed,
+/// behind others, their windows shut: as long as a model view keeps its
+/// targets, `model_view::UNSEEN_AFTER`) let go of with what was read of
+/// them; a tab shown again reads and decodes its picture anew. `now`:
+/// the window's clock.
+pub(crate) fn let_go_of_pictures(app: &mut Moonglow, now: f64) {
+    if app.browser.pictures.is_empty() {
+        return;
+    }
+    let after = crate::model_view::UNSEEN_AFTER;
+    let unseen: Vec<(ResKey, Option<String>)> = (app.browser.pictures.iter())
+        .filter(|(_, t)| now - **t > after)
+        .map(|(k, _)| k.clone())
+        .collect();
+    for at in unseen {
+        app.browser.pictures.remove(&at);
+        app.viewed.remove(&at);
+    }
 }
 
 /// The read-only GFF views' counts, wherever they are drawn (the tab, the
@@ -1214,6 +1253,16 @@ impl Viewed {
                     Ok(_) => Content::Error("the copy the game reads can't be read".into()),
                 },
             }
+        } else if crate::viewers::is_picture(key.restype) {
+            Content::Picture(None)
+        } else if crate::viewers::is_sound(key.restype) {
+            let data: std::sync::Arc<[u8]> = data.as_slice().into();
+            match mg_audio::Stream::open(data.clone()) {
+                Ok(_) => Content::Sound(data),
+                Err(e) => Content::Error(e.to_string()),
+            }
+        } else if key.restype == ResType::MDL {
+            Content::Model(std::sync::OnceLock::new())
         } else if key.restype == ResType::NSS {
             // (Shown and copied with plain newlines, as the script editor
             // has them; Copy to Module and Save copy the bytes.)
@@ -1225,7 +1274,7 @@ impl Viewed {
         } else {
             Content::Binary(hex(&data[..data.len().min(512)]).into())
         };
-        Some(Viewed { data, origin, content, made: made() })
+        Some(Viewed { data, origin, content, made: made(), bytes: Default::default() })
     }
 }
 
@@ -1286,12 +1335,24 @@ pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain, names: crate::ro_
 /// reads, or (`layer`, by its label) the copy that layer has, which a
 /// higher one overrides.
 pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: Option<&str>) {
-    let Some(game) = &app.game else { return };
+    let Some(game) = app.game.clone() else { return };
+    let game = &game;
     let at = (key, layer.map(str::to_string));
     let viewed = match app.viewed.get(&at) {
         Some(v) => v.clone(),
         None => match Viewed::load(game, key, layer) {
-            Some(v) => {
+            Some(mut v) => {
+                // (A picture decoded off the frame, a PLT from the game's
+                // palettes; a sound the game is silent on said, once: as
+                // the hak editor's Preview does, M5's W6.)
+                if let Content::Picture(p) = &mut v.content {
+                    let data: std::sync::Arc<[u8]> = v.data.as_slice().into();
+                    *p = Some(crate::viewers::Picture::decode(app, ui.ctx(), key, data));
+                    app.browser.pictures.insert(at.clone(), ui.input(|i| i.time));
+                }
+                if let Content::Sound(data) = &v.content {
+                    app.warn_silent(crate::audio::Role::Viewed, key.resref, key.restype, data);
+                }
                 let v = std::sync::Arc::new(v);
                 app.viewed.insert(at, v.clone());
                 v
@@ -1307,7 +1368,29 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
     };
     // (A copy's: what overrides it, which the game reads.)
     let over = layer.and_then(|_| game.resman.origin(&key)).map(str::to_string);
-    let (copy, save, edit_table) = resource_header(app, ui, key, layer, &viewed.origin);
+    // (A picture, a sound or a model: its first bytes, or a model's text,
+    // in place of it by the header's More, M5's W6.)
+    let toggle = match &viewed.content {
+        Content::Picture(_) | Content::Sound(_) => Some(crate::viewers::SHOW_BYTES),
+        Content::Model(_) => Some(crate::viewers::SHOW_TEXT),
+        _ => None,
+    };
+    let shown_at = (key, layer.map(str::to_string));
+    let mut bytes = app.browser.bytes_shown.contains(&shown_at);
+    let was = bytes;
+    let (copy, save, edit_table) = resource_header(
+        app,
+        ui,
+        (key, layer),
+        &viewed.origin,
+        toggle.map(|name| (name, &mut bytes)),
+    );
+    if bytes != was {
+        match bytes {
+            true => app.browser.bytes_shown.insert(shown_at),
+            false => app.browser.bytes_shown.remove(&shown_at),
+        };
+    }
     if let Some(over) = &over {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 4)).show(ui, |ui| {
             ui.weak(format!("Overridden by {over}, whose copy the game reads."));
@@ -1344,6 +1427,61 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: O
     }
     // A text by its lines in sight, a script's in the editor's colors.
     let salt = ("resource-text", key, layer);
+    // A picture, a sound, a model: the viewers the hak editor's Preview
+    // shows them with (M5's W6), or their bytes.
+    let tab = match layer {
+        None => Tab::Resource(key),
+        Some(layer) => Tab::ResourceCopy { key, layer: layer.to_string() },
+    };
+    // (A picture is kept while its tab is drawn, its bytes shown or not:
+    // let go of under Show Bytes, it was read and decoded anew each
+    // `UNSEEN_AFTER`, its work never done.)
+    if matches!(viewed.content, Content::Picture(_)) {
+        app.browser.pictures.insert((key, layer.map(str::to_string)), ui.input(|i| i.time));
+    }
+    match &viewed.content {
+        Content::Picture(_) | Content::Sound(_) if bytes => {
+            return viewed.bytes().ui(ui, salt, None);
+        }
+        Content::Picture(Some(picture)) => {
+            let room = ui.available_rect_before_wrap();
+            picture.ui(ui, key, room);
+            ui.allocate_rect(room, egui::Sense::hover());
+            return;
+        }
+        Content::Sound(data) => {
+            let room = ui.available_rect_before_wrap();
+            let by = crate::viewers::Player::Tab(tab);
+            crate::viewers::sound_ui(app, ui, room, by, key, data);
+            ui.allocate_rect(room, egui::Sense::hover());
+            return;
+        }
+        Content::Model(text) if bytes => {
+            let text = text.get_or_init(|| {
+                let rm = Some(&game.resman);
+                model_text(key, &viewed.data, rm)
+                    .or_else(|| {
+                        is_text(key.restype, &viewed.data)
+                            .then(|| game.codepage().decode(&viewed.data).into_owned())
+                    })
+                    .unwrap_or_else(|| hex(&viewed.data[..viewed.data.len().min(512)]))
+                    .into()
+            });
+            return text.ui(ui, salt, None);
+        }
+        Content::Model(_) => {
+            use crate::model_view::{Shown, Source};
+            let source = match layer {
+                None => Source::Resource(key),
+                Some(layer) => Source::Copy { key, layer: layer.to_string() },
+            };
+            // (Paused at first, as the hak editor's Preview's.)
+            let shown = Shown { info: true, pop_out: false, restore: false, paused: true };
+            crate::model_view::panel(app, ui, source, shown);
+            return;
+        }
+        _ => {}
+    }
     match &viewed.content {
         Content::Script(text) => {
             let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
@@ -1395,9 +1533,9 @@ pub(crate) fn from_words(label: &str) -> String {
 fn resource_header(
     app: &Moonglow,
     ui: &mut Ui,
-    key: ResKey,
-    layer: Option<&str>,
+    (key, layer): (ResKey, Option<&str>),
     origin: &str,
+    bytes: Option<(&str, &mut bool)>,
 ) -> (bool, bool, Option<EditTable>) {
     use mg_uikit::header::{EditorHeader, Item};
     let t = mg_uikit::theme::tokens(ui.ctx());
@@ -1461,6 +1599,14 @@ fn resource_header(
         .left(Item::custom(kind.clone(), kind_w, |ui| {
             ui.add(egui::Label::new(egui::RichText::new(&kind).color(t.text_3)).selectable(false));
         }));
+    // (Always in More: a check row, the viewer shown while it is off.)
+    if let Some((name, on)) = bytes {
+        let tip = match name {
+            crate::viewers::SHOW_TEXT => "Show the model's text in place of its drawing",
+            _ => "Show its first bytes in place of it",
+        };
+        h = h.right(Item::toggle(None, name, on).tip(tip).in_more());
+    }
     if key.restype == ResType::TWODA {
         match layer {
             None => {

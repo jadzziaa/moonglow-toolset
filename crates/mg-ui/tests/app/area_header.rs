@@ -488,6 +488,50 @@ fn the_wide_row_unfolds_the_popovers_with_their_words() {
     assert_eq!(lighting.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
 }
 
+/// The Overlays popover's rows have no icons (the Main board; M5's W2,
+/// ruling 11): Grid, Minimap and Sound ranges paint what the walkmesh
+/// rows paint, a box and their words; in the wide row their toggles keep
+/// their icons beside their words, as WideArea draws them.
+#[test]
+fn the_overlays_rows_have_no_icons_and_their_toggles_keep_theirs() {
+    let Some((mut h, area)) = area_harness("header-overlays-icons") else { return };
+    // (Each unticked, so that each row's box paints alike.)
+    {
+        let v = h.state_mut().area_views.get_mut(&area).unwrap();
+        (v.grid, v.minimap, v.walkmesh, v.object_walkmesh, v.sound_ranges) =
+            (false, false, false, false, false);
+    }
+    settle(&mut h);
+    // (What a row paints but its words, in the popover.)
+    let painted = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let row = area_tool(h, name).rect();
+        (h.output().shapes.iter())
+            .filter(|c| !matches!(c.shape, egui::Shape::Text(_)))
+            .filter(|c| row.contains_rect(c.shape.visual_bounding_rect()))
+            .count()
+    };
+    let walkmesh = painted(&mut h, "Ground walkmesh");
+    for name in ["Grid", "Minimap", "Sound ranges", "Object walkmeshes"] {
+        assert_eq!(painted(&mut h, name), walkmesh, "{name} paints no icon");
+    }
+    close_area_popover(&mut h);
+    h.set_size(egui::vec2(3000.0, 800.0));
+    settle(&mut h);
+    assert_eq!(place(&h, "Overlays"), Some(Place::Unfolded), "{:?}", places(&h));
+    let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    for (name, words) in
+        [("Grid", "Grid"), ("Minimap", "Minimap"), ("Sound ranges", "Sound ranges")]
+    {
+        let toggle = h.get_by_label(AREA_HEADER).get_by_label(name).rect().width();
+        let text = (h.ctx)
+            .fonts_mut(|f| f.layout_no_wrap(words.into(), font.clone(), egui::Color32::WHITE))
+            .size()
+            .x;
+        let room = toggle - text;
+        assert!(room > 2.0 * mg_uikit::metrics::ICON, "{name}: its icon beside its words: {room}");
+    }
+}
+
 /// An Escape that closes a popover of the header's closes nothing else
 /// (the kit's popovers are not egui's popups, which the app's Escape rule
 /// asks about): the selection in the view under the pointer stays

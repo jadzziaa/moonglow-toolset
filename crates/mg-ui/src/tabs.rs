@@ -775,7 +775,14 @@ impl TabViewer for Viewer<'_> {
         // In a window of its own, the panels its editor brings there, at
         // its right and under it (`shell::window_panes`; docked, they are
         // the main window's docks').
-        if ui.layer_id().order != egui::Order::Background {
+        let floating = ui.layer_id().order != egui::Order::Background;
+        // (The window's tab's id, under which `window_panes` keeps its right
+        // pane's edge for the seam drawn after the editor, M5's W8.)
+        let pane = ui.unique_id();
+        if floating {
+            ui.ctx().data_mut(|d| {
+                d.remove::<crate::shell::RightEdge>(crate::shell::window_edge_id(pane))
+            });
             crate::shell::window_panes(self.app, ui, tab);
         }
         let framed = |viewer: &mut Self, ui: &mut Ui, tab: &mut Tab| {
@@ -787,6 +794,9 @@ impl TabViewer for Viewer<'_> {
         };
         if fits(tab) {
             framed(self, ui, tab);
+            if floating {
+                crate::shell::window_edge_seam(ui, pane);
+            }
             return;
         }
         // The others scroll when wider or taller, in a scroll area of
@@ -806,6 +816,9 @@ impl TabViewer for Viewer<'_> {
                 ui.allocate_ui_with_layout(room, layout, |ui| framed(self, ui, tab));
             },
         );
+        if floating {
+            crate::shell::window_edge_seam(ui, pane);
+        }
     }
 
     /// The tab's menu (before egui_dock's Eject): Rename… for a resource of

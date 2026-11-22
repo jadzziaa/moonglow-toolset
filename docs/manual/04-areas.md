@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:08:19Z }
 ---
 
 # Areas
@@ -11,9 +11,14 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-11-20T23:46:40Z }
 Double-click an area in the module tree (or right-click it › **View
 Area**) to open it in the **area viewer**, which draws its tiles and
 objects with the area's lighting, fog and sky, by day or night. Areas open
-looking straight down at their middle, north up, as in Aurora. The sky
+looking straight down at their middle, north up, as in Aurora, the
+camera aimed at the ground there, at its own height where an area's
+ground is built above its tiles' base, so that zooming in goes toward
+it and not under it (Numpad 5 aims there again). The sky
 is around the camera, as the game draws it. The game's camera stays
-within 25 m of what it looks at; where the view's camera is farther off
+within 25 m of what it looks at (the farthest a script can set it; a
+player enters with it at 20 m, which the fog is drawn for); where the
+view's camera is farther off
 (as when an area is seen whole), the sky is raised with it, so that the
 camera stands as high over the sky as the game's would at the same
 angle, and the horizon, and the fade in the fog's color under it, look
@@ -31,8 +36,9 @@ at the view's left, the compass at its top right. It never wraps:
 where the editor is narrow it gives way, a step at a time, and every
 control stays on the row, as an icon (its name in its tip) or in More:
 
-- Under 990 points of editor (a window about 1300 wide), it goes
-  compact: the ten Show toggles become one **Show** popover whose button
+- Under 990 points of editor (with the docks at their first widths, a
+  window under about 1300 points, or under about 1600 while the Left Dock
+  stands open beside it), it goes compact: the ten Show toggles become one **Show** popover whose button
   says how many kinds are shown ("Show 5 of 10", the count in gray), Day and Night one moon
   toggle (**Night**), and Lighting, Overlays, Audio and Area Properties
   icons.
@@ -73,8 +79,6 @@ now leads the hints, read as it moves). The view's keys (Q and E, G,
 Page Up and Page Down, B) act while the pointer is over the view; the
 hints say what they do there wherever the pointer is, and show nothing
 while a dialog, a menu or a job's window is in front, which takes them.
-They were a line of words under the area's toolbar before; the view
-has its height now.
 
 ### Show
 
@@ -166,7 +170,7 @@ then the shadows, the fog and how the scene is drawn.
     Creature shadows unticked, Light shadows is grayed out and no light
     casts, its tick kept, and ticking Creature shadows again brings them
     back as you left them.
-  - **Quality**: **Fast** or **High**, as in Options › Area (and kept
+  - **Quality**: **Fast** or **High**, as in Tools › Options › Area (and kept
     there): Fast, a shadow map standing in for the game's shadows; High,
     the game's own stencil shadow volumes, their edges sharp up close,
     dearer in the largest areas (see
@@ -185,10 +189,14 @@ then the shadows, the fog and how the scene is drawn.
   still cast their shadows, as in the game. Switched off (or with
   **Lighting** off) there are none; areas opened later open as you left
   them. Changes to the shadow fields in Area Properties show at once.
-- **Fog**: the area's fog. It is drawn as the game's camera (at most
-  20 m from the player) would see it from where the view looks, so a
+- **Fog**: the area's fog. It is drawn as the game's camera would see
+  it from where the view looks, standing where it does as a player
+  enters (20 m from the player; a script may set it farther, up to the
+  25 m above), so a
   view from farther off isn't lost in it; zoomed in nearer than 20 m,
   the fog starts nearer, as the game's does for a camera zoomed in.
+  The tile grid fades into the fog with the ground, but never wholly:
+  its far lines stay faintly there to count tiles by.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls, trees'
   crowns; the black caps and strips under and beside them stay, as in
@@ -216,7 +224,7 @@ then the shadows, the fog and how the scene is drawn.
   (it has not the focus), the views hold still and draw nothing, and go
   on as you come back to it: an area left open costs the GPU nothing in
   the background (unless **Keep animating behind other windows** is
-  ticked in [Options › Area](10-options.md)). An area whose tab is closed, or behind another tab,
+  ticked in [Tools › Options › Area](10-options.md)). An area whose tab is closed, or behind another tab,
   lets go of what its picture took of the GPU's memory after a couple of
   seconds, and of its models too once closed (it is read again, where
   its camera was, when it is opened again).
@@ -235,7 +243,7 @@ then the shadows, the fog and how the scene is drawn.
   some 8 cm either way in a strong wind and half that in a weak one; in
   no wind it stands still. Switched off, in every area view; it stays as
   you leave it.
-- **Tile Border**: past the area's edge, what the game draws there
+- **Tile border**: past the area's edge, what the game draws there
   (its Enable Tile Border option, on by default in the game; a module
   turns it off for an area with `SetAreaTileBorderDisabled`): the
   tileset's edge tiles (`<tileset>_edge.2da`), five deep beyond each
@@ -395,8 +403,7 @@ are grayed, and F10 does nothing (there is no tile mode there); Paint
 taken in another area shows neither its settings, its hints nor the
 palette's Brush section there. The header's right-click list hides Select Tiles and Paint
 from the shelf, and Reorient Camera and Go to Start Location from under
-the compass, as it hid them from the toolbar before (their keys and View
-› Go to Start Location still work).
+the compass (their keys and View › Go to Start Location still work).
 
 The **compass** at the view's top right shows where north is, its red
 needle turning with the camera. Under it:
@@ -454,7 +461,7 @@ Options › Keyboard):
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag, or Alt + drag with nothing selected | move the camera (with a selection, Alt + drag raises or lowers it, wherever the drag begins, as in Aurora); with Paint on, in Select Tiles and with a tile brush in hand, Alt + drag always moves it, and paints or selects nothing |
-| Middle drag, Alt + middle drag, with Options › Area › **Middle drag moves the view** | move the camera, turn it: the two middle drags swapped ([Options](10-options.md#view)) |
+| Middle drag, Alt + middle drag, with Tools › Options › Area › **Middle drag moves the view** | move the camera, turn it: the two middle drags swapped ([Options](10-options.md#view)) |
 | Alt + middle click | look at the ground clicked: the camera's focus goes there at once, at the ground's height (on its walkmesh, else on the tile's floor), its distance, turn and tilt kept, as Alt + middle click in Blender; a click on the sky or off the area does nothing |
 | Wheel, or a pinch on a touchpad | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
 | Sideways scroll (a tilted wheel, a second wheel, two fingers sideways on a touchpad) | move the camera left and right, as the screen has it |
@@ -534,7 +541,8 @@ While a handle is dragged, a chip beside it says the value it sets,
 with a strip in the handle's color at its left: the facing in degrees by
 the turning ring's triangle (`182°`), the angle by a tilt ring's grip
 (`Y Rotation 12°` for the red one, `Z Rotation 12°` for the green: the
-game's own field names, as Adjust Location has them, though the red ring
+game's own field names, Adjust Location's **Y rotation** and **Z
+rotation**, though the red ring
 turns the model about its X axis; within half a turn either way, as the
 field holds it, so that from 170 a turn of 30 reads `-160°`), the
 coordinate by an arrow's tip (`X 28.00 m`), and the size beside the
@@ -577,7 +585,7 @@ ring's place, red and green, the half of each that is behind the object
 about its X axis, the green one to lean it about its Y axis; the angle
 shows in degrees, and **Turn** snaps it. This is the rotation of EE's
 visual transform (the one **Adjust Location…** has as numbers): the red
-ring sets its **Y Rotation** and the green one its **Z Rotation**, which
+ring sets its **Y rotation** and the green one its **Z rotation**, which
 is how the game reads them (see Adjust Location below). It is the
 model that tilts, not the object: what it blocks (its walkmesh) stays
 as it was.
@@ -654,7 +662,7 @@ on the model `dag_invisible`) adds to the list.
 
 ### Lights of any color and reach
 
-With **Options › Areas › Lights of any color and reach, written into a
+With **Tools › Options › Area › Lights of any color and reach, written into a
 hak** on (off by default, so that nobody writes into a persistent
 world's haks without meaning to; a project's `moonglow.toml` can say it
 for the team: `[lights] generated`), **Add Light Here** and the
@@ -767,7 +775,7 @@ Aurora):
   changes what the object blocks: the game keeps a placeable's or a
   door's walkmesh where the object's position and Bearing put it, at
   its own size, whatever the visual transform (a static placeable's,
-  and one a script sets, alike), and **Object Walkmeshes** draws it
+  and one a script sets, alike), and **Object walkmeshes** draws it
   there. A placeable scaled up blocks no more than it did; for one that
   blocks more, its model needs a larger walkmesh, which **Position ›
   Bake Walkmesh to Transform…** makes (below). A static
@@ -778,7 +786,7 @@ Aurora):
   (in Properties, or Make Static) takes the transform off, as Aurora
   does, so a static placeable with one in its file was made elsewhere:
   the window says so, and Verify warns of it (`static-transform`), with
-  a **Take the transform off** button (since Moonglow 2.13.0).
+  a **Take the transform off** button.
   **Animation speed**, beside Scale, is how fast the model's
   animations play (1 as made, 2 twice as fast: the script's
   `OBJECT_VISUAL_TRANSFORM_ANIMATION_SPEED`). What a script can give an
@@ -846,7 +854,7 @@ Aurora):
     Transform** section in the Right Dock (not a window), which says what
     it will make before anything is written (the name, the row, the hak, the rows
     file, or an earlier bake taken again) and turns on **Object
-    Walkmeshes**, which draw the selection's walkmesh as it is (orange)
+    walkmeshes**, which draw the selection's walkmesh as it is (orange)
     and as baked (green). **Bake** makes it: one step to undo, which
     takes the hak and the rows file back too. Two placeables of one
     model and one transform (within a millimeter and a tenth of a
@@ -1108,7 +1116,7 @@ loaded last, which is the copy placed later, or the one in the area that
 comes later in the module's list of areas. A copied start waypoint, rental door or store then takes
 its original's place, or the original its copy's, with no error.
 
-With **Options › General › Show duplicate tags warning after a paste
+With **Tools › Options › General › Show duplicate tags warning after a paste
 or a copy** on, a change that puts a tag on more than one object of the
 module (its areas and the objects placed in them) is said in the log and
 the **Duplicate Tags** window: "KREZK_RENTAL_DOOR is now on two
@@ -1132,7 +1140,7 @@ placeable (scenery) never asks.
 The option is **off by default**: Aurora has no such warning, and
 builders put one tag on many objects on purpose (a spawn system's
 waypoints, generic triggers). **Don't warn again** in the window turns
-it off (Options › General turns it back on). A project that wants the
+it off (Tools › Options › General turns it back on). A project that wants the
 warning says so in its project file (below), which wins over the
 option: its `paste_warning` is followed whatever the option says, and
 the window then offers no Don't warn again. Where the project file
@@ -1195,8 +1203,7 @@ unique that is on two objects.
 
 A tag a script looks for in its own area only (a store's, which a
 vendor's script finds as the nearest of that tag) may be on one object
-of each area: the project names those in `[tags] unique_in_area` (since
-Moonglow 2.2.0). A paste then counts such a tag in the area it was
+of each area: the project names those in `[tags] unique_in_area`. A paste then counts such a tag in the area it was
 pasted into ("KZ_SQUARE_STORE_1 is now on two objects in kz_square (the
 project wants \*_STORE_\* unique in each area)"); one that is in other
 areas only is as meant, and said only where `paste_warning` is `"any"`,
@@ -1400,7 +1407,7 @@ as Aurora's Terrain tab does:
   Double-click a picture for the tile's view: its model to turn and zoom,
   and what the tileset says of it (each corner's terrain and height, each
   edge's crosser, its lights, loops, doors and sounds), with **Paint with
-  it**, and its textures ([A tile's textures](#a-tiles-textures)). Chosen from its picture, **Refine Tile** chosen next (it then
+  It**, and its textures ([A tile's textures](#a-tiles-textures)). Chosen from its picture, **Refine Tile** chosen next (it then
   reads **Refine Tile ->** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
@@ -1434,8 +1441,8 @@ as Aurora's Terrain tab does:
   painting is as above. A tile placed so is a tile like any other after:
   a terrain painted beside it chooses it again where its corners change.
   To raise or lower it, use Tile Properties' **Height**; to put in a
-  tile the Gallery doesn't show (a piece of a group), its **All Tiles**
-  ([Tiles](#tiles)).
+  tile the Gallery doesn't show (a piece of a group), its **All tiles
+  (ignore fit)** ([Tiles](#tiles)).
 - In the Gallery, **Features** and **Groups** are pictures too: each as
   it stands once placed in open ground, its tiles together with the tiles
   around that its placement changes (a castle's gate, a single tile, in
@@ -1547,10 +1554,11 @@ its commands, in place of the Select tool's Show toggles, Snap, Turn,
 Together and Onto Objects (the Show toggles wait in **More**):
 **Refine Tile** (the sparkles; T), **‹ Appearance ›** (Previous and
 Next Tile Appearance; Shift+N and N), **Rotate** (Rotate Tile; R, and
-Shift + click or Shift+R clockwise), then **Cut**, **Copy** and
-**Paste** tiles (Ctrl+X, Ctrl+C, Ctrl+V; Paste waits for tiles of this
-tileset copied, then a click places them), **Delete** (the bin; Delete,
-and the Eraser's X), and the **Tile Properties** toggle. They act on the
+Shift + click or Shift+R clockwise), then three icons joined, **Cut
+Tiles**, **Copy Tiles** and **Paste Tiles** (Ctrl+X, Ctrl+C, Ctrl+V;
+Paste waits for tiles of this tileset copied, then a click places
+them), **Delete Tiles** (the bin icon; Delete, and the Eraser's X), and
+the **Tile Properties** toggle. They act on the
 selected tiles as the tile menu's items and the keys do, each one step
 to undo, and are grayed with no tile selected. As the header narrows
 they give up their words, then move into More, as its other controls
@@ -1560,14 +1568,14 @@ tiles without selecting them.
 A right click on a tile opens the **tile menu**: **Next Tile
 Appearance**, **Previous Tile Appearance** and **Rotate Tile**, as the
 Tiles palette's tools of those names do (each one step to undo), then
-**Delete**, the plugins' commands for tiles, and last **Tile
-Properties…**. In Select Tiles they act on the selected tiles (each on
+**Delete** (in Select Tiles), the plugins' commands for tiles, and last
+**Tile Properties**. In Select Tiles they act on the selected tiles (each on
 its own), as the Tiles palette's three do when clicked with tiles
 selected; with a terrain brush or a tile tool chosen, on the tile
 clicked (and the menu starts with **Put Down** and the brush's name).
 Without either, a right click on the ground where no object is starts
 the area's menu with the tile's items (Tile (x, y), the three, Tile
-Properties…), as Aurora's menu has Tile Properties for a tile; on an
+Properties), as Aurora's menu has Tile Properties for a tile; on an
 object, the object's menu. **Tile Properties** takes Select Tiles
 (putting a brush down) with the tiles it was opened on selected, and
 shows the Right Dock's Tile Properties panel (turning its header toggle
@@ -1598,8 +1606,8 @@ group's or a feature's tile, which changes only with its group, unless
 the option above is on). Click another and it is put there at once (one
 step to undo), the panel showing the new tile. Widen the Right Dock and
 the pictures fill it. The **Size** slider
-beside the variants makes the pictures larger (up to 224 points), to tell
-tiles much alike apart (64 to 224 points, 84 at first); it is
+beside the variants makes the pictures larger, to tell tiles much alike
+apart (64 to 224 points, 84 at first); it is
 remembered. Each picture has its model's name under it, on one line.
 Under the pointer, a picture shown smaller shows at its largest beside
 the panel, never over the pictures. The same model turned another way
@@ -1609,10 +1617,10 @@ pictures once one is clicked, and Enter puts the one they reach there.
 
 Above them, under **Lights and Loops**, are the tiles' **Main light 1**
 and **2** and **Source light 1** and **2** colors and their **Animation
-loops 1** to **3**, as Aurora shows them: a control is there for what the tile's model has (a light
+loop 1** to **Animation loop 3** checkboxes, as Aurora shows them: a control is there for what the tile's model has (a light
 node named `<model>ml1` or `ml2`, a node `<model>sl1` or `sl2` where a
 source light's flame burns, an animation `animloop01` to `03`), and
-greyed out, a loop unchecked, for what it hasn't. The tileset's own
+grayed out, a loop unchecked, for what it hasn't. The tileset's own
 `MainLight1`…`AnimLoop3` flags don't tell (the game's tilesets have them
 for every tile; a model that can't be found or read falls back on those
 flags, every light and loop, and a model's loops are looked for in the
@@ -1628,7 +1636,7 @@ is. **Defaults** puts back the lighting scheme's colors and the loops.
 that Aurora's window hasn't got (`Tile_ReplaceTex`): what a mesh of the
 tile's model drawn with a texture named `replace_tex` is drawn with
 instead, a row of `replacetexture.2da`. It is there for a tile whose
-model has such a mesh, and greyed out for the others (of the game's own
+model has such a mesh, and grayed out for the others (of the game's own
 tiles, only `tms01_c08_01`, which no tileset uses, has one: it is for
 your own tiles). It shows the row the tile is drawn with: a tile without
 the field draws row 0. The game reads the field as the row plus one, and
@@ -1656,8 +1664,8 @@ tileset's height steps (the meters are written beside it): **-** and
 **+** (Lower Height and Raise Height) lower and raise them a step, and any number of steps can be typed
 or dragged, below 0 too. It is set on the tiles alone: no neighbor,
 corner or terrain around them changes, so a tile raised alone stands
-above the tiles around with gaps between (what the builder asked for,
-to build up a single tile), and the area view draws it, its walkmesh
+above the tiles around with gaps between (to build up a single tile),
+and the area view draws it, its walkmesh
 and what stands on it there. What stands on a tile (an object whose
 position is over its square) rises or falls with it, as far. The game
 stands a tile where its `Tile_Height` says, whatever its neighbors'
@@ -1701,8 +1709,8 @@ of a group put in alone is taken, after, for what is left of a group
 ### A tile's textures
 
 Tile Properties (folded under **Textures of** the model until you open
-it), a tile's view and the tileset editor's tile (Tools › Tilesets,
-Tiles) list the textures the tile's model draws, as the game finds them.
+it), a tile's view and the tileset editor's **Textures** panel (Tools ›
+Tilesets, for the tile chosen) list the textures the tile's model draws, as the game finds them.
 The heading says how many there are and how many are missing; with
 several tiles chosen in Tile Properties, it is the first one's, and a
 variant put in shows its own at once. Each texture has a small picture
@@ -1741,13 +1749,6 @@ which are door objects of their own (their textures are on the door's
 Visuals page). The tileset editor reads the model from the game data, as
 its Preview does (the module's haks, override, development): a model
 beside the `.set` alone isn't read.
-
-A tile's replacement texture (`Tile_ReplaceTex`, a `replacetexture.2da`
-row for a texture named `replace_tex` in the tile's model) isn't in the
-window: it is BioWare's unused field, no tile of the game's tilesets has
-such a texture, and whether the game draws it wasn't seen. One already in
-an area is kept, and shown among the raw fields of the area's `.are`
-(its row's menu in the module tree), where it can be edited.
 
 **Edit › Resize Area…** grows or shrinks the area at its north and east
 edges, as Aurora does, or at the two you choose there (east and south,
@@ -1849,10 +1850,11 @@ header, which shows the area's name and ResRef:
   such as interior, underground, natural, no rest, PvP; **Shader Flags**, the area flags past those three, which
   custom shaders read from their `areaFlags` uniform: they do nothing
   with the stock shaders, and each bit means what a hak's shader makes
-  of it), **Comments**.
+  of it), **Variables** (the area's local variables, edited in place, as
+  the Advanced page's Variables button opens them), **Comments**.
 - An area's **Variables** are kept in its GIT, where the game reads them
-  (a script's `GetLocalInt` on the area). Before 1.34.3 Moonglow wrote
-  them into its ARE, which the game does not read, so they read 0:
+  (a script's `GetLocalInt` on the area). Variables written into an
+  area's ARE are not read by the game, so a script reads them as 0:
   opening the area's Variables moves them to the GIT (one step to undo;
   a variable of the same name already there keeps its value), and
   **Verify Module** lists the areas that still hold some in their ARE.
@@ -1861,7 +1863,7 @@ header, which shows the area's name and ResRef:
   its wallpaper as a player enters (`SetShaderUniformVec`'s
   `SHADER_UNIFORM_1`, which the wallpaper materials' shader reads as
   `scriptableVec1`): with **Shaders** on, the view draws the area's
-  wallpaper in it (since Moonglow 3.10.0).
+  wallpaper in it.
 
 ### Grass
 
@@ -1943,8 +1945,8 @@ tuft or two a clump).
 module tree) opens an **Edit Areas Together** section in the Right Dock,
 not a window: the command shows the dock if it was hidden or folded, puts
 the section in front and gives it the keys. At its top are **Open in
-Tab** and **Close**, and beside them how many areas are ticked ("3 areas
-ticked"). A rail of pages at its left has **Areas**, which lists the
+Tab**, **Cancel All** and **Close**, and beside them how many areas are
+ticked ("3 areas ticked"). A rail of pages at its left has **Areas**, which lists the
 module's areas to tick, and the pages that edit them (below). Narrow the list by a name
 or ResRef, by tileset, by kind (interior or exterior, above or under
 ground, natural or artificial), and by what they hold (**Holding**):
@@ -1956,7 +1958,8 @@ ground, natural or artificial), and by what they hold (**Holding**):
   label and value (`MusicDay = 57`, `Fog* = 0`, `OnEnter = kz_*`).
 
 What they hold is read as it is now, unsaved changes too. **Tick Shown**
-ticks what the filters leave; Advanced Search's **Choose N Area(s)…**
+ticks what the filters leave, **Untick Shown** unticks it, and **Untick
+All** unticks every area; Advanced Search's **Choose N Area(s)…**
 opens the section with the areas of what it found ticked (an area with a
 creature of a class, an item property…).
 
@@ -1973,7 +1976,7 @@ them), **Up**, **Down**, **Page Up**, **Page Down**, **Home** and
 **End** move the row chosen in the checklist and **Space** ticks it
 (the Status Bar shows these only while the list has rows and the
 keys). **Enter** is Open in Tab on the Areas page alone, and **Escape**
-is Close. In a field, **Enter** commits it (on a shared page the change
+is Close (never Cancel All: Escape leaves, and what was set stays). In a field, **Enter** commits it (on a shared page the change
 is set on each area, and the section stays) and **Escape** gives up the
 field alone: press **Escape** again to close. Opening another module
 closes the section and forgets its ticks.
@@ -1990,7 +1993,9 @@ the areas differ in; a screen reader says it as "mixed"). Where the dock is too 
 for a page's labels and fields side by side, each field goes under its
 label. Where Area Properties of any
 of the ticked areas is open, a shared page says so and offers **Show
-It**. Either way:
+It**.
+
+Either way, in the tab or on the section's pages:
 
 - A change is set on each area, as one undoable step: the lighting scheme
   (each area's tiles get its lights) and environment, fog, weather, day
@@ -2020,6 +2025,18 @@ It**. Either way:
   each area (one an area has for it already changes in place). Copy
   This Page to Every Area gives them the first area's grass as it is.
 - Names, tags and comments are an area's own, and aren't offered.
+
+**Cancel All** takes back every change the section's pages made since
+the areas were last ticked, as one step: **Edit › Redo** brings them
+all back, and Undo takes them again. It never takes back a change it
+did not make: it goes back only as far as the last change made
+elsewhere (in a tab, a window or the area's view), and a change of the
+section you took back yourself with Undo stays taken back, so what
+Cancel All takes is the run of the section's own changes on top of the
+history. It is disabled, its tip saying why, when nothing was changed
+here since the areas were ticked, or when Undo or another change came
+after them; a field you are typing in counts, its text set and taken
+back with the rest. Ticking or unticking an area starts again.
 
 To give every underground area the same music: Underground in the
 Areas page, Tick Shown, then Audio. From the command line,
@@ -2074,7 +2091,7 @@ With **Sounds** on, the placed sound objects play as you move around:
 full volume within a sound's minimum distance, fading to nothing at its
 maximum, each repeating, looping or playing once as set. **Ambient** and
 **Music** play the area's ambient sound and music (by day or night, as the
-view shows). Options › Sounds sets which play when an area opens, and the
+view shows). Tools › Options › Sounds sets which play when an area opens, and the
 music's volume.
 
 The game is stricter than Moonglow about what a sound may be. An area's
@@ -2136,6 +2153,9 @@ crossers (the file's path in their tip) and says the keys: on Tiles,
 Click Choose a tile, and Ctrl + F Find with the pointer over the page.
 Ctrl+S is the module's Save (with no module open it saves nothing); the
 header's Save saves the tileset alone. A floating tileset brings its panels into its window.
+
+The pages:
+
 - **General:** the name, the name players see, the height step, the
   border, default and floor terrains, interior, height transitions, and
   grass.
@@ -2185,6 +2205,9 @@ header's Save saves the tileset alone. A floating tileset brings its panels into
   Painting Rules pages name the sections their lists lack, which the
   game leaves out.
 - **Groups:** each group's name, size and tiles, the bottom row first.
+  **Add Group** adds a group of one tile, the tile chosen on the Tiles
+  page (make it larger with its rows and columns), and **Remove Last
+  Group** takes the last away.
 
 The header also has:
 - **Make Palette** writes `<tileset>palstd.itp` beside the `.set`, the
@@ -2220,6 +2243,20 @@ The header also has:
   by the tile's `ImageMap2D`, which tiles without one get as
   `mi_<model>`) beside the `.set`. Models and textures beside the `.set`
   are used before the game's.
+
+**Changed by another program**: a tileset open here whose file another
+program saves is read again a moment after the last write (while
+**Reload haks, override and development when they change** is on, in
+Tools › Options › Folders › Game Content), keeping the tile chosen and the scroll where they
+still are, and the log says so; Problems marks its findings as older
+than the file until Check runs again. Where the tileset has unsaved
+changes here, Moonglow's are kept and **Changed Outside Moonglow** asks
+which to keep (**Keep Moonglow's**, **Take the Files'**, or **Later**,
+until which the header's Save writes nothing and asks again). A file
+half written, cut short or gone keeps what the editor has, and the log
+says so once. The areas and the Tiles palette draw a tileset from the
+game data, so one in the override, a development folder or a hak is
+redrawn when that is read again; a tileset kept inside the module is not.
 
 To use the tileset, put the `.set`, palette, models, walkmeshes, textures
 and minimap pictures in a hak (Tools › Haks › Build Hak from Folder…).

@@ -94,6 +94,28 @@ impl TypedState {
         self.redo.clear();
     }
 
+    /// The last `n` steps of the module's history, its depth `top` before,
+    /// made one (`Workspace::join_last`, Edit Areas Together's Cancel All):
+    /// their typed lines go with the one step, so its Undo and Redo take
+    /// and put back them all, and what Redo puts back lands that much
+    /// lower. (No page of Edit Areas Together has a localized field today,
+    /// but one added carries its lines rightly.)
+    pub(crate) fn joined(&mut self, n: usize, top: usize) {
+        let fewer = n.saturating_sub(1);
+        let from = (top + 1).saturating_sub(n);
+        let mut lines = Vec::new();
+        while self.undo.last().is_some_and(|(d, _)| *d >= from) {
+            let (_, t) = self.undo.pop().expect("checked");
+            lines.splice(0..0, t);
+        }
+        if !lines.is_empty() {
+            self.undo.push((from, lines));
+        }
+        for (d, _) in &mut self.redo {
+            *d = d.saturating_sub(fewer);
+        }
+    }
+
     /// The rows Redo would put lines back on: not given to another text.
     fn held(&self) -> BTreeSet<usize> {
         self.redo.iter().flat_map(|(_, t)| t.iter().map(|t| t.row)).collect()
@@ -767,5 +789,31 @@ mod tests {
         app.talk = Some(other);
         assert_eq!(room(&app), Some(look(&app)));
         assert!(room(&app).unwrap().0.is_err(), "the range is full");
+    }
+
+    /// Edit Areas Together's Cancel All made its steps one (ruling 66):
+    /// their typed lines go with the one step, and the lines of steps
+    /// undone above them are redone that much lower.
+    #[test]
+    fn steps_made_one_keep_their_typed_lines_and_redo_lands_lower() {
+        let dir = mg_testkit::scratch_dir("ui-typed-joined");
+        let mut t = Table::create("mg_joined", &dir, Language::ENGLISH, false);
+        let mut typed = |row: usize| {
+            let text = format!("line {row}");
+            let line = Line { text, feminine: None, sound: String::new(), sound_length: 0.0 };
+            vec![t.put_typed(row, &line).unwrap()]
+        };
+        let mut s = TypedState {
+            undo: vec![(1, typed(1)), (3, typed(3)), (4, typed(4))],
+            redo: vec![(6, typed(6)), (5, typed(5))],
+            ..Default::default()
+        };
+        // (Steps 2 to 4, the history 4 deep, made one: at depth 2.)
+        s.joined(3, 4);
+        let rows = |v: &[(usize, Vec<Typed>)]| -> Vec<(usize, Vec<usize>)> {
+            v.iter().map(|(d, t)| (*d, t.iter().map(|t| t.row).collect())).collect()
+        };
+        assert_eq!(rows(&s.undo), [(1, vec![1]), (2, vec![3, 4])], "the lines with the one step");
+        assert_eq!(rows(&s.redo), [(4, vec![6]), (3, vec![5])], "redone two lower");
     }
 }

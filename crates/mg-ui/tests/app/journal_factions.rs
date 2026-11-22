@@ -1135,12 +1135,20 @@ fn the_panels_are_never_taller_where_wider() {
                             .rect()
                             .top();
                         // The line between the sections: the last full-width
-                        // node above the Category's Name.
-                        let (dock, ppp) = (right_dock_rect(&h), h.ctx.pixels_per_point());
-                        let line = (h.get_all_by_role(egui::accesskit::Role::Unknown))
-                            .filter_map(|n| n.accesskit_node().bounding_box())
-                            .filter(|b| (b.x1 - b.x0) as f32 / ppp >= dock.width() - 2.0)
-                            .map(|b| b.y1 as f32 / ppp)
+                        // seam above the Category's Name, its grip's foot
+                        // (a widget sensing a drag alone, which has no
+                        // AccessKit node: M5's W8).
+                        let dock = right_dock_rect(&h);
+                        let seams: Vec<egui::Rect> = h.ctx.viewport(|v| {
+                            (v.prev_pass.widgets.layers())
+                                .flat_map(|(_, w)| w.iter())
+                                .filter(|w| w.sense == egui::Sense::DRAG)
+                                .map(|w| w.rect)
+                                .collect()
+                        });
+                        let line = (seams.iter())
+                            .filter(|r| r.width() >= dock.width() - 2.0 && r.height() < 10.0)
+                            .map(|r| r.bottom())
                             .filter(|y| *y < name && *y > id)
                             .fold(f32::NAN, f32::max);
                         assert!(line.is_finite(), "the line between the sections");

@@ -393,3 +393,50 @@ fn a_joined_group_s_words_stand_between_its_buttons() {
     assert!(names.contains(&"Previous".to_string()) && names.contains(&"Next".to_string()));
     assert_eq!(names.iter().filter(|n| *n == "Appearance").count(), 1, "the group's name alone");
 }
+
+/// A check row given its icon for its unfolded toggle alone
+/// (`PopCheck::unfolded_icon`, M5's W2, ruling 11: the Main board's
+/// Overlays rows have no icons, WideArea's toggles have theirs): hung,
+/// the row draws no icon and is no wider for one; unfolded into the
+/// header, its toggle has the icon beside its words, as a row given
+/// `PopCheck::icon` has.
+#[test]
+fn a_check_row_s_unfolded_icon_is_its_toggle_s_alone() {
+    const WORDS: &str = "Grid drawn over the whole of the ground";
+    // (The hung row's width and the shapes other than text painted in it,
+    // and the unfolded toggle's width, for a row given `icon` or
+    // `unfolded_icon`.)
+    let measure = |lead: bool| {
+        let unfold = Rc::new(Cell::new(false));
+        let u = unfold.clone();
+        let mut on = false;
+        let mut h = harness(vec2(900.0, 400.0), move |ui| {
+            let row = PopCheck::new(&mut on, WORDS).unfolded_words(true);
+            let row = if lead { row.icon(Icon::Grid) } else { row.unfolded_icon(Icon::Grid) };
+            let item = Item::popover(Some(Icon::Overlays), Popover::new("Overlays").check(row));
+            let _ =
+                EditorHeader::new(H).right(if u.get() { item.unfolds() } else { item }).show(ui);
+        });
+        h.run();
+        h.get_by_label(H).get_by_label("Overlays").click();
+        h.run();
+        let row = h.get_by_label(WORDS).rect();
+        // (Its box and its icon's strokes: its words are text.)
+        let painted = (h.output().shapes.iter())
+            .filter(|c| !matches!(c.shape, egui::Shape::Text(_)))
+            .filter(|c| row.contains_rect(c.shape.visual_bounding_rect()))
+            .count();
+        h.key_press(egui::Key::Escape);
+        h.run();
+        unfold.set(true);
+        h.run();
+        let toggle = h.get_by_label(H).get_by_label(WORDS).rect().width();
+        (row.width(), painted, toggle)
+    };
+    let (lead_w, lead_painted, lead_toggle) = measure(true);
+    let (bare_w, bare_painted, bare_toggle) = measure(false);
+    let icon = mg_uikit::metrics::ICON;
+    assert!(bare_w < lead_w - icon, "no room for an icon in the row: {bare_w} of {lead_w}");
+    assert!(bare_painted < lead_painted, "no icon painted: {bare_painted} of {lead_painted}");
+    assert_eq!(bare_toggle, lead_toggle, "the toggle has its icon and words");
+}

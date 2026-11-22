@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-sonnet-5-5, at: 2026-11-20T18:32:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:07:34Z }
 ---
 
 # Coming from Aurora
@@ -32,16 +32,19 @@ Each names what Aurora does, then what Moonglow does instead.
   itself reads nothing past 2 GiB into a hak, so Verify names what a hak
   that size holds past the mark.
 - **Graphics crashes.** Aurora's area view uses OpenGL, which some graphics
-  drivers and overlays crash. Moonglow's uses Vulkan, Metal or Direct3D 12.
+  drivers and overlays crash. Moonglow's uses Vulkan, Metal or Direct3D 12
+  (OpenGL only where none of them is there).
   If the graphics card can't draw, only the area view and previews are
   unavailable; every editor still works.
-- **Error boxes that keep coming back** until you end the program.
-  Moonglow writes problems to the log at the bottom of the window (Build
-  and Verify also list theirs under **Problems**) and carries on. **Build › Verify Module** finds most of what
-  makes Aurora crash in custom content (a tileset's counts, a missing tile
-  model, two 2DA rows run together, an object on a 2DA row that isn't
-  there) and names the hak, file and row (see
-  [Build, verify and test](09-build-and-test.md)).
+- - **Error boxes that keep coming back** until you end the program.
+  Moonglow writes problems to the **Log**, a tab of the Bottom Dock (the
+  Log switch at the left of the Status Bar opens it, and shows its last
+  line while it is closed), and carries on; Build and Verify also list
+  theirs in **Problems** beside it. **Build › Verify Module** finds most
+  of what makes Aurora crash in custom content (a tileset's counts, a
+  missing tile model, two 2DA rows run together, an object on a 2DA row
+  that isn't there) and names the hak, file and row (see [Build, verify
+  and test](09-build-and-test.md)).
 - **`temp0`.** Aurora unpacks the module into a `temp0` folder, which
   antivirus software and file locks can disturb, and crash recovery from
   it can damage the module. Moonglow keeps the module in memory. Saving
@@ -63,8 +66,9 @@ Each names what Aurora does, then what Moonglow does instead.
   replacement texture (`Tile_ReplaceTex`, BioWare's unused field) is
   kept, and edited among the area's raw fields.
 - **One modal dialog at a time**, which can open behind the main window.
-  Moonglow's editors are tabs and windows: keep a script, a conversation
-  and the area open together, side by side or docked (see
+  Moonglow's editors are tabs: keep a script, a conversation and the area
+  open together, side by side in editor groups (**View › Split Editor**,
+  Ctrl+\\) or in windows of their own (see
   [The main window](02-main-window.md)).
 - **Limited undo.** Aurora's undo has a fixed number of levels, and
   conversation nodes can't be undone. Moonglow's undo is unlimited and
@@ -81,28 +85,39 @@ Each names what Aurora does, then what Moonglow does instead.
 - **Testing.** Aurora's F9 has problems the wiki warns about, always
   picks the first character, and needs a restart to see a changed hak.
   Moonglow starts the game the way the wiki recommends, offers **Test
-  Module, Choose Character** (Shift+F9) and **Test › Test From Here** (an
-  area's right-click menu), and reloads changed haks and 2DAs as you work.
+  Module, Choose Character** (Shift+F9) and **Test › Test From Here** (the
+  area view's right-click menu), and reloads changed haks and 2DAs as you
+  work.
 - **Outside editors.** Scripts edited in another editor have to be copied
-  into `temp0`. Moonglow's **External Editor** opens the script in your
-  editor, and its saves come straight back into the module.
+  into `temp0`. Moonglow's **External Editor** (in the script's header)
+  opens the script in your editor, and its saves come straight back into
+  the module.
 
 ## Habits to change
 
 - **A change applies as you make it.** To take one back, use Undo
   (Ctrl+Z), as many times as you need. The editors' **OK** and
-  **Cancel** are as Aurora's (what each does is in
-  [Differences from Aurora](12-differences.md)).
+  **Cancel**, at the right end of their header, are as Aurora's (what
+  each does is in [Differences from Aurora](12-differences.md)).
+- **A placed object's properties are in the Right Dock.** Select an
+  object in the area and its **Properties** show in the Right Dock (under
+  the Palette, or as a tab beside it in a narrower window); each change
+  applies at once, a step of Undo. **Open in Tab** at their top
+  (or Properties in the object's right-click menu) opens them in a tab of
+  their own, with OK and Cancel.
 - **Save writes everything**: the module, and every script you've edited.
   A script's **Compile** button saves and compiles that script. F7
   compiles all of them.
-- **Editors open in windows over the area**, so the area stays where it
-  is. Drag a window by its tab into the main pane to dock it. Editors
-  of a kind (Properties, scripts, conversations) open as tabs of one
-  window; untick the options for that (General, Script Editor,
-  Conversation Editor) to have each in a window of its own.
+- **Editors open as tabs** beside the area's. Drag a tab to a side of
+  the editor area, or use **View › Split Editor** (Ctrl+\\), to see two
+  side by side. To have editors over the area in windows of their own,
+  as Aurora's, set **Tools › Options › General › Open editors** to As
+  Floating Windows (areas stay tabs); there, editors of a kind
+  (Properties, scripts, conversations) open as tabs of one window, which
+  an option in General, Script Editor and Conversation Editor each turns
+  off.
 - **The Welcome tab** replaces Aurora's start dialog, and a module
-  folder opens with File › Open Folder… (how a `.mod` with its folder
+  folder opens with File › Open Folder (how a `.mod` with its folder
   beside it is opened is in [Differences from Aurora](12-differences.md)).
 - **The camera** also moves with W, A, S and D, and a right drag turns it.
   The rest are Aurora's bindings (see [Areas](04-areas.md)).
@@ -118,6 +133,17 @@ departure, and the few Aurora features not done yet.
 Some are in Aurora too but often overlooked; the rest are Moonglow's
 own.
 
+- **Quick Open**: the field in the Top Bar (Ctrl+P) goes to an area, a
+  blueprint, a script or any resource, or runs a command, by a few letters
+  of its name; Ctrl+Shift+P (or `>` first) looks among the commands
+  alone.
+- **The Status Bar's hints**: what the mouse and keys do where the
+  pointer is shows at the bottom of the window as key caps, and changes
+  with the tool in hand.
+- **The Outliner**, under the Module panel, lists what the editor in
+  front holds: an area's objects by kind (a click selects one in the
+  view, each kind's eye shows or hides it), a conversation's bookmarks, a
+  2DA's columns.
 - **Completion in the script editor**: F2 or Ctrl+Space completes
   functions, constants and variables, from `nwscript.nss`, the script and
   its includes.
@@ -127,13 +153,13 @@ own.
   and other editors (see [Scripts](07-scripts.md)).
 - **Find In Files** searches every script in the module and can replace
   in all of them, including scripts with unsaved edits.
-- **Compiler messages**: click one to go to its line, even when the line
-  is in an include.
-- **Palette search**: the **Find** box above a palette finds blueprints by
-  name, resref or tag, and close matches when nothing matches exactly;
-  hover for a picture; Favorites and Recent at the top; drag custom
-  blueprints between categories.
-- **Edit › Find Instance…** lists every object placed in the module, in
+- **Compiler messages** (the Bottom Dock's **Compiler** tab): click one
+  to go to its line, even when the line is in an include.
+- - **Palette search**: the search field at the top of a palette finds
+  blueprints by name, resref or tag, and close matches when nothing
+  matches exactly; hover for a picture; Favorites and Recent at the top;
+  drag custom blueprints between categories.
+- **Edit › Find Instance** lists every object placed in the module, in
   **Search Results** in the Bottom Dock. Double-click one to go to it.
 - **Tile variants**: Shift + right click steps the tile under the pointer
   through its variants.
@@ -145,7 +171,7 @@ own.
   the project file, which Aurora leaves alone
   ([What counts as used](09-build-and-test.md#what-counts-as-used)).
 - **Hak conflicts**: Module Properties › Custom Content › Check for
-  Conflicts… lists the resources several haks provide (and which one the
+  Conflicts lists the resources several haks provide (and which one the
   game uses) and the game's resources the haks replace, in a tab of the
   Bottom Dock.
 - **The resource browser** (the Left Dock's Resources tab; Tools ›
@@ -154,20 +180,22 @@ own.
   open in the model viewer. A 2DA shows its StrRefs as text, which hak
   each row comes from, and what a hak changed; **Edit…** there (the
   module's table, a hak's, or a copy), or **Edit Table** in the hak
-  editor, opens it in the
+  editor's More, opens it in the
   [2DA editor](03-modules.md#the-2da-editor).
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.
 - **Tilesets**: Tools › Tilesets edits `.set` files (the Set File
   Editor's job), makes their palettes and renders their minimap pictures.
-- **NWSync**: Build › Publish to NWSync… (and `mg nwsync`) writes the
+- **NWSync**: Build › Publish to NWSync (and `mg nwsync`) writes the
   repository a server's players download its haks from.
 - **Keys** can be changed (Tools › Options › Keyboard); they start as
   Aurora's.
-- **Area visibility**: **Object Walkmeshes** shows where placeables and
-  doors keep creatures out, beside the ground's **Walkmesh**; **Export
-  Minimap…** saves an area's map as a PNG (several areas' at once, and
-  with their map notes marked, as the game's map marks them).
+- - **Area visibility**: **Object walkmeshes** (the area header's Overlays
+  popover) shows where placeables and doors keep creatures out, beside
+  **Ground walkmesh**; **Export Minimap…** (under Export in an area's
+  right-click menu in the module tree) saves an area's map as a PNG
+  (several areas' at once, and with their map notes marked, as the game's
+  map marks them).
 - **Haks**: Tools › Haks builds a hak from a folder and opens one to add,
   rename, extract and remove files (nwhak's job, without its cut-short
   names); Module Properties › Custom Content › **Add Haks and Talk
@@ -181,25 +209,24 @@ own.
 - **Conversations**: lines name their scripts and journal updates; Test
   follows the conditions as the game does (switch each one TRUE or
   FALSE); Export to plain text, CSV, Twine or Ink, and File › Import
-  Conversation… from Twine or Ink (see [Conversations](06-conversations.md)).
-- **Loose files in**: File › Import Files… and Import Folder… (or files
+  Conversation from Twine or Ink (see [Conversations](06-conversations.md)).
+- **Loose files in**: File › Import Files and Import Folder… (or files
   dropped onto the window) bring scripts, blueprints, areas and the rest
   in as files, not only from an `.erf`, those the module has replaced
   where you tick them (see [Modules](03-modules.md#import-and-export)).
-- **Bulk edits**: Ctrl+click several custom blueprints to edit them
+- - **Bulk edits**: Ctrl+click several custom blueprints to edit them
   together or update all their instances at once (or a whole category's,
-  from its right-click menu); **Edit › Edit Areas Together…** (a section of the Right Dock)
-  sets the
-  lighting, fog, weather, music, scripts and variables of the areas you
-  tick (see [Areas](04-areas.md)); saved variable sets, and saved sets
-  of a conversation script's parameters; **Edit › Find and
-  Replace Text…** (Ctrl+H) across names, descriptions, conversations and
-  the journal (see [Blueprints](05-blueprints.md) and
+  from its right-click menu); **Edit › Edit Areas Together** (a section of
+  the Right Dock) sets the lighting, fog, weather, music, scripts and
+  variables of the areas you tick (see [Areas](04-areas.md)); saved
+  variable sets, and saved sets of a conversation script's parameters;
+  **Edit › Find and Replace Text** (Ctrl+H) across names, descriptions,
+  conversations and the journal (see [Blueprints](05-blueprints.md) and
   [Modules](03-modules.md)).
 - **Find References and Rename** (the module tree's right-click menu):
   where a script, area, conversation, blueprint or tag is used, and
   renaming a resource everywhere in one step (see [Modules](03-modules.md)).
-- **Version control**: **File › Save As nasher Project…** keeps the
+- **Version control**: **File › Save As nasher Project** keeps the
   module as text files for git; Moonglow opens and saves them in place
   (see [Modules](03-modules.md)).
 - **Command line**: `mg` packs, unpacks, verifies and compiles from a

@@ -66,6 +66,15 @@ pub(crate) const PARTICLE_WGSL: &str =
     concat!(include_str!("frame.wgsl"), include_str!("particle.wgsl"));
 pub(crate) const LINE_WGSL: &str = concat!(include_str!("frame.wgsl"), include_str!("line.wgsl"));
 
+/// What is left of a grid line's opacity (`Scene::lines`) where the fog is
+/// thickest, at its end and past it (`line.wgsl`'s `grid_least`, held
+/// equal by a test): from its start the line fades as the ground does,
+/// down to this. Chosen from pictures of a Medieval City 2 area (8 to
+/// 150 m, day and night, the grid red and faint white): at 0.3 the far
+/// lines in the fog band are still there to count tiles by, no longer
+/// bright lines standing out of the fog as if hung in the sky.
+pub const GRID_LEAST_IN_FOG: f32 = 0.3;
+
 /// The frame's uniforms (`frame.wgsl`'s `Frame`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -1319,47 +1328,55 @@ impl Renderer {
             immediate_size: 0,
         });
         // The lines and the copies of a shape's lines: one pipeline but for
-        // the vertex entry point and its buffers (where the ends are).
-        let line_pipeline_of = |label, entry, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&line_layout),
-                vertex: wgpu::VertexState {
-                    module: &line_shader,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::LineList,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(false),
-                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
-                fragment: Some(wgpu::FragmentState {
-                    module: &line_shader,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: color_format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let line_pipeline = line_pipeline_of("lines", "vs_main", &[Some(LineVertex::LAYOUT)]);
+        // the vertex entry point and its buffers (where the ends are), and
+        // the fragment's: the grid's fading with the fog, the copies'
+        // (Sound Ranges) not.
+        let line_pipeline_of =
+            |label, entry, fragment, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&line_layout),
+                    vertex: wgpu::VertexState {
+                        module: &line_shader,
+                        entry_point: Some(entry),
+                        compilation_options: Default::default(),
+                        buffers,
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::LineList,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: Some(false),
+                        depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: wgpu::MultisampleState {
+                        count: sample_count,
+                        ..Default::default()
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &line_shader,
+                        entry_point: Some(fragment),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: color_format,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
+        let line_pipeline =
+            line_pipeline_of("lines", "vs_main", "fs_main", &[Some(LineVertex::LAYOUT)]);
         let line_copy_pipeline = line_pipeline_of(
             "line copies",
             "vs_copy",
+            "fs_plain",
             &[Some(SHAPE_LAYOUT), Some(LineCopyRaw::LAYOUT)],
         );
         let buffer = |label, size, usage| {
@@ -4212,6 +4229,21 @@ mod tests {
         let (max_inv, falloff) = super::attenuation_params();
         assert!((max_inv - 0.4098).abs() < 1e-3, "{max_inv}");
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
+    }
+
+    /// `line.wgsl`'s least opacity of the grid in the fog is the
+    /// renderer's [`super::GRID_LEAST_IN_FOG`].
+    #[test]
+    fn the_grid_s_least_in_the_fog_is_the_renderer_s() {
+        let module = naga::front::wgsl::parse_str(super::LINE_WGSL).unwrap();
+        let (_, c) = (module.constants.iter())
+            .find(|(_, c)| c.name.as_deref() == Some("grid_least"))
+            .expect("grid_least");
+        let naga::Expression::Literal(naga::Literal::F32(v)) = module.global_expressions[c.init]
+        else {
+            panic!("grid_least is no f32 literal");
+        };
+        assert_eq!(v, super::GRID_LEAST_IN_FOG);
     }
 
     /// Each of Moonglow's own shaders declares the frame's uniforms as the

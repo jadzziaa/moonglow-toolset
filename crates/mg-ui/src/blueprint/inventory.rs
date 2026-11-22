@@ -458,12 +458,15 @@ pub(super) struct ItemLook<'a> {
     pub palette: &'a HashMap<ResRef, String>,
 }
 
+/// Find in Palette's tip.
+const FIND_IN_PALETTE_TIP: &str = "Choose the item's blueprint in the item palette";
+
 /// Adds Find in Palette to an item's right-click menu. The button is
 /// enabled only if the item's blueprint is in a palette (`found`).
 /// Returns whether it was clicked.
 pub(super) fn find_in_palette_button(ui: &mut Ui, found: bool) -> bool {
     ui.add_enabled(found, egui::Button::new("Find in Palette"))
-        .on_hover_text("Choose the item's blueprint in the palette on the left")
+        .on_hover_text(FIND_IN_PALETTE_TIP)
         .on_disabled_hover_text(
             "The item's blueprint is in neither palette. It may be gone, or in an unused hak.",
         )
@@ -879,6 +882,14 @@ impl Form<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Find in Palette's tip names no side: the page's item palette is
+    /// at the left of the slots in a wide page, over them in a narrow one.
+    #[test]
+    fn find_in_palette_s_tip_names_no_side() {
+        let tip = FIND_IN_PALETTE_TIP;
+        assert!(!tip.contains("left") && !tip.contains("right"), "{tip}");
+    }
 
     fn item(fields: &[(&str, u8)]) -> Struct {
         let mut s = Struct::new(0);

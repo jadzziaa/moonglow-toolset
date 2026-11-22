@@ -116,6 +116,9 @@ pub struct PopCheck<'a> {
     value: &'a mut bool,
     words: String,
     icon: Option<Icon>,
+    /// The unfolded toggle's icon where the row draws none
+    /// ([`PopCheck::unfolded_icon`]).
+    unfolded_icon: Option<Icon>,
     tip: Option<String>,
     sub: bool,
     enabled: bool,
@@ -131,6 +134,7 @@ impl<'a> PopCheck<'a> {
             value,
             words,
             icon: None,
+            unfolded_icon: None,
             tip: None,
             sub: false,
             enabled: true,
@@ -160,6 +164,15 @@ impl<'a> PopCheck<'a> {
         self
     }
 
+    /// With `icon` on its toggle where it is unfolded into a header, and
+    /// none on its row in the popover (the Main board's Overlays rows:
+    /// Grid, Minimap and Sound ranges have their icons on the WideArea
+    /// board's toggles alone). [`PopCheck::icon`] wins where both are given.
+    pub fn unfolded_icon(mut self, icon: Icon) -> Self {
+        self.unfolded_icon = Some(icon);
+        self
+    }
+
     /// Its tooltip.
     pub fn tip(mut self, tip: impl Into<String>) -> Self {
         self.tip = Some(tip.into());
@@ -180,15 +193,16 @@ impl<'a> PopCheck<'a> {
 
     /// Unfolded into a header, its toggle shows its words beside its icon
     /// (section 5.3: Grid, Minimap carry their words; Grass is an icon).
-    /// A row without an icon always shows its words.
+    /// A row without an icon (or an unfolded one) always shows its words.
     pub fn unfolded_words(mut self, words: bool) -> Self {
         self.unfolded_words = words;
         self
     }
 
     fn toggle(&self, enabled: bool) -> KitButton {
-        let icon_only = !self.unfolded_words && self.icon.is_some();
-        let mut b = KitButton::new(self.icon, self.words.as_str())
+        let icon = self.icon.or(self.unfolded_icon);
+        let icon_only = !self.unfolded_words && icon.is_some();
+        let mut b = KitButton::new(icon, self.words.as_str())
             .toggle(*self.value)
             .icon_only(icon_only)
             .enabled(enabled);

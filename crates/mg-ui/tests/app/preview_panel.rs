@@ -919,3 +919,594 @@ fn a_lone_preview_keeps_its_own_wide_width() {
     settle(&mut h);
     assert!((width(&h) - dragged).abs() < 1.0, "the creature's again: {}", width(&h));
 }
+
+// ------------------------------------------------------------ wide models in a tall Preview (M5's W8)
+
+/// A plank 6 m long, 0.3 m deep and 0.4 m high, of our own (for
+/// `plc_a01.mdl` in a scratch user folder's override: row 0's model).
+const PLANK: &str = "newmodel plc_a01\nsetsupermodel plc_a01 NULL\nclassification placeable\n\
+    beginmodelgeom plc_a01\nnode dummy plc_a01\n  parent NULL\nendnode\n\
+    node trimesh plank\n  parent plc_a01\n  ambient 0.8 0.6 0.3\n  diffuse 0.8 0.6 0.3\n  \
+    bitmap NULL\n  verts 8\n    -3 -0.15 0\n    3 -0.15 0\n    3 0.15 0\n    -3 0.15 0\n    \
+    -3 -0.15 0.4\n    3 -0.15 0.4\n    3 0.15 0.4\n    -3 0.15 0.4\n  faces 12\n    \
+    0 2 1 1 0 0 0 0\n    0 3 2 1 0 0 0 0\n    4 5 6 1 0 0 0 0\n    4 6 7 1 0 0 0 0\n    \
+    0 1 5 1 0 0 0 0\n    0 5 4 1 0 0 0 0\n    1 2 6 1 0 0 0 0\n    1 6 5 1 0 0 0 0\n    \
+    2 3 7 1 0 0 0 0\n    2 7 6 1 0 0 0 0\n    3 0 4 1 0 0 0 0\n    3 4 7 1 0 0 0 0\n\
+    endnode\nendmodelgeom plc_a01\ndonemodel plc_a01\n";
+
+/// [`area_harness`] with placeables' blueprints `(resref, appearance)`
+/// in its module, and the authored [`PLANK`] as row 0's model.
+fn wide_harness(name: &str, rows: &[(&str, u32)]) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let user = mg_testkit::scratch_dir(&format!("{name}-user"));
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("override/plc_a01.mdl"), PLANK).unwrap();
+    let rows: Vec<(String, u32)> = rows.iter().map(|(n, r)| (n.to_string(), *r)).collect();
+    let prepare = move |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
+        for (resref, row) in &rows {
+            let key = ResKey::parse(resref, ResType::UTP).unwrap();
+            let mut bp = mg_module::blueprints::placeable(key.resref, resref, 0);
+            bp.root.set("Appearance", mg_gff::Value::Dword(*row));
+            m.set_gff(key, &bp).unwrap();
+        }
+    };
+    area_harness_with(name, "ttr01", None, 4, Some(user), &prepare)
+}
+
+/// Where the Preview's picture of `key` was last drawn, within the
+/// Preview's body.
+fn picture_rect(h: &Harness<'_, Moonglow>, key: ResKey) -> egui::Rect {
+    let body = h.state().preview_panel_rect().expect("the Preview");
+    let view = &h.state().model_views[&mg_ui::model_view::Source::Resource(key)];
+    let shown = view.shown_at().expect("its picture drawn");
+    assert!(body.expand(0.5).contains_rect(shown), "in the Preview: {shown:?} {body:?}");
+    shown
+}
+
+/// Where in the Preview's picture (0..1 from its top-left, by the
+/// picture's own shape) each point `key`'s model reaches is shown.
+fn projected(h: &Harness<'_, Moonglow>, key: ResKey) -> Vec<glam::Vec2> {
+    let view = &h.state().model_views[&mg_ui::model_view::Source::Resource(key)];
+    let picture = picture_rect(h, key);
+    let camera = view.orbit.camera();
+    let reached = view.reached();
+    assert!(!reached.is_empty(), "{key}: something to fit");
+    let aspect = picture.width() / picture.height();
+    reached
+        .iter()
+        .map(|p| mg_area::pick::project(&camera, aspect, *p).expect("in front of the camera"))
+        .collect()
+}
+
+/// `key`'s model whole in the Preview's picture (`what`, for the
+/// failure): every point it reaches projected inside it, and fitting its
+/// width or its height (the outermost within an eighth of each side); in
+/// the picture as drawn, nothing at its sides' edges, and where it fits
+/// the width something near each.
+#[track_caller]
+fn whole(h: &mut Harness<'_, Moonglow>, key: ResKey, what: &str) {
+    let points = projected(h, key);
+    let span = |of: fn(&glam::Vec2) -> f32| {
+        points.iter().map(of).fold((f32::MAX, f32::MIN), |(l, r), v| (l.min(v), r.max(v)))
+    };
+    let ((low, high), (top, bottom)) = (span(|p| p.x), span(|p| p.y));
+    let inside = |(l, r): (f32, f32)| l >= -0.001 && r <= 1.001;
+    assert!(
+        inside((low, high)) && inside((top, bottom)),
+        "{what}: {key} reaches {low:.3}..{high:.3} across the picture, {top:.3}..{bottom:.3} up"
+    );
+    let fills = |(l, r): (f32, f32)| l < 0.125 && r > 0.875;
+    let across = fills((low, high));
+    assert!(across || fills((top, bottom)), "{what}: {key} fills {low:.3}..{high:.3} across");
+    let view = picture_rect(h, key);
+    let image = h.render().expect("render");
+    let ppp = h.ctx.pixels_per_point();
+    let at = |x: f32, y: f32| {
+        let p = image.get_pixel((x * ppp) as u32, (y * ppp) as u32);
+        [p[0], p[1], p[2]]
+    };
+    let ground = at(view.left() + 4.0, view.top() + 4.0);
+    let differs = |a: [u8; 3]| a.iter().zip(ground).any(|(x, y)| x.abs_diff(y) > 12);
+    let rows: Vec<f32> =
+        (view.top() as i32 + 4..view.bottom() as i32 - 4).map(|y| y as f32).collect();
+    for x in [view.left() + 2.0, view.right() - 3.0] {
+        let drawn = rows.iter().find(|y| differs(at(x, **y)));
+        assert!(drawn.is_none(), "{what}: drawn at the picture's edge, at ({x}, {drawn:?})");
+    }
+    let margin = view.width() / 8.0;
+    for x in [view.left() + margin, view.right() - margin].into_iter().filter(|_| across) {
+        assert!(rows.iter().any(|y| differs(at(x, *y))), "{what}: nothing drawn near x {x}");
+    }
+}
+
+/// M5's W8, the owner's report (2026-11-21: a cart cut off at the sides
+/// in the tall Preview, which Moonglow 4.2.1 fitted by its height
+/// alone): a wide placeable's own Preview beside its tab docked (the
+/// dock's whole height, a picture far taller than wide), at the dock's
+/// usual 320 and least 280 and in a window of another shape, is whole
+/// and fills the width: the game's long table (`pwc_tabl_001`, 5 m) and
+/// a plank of our own 6 m long. Zoomed by hand it is cut (the check
+/// bites) and Frame makes it whole again. Changed in its form from the
+/// full wagon (2 m) to the long table, it is framed anew.
+#[test]
+fn a_wide_placeable_is_whole_in_a_tall_preview() {
+    let rows = [("w8_table", 732), ("w8_plank", 0), ("w8_changed", 42)];
+    let Some((mut h, _area)) = wide_harness("preview-wide-whole", &rows) else { return };
+    h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+    let key = |n: &str| ResKey::parse(n, ResType::UTP).unwrap();
+    for name in ["w8_table", "w8_plank"] {
+        let key = key(name);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        for (size, width) in
+            [((1600.0, 1000.0), 320.0), ((1600.0, 1000.0), 280.0), ((1500.0, 800.0), 320.0)]
+        {
+            h.set_size(egui::vec2(size.0, size.1));
+            right_dock_width(&mut h, width);
+            settle(&mut h);
+            let view = picture_rect(&h, key);
+            assert!(view.height() > 2.0 * view.width(), "a tall picture: {view:?}");
+            whole(&mut h, key, &format!("{name} at {size:?}, the dock {width}"));
+        }
+    }
+    // Zoomed by hand: cut. Frame: whole again.
+    let plank = key("w8_plank");
+    let view = picture_rect(&h, key("w8_plank"));
+    h.hover_at(view.center());
+    h.run();
+    for _ in 0..3 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 240.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        h.step();
+    }
+    settle(&mut h);
+    let cut = projected(&h, plank).iter().any(|p| !(0.0..=1.0).contains(&p.x));
+    assert!(cut, "zoomed in, the plank goes past the picture's sides");
+    h.get_by_label(mg_ui::model_view::MODEL_HEADER).get_by_label("Frame").click();
+    settle(&mut h);
+    whole(&mut h, plank, "framed after a zoom");
+    // Its appearance changed in its form: framed anew for the new model.
+    let changed = key("w8_changed");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(changed)));
+    settle(&mut h);
+    let edit = mg_edit::Edit::SetField {
+        key: changed,
+        path: mg_gff::GffPath::default(),
+        label: "Appearance".into(),
+        value: Some(mg_gff::Value::Dword(732)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+    settle(&mut h);
+    let view = &h.state().model_views[&mg_ui::model_view::Source::Resource(changed)];
+    let model = view.preview().map(|p| p.base.model.to_string());
+    assert_eq!(model.as_deref(), Some("pwc_tabl_001"), "the table drawn now");
+    whole(&mut h, changed, "its appearance changed to the long table");
+}
+
+/// The cursor shown with the pointer at `at`.
+fn cursor_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) -> egui::CursorIcon {
+    h.hover_at(at);
+    h.run_steps(2);
+    h.output().platform_output.cursor_icon
+}
+
+/// The Right Dock's edge with the Preview in front (M5's W8, the owner's
+/// question: "is the Preview pane resizable at the left edge by
+/// dragging?"), beside an area (the palette's choice) and beside a
+/// placeable's tab docked (its own Preview), at 1600 by 1000 and in the
+/// wide layout: the resize cursor shown within 2.5 points either side of
+/// it and not 8 points into the dock; dragged from just outside it 100
+/// points wider, the dock follows, the width is kept (`right_dock_width`,
+/// `right_dock_width_wide` in the wide layout) and the model is framed
+/// anew for the picture's new shape, whole; dragged far either way, held
+/// to two fifths of the window and to 280.
+#[test]
+fn the_right_dock_s_edge_is_dragged_beside_the_preview() {
+    let Some((mut h, area)) = wide_harness("preview-dock-edge", &[("w8_table", 732)]) else {
+        return;
+    };
+    let table = ResKey::parse("w8_table", ResType::UTP).unwrap();
+    h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+    h.state_mut().palette.selected = Some(table);
+    for (size, beside) in [
+        ((1600.0, 1000.0), "area"),
+        ((1600.0, 1000.0), "blueprint"),
+        ((3440.0, 1440.0), "area"),
+        ((3440.0, 1440.0), "blueprint"),
+    ] {
+        let what = format!("beside the {beside} at {size:?}");
+        h.set_size(egui::vec2(size.0, size.1));
+        let tab = if beside == "area" { Tab::Area(area) } else { Tab::Blueprint(table) };
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        settle(&mut h);
+        show(&mut h, Panel::Preview);
+        let dock = right_dock_rect(&h);
+        let y = dock.center().y;
+        for dx in [-2.5, -1.0, 1.0, 2.5] {
+            let cursor = cursor_at(&mut h, egui::pos2(dock.left() + dx, y));
+            assert_eq!(cursor, egui::CursorIcon::ResizeHorizontal, "{what}: at {dx} from its edge");
+        }
+        let inside = cursor_at(&mut h, egui::pos2(dock.left() + 8.0, y));
+        assert_ne!(inside, egui::CursorIcon::ResizeHorizontal, "{what}: 8 points into the dock");
+        let first = dock.width();
+        let from = egui::pos2(dock.left() - 2.0, y);
+        drag(&mut h, from, from - egui::vec2(100.0, 0.0));
+        settle(&mut h);
+        let dragged = right_dock_rect(&h).width();
+        assert!((dragged - first - 100.0).abs() < 2.5, "{what}: {first} dragged to {dragged}");
+        let s = &h.state().settings;
+        let kept = if size.0 > 3000.0 { s.right_dock_width_wide } else { s.right_dock_width };
+        let kept_blueprint = h
+            .state()
+            .settings
+            .dock_layouts
+            .values()
+            .any(|l| l.wide_width.is_some_and(|w| (w as f32 - dragged).abs() < 1.5));
+        let kept = kept.is_some_and(|w| (w as f32 - dragged).abs() < 1.5) || kept_blueprint;
+        assert!(kept, "{what}: {dragged} kept");
+        whole(&mut h, table, &format!("{what}, the dock dragged to {dragged}"));
+        let edge = |h: &Harness<'_, Moonglow>| egui::pos2(right_dock_rect(h).left() - 2.0, y);
+        let from = edge(&h);
+        drag(&mut h, from, egui::pos2(10.0, y));
+        settle(&mut h);
+        let most = right_dock_rect(&h).width();
+        assert!(most <= 0.4 * size.0 + 1.5, "{what}: held to two fifths, {most}");
+        let from = edge(&h);
+        drag(&mut h, from, egui::pos2(size.0 - 10.0, y));
+        settle(&mut h);
+        let least = right_dock_rect(&h).width();
+        assert!((least - mg_ui::RIGHT_DOCK_LEAST).abs() < 1.5, "{what}: held to 280, {least}");
+        whole(&mut h, table, &format!("{what}, the dock at its least"));
+        right_dock_width(&mut h, 320.0);
+        h.state_mut().settings.right_dock_width_wide = None;
+        for l in h.state_mut().settings.dock_layouts.values_mut() {
+            l.wide_width = None;
+        }
+    }
+}
+
+/// The left edge of a floating form's own Preview pane (M5's W8: a
+/// placeable's window at its first width in a 2600-point screen, its
+/// pane beside the form): the resize cursor within 2.5 points either side
+/// of it (the form beside it took the 3 points outside egui's edge, 3
+/// points in all to find); dragged from just outside it 100 points wider,
+/// the pane follows.
+#[test]
+fn a_floating_form_s_preview_pane_edge_is_dragged() {
+    let Some((mut h, _area)) = area_harness("preview-window-edge") else { return };
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    h.set_size(egui::vec2(2600.0, 1200.0));
+    h.state_mut().settings.window_sizes.clear();
+    open_blueprint(&mut h, chest, false);
+    let pane = |h: &Harness<'_, Moonglow>| {
+        let dock = h.state().right_dock_rect();
+        let rows = mg_uikit::header::records(&h.ctx, mg_ui::model_view::MODEL_HEADER);
+        let row = rows.iter().find(|r| !dock.is_some_and(|d| d.contains_rect(r.row)));
+        row.expect("the window's pane's model header").row
+    };
+    let first = pane(&h);
+    let y = first.bottom() + 200.0;
+    // (Its edge: the pane's line, a point left of its header.)
+    let edge = first.left() - 1.0;
+    for dx in [-2.5, -1.0, 1.0, 2.5] {
+        let cursor = cursor_at(&mut h, egui::pos2(edge + dx, y));
+        assert_eq!(cursor, egui::CursorIcon::ResizeHorizontal, "at {dx} from the pane's edge");
+    }
+    let from = egui::pos2(edge - 2.0, y);
+    drag(&mut h, from, from - egui::vec2(100.0, 0.0));
+    settle(&mut h);
+    let after = pane(&h);
+    let wider = after.width() - first.width();
+    assert!((wider - 100.0).abs() < 2.5, "dragged 100 wider: {first:?} to {after:?}");
+}
+
+/// The Right Dock's edge seam's id (`shell::right_edge_seam`).
+fn right_edge_seam() -> egui::Id {
+    egui::Id::new("right-dock-edge").with("seam")
+}
+
+/// The edge seams made last frame (`shell::edge_seam`'s: a drag
+/// alone, at most 8 points wide, taller than 40, not a window's own
+/// edge; egui's own panel edge senses a click too).
+fn edge_seams(h: &Harness<'_, Moonglow>) -> Vec<(egui::Id, egui::Rect)> {
+    h.ctx.viewport(|v| {
+        (v.prev_pass.widgets.layers())
+            .flat_map(|(_, w)| w.iter())
+            .filter(|w| w.sense == egui::Sense::DRAG)
+            .filter(|w| w.rect.width() <= 8.0 && w.rect.height() > 40.0)
+            // (Not a window's own edges, egui's `Window` resize.)
+            .filter(|w| {
+                let edges = egui::Id::new(w.layer_id).with("edge_drag");
+                !["left", "right"].iter().any(|side| w.id == edges.with(side))
+            })
+            .map(|w| (w.id, w.rect))
+            .collect()
+    })
+}
+
+/// How a line at `x` in `image` is lit towards `want` against `rest` (the
+/// same place, `rx`, unlit), at height `y`: of the columns about it (a
+/// line a point wide falls between two, blended), the one that came
+/// nearest `want`: its colour, how far from `want` (the largest
+/// channel's difference) and how much nearer than at rest.
+fn lit_towards(
+    rest: &image::RgbaImage,
+    rx: f32,
+    image: &image::RgbaImage,
+    x: f32,
+    y: f32,
+    ppp: f32,
+    want: egui::Color32,
+) -> ([u8; 3], i32, i32) {
+    let w = [want.r(), want.g(), want.b()];
+    let at = |im: &image::RgbaImage, x: f32| {
+        let p = im.get_pixel((x * ppp) as u32, (y * ppp) as u32);
+        let c = [p[0], p[1], p[2]];
+        (c, c.iter().zip(w).map(|(a, b)| i32::from(a.abs_diff(b))).max().unwrap())
+    };
+    (-1..=2)
+        .map(|dx| {
+            let (c, off) = at(image, x + dx as f32);
+            let (_, before) = at(rest, rx + dx as f32);
+            (c, off, before - off)
+        })
+        .max_by_key(|(_, _, gain)| *gain)
+        .unwrap()
+}
+
+/// The Right Dock's edge seam lit as egui lights a panel's edge (M5's W8,
+/// B5 of review C): beside a placeable's tab docked, in Dark and in
+/// Light, the pointer 2 points outside the edge (where egui's own edge
+/// gives way to the form) draws the line in the hovered stroke's colour,
+/// and a drag in the active stroke's, at the edge where it is dragged to;
+/// the pointer away, neither.
+#[test]
+fn the_right_dock_s_seam_is_lit_on_hover_and_drag() {
+    for light in [false, true] {
+        let name = format!("preview-seam-lit-{}", if light { "light" } else { "dark" });
+        let Some((mut h, _area)) = wide_harness(&name, &[("w8_table", 732)]) else { return };
+        let table = ResKey::parse("w8_table", ResType::UTP).unwrap();
+        h.state_mut().settings.light_theme = light;
+        h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+        h.set_size(egui::vec2(1600.0, 1000.0));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(table)));
+        settle(&mut h);
+        show(&mut h, Panel::Preview);
+        let theme = if light { mg_uikit::Theme::Light } else { mg_uikit::Theme::Dark };
+        assert_eq!(mg_uikit::applied(&h.ctx), Some(theme), "the theme applied");
+        let widgets = h.ctx.global_style().visuals.widgets.clone();
+        let (hovered, active) = (widgets.hovered.fg_stroke.color, widgets.active.fg_stroke.color);
+        let ppp = h.ctx.pixels_per_point();
+        let dock = right_dock_rect(&h);
+        let (x, y) = (dock.left(), dock.center().y);
+        // (The line looked at well away from the pointer.)
+        let look = y + 150.0;
+        h.hover_at(egui::pos2(dock.left() - 300.0, y));
+        h.run_steps(2);
+        let rest = h.render().expect("render");
+        let what = format!("{theme:?}");
+        h.hover_at(egui::pos2(x - 2.0, y));
+        h.run_steps(2);
+        let image = h.render().expect("render");
+        let (lit, off, gain) = lit_towards(&rest, x, &image, x, look, ppp, hovered);
+        assert!(
+            gain >= 30 && off <= 80,
+            "{what}: hovered, the edge {lit:?}, {off} from {hovered:?}, {gain} nearer than at rest"
+        );
+        h.drag_at(egui::pos2(x - 2.0, y));
+        h.run_steps(1);
+        for k in 1..=4 {
+            h.hover_at(egui::pos2(x - 2.0 - 5.0 * k as f32, y));
+            h.run_steps(1);
+        }
+        let moved = right_dock_rect(&h).left();
+        assert!(moved < x - 10.0, "{what}: dragged from {x} to {moved}");
+        let image = h.render().expect("render");
+        let (lit, off, gain) = lit_towards(&rest, x, &image, moved, look, ppp, active);
+        assert!(
+            gain >= 30 && off <= 80,
+            "{what}: dragged, the edge {lit:?}, {off} from {active:?}, {gain} nearer than at rest"
+        );
+        h.drop_at(egui::pos2(x - 22.0, y));
+        settle(&mut h);
+    }
+}
+
+/// The keyboard's Tab passes the Right Dock's seams (M5's W8: egui's
+/// `Sense::drag()` is focusable too, and a seam made last took the keys
+/// as Tab came to it): beside an area, a placeable selected, at 1600 (the
+/// sections' seam, the dock's edge) and in the wide layout (the columns'
+/// seam, the dock's edge), Tab round every control never stops on one.
+#[test]
+fn tab_passes_the_right_dock_s_seams() {
+    let Some((mut h, area)) = wide_harness("preview-seams-tab", &[("w8_table", 732)]) else {
+        return;
+    };
+    let mut seams = vec![right_edge_seam(), egui::Id::new("right-dock-column-seam")];
+    for c in 0..2 {
+        for i in 0..4 {
+            seams.push(egui::Id::new((format!("right-dock-column-{c}").as_str(), "seam", i)));
+        }
+    }
+    for (size, kinds) in [((1600.0, 1000.0), "sections"), ((3440.0, 1440.0), "columns")] {
+        h.set_size(egui::vec2(size.0, size.1));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        // (Not `settle`: once an object is selected, the Outliner brings its
+        // row into sight over a few frames.)
+        h.run_steps(30);
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            vec![(mg_area::ObjectKind::Placeable, 0)];
+        // (Not `settle`: the Outliner brings the selected row into sight
+        // over a few frames.)
+        h.run_steps(30);
+        let made: Vec<egui::Id> =
+            seams.iter().copied().filter(|s| h.ctx.read_response(*s).is_some()).collect();
+        assert!(made.contains(&right_edge_seam()), "{kinds}: the dock's edge seam made");
+        let between = made.iter().filter(|s| **s != right_edge_seam()).count();
+        assert!(between > 0, "{kinds}: a seam between the dock's {kinds}");
+        h.ctx.memory_mut(|m| m.surrender_focus(m.focused().unwrap_or(egui::Id::NULL)));
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..600 {
+            h.key_press(egui::Key::Tab);
+            h.step();
+            let Some(focused) = h.ctx.memory(|m| m.focused()) else { continue };
+            assert!(!made.contains(&focused), "{kinds}: Tab stopped on a seam ({focused:?})");
+            if !seen.insert(focused) {
+                break;
+            }
+        }
+        assert!(seen.len() > 10, "{kinds}: Tab went round {} controls", seen.len());
+    }
+}
+
+/// Where the Right Dock's edge cannot be dragged there is no seam (M5's
+/// W8): in the least window's (under 1400 the dock is held at 280) and
+/// folded to its strip, no seam made, no resize cursor about its edge,
+/// and a drag from beside it leaves the dock as it was.
+#[test]
+fn no_seam_where_the_right_dock_s_edge_is_held() {
+    let Some((mut h, _area)) = wide_harness("preview-seam-held", &[("w8_table", 732)]) else {
+        return;
+    };
+    let table = ResKey::parse("w8_table", ResType::UTP).unwrap();
+    h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(table)));
+    // (Drawn at 1600 first: the seam is there.)
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    settle(&mut h);
+    show(&mut h, Panel::Preview);
+    assert!(h.ctx.read_response(right_edge_seam()).is_some(), "the seam at 1600");
+    for held in ["the least window", "folded"] {
+        match held {
+            "folded" => {
+                h.set_size(egui::vec2(1600.0, 1000.0));
+                h.state_mut().settings.hide_palettes = true;
+                settle(&mut h);
+            }
+            _ => {
+                h.set_size(egui::vec2(1300.0, 900.0));
+                settle(&mut h);
+                show(&mut h, Panel::Preview);
+            }
+        }
+        h.run_steps(2);
+        assert!(h.ctx.read_response(right_edge_seam()).is_none(), "{held}: a seam made");
+        assert!(edge_seams(&h).is_empty(), "{held}: {:?}", edge_seams(&h));
+        // (Folded, a strip, not the dock: the seam's absence is all.)
+        let Some(dock) = h.state().right_dock_rect() else {
+            assert_eq!(held, "folded", "the Right Dock drawn in the least window");
+            continue;
+        };
+        let y = dock.center().y;
+        for dx in [-2.5, -1.0] {
+            let cursor = cursor_at(&mut h, egui::pos2(dock.left() + dx, y));
+            assert_ne!(cursor, egui::CursorIcon::ResizeHorizontal, "{held}: at {dx} from its edge");
+        }
+        let from = egui::pos2(dock.left() - 2.0, y);
+        drag(&mut h, from, from - egui::vec2(100.0, 0.0));
+        settle(&mut h);
+        let after = right_dock_rect(&h);
+        assert!(
+            (after.width() - dock.width()).abs() < 0.5,
+            "{held}: {dock:?} dragged to {after:?}"
+        );
+        h.state_mut().settings.hide_palettes = false;
+    }
+}
+
+/// A floating script's pane held to half its window (narrower than twice
+/// 280: its least is its most) has no seam at its edge; wider, it has
+/// (M5's W8).
+#[test]
+fn no_seam_at_a_floating_pane_held_to_half_its_window() {
+    let dir = mg_testkit::scratch_dir("preview-seam-half");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = mg_module::Module::open(&path).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_in(Mode::Floating, Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    // (The window's pane's: any but the Right Dock's.)
+    let seams = |h: &Harness<'_, Moonglow>| {
+        let seams = edge_seams(h).into_iter();
+        seams.filter(|(id, _)| *id != right_edge_seam()).collect::<Vec<_>>()
+    };
+    assert!(!seams(&h).is_empty(), "wide, the pane's seam");
+    h.set_size(egui::vec2(500.0, 700.0));
+    settle(&mut h);
+    h.run_steps(2);
+    assert!(seams(&h).is_empty(), "held to half the window: {:?}", seams(&h));
+}
+
+/// Turns `key`'s model in the Preview by a drag of `degrees` across its
+/// picture (0.01 radian a point, `ModelView`'s drag).
+fn turn(h: &mut Harness<'_, Moonglow>, key: ResKey, degrees: f32) {
+    let from = picture_rect(h, key).center();
+    let to = from + egui::vec2(degrees.to_radians() / 0.01, 0.0);
+    h.hover_at(from);
+    h.run_steps(1);
+    h.drag_at(from);
+    h.run_steps(1);
+    h.hover_at(from + (to - from) * 0.5);
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(1);
+    h.drop_at(to);
+    h.run_steps(2);
+}
+
+/// M5's W8, W8-1 of review C, the owner's ruling "preview turn: a": the
+/// fit holds the model whole at every turn about the up axis. The plank
+/// of our own (6 m) and the game's long table, framed at yaws 60 (the
+/// first view's), 0, -30 and 90 in the docked Preview (319 by 864), then
+/// turned through a whole turn by drags 15° at a time: inside the picture
+/// at every step, at one distance throughout. (The fit for the yaw it was
+/// made at carried the plank framed end-on to -1.3..2.3 of the width.)
+#[test]
+fn a_framed_model_stays_whole_as_it_turns() {
+    let rows = [("w8_plank", 0), ("w8_table", 732)];
+    let Some((mut h, _area)) = wide_harness("preview-turned", &rows) else { return };
+    h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    right_dock_width(&mut h, 320.0);
+    for name in ["w8_plank", "w8_table"] {
+        let key = ResKey::parse(name, ResType::UTP).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+        settle(&mut h);
+        let picture = picture_rect(&h, key);
+        let shape = (picture.width().round(), picture.height().round());
+        assert!((318.0..=320.0).contains(&shape.0) && shape.1 > 800.0, "the picture {shape:?}");
+        let source = mg_ui::model_view::Source::Resource(key);
+        for yaw in [60f32, 0.0, -30.0, 90.0] {
+            h.state_mut().model_views.get_mut(&source).unwrap().orbit.yaw = yaw.to_radians();
+            h.get_by_label(mg_ui::model_view::MODEL_HEADER).get_by_label("Frame").click();
+            settle(&mut h);
+            let distance = h.state().model_views[&source].orbit.distance;
+            for step in 0..=24 {
+                if step > 0 {
+                    turn(&mut h, key, 15.0);
+                }
+                let what = format!("{name} framed at {yaw}°, turned {}°", 15 * step);
+                let points = projected(&h, key);
+                let span = |of: fn(&glam::Vec2) -> f32| {
+                    let v = points.iter().map(of);
+                    v.fold((f32::MAX, f32::MIN), |(l, r), v| (l.min(v), r.max(v)))
+                };
+                let ((l, r), (t, b)) = (span(|p| p.x), span(|p| p.y));
+                assert!(
+                    l >= -0.001 && r <= 1.001 && t >= -0.001 && b <= 1.001,
+                    "{what}: reaches {l:.3}..{r:.3} across, {t:.3}..{b:.3} up"
+                );
+                let now = h.state().model_views[&source].orbit.distance;
+                assert!((now - distance).abs() < 1e-3, "{what}: {distance} became {now}");
+            }
+        }
+    }
+}

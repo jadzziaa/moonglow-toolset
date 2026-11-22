@@ -764,8 +764,7 @@ fn typed_lines(app: &mut Moonglow, ui: &mut Ui) {
             (a, b, rules.lines)
         });
     ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Typed text");
-        ui.label("lines");
+        crate::widgets::field_label(ui, "Typed text lines");
         ui.add(mg_uikit::text_field(&mut draft.0).desired_width(80.0).hint_text("from"));
         ui.label("to");
         ui.add(mg_uikit::text_field(&mut draft.1).desired_width(80.0).hint_text("to"));

@@ -57,16 +57,6 @@ struct MadeWith {
     fonts: u64,
 }
 
-/// What a line number has before it: nothing, a bookmark's room (its
-/// icon is painted there: [`paint_bookmarks`]) or a numbered bookmark's
-/// number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mark {
-    None,
-    Bookmark,
-    Numbered(usize),
-}
-
 /// A script editor's text and line numbers, laid out a line at a time and
 /// kept between frames.
 #[derive(Debug, Clone, Default)]
@@ -77,12 +67,8 @@ pub(crate) struct LaidOut {
     galleys: Vec<Arc<Galley>>,
     /// The whole text's galley.
     galley: Option<Arc<Galley>>,
-    /// Each line number's mark and galley, the marked lines, and the
-    /// numbers' galley (with the empty row after the last, as the text
-    /// they were drawn from ended with a line end).
-    numbers: Vec<(Mark, Arc<Galley>)>,
-    marked: Vec<(usize, Mark)>,
-    numbers_galley: Option<Arc<Galley>>,
+    /// Each line's number, laid out ([`LaidOut::numbers`]).
+    numbers: Vec<Arc<Galley>>,
 }
 
 impl LaidOut {
@@ -179,91 +165,114 @@ impl LaidOut {
         galley
     }
 
-    /// The line numbers of `lines` lines, each after its mark: a numbered
-    /// bookmark's number, else room for a bookmark's icon (as `{n:>6}` with
-    /// the mark in its first place), with an empty row after the last.
-    pub(crate) fn numbers(
-        &mut self,
-        ui: &Ui,
-        lines: usize,
-        bookmarks: &std::collections::BTreeSet<usize>,
-        numbered: &[Option<usize>; 10],
-        palette: &Palette,
-    ) -> Arc<Galley> {
-        let mut marked: Vec<(usize, Mark)> =
-            bookmarks.iter().filter(|l| **l < lines).map(|l| (*l, Mark::Bookmark)).collect();
-        // (A numbered bookmark's number before a bookmark's icon: the first
-        // number of the line's.)
-        for (n, line) in numbered.iter().enumerate().rev() {
-            if let Some(line) = line.filter(|l| *l < lines) {
-                marked.retain(|(l, _)| *l != line);
-                marked.push((line, Mark::Numbered(n)));
-            }
+    /// Lays out the numbers of `lines` lines (each line's own, kept while
+    /// the palette is: those of lines added laid out as they come).
+    pub(crate) fn numbers(&mut self, ui: &Ui, lines: usize, palette: &Palette) {
+        if self.numbers.len() == lines {
+            return;
         }
-        marked.sort_unstable_by_key(|(l, _)| *l);
-        if let Some(g) = &self.numbers_galley
-            && self.numbers.len() == lines
-            && self.marked == marked
-        {
-            return g.clone();
-        }
-        let font = palette.font();
         let color = self.made_with.map_or(mg_uikit::Tokens::DARK.text_3, |m| m.weak);
-        let number = |f: &mut egui::epaint::text::FontsView<'_>, n: usize, mark: Mark| {
-            let text = match mark {
-                Mark::None => format!("{n:>6}"),
-                Mark::Bookmark => format!(" {n:>5}"),
-                Mark::Numbered(b) => format!("{b}{n:>5}"),
-            };
-            f.layout_job(LayoutJob::simple(text, font.clone(), color, f32::INFINITY))
-        };
-        let mark_of = |line: usize| {
-            marked.binary_search_by_key(&line, |(l, _)| *l).map_or(Mark::None, |i| marked[i].1)
-        };
+        self.numbers.truncate(lines);
         ui.fonts_mut(|f| {
-            self.numbers.truncate(lines);
-            // Lines marked before or now: their marks as they are now.
-            for (line, _) in self.marked.iter().chain(&marked) {
-                let mark = mark_of(*line);
-                if let Some(entry) = self.numbers.get_mut(*line)
-                    && entry.0 != mark
-                {
-                    *entry = (mark, number(f, *line + 1, mark));
-                }
-            }
-            for line in self.numbers.len()..lines {
-                let mark = mark_of(line);
-                self.numbers.push((mark, number(f, line + 1, mark)));
+            for n in self.numbers.len() + 1..=lines {
+                let mut job = LayoutJob::default();
+                job.append(&n.to_string(), 0.0, palette.format(color));
+                self.numbers.push(f.layout_job(palette.pitched(job)));
             }
         });
-        let mut galleys: Vec<Arc<Galley>> = self.numbers.iter().map(|(_, g)| g.clone()).collect();
-        let empty = empty_job(font, color);
-        galleys.push(ui.fonts_mut(|f| f.layout_job(empty)));
-        let mut text = String::new();
-        for g in &galleys {
-            text.push_str(g.text());
-            text.push('\n');
+    }
+
+    /// The gutter's width: the board's `.code .ln` (12 points, the widest
+    /// number, 10 points), for the numbers laid out last.
+    pub(crate) fn gutter_width(&self) -> f32 {
+        let widest = self.numbers.last().map_or(0.0, |g| g.size().x);
+        GUTTER_LEFT + widest + GUTTER_RIGHT
+    }
+
+    /// Paints the line numbers in the gutter whose left edge is `left`,
+    /// beside the rows of `galley` (the text, laid out at `at`, a row a
+    /// line), those in sight alone: each right-aligned, the line
+    /// `current`'s in `current_color` (`.ln.cur`), the others in the
+    /// numbers' color; and each bookmark's mark in the room before them
+    /// ([`paint_marks`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn paint_gutter(
+        &self,
+        ui: &Ui,
+        left: f32,
+        galley: &Galley,
+        at: egui::Pos2,
+        current: Option<usize>,
+        current_color: Color32,
+        marks: Marks<'_>,
+    ) {
+        let clip = ui.clip_rect();
+        let right = left + GUTTER_LEFT + self.numbers.last().map_or(0.0, |g| g.size().x);
+        let first = galley.rows.partition_point(|r| at.y + r.pos.y + r.size.y < clip.top());
+        let painter = ui.painter();
+        for (i, row) in galley.rows.iter().enumerate().skip(first) {
+            let top = at.y + row.pos.y;
+            if top > clip.bottom() {
+                break;
+            }
+            let Some(number) = self.numbers.get(i) else { break };
+            let pos = egui::pos2(right - number.size().x, top);
+            if current == Some(i) {
+                painter.galley_with_override_text_color(pos, number.clone(), current_color);
+            } else {
+                painter.galley(pos, number.clone(), current_color);
+            }
         }
-        text.pop();
-        let job = LayoutJob::simple(text, palette.font(), color, f32::INFINITY);
-        let ppp = ui.ctx().pixels_per_point();
-        let galley = Arc::new(Galley::concat(Arc::new(job), &galleys, ppp));
-        self.marked = marked;
-        self.numbers_galley = Some(galley.clone());
-        galley
+        paint_marks(ui, left, galley, at, marks, self.made_with.map_or(current_color, |m| m.weak));
     }
 }
 
+/// The gutter named for a screen reader by what it shows ("Line numbers 1
+/// to 3000"), not by every number in it.
+pub(crate) fn name_gutter(gutter: &egui::Response, lines: usize) {
+    let said = format!("Line numbers 1 to {}", lines.max(1));
+    gutter.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
+}
+
+/// The text field described for a screen reader by the cursor's line
+/// ("Line 12 of 3000"): the gutter's number for it, said.
+pub(crate) fn describe_line(field: &egui::Response, line: usize, lines: usize) {
+    let said = format!("Line {line} of {}", lines.max(1));
+    field.ctx.accesskit_node_builder(field.id, |node| node.set_description(said));
+}
+
+/// The room before the line numbers (`.code .ln`'s `padding-left`), where
+/// a bookmark's mark is painted.
+pub(crate) const GUTTER_LEFT: f32 = 12.0;
+
+/// The room after them (`.code .ln`'s `padding-right`).
+pub(crate) const GUTTER_RIGHT: f32 = 10.0;
+
+/// The text's frame: the room before the text and after it (`.code .tx`'s
+/// `padding: 0 12px 0 8px`), none above or below (the board's first line
+/// at the top of the code), and no border or fill (the kit's
+/// `code_frame`, whose margins are a text field's).
+pub(crate) fn text_frame() -> egui::Frame {
+    egui::Frame::new().inner_margin(egui::Margin { left: 8, right: 12, top: 0, bottom: 0 })
+}
+
+/// A script's bookmarks, as the gutter marks them: the lines (from 0)
+/// bookmarked, and the line of each numbered bookmark (0 to 9).
+#[derive(Clone, Copy)]
+pub(crate) struct Marks<'a> {
+    pub bookmarks: &'a std::collections::BTreeSet<usize>,
+    pub numbered: &'a [Option<usize>; 10],
+}
+
 /// An empty line: no text, one section for its font (its height).
-fn empty_job(font: egui::FontId, color: Color32) -> LayoutJob {
+fn empty_job(palette: &Palette, color: Color32) -> LayoutJob {
     let mut job = LayoutJob::default();
     job.sections.push(LayoutSection {
         leading_space: 0.0,
         byte_range: egui::text::ByteIndex(0)..egui::text::ByteIndex(0),
-        format: TextFormat::simple(font, color),
+        format: palette.format(color),
     });
-    job.wrap.max_width = f32::INFINITY;
-    job
+    palette.pitched(job)
 }
 
 /// What a line begins inside, as the script's tokens go: code, or a
@@ -385,52 +394,58 @@ fn common_suffix(a: &[u8], b: &[u8]) -> usize {
     i
 }
 
-/// A line's layout: its tokens' pieces in their colors.
+/// A line's layout: its tokens' pieces in their colors, the line
+/// [`Palette::pitch`] high.
 fn line_job(text: &str, tokens: &[Token], palette: &Palette) -> LayoutJob {
-    let font = palette.font();
     let mut job = LayoutJob::default();
     for t in tokens.iter().filter(|t| t.span.end > t.span.start) {
         let color = palette.colors[element(t.kind)];
-        job.append(&text[t.span.clone()], 0.0, TextFormat::simple(font.clone(), color));
+        job.append(&text[t.span.clone()], 0.0, palette.format(color));
     }
     // (An empty line: the height of its font. An empty text has no
     // sections, as it had laid out whole.)
     if job.sections.is_empty() && !text.is_empty() {
-        return empty_job(font, palette.colors[0]);
+        return empty_job(palette, palette.colors[0]);
     }
-    job.wrap.max_width = f32::INFINITY;
-    job
+    palette.pitched(job)
 }
 
-/// A bookmark's icon (`bookmark`, as high as a line, in the numbers'
-/// color) in the first place of each bookmarked line's number, of the
-/// line numbers `numbers` drawn at `at` (those with a numbered bookmark's
-/// number show that).
-pub(crate) fn paint_bookmarks(
+/// Each bookmark's mark in the room before the line numbers of the
+/// gutter whose left edge is `left` ([`GUTTER_LEFT`]), on its line's row
+/// of `galley` (laid out at `at`): a numbered bookmark's number, else the
+/// `bookmark` icon, in `color` (the numbers').
+fn paint_marks(
     ui: &Ui,
-    numbers: &Galley,
+    left: f32,
+    galley: &Galley,
     at: egui::Pos2,
-    bookmarks: &std::collections::BTreeSet<usize>,
-    numbered: &[Option<usize>; 10],
+    marks: Marks<'_>,
+    color: Color32,
 ) {
-    let weak = ui.visuals().weak_text_color();
-    let color = numbers.job.sections.first().map_or(weak, |s| s.format.color);
     let clip = ui.clip_rect();
-    for line in bookmarks {
-        if numbered.contains(&Some(*line)) {
+    let place = |line: usize| {
+        let row = galley.rows.get(line)?;
+        let rect = egui::Rect::from_min_size(
+            at + row.pos.to_vec2() + egui::vec2(left - at.x - row.pos.x, 0.0),
+            egui::vec2(GUTTER_LEFT, row.size.y),
+        );
+        clip.intersects(rect).then_some(rect)
+    };
+    for line in marks.bookmarks {
+        if marks.numbered.contains(&Some(*line)) {
             continue;
         }
-        let Some(row) = numbers.rows.get(*line) else { continue };
-        let first = row.glyphs.first().map_or(row.rect().height(), |g| g.advance_width);
-        let rect = row.rect().translate(at.to_vec2());
-        let side = rect.height().min(mg_uikit::metrics::ICON);
-        let square = egui::Rect::from_center_size(
-            egui::pos2(rect.left() + first / 2.0, rect.center().y),
-            egui::Vec2::splat(side),
-        );
-        if clip.intersects(square) {
-            mg_uikit::Icon::Bookmark.paint(ui.painter(), square, color);
-        }
+        let Some(rect) = place(*line) else { continue };
+        let side = rect.height().min(GUTTER_LEFT);
+        let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
+        mg_uikit::Icon::Bookmark.paint(ui.painter(), square, color);
+    }
+    let font = galley.job.sections.first().map(|s| s.format.font_id.clone());
+    for (n, line) in marks.numbered.iter().enumerate() {
+        let (Some(line), Some(font)) = (line, &font) else { continue };
+        let Some(rect) = place(*line) else { continue };
+        let digit = ui.painter().layout_no_wrap(n.to_string(), font.clone(), color);
+        ui.painter().galley(rect.center() - digit.size() / 2.0, digit, color);
     }
 }
 
@@ -446,38 +461,63 @@ mod tests {
     }
 
     /// Lays `text` out the way the editor did before (the whole text, one
-    /// job: egui splits it at its lines itself) and line by line, and
-    /// compares the rows: where each is, its size, its line end, its
-    /// characters and their colors.
+    /// job: egui splits it at its lines itself), each line the editor's
+    /// pitch high, and line by line, and compares the rows: where each is,
+    /// its size, its line end, its characters and their colors. (Laid out
+    /// whole with egui's `line_height`, a line's text is at the top of its
+    /// row; line by line, it is centered: each character, and its mesh,
+    /// lower by the same few points.)
     fn same_as_whole(ctx: &egui::Context, text: &str) {
         let palette = Palette::new(&ScriptStyle::default(), true, Color32::WHITE);
         let mut laid = LaidOut::default();
         let mut whole = None;
         let mut lines = None;
+        let mut font_row = 0.0;
         run(ctx, |ui| {
             laid.begin(ui, &palette);
             lines = Some(laid.text(ui, text, &palette));
             let mut job = highlight(text, &palette);
             job.wrap.max_width = f32::INFINITY;
+            for s in &mut job.sections {
+                s.format.line_height = Some(palette.pitch());
+            }
+            // (An empty text: no section to give the height.)
+            job.first_row_min_height = palette.pitch();
             whole = Some(ui.fonts_mut(|f| f.layout_job(job)));
+            font_row = ui.fonts_mut(|f| f.row_height(&palette.font()));
         });
         let (whole, lines) = (whole.unwrap(), lines.unwrap());
         assert_eq!(lines.text(), text);
         assert_eq!(whole.rows.len(), lines.rows.len(), "{text:?}");
+        // (How much lower: about half the room the pitch leaves the font's
+        // row, the same for every character.)
+        let lower = (lines.rows.iter().zip(&whole.rows))
+            .find_map(|(b, a)| Some(b.glyphs.first()?.pos.y - a.glyphs.first()?.pos.y))
+            .unwrap_or(0.0);
+        let half = 0.5 * (palette.pitch() - font_row);
+        assert!(
+            text.trim().is_empty() || (lower >= 1.0 && (lower - half).abs() <= 1.0),
+            "{lower} lower, half the room {half}"
+        );
         for (i, (a, b)) in whole.rows.iter().zip(&lines.rows).enumerate() {
             let at = format!("row {i} of {text:?}");
             assert_eq!(a.pos, b.pos, "{at}");
             assert_eq!(a.size, b.size, "{at}");
+            assert_eq!(a.size.y, palette.pitch(), "{at}");
             assert_eq!(a.ends_with_newline, b.ends_with_newline, "{at}");
-            let chars = |r: &egui::epaint::text::PlacedRow| {
-                r.glyphs.iter().map(|g| (g.chr, g.pos)).collect::<Vec<_>>()
+            let chars = |r: &egui::epaint::text::PlacedRow, down: f32| {
+                r.glyphs.iter().map(|g| (g.chr, g.pos + egui::vec2(0.0, down))).collect::<Vec<_>>()
             };
-            assert_eq!(chars(a), chars(b), "{at}");
-            assert_eq!(a.visuals.mesh.vertices, b.visuals.mesh.vertices, "{at}: colors");
+            assert_eq!(chars(a, lower), chars(b, 0.0), "{at}");
+            let mesh = |r: &egui::epaint::text::PlacedRow, down: f32| {
+                (r.visuals.mesh.vertices.iter())
+                    .map(|v| (v.pos + egui::vec2(0.0, down), v.uv, v.color))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(mesh(a, lower), mesh(b, 0.0), "{at}: colors");
         }
         assert_eq!(whole.rect, lines.rect);
         assert_eq!(whole.size(), lines.size());
-        assert_eq!(whole.intrinsic_size(), lines.intrinsic_size());
     }
 
     #[test]
@@ -604,50 +644,163 @@ mod tests {
         same_as_whole(&ctx, &replaced);
     }
 
-    /// The line numbers, laid out a number at a time, as the label of all
-    /// of them was: each mark in its number's first place.
+    /// The line numbers: one a line, each as the number laid out alone
+    /// in the numbers' color and the editor's pitch; those of lines added
+    /// laid out as they come, the others kept; the gutter as wide as the
+    /// board's (12 points, the widest number, 10 points).
     #[test]
-    fn line_numbers_laid_out_one_at_a_time_are_as_all_together() {
+    fn line_numbers_are_laid_out_as_lines_come() {
         let ctx = egui::Context::default();
         let palette = Palette::new(&ScriptStyle::default(), true, Color32::WHITE);
         let mut laid = LaidOut::default();
-        let bookmarks: std::collections::BTreeSet<usize> = [2, 6, 11].into();
-        let mut numbered = [None; 10];
-        numbered[2] = Some(11);
-        let mut frame = |lines: usize, bookmarks: &std::collections::BTreeSet<usize>| {
-            let mut out = None;
+        let mut frame = |lines: usize| {
+            let mut alone = None;
             run(&ctx, |ui| {
                 laid.begin(ui, &palette);
-                let g = laid.numbers(ui, lines, bookmarks, &numbered, &palette);
-                let text: String = (1..=lines)
-                    .map(|n| {
-                        if let Some(b) = numbered.iter().position(|l| *l == Some(n - 1)) {
-                            format!("{b}{n:>5}\n")
-                        } else if bookmarks.contains(&(n - 1)) {
-                            format!(" {n:>5}\n")
-                        } else {
-                            format!("{n:>6}\n")
-                        }
-                    })
-                    .collect();
+                laid.numbers(ui, lines, &palette);
                 let color = ui.visuals().weak_text_color();
-                let job = LayoutJob::simple(text, palette.font(), color, f32::INFINITY);
-                out = Some((g, ui.fonts_mut(|f| f.layout_job(job))));
+                let mut job = LayoutJob::default();
+                job.append(&lines.to_string(), 0.0, palette.format(color));
+                job.first_row_min_height = palette.pitch();
+                alone = Some(ui.fonts_mut(|f| f.layout_job(job)));
             });
-            out.unwrap()
+            (laid.numbers.clone(), alone.unwrap(), laid.gutter_width())
         };
-        for (lines, marks) in [(20, bookmarks.clone()), (25, [3].into()), (12, [3, 7].into())] {
-            let (ours, all) = frame(lines, &marks);
-            assert_eq!(ours.text(), all.text());
-            assert_eq!(ours.rows.len(), all.rows.len());
-            for (a, b) in ours.rows.iter().zip(&all.rows) {
-                assert_eq!(
-                    (a.pos, a.size, a.ends_with_newline),
-                    (b.pos, b.size, b.ends_with_newline)
-                );
-                assert_eq!(a.visuals.mesh.vertices, b.visuals.mesh.vertices);
+        let (nine, _, _) = frame(9);
+        assert_eq!(nine.len(), 9);
+        let (twelve, last, width) = frame(12);
+        assert_eq!(twelve.len(), 12);
+        assert!(nine.iter().zip(&twelve).all(|(a, b)| Arc::ptr_eq(a, b)), "kept");
+        let ours = twelve.last().unwrap();
+        assert_eq!(ours.text(), "12");
+        assert_eq!(ours.size(), last.size());
+        assert_eq!(ours.size().y, palette.pitch());
+        assert_eq!(ours.rows[0].visuals.mesh.vertices, last.rows[0].visuals.mesh.vertices);
+        assert_eq!(width, GUTTER_LEFT + last.size().x + GUTTER_RIGHT);
+        assert_eq!((GUTTER_LEFT, GUTTER_RIGHT), (12.0, 10.0));
+        let (five, _, _) = frame(5);
+        assert_eq!(five.len(), 5);
+        assert!(five.iter().zip(&twelve).all(|(a, b)| Arc::ptr_eq(a, b)), "kept");
+    }
+
+    /// The editor's lines are the board's 18 points apart at its 13-point
+    /// text (`.code`), in that ratio at another size (Options › Script
+    /// Editor's), at each interface size as egui rounds a row to whole
+    /// pixels; each line's text centered in its row (half the room above
+    /// it, half below, to a pixel), as the board's CSS puts it.
+    #[test]
+    fn the_monospace_font_is_as_high_as_the_pitch_takes_it() {
+        let ctx = egui::Context::default();
+        run(&ctx, |ui| {
+            for size in 6..=48 {
+                let size = f32::from(size as u8);
+                let font = egui::FontId::monospace(size);
+                let high = ui.fonts_mut(|f| f.row_height(&font));
+                let near = (high - size * crate::script_view::MONO_HEIGHT).abs();
+                assert!(near <= 1.0 / 32.0 + 0.01, "size {size}: {high} high");
             }
-            assert_eq!(ours.size(), all.size());
+        });
+    }
+
+    /// The board's pitch (18 at 13, in that ratio), but never less than
+    /// the glyphs and a point of room above and under them: Options lets
+    /// the text be 6 to 48, and at 6 to 9 the board's ratio leaves the
+    /// glyphs touching the row's top.
+    #[test]
+    fn lines_are_the_board_s_pitch_apart_their_text_centered() {
+        let sizes = [(6, 9.0), (7, 11.0), (8, 12.0), (9, 13.0), (10, 14.0), (11, 15.0)];
+        let sizes = sizes.into_iter().chain([(12, 17.0), (13, 18.0), (17, 24.0), (24, 33.0)]);
+        for (size, pitch) in sizes {
+            let style = ScriptStyle { font_size: size, ..ScriptStyle::default() };
+            let palette = Palette::new(&style, true, mg_uikit::Tokens::DARK.syn_text);
+            assert_eq!(palette.pitch(), pitch, "size {size}");
+            for scale in crate::UI_SCALES {
+                let ppp = f32::from(scale) / 100.0;
+                let ctx = egui::Context::default();
+                ctx.set_pixels_per_point(ppp);
+                let mut laid = LaidOut::default();
+                let mut galley = None;
+                run(&ctx, |ui| {
+                    laid.begin(ui, &palette);
+                    galley = Some(laid.text(ui, "void main()\n{\n\n    int n;\n}", &palette));
+                });
+                let galley = galley.unwrap();
+                let row = palette.row_height(ppp);
+                assert!((row - pitch).abs() <= 0.5 / ppp + 1e-4, "{row} at {ppp}");
+                // (egui puts what it lays out on 1/32 of a point.)
+                let near = |a: f32, b: f32| (a - b).abs() <= 1.0 / 32.0;
+                let at = format!("size {size} at {ppp}");
+                assert_eq!(galley.rows.len(), 5, "{at}");
+                for (i, r) in galley.rows.iter().enumerate() {
+                    assert!(near(r.pos.y, i as f32 * row), "{at}: row {i} at {}", r.pos.y);
+                    assert!(near(r.size.y, row), "{at}: row {i} {} high", r.size.y);
+                    for g in &r.glyphs {
+                        let above = g.pos.y - g.font_ascent;
+                        let below = r.size.y - above - g.font_height;
+                        assert!(above > 0.5, "{at}: {above} above {:?}", g.chr);
+                        assert!(
+                            (above - below).abs() <= 1.0 / ppp + 0.01,
+                            "{at}: {above} above, {below} below"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The live error's wave (`script_view::wave_y`) under the text and
+    /// within its row at every size Options allows and every interface
+    /// size: the board's 3 points under the baseline at 13, never into the
+    /// next line (at 9 and under, 3 points would have run into it).
+    #[test]
+    fn the_error_wave_stays_in_its_row() {
+        let half = mg_uikit::WAVE_HEIGHT / 2.0 + 0.5;
+        for size in 6..=48u8 {
+            let style = ScriptStyle { font_size: size, ..ScriptStyle::default() };
+            let palette = Palette::new(&style, true, mg_uikit::Tokens::DARK.syn_text);
+            for scale in crate::UI_SCALES {
+                let ppp = f32::from(scale) / 100.0;
+                let ctx = egui::Context::default();
+                ctx.set_pixels_per_point(ppp);
+                let mut laid = LaidOut::default();
+                let mut galley = None;
+                run(&ctx, |ui| {
+                    laid.begin(ui, &palette);
+                    galley = Some(laid.text(ui, "int n = 1;\nint m;", &palette));
+                });
+                let galley = galley.unwrap();
+                let r = &galley.rows[0];
+                let baseline = r.pos.y + r.glyphs[0].pos.y;
+                let y = crate::script_view::wave_y(baseline, r.pos.y + r.size.y, f32::from(size));
+                let at = format!("size {size} at {ppp}: baseline {baseline}, wave {y}");
+                // (egui puts rows on 1/32 of a point.)
+                let next = galley.rows[1].pos.y;
+                assert!(y + half <= next + 1.0 / 32.0, "{at}: into the next line at {next}");
+                assert!(y >= baseline, "{at}: over the text");
+            }
+        }
+    }
+
+    /// The current line's hairlines on whole pixels at every interface size
+    /// (at 1.25 a 1-point line would blur over two), inside the row, at
+    /// least a pixel thick, the point's thickness as near as pixels go.
+    #[test]
+    fn the_current_line_s_hairlines_are_on_whole_pixels() {
+        let whole = |v: f32, ppp: f32| ((v * ppp) - (v * ppp).round()).abs() < 1e-3;
+        for scale in crate::UI_SCALES {
+            let ppp = f32::from(scale) / 100.0;
+            // (A row as egui places it: on whole pixels.)
+            let top = (37.0 * ppp).round() / ppp;
+            let palette =
+                Palette::new(&ScriptStyle::default(), true, mg_uikit::Tokens::DARK.syn_text);
+            let row = egui::Rangef::new(top, top + palette.row_height(ppp));
+            for line in crate::script_view::hairlines(row, ppp) {
+                let at = format!("{line:?} at {ppp} in {row:?}");
+                assert!(whole(line.min, ppp) && whole(line.max, ppp), "{at}");
+                assert!(line.min >= row.min - 1e-3 && line.max <= row.max + 1e-3, "{at}");
+                let pixels = (line.span() * ppp).round();
+                assert!(pixels >= 1.0 && (line.span() - 1.0).abs() <= 0.5 / ppp + 1e-3, "{at}");
+            }
         }
     }
 

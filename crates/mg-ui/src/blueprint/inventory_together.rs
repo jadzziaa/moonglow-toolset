@@ -87,10 +87,10 @@ fn as_target<R>(f: &mut Form<'_>, t: &lists::Target, with: impl FnOnce(&mut Form
 }
 
 /// Why target `t` takes no item: a placeable without an inventory
-/// (Basic › Has Inventory).
+/// (Basic › Has inventory).
 fn takes_none(t: &lists::Target, holder: Holder) -> Option<&'static str> {
     let none = holder == Holder::Placeable && t.at.integer("HasInventory").unwrap_or(0) == 0;
-    none.then_some("no inventory (Basic › Has Inventory)")
+    none.then_some("no inventory (Basic › Has inventory)")
 }
 
 /// The edits that add `added` to target `t`: at the end of its
@@ -536,5 +536,23 @@ mod tests {
         assert_eq!(bags.len(), 2);
         assert_eq!(bags[1].0, t.path.clone().item("StoreList", 1));
         assert_eq!(bags[1].1.len(), 1);
+    }
+
+    /// A placeable without an inventory says why, naming the box as its
+    /// Basic page draws it (M5's W7: it said "Has Inventory").
+    #[test]
+    fn a_placeable_without_an_inventory_names_the_box_as_drawn() {
+        let key = ResKey::parse("area", ResType::GIT).unwrap();
+        let placeable = |has: u8| {
+            let mut s = Struct::new(0);
+            s.set("HasInventory", Value::Byte(has));
+            lists::Target::new(key, GffPath::root().item("Placeable List", 0), s)
+        };
+        assert_eq!(
+            takes_none(&placeable(0), Holder::Placeable),
+            Some("no inventory (Basic › Has inventory)")
+        );
+        assert_eq!(takes_none(&placeable(1), Holder::Placeable), None);
+        assert_eq!(takes_none(&placeable(0), Holder::Creature), None);
     }
 }

@@ -401,7 +401,7 @@ fn a_class_is_set_on_those_that_have_it_within_the_rules() {
     let before = each(&mut h, &keys, classes);
     assert_eq!(h.query_all_by_label("≠ 2 of 3").count(), 2);
     assert!(h.query_all_by_value("mixed").count() >= 1, "the Fighter's levels differ");
-    assert!(h.get_by_label("Levelup Wizard").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Levelup Wizard…").accesskit_node().is_disabled());
     let level = number_beside(&h, "Class 1", 0);
     set_number(&h, &level, 7.0);
     h.run();

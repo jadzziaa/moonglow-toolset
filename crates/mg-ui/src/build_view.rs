@@ -512,7 +512,7 @@ fn is_blueprint(t: ResType) -> bool {
 
 /// What a build says without the game's data (as an editor's tab does).
 const NO_GAME: &str =
-    "No game data: choose your Neverwinter Nights installation in Tools > Options.";
+    "No game data: choose your Neverwinter Nights installation in Tools › Options.";
 
 /// Runs the build and waits for it (the build before saving): the compile
 /// passes, as one undoable command, then the checks. The results are the

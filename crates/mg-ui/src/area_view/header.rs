@@ -535,12 +535,13 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         .switch(&mut overlays, SHOW_OVERLAYS);
     let mut overlay_rows = 0;
     if shown("Grid") {
-        let row = PopCheck::new(&mut grid, "Grid").icon(crate::icons::GRID).unfolded_words(true);
+        let row =
+            PopCheck::new(&mut grid, "Grid").unfolded_icon(crate::icons::GRID).unfolded_words(true);
         overlays_pop = overlays_pop.check(row.tip("Display grid"));
         overlay_rows += 1;
     }
     if shown("Minimap") {
-        let row = PopCheck::new(&mut minimap, "Minimap").icon(crate::icons::MINIMAP);
+        let row = PopCheck::new(&mut minimap, "Minimap").unfolded_icon(crate::icons::MINIMAP);
         overlays_pop = overlays_pop.check(row.unfolded_words(true).tip(MINIMAP_TIP));
         overlay_rows += 1;
     }
@@ -562,7 +563,8 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         overlay_rows += 1;
     }
     if shown("Sound Ranges") {
-        let row = PopCheck::new(&mut sound_ranges, "Sound ranges").icon(crate::icons::SOUND_RANGES);
+        let row = PopCheck::new(&mut sound_ranges, "Sound ranges")
+            .unfolded_icon(crate::icons::SOUND_RANGES);
         overlays_pop =
             overlays_pop.separator().folded_only().check(row.unfolded_words(true).tip(RANGES_TIP));
         overlay_rows += 1;

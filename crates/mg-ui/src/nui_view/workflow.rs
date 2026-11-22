@@ -300,7 +300,7 @@ pub(super) fn images(
             .and_then(|n| s.bindings.get(n))
             .is_some_and(|b| b.value.is_array());
         if row_array {
-            ui.weak("Choose individual row images in the list's Row data.");
+            ui.weak("Choose individual row images in the list's Row Data.");
         }
         if !node["image_region"].is_object() && ui.button("Add Crop Region").clicked() {
             let name = preview::string(&node[field], s, None);

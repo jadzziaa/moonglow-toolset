@@ -291,6 +291,8 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
     // holds the whole dock (the window's layouts).
     let inner = dock.shrink(1.0);
     let edge = egui::Id::new("right-dock").with("__resize").value();
+    // (And its seam over the editor area's widgets beside it, M5's W8.)
+    let seam = egui::Id::new("right-dock-edge").with("seam").value();
     let names: std::collections::HashMap<u64, &String> = (others.iter())
         .map(|(name, _, id)| (*id, name))
         .chain(own.iter().map(|(name, _, id)| (*id, name)))
@@ -302,7 +304,8 @@ fn dock_wrong(h: &Harness<'_, Moonglow>, at: &str, seen: &mut usize) -> Vec<Stri
                 let id = w.id.value();
                 let across = r.intersects(inner) && !dock.expand(0.5).contains_rect(r);
                 let beside = fold.expand(0.5).contains_rect(r);
-                if across && !beside && id != edge && !r.contains_rect(inner) && r.area() > 1.0 {
+                let edges = id == edge || id == seam;
+                if across && !beside && !edges && !r.contains_rect(inner) && r.area() > 1.0 {
                     let mut name = names.get(&id).map_or("a widget".to_string(), |n| n.to_string());
                     if mine.contains(&id) {
                         name = format!("the dock's {name}");

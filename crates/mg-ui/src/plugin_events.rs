@@ -402,8 +402,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 });
                 ui.separator();
                 ui.weak(
-            "Plugins check a save as their manifests declare (Plugins › Manage Plugins lists \
-             what each does, and disables one).",
+            "Plugins check a save as their manifests declare (the Plugins tab lists what each \
+             does, and disables one).",
         );
                 let foot = crate::widgets::Foot::new();
                 let foot = match refused {

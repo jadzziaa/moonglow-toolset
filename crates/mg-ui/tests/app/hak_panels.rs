@@ -1206,7 +1206,8 @@ fn find_s_clear_button_is_inside_its_field() {
 fn a_hak_s_sound_never_plays_on_unseen() {
     use mg_ui::audio::Channel;
     let asks = |h: &Harness<'_, Moonglow>| {
-        h.ctx.repaint_causes().iter().any(|c| c.file.ends_with("hak_view/panels.rs"))
+        // (The sound viewer's, shared with the read-only tab since M5's W6.)
+        h.ctx.repaint_causes().iter().any(|c| c.file.ends_with("viewers.rs"))
     };
     let playing = |h: &Harness<'_, Moonglow>| h.state().speaker.playing(Channel::Preview);
     for way in ["fold", "behind", "close", "module", "ends"] {

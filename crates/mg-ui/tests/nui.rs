@@ -229,7 +229,7 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_by_label("Canvas Label · Label").click();
     h.run();
     let before = document(&h);
-    click_seen(&mut h, "New Bind for Property");
+    click_seen(&mut h, "New Bind for a Property");
     // (The dialog's Cancel, beside its Create: the header's is the
     // editor's.)
     let create = h.get_by_label("Create").rect().center();
@@ -243,7 +243,7 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     cancel.click();
     h.run();
     assert_eq!(document(&h), before);
-    click_seen(&mut h, "New Bind for Property");
+    click_seen(&mut h, "New Bind for a Property");
     h.get_by_label("Create").click();
     h.run();
     assert_eq!(document(&h)["root"]["children"][0]["value"], json!({"bind":"label_value"}));

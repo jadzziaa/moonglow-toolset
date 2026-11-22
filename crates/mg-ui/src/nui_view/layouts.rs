@@ -352,7 +352,7 @@ pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
         state.layout_target.clone_from(&target);
         ui.horizontal_wrapped(|ui| {
             if !target.is_empty() && target != "_window_" {
-                if ui.button(format!("Swap Layout · {target}")).clicked() {
+                if ui.button(format!("Swap layout · {target}")).clicked() {
                     select_host(state, s, &target);
                 }
                 ui.label("/");
@@ -376,7 +376,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
     {
         widgets::table_heading(ui, format!("Editing variant: {name}"));
         if let Some(target) = target_for(s, &name) {
-            ui.label(format!("Belongs to Swap Layout · {target}"));
+            ui.label(format!("Belongs to Swap layout · {target}"));
             if ui.button("Swap Layout Properties").clicked() {
                 select_host(state, s, &target);
             }
@@ -763,6 +763,14 @@ mod tests {
             rows(&h, ["Variant · details", "Label · Left", "Variant · other"]);
         assert!(details.top() < left.top() && left.top() < other.top());
         assert!(left.left() > details.left());
+        // The bar's way back to the swap layout names it as Layers does
+        // (M5's W7: it said "Swap Layout · content").
+        let named = h.get_all_by_label("Swap layout · content").count();
+        assert_eq!(named, 2, "Layers' row and the bar's button");
+        assert!(h.query_by_label("Swap Layout · content").is_none());
+        // The inspector says which swap layout the variant belongs to, in
+        // the same words.
+        h.get_by_label("Belongs to Swap layout · content");
         h.get_by_label("Context Label · Header");
         h.get_by_label("Context Label · Footer");
         let host = h.get_by_label("Context Group").rect();

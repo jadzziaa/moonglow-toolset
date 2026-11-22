@@ -108,6 +108,9 @@ struct Line {
     /// Its arrow's column another widget's: the row answers the pointer
     /// from its name on.
     arrow_apart: bool,
+    /// Room kept after its words, where they are cut to the row's width,
+    /// for marks the caller puts there ([`TreeRow::keep_after`]).
+    after: f32,
     /// Where in the painter's shapes its fill goes (under what was drawn
     /// before the row over it), else drawn with the row.
     fill_under: Option<egui::layers::ShapeIdx>,
@@ -117,8 +120,21 @@ impl Line {
     fn new(name: String) -> Self {
         let (marked, dim, arrow_apart) = (false, false, false);
         let (icon, count, label, fill_under) = (None, None, None, None);
-        let (sub, fit, eye) = (None, false, None);
-        Line { name, icon, count, label, marked, dim, sub, fit, eye, arrow_apart, fill_under }
+        let (sub, fit, eye, after) = (None, false, None, 0.0);
+        Line {
+            name,
+            icon,
+            count,
+            label,
+            marked,
+            dim,
+            sub,
+            fit,
+            eye,
+            arrow_apart,
+            fill_under,
+            after,
+        }
     }
 
     /// Its accessible name: its own, else the name with the count after
@@ -154,7 +170,8 @@ impl Line {
             let count = w.count.as_ref().map_or(0.0, |c| COUNT_GAP + c.size().x);
             let sub = w.sub.as_ref().map_or(0.0, |s| SUB_GAP + s.size().x);
             let (name, eye) = (w.name.size().x, self.eye_room());
-            name_offset(self.icon.is_some()) + name + sub + count + eye + ROW_PADDING_RIGHT
+            let after = self.after;
+            name_offset(self.icon.is_some()) + name + sub + after + count + eye + ROW_PADDING_RIGHT
         });
         let (auto, taken) = ui.allocate_space(vec2(needed, height));
         let mut rect = taken.with_max_x(taken.right().max(right));
@@ -200,7 +217,7 @@ impl Line {
             return Words { name: Self::galley(ui, &self.name), sub, count };
         }
         let counted = count.as_ref().map_or(0.0, |c| COUNT_GAP + c.size().x);
-        let fixed = name_offset(self.icon.is_some()) + counted + self.eye_room();
+        let fixed = name_offset(self.icon.is_some()) + counted + self.eye_room() + self.after;
         let room = (width - fixed - ROW_PADDING_RIGHT).max(1.0);
         let Some(sub) = self.sub.as_ref().filter(|s| !s.is_empty()) else {
             return Words { name: Self::galley_cut(ui, &self.name, room), sub: None, count };
@@ -583,6 +600,15 @@ impl TreeRow {
         self
     }
 
+    /// `width` points kept after its words where they are cut to the
+    /// row's width ([`TreeRow::fit`]), for marks the caller puts there
+    /// ([`TreeRowShown::after_words`]): a module tree's area's, who holds
+    /// it and whether the module's list names it.
+    pub fn keep_after(mut self, width: f32) -> Self {
+        self.line.after = width.max(0.0);
+        self
+    }
+
     /// A show or hide eye at its right, after its count, as
     /// [`TreeGroup::eye`]'s ([`TreeRowShown::eye`] is its response).
     pub fn eye(mut self, shown: bool, name: impl Into<String>, tip: impl Into<String>) -> Self {
@@ -650,11 +676,14 @@ impl TreeRow {
             vec2(ARROW, rect.height()),
         );
         let after = pos2(row.name_end(line.icon.is_some()) + ROW_GAP, rect.top());
+        // (After its weak second word too, where it has one drawn.)
+        let sub = row.words.as_ref().and_then(|w| w.sub.as_ref());
+        let after_words = sub.map_or(after, |s| pos2(after.x + SUB_GAP + s.size().x, after.y));
         let response = line.paint(ui, row, None).response;
         if let (Some(e), Some(r)) = (&line.eye, &eye) {
             paint_eye(ui, r, e, line.marked);
         }
-        TreeRowShown { response, arrow, after, eye }
+        TreeRowShown { response, arrow, after, after_words, eye }
     }
 }
 
@@ -667,6 +696,10 @@ pub struct TreeRowShown {
     pub arrow: Rect,
     /// Where the room after its name begins, at the row's top.
     pub after: Pos2,
+    /// Where the room after its words begins (its name and its weak
+    /// second word), at the row's top: where marks after them go
+    /// ([`TreeRow::keep_after`]).
+    pub after_words: Pos2,
     /// Its eye's response, where it has one ([`TreeRow::eye`]).
     pub eye: Option<Response>,
 }

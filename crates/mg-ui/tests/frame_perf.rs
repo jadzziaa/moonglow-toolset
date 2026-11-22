@@ -78,6 +78,65 @@ const KNOWN_OVER: &[(&str, &str)] = &[
     ("549 objects) (Sound Ranges off), turning (wheel)", LARGEST),
     ("549 objects) (Sound Ranges on), overview (wheel)", LARGEST),
     ("549 objects) (Sound Ranges on), turning (wheel)", LARGEST),
+    // The same cost in the views after "close": their wheel zooms out
+    // from where the view before left the camera, over the whole of
+    // area084, since the area opens with its camera over its ground (M5's
+    // V3; before, these views looked from under it and drew little):
+    // 8.6 to 10.3 ms, 2026-11-21.
+    ("549 objects) (Sound Ranges off), Paint on, two placeables chosen (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges off), Select Tiles on, a box of tiles selected (wheel)", LARGEST),
+    (
+        "549 objects) (Sound Ranges off), a creature's Inventory page in the Properties panel (wheel)",
+        LARGEST,
+    ),
+    (
+        "549 objects) (Sound Ranges off), 188 placeables selected, the Properties panel (wheel)",
+        LARGEST,
+    ),
+    ("549 objects) (Sound Ranges off), the Outliner's Sounds open (317) (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges off), the Outliner's kinds closed, one selected (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges off), tiles palette searched as typed (wheel)", LARGEST),
+    (
+        "549 objects) (Sound Ranges off), the Right Dock in two columns (741), the Preview's model (wheel)",
+        LARGEST,
+    ),
+    (
+        "549 objects) (Sound Ranges off), the Right Dock in one column (320), the Palette in front (wheel)",
+        LARGEST,
+    ),
+    ("549 objects) (Sound Ranges on), Paint on, two placeables chosen (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), Select Tiles on, a box of tiles selected (wheel)", LARGEST),
+    (
+        "549 objects) (Sound Ranges on), a creature's Inventory page in the Properties panel (wheel)",
+        LARGEST,
+    ),
+    (
+        "549 objects) (Sound Ranges on), 188 placeables selected, the Properties panel (wheel)",
+        LARGEST,
+    ),
+    ("549 objects) (Sound Ranges on), the Outliner's Sounds open (317) (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), the Outliner's kinds closed, one selected (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), tiles palette searched as typed (wheel)", LARGEST),
+    (
+        "549 objects) (Sound Ranges on), the Right Dock in two columns (741), the Preview's model (wheel)",
+        LARGEST,
+    ),
+    (
+        "549 objects) (Sound Ranges on), the Right Dock in one column (320), the Palette in front (wheel)",
+        LARGEST,
+    ),
+    // The whole of area084 drawn from 120 m while turning, every object
+    // selected and the walkmesh shown: 11.4 to 13.0 ms, 2026-11-21 (the
+    // owner's game client running). The views turn the camera every
+    // frame, idle too, so the overlays' kept meshes are not used; with
+    // the walkmesh and the selection both left out the same views took
+    // 9.8 to 11.0 ms: the overlays are about 2 ms of it.
+    ("549 objects) (Sound Ranges off), all selected, walkmesh (pointer)", LARGEST),
+    ("549 objects) (Sound Ranges off), all selected, walkmesh (idle)", LARGEST),
+    ("549 objects) (Sound Ranges off), all selected, walkmesh (wheel)", LARGEST),
+    ("549 objects) (Sound Ranges on), all selected, walkmesh (pointer)", LARGEST),
+    ("549 objects) (Sound Ranges on), all selected, walkmesh (idle)", LARGEST),
+    ("549 objects) (Sound Ranges on), all selected, walkmesh (wheel)", LARGEST),
 ];
 /// The entry of `docs/deferred.md` for the largest areas' frames.
 const LARGEST: &str = "The largest areas in full view";
@@ -2001,6 +2060,15 @@ fn frames_at_144() {
     view(&mut h, &mut r, "area, a creature in the Preview tab", None);
     show_palette(&mut h);
     view(&mut h, &mut r, "area, a creature, the Palette tab in front", None);
+    // The creature's model in a tab of its own, the Preview tab showing the
+    // picture the tab draws: one picture a frame, shown in both (the
+    // owner's ruling 19, M5's W6).
+    let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    let t = Tab::Model(bandit);
+    open(&mut h, t.clone());
+    show_preview(&mut h);
+    view(&mut h, &mut r, "a creature's model tab, the Preview tab sharing its picture", Some(&t));
+    close(&mut h, &t);
     h.state_mut().palette.selected = None;
     fold_palette(&mut h);
     let shown: Vec<Tab> = h

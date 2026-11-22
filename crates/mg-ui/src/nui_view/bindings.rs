@@ -142,7 +142,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     // (The dropdown the room the plus leaves, the plus at
                     // the row's right.)
                     let plus =
-                        mg_uikit::IconButton::new(mg_uikit::Icon::Plus, "New Bind for Property")
+                        mg_uikit::IconButton::new(mg_uikit::Icon::Plus, "New Bind for a Property")
                             .icon_only(true)
                             .framed(true);
                     let room = ui.spacing().interact_size.y.max(mg_uikit::metrics::ICON)
@@ -172,7 +172,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                             .labelled_by(lead.id);
                     });
                     ui.add_enabled(can_new, plus)
-                        .on_hover_text("New Bind for Property: named and valued from the control")
+                        .on_hover_text("New Bind for a Property: named and valued from the control")
                         .clicked()
                 });
                 if chosen != bound.clone().unwrap_or_default() {

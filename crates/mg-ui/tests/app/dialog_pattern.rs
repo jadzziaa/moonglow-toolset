@@ -1351,3 +1351,31 @@ fn tab_brings_a_scrolled_body_s_control_into_sight() {
     }
     assert!(!scrolled.is_empty(), "a dialog that scrolls at the least window");
 }
+
+/// What the window says names a menu, a tab or a section as they are drawn:
+/// a menu path with "›" as the menus show it, the Plugins tab (Plugins ›
+/// Manage Plugins… opens it), the NUI Creator's Row Data section. (The
+/// user manual's chapters were read against the program in M5's V2; these
+/// were the strings it found naming them otherwise.)
+#[test]
+fn messages_name_menus_tabs_and_sections_as_drawn() {
+    let wrong = [
+        "Tools > Options",
+        "Plugins › Manage Plugins lists",
+        "enable it in Manage Plugins",
+        "list's Row data",
+    ];
+    let mut found = Vec::new();
+    for (name, text) in sources() {
+        for (n, line) in text.lines().enumerate() {
+            let code = line.trim_start();
+            if code.starts_with("//") {
+                continue;
+            }
+            for w in wrong.iter().filter(|w| code.contains(**w)) {
+                found.push(format!("{name}:{} says {w:?}", n + 1));
+            }
+        }
+    }
+    assert!(found.is_empty(), "interface text naming a place otherwise: {found:#?}");
+}

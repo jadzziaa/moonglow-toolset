@@ -107,6 +107,23 @@ pub struct TilesetDoc {
     /// The pointer was over the Tiles page as it was last drawn: Find's
     /// keys go to its field (and its hint is shown).
     pub(crate) hovered: bool,
+    /// The file's fingerprint (`problems::fingerprint`) as it was last
+    /// read or written here: a change heard of outside Moonglow is one
+    /// where the file is something else now (M5's W5; `None`: it could
+    /// not be read when opened).
+    disk: Option<u64>,
+    /// The file's fingerprint as another program wrote it while this has
+    /// unsaved changes: waiting for Changed Outside Moonglow's answer,
+    /// meanwhile kept from being written over by Save.
+    pub(crate) theirs: Option<u64>,
+    /// What the log was last told of the file changed outside (its
+    /// fingerprint, `u64::MAX` for a file that could not be read): said
+    /// once, not at every change heard of.
+    said: Option<u64>,
+    /// The file's time and length as last read or written here: a look
+    /// at every file (the watch's start or walk) reads only those that
+    /// differ, not every open tileset on the frame.
+    seen: Option<(Option<std::time::SystemTime>, u64)>,
 }
 
 /// Rows made of the file at a revision and by `K` (the words of Find, the
@@ -176,8 +193,9 @@ impl TilesetDoc {
         read.doors.entry(tile).or_insert_with(|| Arc::new(self.file.doors(tile))).clone()
     }
 
-    fn new(id: u32, path: PathBuf, file: SetFile) -> TilesetDoc {
+    fn new(id: u32, path: PathBuf, file: SetFile, disk: Option<u64>) -> TilesetDoc {
         let set = read(&file);
+        let seen = stat(&path);
         TilesetDoc {
             id,
             path,
@@ -204,6 +222,10 @@ impl TilesetDoc {
             outline_seen: Default::default(),
             hovered: false,
             walks: std::cell::Cell::new(0),
+            seen,
+            disk,
+            theirs: None,
+            said: None,
         }
     }
 
@@ -290,6 +312,40 @@ impl TilesetDoc {
         self.revision += 1;
     }
 
+    /// The file's text `text` (fingerprint `disk`), read again from disk
+    /// (changed outside Moonglow, M5's W5), taken as the tileset's: its
+    /// history goes (its steps were of the text before), it is as saved;
+    /// the page, Find and the scroll stay, and the tile, the group and a
+    /// terrain being renamed where they still are.
+    fn take_disk(&mut self, text: &str, disk: u64) {
+        self.file = SetFile::parse(text);
+        self.undo.clear();
+        self.redo.clear();
+        self.saved = Some(0);
+        self.disk = Some(disk);
+        self.theirs = None;
+        self.said = None;
+        self.reread();
+        let counts = self
+            .tileset()
+            .map(|t| [t.tiles.len(), t.groups.len(), t.terrains.len(), t.crossers.len()]);
+        let [tiles, groups, terrains, crossers] = counts.unwrap_or_default();
+        self.tile = self.tile.filter(|t| *t < tiles);
+        self.group = self.group.filter(|g| *g < groups);
+        self.renaming = (self.renaming.take())
+            .filter(|(crosser, i, _)| *i < if *crosser { crossers } else { terrains });
+    }
+
+    /// Changed Outside Moonglow's Keep Moonglow's: the file as another
+    /// program wrote it counts as known, and what is here as not saved
+    /// over it (Save writes it).
+    pub(crate) fn keep_mine(&mut self) {
+        if let Some(theirs) = self.theirs.take() {
+            self.disk = Some(theirs);
+            self.saved = None;
+        }
+    }
+
     /// How many times the file was walked for its list's and Outliner's
     /// rows (for the tests).
     #[doc(hidden)]
@@ -313,6 +369,15 @@ impl TilesetDoc {
     /// the terrains and crossers renamed since it was last saved, and what
     /// it says of that is returned.
     pub fn save(&mut self) -> Result<Option<String>, String> {
+        // (Changed outside Moonglow, the question not answered yet: not
+        // written over, as the module's files are not.)
+        if self.theirs.is_some() {
+            return Err(format!(
+                "{}: changed outside Moonglow while it has unsaved changes here: choose which \
+                 to keep in Changed Outside Moonglow first",
+                self.path.display()
+            ));
+        }
         // (The names as the file on disk has them, by index.)
         let names = |t: &Tileset| {
             let of = |l: &[mg_set::NamedType]| l.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
@@ -327,6 +392,10 @@ impl TilesetDoc {
         mg_module::write_replacing(&self.path, self.file.text().as_bytes())
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.saved = Some(self.undo.len());
+        // (Written here: not a change outside when the watch hears it.)
+        self.disk = Some(crate::problems::fingerprint(self.file.text().as_bytes()));
+        self.seen = stat(&self.path);
+        self.said = None;
         let (Some(was), Some(now)) = (was, self.tileset().map(names)) else { return Ok(None) };
         let renamed: Vec<(&String, &String)> = (0..2)
             .flat_map(|k| was[k].iter().zip(&now[k]))
@@ -441,7 +510,8 @@ pub fn open_path(app: &mut Moonglow, path: PathBuf) {
             let text = Codepage::default().decode(&data).into_owned();
             app.next_tileset += 1;
             let id = app.next_tileset;
-            let doc = TilesetDoc::new(id, path, SetFile::parse(&text));
+            let disk = Some(crate::problems::fingerprint(&data));
+            let doc = TilesetDoc::new(id, path, SetFile::parse(&text), disk);
             // (Opened again where Problems holds what Check found: current
             // where the file is the text checked, else said not to be.)
             follow_problems(app, &doc);
@@ -455,6 +525,170 @@ pub fn open_path(app: &mut Moonglow, path: PathBuf) {
             app.problems.set_stale(&source, Some(crate::problems::Stale::Missing));
         }
     }
+}
+
+/// A tileset's file at `path` heard to have changed outside Moonglow (the
+/// watch of the open tilesets' files, `outside.rs`; M5's W5, the owner's
+/// ruling of 2026-11-21): as a script's file is. Without unsaved changes
+/// here the editor shows the file as it is now (`TilesetDoc::take_disk`);
+/// with some, Moonglow's are kept and Changed Outside Moonglow asks which
+/// to keep (`outside::window`), Save not writing over the file meanwhile.
+/// A file that can't be read, or read as a tileset (half written, gone),
+/// leaves the editor as it was, and the log says so once. What Check found
+/// of it in Problems follows by its fingerprint (`follow_all`, at the next
+/// frame's start). `take`: take the file whatever is unsaved here (Take
+/// the Files').
+pub(crate) fn changed_on_disk(app: &mut Moonglow, path: &Path, take: bool) {
+    let Some(at) = app.tilesets.iter().position(|d| d.path == path) else { return };
+    let shown = path.display();
+    app.tilesets[at].seen = stat(path);
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) => {
+            let d = &mut app.tilesets[at];
+            if d.said != Some(u64::MAX) {
+                d.said = Some(u64::MAX);
+                app.log.warn(format!(
+                    "{shown}: changed outside Moonglow, and can't be read now ({e}): the editor \
+                     keeps what it has"
+                ));
+            }
+            // (What Check found stays of the text in the editor, which is
+            // as it was: `follow_problems`.)
+            return;
+        }
+    };
+    let disk = crate::problems::fingerprint(&data);
+    let d = &mut app.tilesets[at];
+    // (As known: Moonglow's own save, or the file put back as it was. A
+    // question waiting about another text has nothing left to ask.)
+    if d.disk == Some(disk) {
+        d.theirs = None;
+        d.said = None;
+        return;
+    }
+    let text = Codepage::default().decode(&data).into_owned();
+    let unread = match Tileset::parse(&data, Codepage::default()) {
+        Err(e) => Some(e.to_string()),
+        Ok(_) => cut_short(&SetFile::parse(&text)),
+    };
+    if let Some(e) = unread {
+        if d.said != Some(disk) {
+            d.said = Some(disk);
+            app.log.warn(format!(
+                "{shown}: changed outside Moonglow, and can't be read as a tileset ({e}): the \
+                 editor keeps what it had"
+            ));
+        }
+        return;
+    }
+    // (The text here already: the file is as saved.)
+    if crate::problems::fingerprint(text.as_bytes()) == d.fingerprint() {
+        d.disk = Some(disk);
+        d.theirs = None;
+        d.saved = Some(d.undo.len());
+        return;
+    }
+    if d.is_dirty() && !take {
+        if d.theirs != Some(disk) {
+            d.theirs = Some(disk);
+            app.ask_outside_again();
+            app.log.warn(format!(
+                "{shown} changed outside Moonglow and has unsaved changes here: Moonglow's is \
+                 kept (Changed Outside Moonglow asks which to keep)"
+            ));
+        }
+        return;
+    }
+    d.take_disk(&text, disk);
+    app.log.info(format!("{shown} read again (changed outside Moonglow)"));
+}
+
+/// Why a tileset's text read from outside looks cut off (written half
+/// way, as a program that writes in place leaves it for a moment): no
+/// `[TILES]`, or a list whose count names more sections than it has (the
+/// game's reader takes such a file without a word).
+fn cut_short(file: &SetFile) -> Option<String> {
+    if !file.has_section("TILES") {
+        return Some("missing section [TILES]".into());
+    }
+    let lists = [
+        ("TERRAIN TYPES", "TERRAIN"),
+        ("CROSSER TYPES", "CROSSER"),
+        ("PRIMARY RULES", "PRIMARY RULE"),
+        ("SECONDARY RULES", "SECONDARY RULE"),
+        ("TILES", "TILE"),
+        ("GROUPS", "GROUP"),
+    ];
+    for (list, item) in lists {
+        let count = file.get(list, "Count").and_then(|c| c.trim().parse::<usize>().ok());
+        if let Some(last) = count.and_then(|n| n.checked_sub(1))
+            && !file.has_section(&format!("{item}{last}"))
+        {
+            return Some(format!("[{list}] counts {} but there is no [{item}{last}]", last + 1));
+        }
+    }
+    None
+}
+
+/// Changed Outside Moonglow's answer for the tilesets it asked about:
+/// Keep Moonglow's (`mine`) or Take the Files'. The files' names.
+/// Where each tileset's editor was drawn: in which pass, layer and rect.
+type Areas = HashMap<u32, (u64, egui::LayerId, egui::Rect)>;
+
+/// A file's modified time and length, as `TilesetDoc::seen` keeps them.
+fn stat(path: &Path) -> Option<(Option<std::time::SystemTime>, u64)> {
+    std::fs::metadata(path).ok().map(|m| (m.modified().ok(), m.len()))
+}
+
+/// Whether the file at `path`, open in the tileset editor, may have
+/// changed since it was last read or written here (its time or length
+/// differ): a look at every file reads only those.
+pub(crate) fn may_have_changed(app: &Moonglow, path: &Path) -> bool {
+    app.tilesets.iter().find(|d| d.path == path).is_some_and(|d| stat(path) != d.seen)
+}
+
+fn areas_id() -> egui::Id {
+    egui::Id::new("tileset-editor-areas")
+}
+
+/// Whether the text field with the keyboard is one of the editors of the
+/// tilesets at `paths` (all where None), by where each editor was drawn
+/// in the last pass or this one (not a tab out of sight since): a field of
+/// another editor keeps the keyboard when a tileset's file changes
+/// outside.
+pub(crate) fn typing_in(app: &Moonglow, ctx: &egui::Context, paths: Option<&[PathBuf]>) -> bool {
+    let Some(focus) = ctx.memory(|m| m.focused()) else { return false };
+    let Some(r) = ctx.read_response(focus) else { return false };
+    let areas: Areas = ctx.data(|m| m.get_temp(areas_id())).unwrap_or_default();
+    let recent = ctx.cumulative_pass_nr().saturating_sub(1);
+    app.tilesets
+        .iter()
+        .filter(|d| paths.is_none_or(|p| p.contains(&d.path)))
+        .filter_map(|d| areas.get(&d.id))
+        .any(|(pass, layer, rect)| {
+            *pass >= recent && *layer == r.layer_id && rect.intersects(r.rect)
+        })
+}
+
+pub(crate) fn answered_outside(app: &mut Moonglow, mine: bool) -> Vec<String> {
+    let paths: Vec<PathBuf> =
+        (app.tilesets.iter()).filter(|d| d.theirs.is_some()).map(|d| d.path.clone()).collect();
+    for path in &paths {
+        if mine {
+            if let Some(d) = app.tilesets.iter_mut().find(|d| d.path == *path) {
+                d.keep_mine();
+            }
+        } else {
+            changed_on_disk(app, path, true);
+        }
+    }
+    paths.iter().map(|p| p.display().to_string()).collect()
+}
+
+/// The tilesets' files waiting for Changed Outside Moonglow's answer.
+pub(crate) fn waiting_outside(app: &Moonglow) -> impl Iterator<Item = &Path> {
+    app.tilesets.iter().filter(|d| d.theirs.is_some()).map(|d| d.path.as_path())
 }
 
 /// Whether what Check found of `d`'s file in Problems is of its text as it
@@ -542,6 +776,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         return;
     };
     let tab = Tab::Tileset(id);
+    // (Where its fields are drawn this frame: `typing_in`.)
+    let area = (ui.ctx().cumulative_pass_nr(), ui.layer_id(), ui.max_rect());
+    ui.ctx().data_mut(|m| m.get_temp_mut_or_default::<Areas>(areas_id()).insert(id, area));
     // The doc is taken out while drawn (its fields edit through the app's
     // buffers), and put back.
     let mut doc = app.tilesets.remove(i);
@@ -707,6 +944,11 @@ fn save_now(app: &mut Moonglow, d: &mut TilesetDoc) {
             }
         }
         Err(e) => {
+            // (Not written over a file changed outside: asked again which
+            // to keep, though Later was answered.)
+            if d.theirs.is_some() {
+                app.ask_outside_again();
+            }
             app.note_failed(&tab, e.clone());
             app.log.error(e);
         }
@@ -1976,7 +2218,7 @@ mod tests {
 [TILE1]\r\nModel=t1\r\nTopLeft=A\r\n";
 
     fn doc() -> TilesetDoc {
-        TilesetDoc::new(1, PathBuf::from("tst01.set"), SetFile::parse(SET))
+        TilesetDoc::new(1, PathBuf::from("tst01.set"), SetFile::parse(SET), None)
     }
 
     /// The review's A22: a field's value is asked of the section read

@@ -368,8 +368,8 @@ pub(crate) fn selected_at(key: mg_resman::ResKey, path: &mg_edit::GffPath) -> mg
 }
 
 /// What a tab edits, as a plugin's selection: the object, blueprint or
-/// area of a Properties window (each of several edited together), or the
-/// resource of another editor; none for the rest.
+/// area of a Properties tab, docked or floating (each of several edited
+/// together), or the resource of another editor; none for the rest.
 pub(crate) fn tab_selection(tab: &crate::Tab) -> Vec<mg_plugin::Selected> {
     use crate::Tab;
     use mg_plugin::Selected;
@@ -1332,8 +1332,8 @@ impl Moonglow {
     }
 
     /// What is open in front edited together, where it is several (a
-    /// Properties window of several blueprints, objects or areas): each,
-    /// the first being [`Moonglow::plugin_open`]'s.
+    /// Properties tab of several blueprints, objects or areas): each, the
+    /// first being [`Moonglow::plugin_open`]'s.
     pub fn plugin_together(&self) -> Vec<mg_plugin::Selected> {
         use crate::Tab;
         use mg_plugin::Selected;
@@ -2464,7 +2464,7 @@ pub(crate) fn tab(app: &mut Moonglow, ui: &mut egui::Ui) {
             for installed in &app.plugins.installed {
                 if installed.project && !std::mem::replace(&mut project_heading, true) {
                     ui.separator();
-                    crate::widgets::section_heading(ui, "This project's plugins");
+                    crate::widgets::section_heading(ui, "This Project's Plugins");
                     let folder = ours
                         .as_ref()
                         .zip(app.ws.as_ref())
@@ -2775,7 +2775,9 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
                             }
                             if ui
                                 .button("Don't Allow")
-                                .on_hover_text("It stays off until you enable it in Manage Plugins")
+                                .on_hover_text(
+                                    "It stays off until you enable it on the Plugins tab",
+                                )
                                 .clicked()
                             {
                                 answers.push((m.id.clone(), false));

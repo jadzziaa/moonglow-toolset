@@ -1,8 +1,8 @@
-//! Tools > Options (Aurora's `TdlgOptions`), as pages: Folders (where the
-//! game and the NWN user folder are), General (Build module on save,
-//! Minimize Toolset on test module) and Script Editor (compile on save,
-//! debug information, the code templates folder, font size and colours),
-//! and Moonglow's own (Updates: the daily check for a new release).
+//! Tools › Options (Aurora's `TdlgOptions`), a tab of pages (M4's U23):
+//! Folders (where the game and the NWN user folder are), Area, General,
+//! Script Editor, Conversation Editor, Sounds, Verify, Language and
+//! Keyboard, and Moonglow's own Updates (the daily check for a new
+//! release).
 
 use mg_uikit::Controls as _;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,7 @@ use crate::settings::{
 };
 use crate::{Action, Moonglow, Settings};
 
-/// The Options window's pages.
+/// Options' pages.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum OptionsPage {
     #[default]
@@ -44,7 +44,7 @@ const CLOSE_CANCELS_TIP: &str = "Closing a window with OK and Cancel sets back i
 const ALIASED: [&str; 7] =
     ["hak", "tlk", "override", "development", "modules", "portraits", "patch"];
 
-/// The Options window's pages and their names.
+/// Options' pages and their names.
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
     (OptionsPage::Area, "Area"),
@@ -85,6 +85,7 @@ pub struct OptionsDraft {
     pub debug_log: bool,
     pub name_resrefs: bool,
     pub tree_tags: bool,
+    pub tree_extensions: bool,
     pub appearance_portrait: bool,
     pub palette_cr: bool,
     pub armor_on_woman: bool,
@@ -199,13 +200,19 @@ pub struct OptionsDraft {
 }
 
 /// Whether a word Verify leaves out is one of Options › Verify's
-/// checkboxes (a group, a check, a category of missing references), not
-/// typed in its field.
+/// checkboxes (a group, a check, a category of missing references, a
+/// plugin's check), not typed in its field. What only a player's own
+/// content has (`references:override`, `userpatch`, `workshop` and
+/// `local`, all three) is where a resource is found, as the field's
+/// `override` and haks are: kept in the field, where it is shown and can
+/// be taken out (it had no box, and vanished from the page while it still
+/// applied).
 fn verify_box(word: &str) -> bool {
     use mg_module::doctor::{Check, Group};
+    use mg_module::verify::Category;
     Group::from_id(word).is_some()
         || Check::from_id(word).is_some()
-        || word.starts_with("references:")
+        || word.strip_prefix("references:").is_some_and(|c| Category::from_id(c).is_some())
         || word.contains('/')
 }
 
@@ -257,6 +264,7 @@ impl OptionsDraft {
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             tree_tags: s.tree_tags,
+            tree_extensions: s.tree_extensions,
             appearance_portrait: s.appearance_portrait,
             palette_cr: !s.palette_no_cr,
             armor_on_woman: s.armor_on_woman,
@@ -385,6 +393,7 @@ impl OptionsDraft {
             no_debug_log,
             name_resrefs,
             tree_tags,
+            tree_extensions,
             appearance_portrait,
             palette_no_cr,
             armor_on_woman,
@@ -492,6 +501,7 @@ impl OptionsDraft {
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             tree_tags: self.tree_tags,
+            tree_extensions: self.tree_extensions,
             appearance_portrait: self.appearance_portrait,
             palette_no_cr: !self.palette_cr,
             armor_on_woman: self.armor_on_woman,
@@ -712,8 +722,9 @@ fn path_row(ui: &mut Ui, text: &mut String, browse: &mut Option<Browse>, which: 
     });
 }
 
-/// The Options tab: the buttons along the bottom, the pages listed beside,
-/// and the page scrolling in what is left. What is set is a draft until OK.
+/// The Options tab: its header with OK and Cancel at its right end, the
+/// pages listed at the left, and the page scrolling in what is left. What
+/// is set is a draft until OK.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let Some(draft) = &mut app.options else {
         // (A tab left from before, with nothing to show.)
@@ -1553,7 +1564,8 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     let palette = Palette::for_ui(style, ui);
     let fill = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
     egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
-        ui.label(crate::script_view::highlight(preview, &palette));
+        // (Its lines as the editor lays them out: its pitch.)
+        ui.label(crate::script_view::highlight_galley(ui, preview, &palette));
     });
 }
 
@@ -1668,12 +1680,28 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
                                 word(ui, &mut draft.verify_skip, &id, &label, &tip);
                             }
                         }
-                        Group::Plugins if draft.plugin_checks.is_empty() => {
-                            ui.weak("No enabled plugin has checks.");
-                        }
                         Group::Plugins => {
                             for (id, name) in draft.plugin_checks.clone() {
                                 word(ui, &mut draft.verify_skip, &id, &name, &id);
+                            }
+                            // (A check left out of a plugin not enabled now:
+                            // kept, so shown, and while Options is open,
+                            // ticked again or not.)
+                            let opened = draft.opened.as_ref().map(|s| &s.verify_skip);
+                            let mut gone: Vec<String> = (opened.into_iter().flatten())
+                                .chain(&draft.verify_skip)
+                                .filter(|w| w.contains('/'))
+                                .filter(|w| !draft.plugin_checks.iter().any(|(id, _)| id == *w))
+                                .cloned()
+                                .collect();
+                            gone.sort();
+                            gone.dedup();
+                            for id in &gone {
+                                let tip = "A check of a plugin not enabled now";
+                                word(ui, &mut draft.verify_skip, id, id, tip);
+                            }
+                            if draft.plugin_checks.is_empty() && gone.is_empty() {
+                                ui.weak("No enabled plugin has checks.");
                             }
                         }
                         _ => {
@@ -1693,8 +1721,8 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
             .desired_width(f32::INFINITY),
     )
     .on_hover_text(
-        "Haks, override or development, and resources (ttr01.set, a 2DA, a model), separated by \
-         commas",
+        "Haks, override or development, resources (ttr01.set, a 2DA, a model) or \
+         references:override, separated by commas",
     );
     let wrong: Vec<String> = (verify_words(&draft.verify_more).into_iter())
         .filter(|w| mg_module::doctor::Skip::parse(&[w]).is_err())
@@ -2136,11 +2164,18 @@ fn general_section(
                 .on_hover_text("Mark the tab in front's resource in the module tree");
             ui.check_box(&mut draft.area_names, "List areas and blueprints by name")
                 .on_hover_text("List them in the module tree by name rather than ResRef");
-            ui.check_box(&mut draft.name_resrefs, "Show ResRefs beside names")
-                .on_hover_text("Show Name (resref) in the module tree and the palettes");
+            ui.check_box(&mut draft.name_resrefs, "Show ResRefs beside names").on_hover_text(
+                "Show a ResRef after each name, dimmed in the module tree, Name (resref) in \
+                     the palettes",
+            );
             ui.check_box(&mut draft.tree_tags, "Show tags beside names in the module tree")
                 .on_hover_text(
-                    "Show Name (tag) for blueprints and placed objects in the module tree",
+                    "Show the tags of blueprints and placed objects dimmed after their names",
+                );
+            ui.check_box(&mut draft.tree_extensions, "Show file extensions in the module tree")
+                .on_hover_text(
+                    "Write guard.utc, not guard, for blueprints, NUI windows, the journal and \
+                     factions, as a row's words or dimmed after its name, before its tag",
                 );
             ui.check_box(&mut draft.tree_hides_empty, "Hide empty groups in the module tree")
                 .on_hover_text("Leave groups with nothing in them out of the module tree");
@@ -2500,7 +2535,7 @@ mod tests {
         (d.area_names, d.categories_by_name, d.drag_windows_anywhere) = (true, true, true);
         d.ui_scale = 125;
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
-        (d.tree_tags, d.appearance_portrait) = (true, true);
+        (d.tree_tags, d.appearance_portrait, d.tree_extensions) = (true, true, true);
         d.armor_on_woman = true;
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
@@ -2517,6 +2552,8 @@ mod tests {
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
         assert!(t.tree_tags && !s.tree_tags, "names alone unless asked");
+        assert!(t.tree_extensions && !s.tree_extensions, "without extensions unless asked");
+        assert!(OptionsDraft::from_settings(&t).tree_extensions, "and kept");
         assert!(t.appearance_portrait && !s.appearance_portrait, "the portrait kept unless asked");
         assert!(t.armor_on_woman && !s.armor_on_woman, "on a man unless asked");
         assert!(OptionsDraft::from_settings(&t).armor_on_woman, "and kept");
@@ -2699,8 +2736,9 @@ mod tests {
     }
 
     /// Options › Verify: groups, checks and categories are checkboxes,
-    /// the rest (haks, folders, resources) its field; what isn't
-    /// something to leave out is dropped when applied.
+    /// the rest (haks, folders, resources, and what only a player's own
+    /// content has, which has no box) its field; what isn't something to
+    /// leave out is dropped when applied.
     #[test]
     fn verify_s_checkboxes_and_field_apply() {
         let s = Settings {
@@ -2710,7 +2748,9 @@ mod tests {
                 "set-hole".into(),
                 "ttr01.set".into(),
                 "references:creatures".into(),
+                "references:override".into(),
                 "example.tags/tag-case".into(),
+                "references:local".into(),
             ],
             ..Settings::default()
         };
@@ -2719,7 +2759,10 @@ mod tests {
             d.verify_skip,
             ["tilesets", "set-hole", "references:creatures", "example.tags/tag-case"]
         );
-        assert_eq!(d.verify_more, "tdod_tiles01.hak, ttr01.set");
+        assert_eq!(
+            d.verify_more,
+            "tdod_tiles01.hak, ttr01.set, references:override, references:local"
+        );
         d.verify_more = "tdod_tiles01.hak,ttr01.set  override, tilesetz".into();
         d.verify_skip.retain(|w| w != "tilesets");
         let t = d.apply(&s);

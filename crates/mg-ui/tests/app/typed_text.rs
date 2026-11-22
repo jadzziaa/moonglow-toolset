@@ -85,6 +85,10 @@ fn a_name_typed_becomes_a_line_of_the_talk_table_and_undo_takes_both() {
     page(&mut h, "Custom Content");
     settle(&mut h);
     h.get_by_label_contains("Next: line 1 (StrRef 16777217), at the table's end");
+    // (Its row named once, as the manual names it: M5's W7, where "Typed
+    // text" and a separate "lines" were drawn as "Typed text lines".)
+    h.get_by_label("Typed text lines");
+    assert!(h.query_by_label("lines").is_none(), "no word apart from its label");
     type_into_hint(&mut h, "from", "10");
     type_into_hint(&mut h, "to", "19");
     h.get_by_label("Set").click();

@@ -2728,3 +2728,38 @@ pub(crate) fn waves(h: &Harness<'_, Moonglow>, color: egui::Color32) -> Vec<Vec<
     }
     out
 }
+
+/// The texts the last frame painted, each with its rectangle (a gutter's
+/// line numbers, which are painted, not widgets).
+pub(crate) fn painted_texts(h: &Harness<'_, Moonglow>) -> Vec<(String, egui::Rect)> {
+    let mut found = Vec::new();
+    for clipped in &h.output().shapes {
+        painted(&clipped.shape, &mut |shape| {
+            if let egui::Shape::Text(t) = shape {
+                found.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())));
+            }
+        });
+    }
+    found
+}
+
+/// Whether the last frame painted something other than text inside
+/// `within` (an icon, a mark).
+pub(crate) fn painted_inside(h: &Harness<'_, Moonglow>, within: egui::Rect) -> bool {
+    let mut seen = false;
+    for clipped in &h.output().shapes {
+        painted(&clipped.shape, &mut |shape| {
+            let r = shape.visual_bounding_rect();
+            let text = matches!(shape, egui::Shape::Text(_));
+            seen |= !text && r.is_positive() && within.contains_rect(r);
+        });
+    }
+    seen
+}
+
+fn painted(shape: &egui::Shape, f: &mut impl FnMut(&egui::Shape)) {
+    match shape {
+        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| painted(s, f)),
+        shape => f(shape),
+    }
+}

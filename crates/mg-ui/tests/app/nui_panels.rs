@@ -1573,7 +1573,7 @@ fn properties_stand_as_the_board_draws_them() {
     assert!(id.left() - edge >= 104.0 && id.left() - edge < 130.0, "{id:?} from {edge}");
     assert!((height.center().y - width.center().y).abs() < 1.0, "Width and Height on one row");
     assert!(height.left() > width.right());
-    let plus = h.get_by_label("New Bind for Property").rect();
+    let plus = h.get_by_label("New Bind for a Property").rect();
     assert!((plus.center().y - source.center().y).abs() < 1.0 && plus.left() >= source.right());
     let add = h.get_by_label("Add Property");
     assert_eq!(add.accesskit_node().role(), egui::accesskit::Role::Button);
@@ -2130,6 +2130,36 @@ fn the_design_and_the_source_follow_each_other() {
     let cancel = text.find("\"cancel\"").unwrap();
     let first = text[..text[..cancel].rfind('{').unwrap()].matches('\n').count();
     assert_eq!(a, first, "Cancel's first line: {:?}", lines[a]);
+    // Its band on that line's row, at the script editor's pitch (18).
+    let field = h.get_by_label(nui_names::SOURCE_TEXT).rect();
+    let run = egui_kittest::kittest::by().role(egui::accesskit::Role::TextRun);
+    let row0 = h
+        .query_all(run)
+        .map(|n| n.rect())
+        .filter(|r| field.x_range().contains(r.left()) && field.y_range().contains(r.top()))
+        .map(|r| r.top())
+        .fold(f32::INFINITY, f32::min);
+    let band = Moonglow::nui_source_band_for_test(&h.ctx).expect("a band");
+    let row = row0 + a as f32 * 18.0;
+    assert_eq!((band.min, band.max), (row, row + 18.0), "line {a}'s band");
+    // The gutter's numbers painted on their rows, before the text (those
+    // around the chosen line, which is scrolled into sight).
+    let texts = painted_texts(&h);
+    for n in a - 2..a + 3 {
+        let y = egui::Rangef::new(row0 + n as f32 * 18.0, row0 + (n + 1) as f32 * 18.0);
+        let number = (n + 1).to_string();
+        let on = texts
+            .iter()
+            .any(|(t, r)| *t == number && r.right() < field.left() && y.contains(r.center().y));
+        assert!(on, "line {number}'s number on its row");
+    }
+    // For a screen reader: the gutter by what it shows, the field by the
+    // cursor's line.
+    let lines = text.lines().count();
+    assert!(h.query_by_label(&format!("Line numbers 1 to {lines}")).is_some(), "the gutter named");
+    let field = h.get_by_label(nui_names::SOURCE_TEXT);
+    let line = format!("Line {} of {lines}", a + 1);
+    assert_eq!(field.accesskit_node().description().as_deref(), Some(line.as_str()));
     // A click in the text: the control it is in, then the keys go on.
     let at = text.find("\"Hear ye\"").unwrap();
     let to_start = |h: &mut Harness<'_, Moonglow>| {
@@ -2174,6 +2204,11 @@ fn the_design_and_the_source_follow_each_other() {
     h.get_by_label(nui_names::SOURCE_TEXT).click();
     settle(&mut h);
     assert_eq!(h.state().nui_chosen_many(&key()), several, "a click keeps them");
+    // Binding JSON shows no control's line: no band, not the last one drawn.
+    h.get_by_label(nui_names::SOURCE_HEADER).get_by_label(nui_names::BINDING_JSON).click();
+    settle(&mut h);
+    assert!(h.query_by_label(nui_names::SETTINGS_TEXT).is_some(), "Binding JSON shown");
+    assert_eq!(Moonglow::nui_source_band_for_test(&h.ctx), None, "a band left from JUI Source");
 }
 
 /// A bound property's chip (the board's): beside its label, a click shows

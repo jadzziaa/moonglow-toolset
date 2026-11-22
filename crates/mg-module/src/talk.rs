@@ -452,6 +452,13 @@ impl Table {
         self.typed_unsaved
     }
 
+    /// Whether changes made in the table's own editor are not saved yet
+    /// (not counting the lines typed for the module's fields): what its
+    /// Cancel's Don't Save takes back ([`Table::drop_own_changes`]).
+    pub fn has_own_unsaved(&self) -> bool {
+        self.saved != Some(self.undo.len())
+    }
+
     /// How many steps it has to undo and to redo: what is worked out from
     /// its lines (a search through them) is kept while these stay.
     pub fn steps(&self) -> (usize, usize) {

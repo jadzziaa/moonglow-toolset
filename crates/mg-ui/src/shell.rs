@@ -1747,6 +1747,12 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                 ui.advance_cursor_after_rect(whole);
                 chosen
             });
+        // (Its edge, for the seam over the editor drawn after it, where it
+        // may be dragged: not a script's held to half the window.)
+        if least < most {
+            let edge = RightEdge { dock: shown.response.rect, least, most };
+            ui.ctx().data_mut(|d| d.insert_temp(window_edge_id(pane), edge));
+        }
         if let Some(panel) = shown.inner {
             // (A tab chosen in the window: the window's own front no more.)
             app.window_rights.remove(&owner);
@@ -3588,7 +3594,9 @@ fn enter_is_options_ok(app: &Moonglow, ctx: &egui::Context) -> bool {
 /// or its tree with the keys, nothing typed in, as the editor was drawn
 /// last): Add's and Find's as bound (none where unbound), Alt + Up Move
 /// up (Option on macOS: a fixed key, no command of its own), and `*` Open
-/// branch while the tree has the keys; and its words as the file counts
+/// branch while the tree has the keys, Find's key, and last Toggle
+/// Bookmark's (M5's W4) where Find's shows and a line is chosen; and its
+/// words as the file counts
 /// them. Where it is only looked at, nothing that would change it. None
 /// while a modal, a dialog or a menu is in front, as beside an area.
 fn dialog_shown(
@@ -3616,6 +3624,12 @@ fn dialog_shown(
         }
         if here {
             hints.extend(k.hint(Cmd::DialogFind, "Find"));
+        }
+        // (Last: F5 Bookmark, where it works: as Find's, and with a line
+        // chosen. M5's W4.)
+        let chosen = app.dialog_views.get(&key).is_some_and(|v| v.selected.is_some());
+        if here && chosen {
+            hints.extend(k.hint(Cmd::DialogBookmark, "Bookmark"));
         }
     }
     let counts = crate::dialog_view::file_words(app, key)
@@ -3717,8 +3731,12 @@ pub(crate) fn take_dock_sizes(app: &mut Moonglow, ctx: &egui::Context) {
 /// made smaller would otherwise leave the dock as small as it was drawn
 /// there, for good.
 fn draw_at(ctx: &egui::Context, id: &str, axis: usize, size: f32) {
+    size_panel(ctx, egui::Id::new(id), axis, size);
+}
+
+/// [`draw_at`] for the panel of id `id`.
+fn size_panel(ctx: &egui::Context, id: egui::Id, axis: usize, size: f32) {
     use egui::containers::panel::PanelState;
-    let id = egui::Id::new(id);
     let mut state = PanelState::load(ctx, id).unwrap_or(PanelState {
         outer_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(size)),
     });
@@ -4137,6 +4155,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
     app.right_rect = None;
+    ui.ctx().data_mut(|d| d.remove::<RightEdge>(egui::Id::new(RIGHT_EDGE)));
     app.strips[1] = None;
     app.preview_rect = None;
     app.late_slots.clear();
@@ -4210,6 +4229,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let drawn = if narrow { least } else { wide.clamp(*range.start(), *range.end()) };
     draw_at(&ctx, RIGHT_DOCK_ID, 0, drawn);
     let resizable = !narrow;
+    let edge_range = (*range.start(), *range.end());
     let dragged = resizable && edge_dragged(&ctx, RIGHT_DOCK_ID);
     let mut panel = egui::Panel::right(RIGHT_DOCK_ID)
         .resizable(resizable)
@@ -4265,9 +4285,10 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 let enabled =
                     node && crate::dialog_view::node_tools_enabled(app, editor.as_ref(), pass);
                 let string = bar_panels.contains(&Panel::String);
+                let tip = crate::dialog_view::bookmark_tip(app, ui.ctx());
                 let bar = tabs.show(ui, &mut tab, |ui| {
                     let clicked =
-                        node.then(|| crate::dialog_view::node_tools(ui, enabled)).flatten();
+                        node.then(|| crate::dialog_view::node_tools(ui, enabled, &tip)).flatten();
                     // (A talk table's Copy the StrRef, String's, M4's U17.)
                     if string {
                         crate::talk_view::panels::copy_tool(app, ui, editor.as_ref());
@@ -4368,6 +4389,10 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let dock = shown.response.rect;
     if dragged {
         keep_right_width(app, dock.width().round() as u32);
+    }
+    if resizable {
+        let edge = RightEdge { dock, least: edge_range.0, most: edge_range.1 };
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(RIGHT_EDGE), edge));
     }
     app.right_rect = Some(dock);
     let (chosen, pressed, folded) = shown.inner;
@@ -4643,8 +4668,9 @@ fn section_bar<R>(
     }
     let pass = ui.ctx().cumulative_pass_nr();
     let enabled = node && crate::dialog_view::node_tools_enabled(app, editor, pass);
+    let tip = crate::dialog_view::bookmark_tip(app, ui.ctx());
     let bar = tabs.show(ui, &mut at, |ui| {
-        let clicked = node.then(|| crate::dialog_view::node_tools(ui, enabled)).flatten();
+        let clicked = node.then(|| crate::dialog_view::node_tools(ui, enabled, &tip)).flatten();
         (clicked, tools(ui))
     });
     let (node, inner) = bar.inner;
@@ -4830,7 +4856,8 @@ fn section_seams(
             continue;
         }
         let grip = line.expand2(egui::vec2(0.0, 3.0));
-        let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::drag());
+        // (A drag alone, never the keyboard's Tab: M5's W8.)
+        let seam = ui.interact(grip, egui::Id::new((salt, "seam", i)), egui::Sense::DRAG);
         if seam.hovered() || seam.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
@@ -5012,12 +5039,97 @@ pub(crate) fn first_column(app: &Moonglow, width: f32) -> f32 {
     first.clamp(RIGHT_DOCK_LEAST.min(most), most).round()
 }
 
+/// Where the Right Dock's edge may be dragged this frame (`right_dock`
+/// sets it where the dock is drawn and resizable; `window_panes` a
+/// floating editor's right pane's): the panel's rectangle and the widths
+/// it may be dragged to.
+#[derive(Clone, Copy)]
+pub(crate) struct RightEdge {
+    dock: egui::Rect,
+    least: f32,
+    most: f32,
+}
+
+/// The id [`RightEdge`] is kept under, for the frame.
+const RIGHT_EDGE: &str = "right-dock-edge";
+
+/// The Right Dock's edge as a seam over the editor area (M5's W8): egui's
+/// panel takes a drag 3 points either side of its edge, but the editor
+/// area, drawn after the dock, took the 3 points outside it wherever it
+/// has a widget there (a form's scroll area beside the Preview), which
+/// left 2.5 points to find. Made after the editor area, 3 points either
+/// side of the edge, as the dock's other seams are: the resize cursor, the
+/// edge lit as egui lights a panel's, and a drag keeps the width dragged
+/// to (`keep_right_width`), held to the dock's range, the point taken
+/// staying under the pointer.
+pub(crate) fn right_edge_seam(app: &mut Moonglow, ui: &Ui) {
+    let id = egui::Id::new(RIGHT_EDGE);
+    let Some(edge) = ui.ctx().data(|d| d.get_temp::<RightEdge>(id)) else { return };
+    if let Some(width) = edge_seam(ui, id, edge) {
+        keep_right_width(app, width as u32);
+    }
+}
+
+/// A floating editor's right pane's edge as a seam over the editor
+/// (`window_panes` keeps where it is under `pane`, the window's tab's id,
+/// [`window_edge_id`]), as [`right_edge_seam`] is the Right Dock's: drawn
+/// after the editor, whose widgets beside the pane (a form's) took the 3
+/// points outside egui's edge. A drag sizes the pane for the run, as its
+/// own edge does.
+pub(crate) fn window_edge_seam(ui: &Ui, pane: egui::Id) {
+    let id = window_edge_id(pane);
+    let Some(edge) = ui.ctx().data(|d| d.get_temp::<RightEdge>(id)) else { return };
+    if let Some(width) = edge_seam(ui, id, edge) {
+        size_panel(ui.ctx(), pane.with("window-right"), 0, width);
+    }
+}
+
+/// Where a floating editor's right pane's edge is kept for the frame
+/// ([`window_edge_seam`]), the window's tab's id `pane`.
+pub(crate) fn window_edge_id(pane: egui::Id) -> egui::Id {
+    pane.with("window-right-edge")
+}
+
+/// A panel's left edge `edge` as a seam of id `id`, 3 points either side
+/// of it (the resize cursor, the edge lit as egui lights a panel's):
+/// dragged, the width it is dragged to, held to its range, the point
+/// taken staying under the pointer.
+fn edge_seam(ui: &Ui, id: egui::Id, edge: RightEdge) -> Option<f32> {
+    let x = edge.dock.left();
+    let grip = egui::Rect::from_x_y_ranges(x - 3.0..=x + 3.0, edge.dock.y_range());
+    // (A drag alone: `Sense::drag()` is focusable too, and the seam, last
+    // in the window, took the keyboard's Tab and Module Properties' scroll.)
+    let seam = ui.interact(grip, id.with("seam"), egui::Sense::DRAG);
+    if !(seam.hovered() || seam.dragged()) {
+        return None;
+    }
+    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    let widgets = &ui.visuals().widgets;
+    let stroke = if seam.dragged() { widgets.active.fg_stroke } else { widgets.hovered.fg_stroke };
+    let painter =
+        (ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, id))).with_clip_rect(grip);
+    painter.vline(x + 0.5 * stroke.width, edge.dock.y_range(), stroke);
+    let at = seam.interact_pointer_pos()?;
+    // (Where on the seam it was taken: the edge follows that point.)
+    let taken = id.with("taken");
+    if seam.drag_started() {
+        ui.ctx().data_mut(|d| d.insert_temp(taken, at.x - x));
+    }
+    if !seam.dragged() {
+        return None;
+    }
+    let offset = ui.ctx().data(|d| d.get_temp::<f32>(taken)).unwrap_or(0.0);
+    ui.ctx().request_repaint();
+    Some((edge.dock.right() - (at.x - offset)).clamp(edge.least, edge.most).round())
+}
+
 /// The seam between the Right Dock's two columns at `x` in `pane` (3
 /// points either side of the line): a drag keeps the first column's
 /// width for the active editor's kind (`DockLayout::column`).
 fn column_seam(app: &mut Moonglow, ui: &Ui, pane: egui::Rect, x: f32) {
     let grip = egui::Rect::from_x_y_ranges(x - 3.0..=x + 4.0, pane.y_range());
-    let seam = ui.interact(grip, egui::Id::new("right-dock-column-seam"), egui::Sense::drag());
+    // (A drag alone, never the keyboard's Tab: M5's W8.)
+    let seam = ui.interact(grip, egui::Id::new("right-dock-column-seam"), egui::Sense::DRAG);
     if seam.hovered() || seam.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
@@ -5208,7 +5320,10 @@ pub(crate) fn panel_body(
                 // (A NUI designer's, M4's U18.)
                 match crate::nui_view::panels::nui_of(editor) {
                     Some(_) => crate::nui_view::panels::properties(app, &mut body, editor, titled),
-                    None => crate::properties_panel::panel(app, &mut body, editor, titled),
+                    None => {
+                        let one = crate::properties_panel::one_scroll(app, host);
+                        crate::properties_panel::panel(app, &mut body, editor, (titled, one));
+                    }
                 }
             }
             // (The area editor's tools, M4's U29.)

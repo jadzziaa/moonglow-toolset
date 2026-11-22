@@ -351,6 +351,43 @@ fn the_status_bar_counts_the_cursor_s_line_and_column() {
     assert_eq!(count(&h), None);
 }
 
+/// A floating script under the pointer has the main window's Status Bar:
+/// its count and its live error's message (the bar follows a floating
+/// window's editor under the pointer or pressed in last,
+/// `shell::update_shown`), and with the pointer elsewhere neither (M5's
+/// W7: U13's decisions 2 and 8 said a floating script had neither).
+#[test]
+fn a_floating_script_under_the_pointer_has_the_status_bar_s_count_and_message() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let text = "void main()\n{\n    int n = 1 +;\n}\n";
+    let scripts = [("broken", text.as_bytes())];
+    let (mut h, keys) = scripts_window_with(
+        Mode::Floating,
+        "ui-script-floating-bar",
+        &scripts,
+        1600.0,
+        Some(&root),
+    );
+    let key = keys[0];
+    settle(&mut h);
+    assert!(h.state().script_error_for_test(key).is_some(), "the check found its error");
+    let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+    let bar = |h: &Harness<'_, Moonglow>| {
+        let said = h.state().status_said();
+        let count = said.iter().any(|s| s == "Line 1, column 1");
+        let message = h.get_by_label("Status Bar").query_by_label_contains("Found as you type:");
+        (count, message.map(|m| m.accesskit_node().label().unwrap_or_default()))
+    };
+    h.hover_at(egui::pos2(1.0, 1.0));
+    settle(&mut h);
+    assert_eq!(bar(&h), (false, None), "the pointer elsewhere: not the script's");
+    h.hover_at(editor.center());
+    settle(&mut h);
+    let (count, message) = bar(&h);
+    assert!(count, "its count: {:?}", h.state().status_said());
+    assert!(message.is_some_and(|m| m.contains("broken.nss(3): ")), "its message");
+}
+
 /// A panel in the Bottom Dock follows the script in front: two scripts
 /// docked in two groups, Bookmarks lists the focused one's lines, and
 /// Compiler its messages; a third floating keeps its own in its window's

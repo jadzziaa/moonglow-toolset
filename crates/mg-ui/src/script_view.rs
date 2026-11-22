@@ -140,6 +140,21 @@ impl Moonglow {
     pub fn script_scroll_for_test(&self, key: ResKey) -> Option<f32> {
         self.scripts.get(&key)?.seen.map(|(offset, _)| offset.y)
     }
+
+    /// Where a script's editor drew its gutter last, left to right, and
+    /// its current line's band, top to bottom (none: not drawn), for tests.
+    #[doc(hidden)]
+    pub fn script_gutter_for_test(
+        ctx: &egui::Context,
+        key: ResKey,
+    ) -> Option<(egui::Rangef, Option<egui::Rangef>)> {
+        ctx.data(|d| d.get_temp(gutter_id(key)))
+    }
+}
+
+/// What [`Moonglow::script_gutter_for_test`] reads.
+fn gutter_id(key: ResKey) -> egui::Id {
+    egui::Id::new(("script-gutter", key))
 }
 
 /// What of the 0-based `line` of `text` an error's wavy underline spans
@@ -201,23 +216,52 @@ fn paint_error_underline(
     galley: &egui::Galley,
     at: egui::Pos2,
     (from, to): (usize, usize),
+    size: f32,
 ) -> egui::Rect {
     let start = galley.pos_from_cursor(egui::text::CCursor::new(from)).translate(at.to_vec2());
     let end = galley.pos_from_cursor(egui::text::CCursor::new(to)).translate(at.to_vec2());
     let t = mg_uikit::tokens(ui.ctx());
-    // (Under the text, its middle at the row's foot: the line's baseline
-    // is about 3 points above it, `text-underline-offset: 3px`.)
-    let y = start.bottom() - 0.5;
+    // (Under the text, 3 points under its baseline, `text-underline-offset:
+    // 3px`, wherever the line's height puts the text: a glyph's place is
+    // its baseline.)
+    let row = galley.rows.get(galley.layout_from_cursor(egui::text::CCursor::new(from)).row);
+    let baseline = row.and_then(|r| r.glyphs.first().map(|g| at.y + r.pos.y + g.pos.y));
+    let y = baseline.map_or(start.bottom() - 0.5, |b| wave_y(b, start.bottom(), size));
     let x = egui::Rangef::new(start.left(), end.left().max(start.left() + 2.0));
     // (Only what is in sight: a line of thousands of characters is not
     // made into a wave a few points at a time all along it.)
     let sight = ui.clip_rect().x_range();
     let shown = egui::Rangef::new(x.min.max(sight.min), x.max.min(sight.max));
     if shown.min < shown.max {
-        mg_uikit::paint_wavy_line(ui.painter(), shown, y, egui::Stroke::new(1.0, t.error));
+        mg_uikit::paint_wavy_line(ui.painter(), shown, y, egui::Stroke::new(WAVE_STROKE, t.error));
     }
     egui::Rect::from_x_y_ranges(shown, start.top()..=start.bottom())
 }
+
+/// Where the live error's wave runs (its middle) under a line whose
+/// glyphs stand on `baseline`, its row ending at `row_bottom`, its text
+/// `size` points: the board's 3 points under the baseline at 13, in that
+/// ratio at another size, but never into the next line (the wave and its
+/// stroke kept within the row).
+pub(crate) fn wave_y(baseline: f32, row_bottom: f32, size: f32) -> f32 {
+    let below = baseline + 3.0 * size / 13.0;
+    let lowest = row_bottom - mg_uikit::WAVE_HEIGHT / 2.0 - WAVE_STROKE / 2.0;
+    below.min(lowest).max(baseline)
+}
+
+/// The current line's two hairlines (`.tx.cur`: `inset 0 1px`) at the
+/// top and the foot of its row `y`, each on whole pixels at
+/// `pixels_per_point` (a 1-point line at 1.25 would be blurred over two):
+/// the point rounded to pixels, at least one.
+pub(crate) fn hairlines(y: egui::Rangef, pixels_per_point: f32) -> [egui::Rangef; 2] {
+    let px = |v: f32| (v * pixels_per_point).round() / pixels_per_point;
+    let thick = pixels_per_point.round().max(1.0) / pixels_per_point;
+    let (top, foot) = (px(y.min), px(y.max));
+    [egui::Rangef::new(top, top + thick), egui::Rangef::new(foot - thick, foot)]
+}
+
+/// The live error's wave's stroke, in points.
+const WAVE_STROKE: f32 = 1.0;
 
 impl ScriptBuffer {
     /// A script's bytes in an editor, read in the script codepage.
@@ -385,6 +429,97 @@ impl Palette {
     pub(crate) fn font(&self) -> FontId {
         FontId::monospace(self.size)
     }
+
+    /// The distance between two lines, in points: the board's 18 at its
+    /// 13-point text (`.code`: `font-size: 13px; line-height: 18px`; M5's
+    /// W3, the owner's ruling 21), in that ratio at another size.
+    /// Never less than the glyphs with [`LEAST_ROOM`] above and under
+    /// them: at 6 to 9 points the board's ratio would leave them touching
+    /// the row's top (the board draws only its 13).
+    pub(crate) fn pitch(&self) -> f32 {
+        let least = (self.size * MONO_HEIGHT + 2.0 * LEAST_ROOM).ceil();
+        (self.size * PITCH_RATIO).round().max(least)
+    }
+
+    /// [`Self::pitch`] as a line comes out at `pixels_per_point` (egui
+    /// rounds a row's height to whole pixels): what a line's place is
+    /// counted in.
+    pub(crate) fn row_height(&self, pixels_per_point: f32) -> f32 {
+        (self.pitch() * pixels_per_point).round() / pixels_per_point
+    }
+
+    /// A piece of a line in `color`: in the font, centered in the line's
+    /// height (the board's half of the room above the text, half below).
+    pub(crate) fn format(&self, color: Color32) -> TextFormat {
+        TextFormat { valign: egui::Align::Center, ..TextFormat::simple(self.font(), color) }
+    }
+
+    /// Makes `job`, one line of the text, a line [`Self::pitch`] high,
+    /// its text centered in it ([`Self::format`]).
+    pub(crate) fn pitched(&self, mut job: LayoutJob) -> LayoutJob {
+        job.first_row_min_height = self.pitch();
+        job.wrap.max_width = f32::INFINITY;
+        job
+    }
+}
+
+/// The board's line pitch to its text size (`.code`: 18 to 13).
+const PITCH_RATIO: f32 = 18.0 / 13.0;
+
+/// The monospace font's (Hack's) row height to its size, as egui lays it
+/// out (15.125 at 13).
+pub(crate) const MONO_HEIGHT: f32 = 1.164;
+
+/// The least room above a line's glyphs, and under them, in points.
+const LEAST_ROOM: f32 = 1.0;
+
+/// `text`'s lines highlighted ([`highlight`], whole: a comment may run over
+/// lines), each a job of its own [`Palette::pitch`] high: the editor's
+/// lines as the read-only view and Options' preview draw them.
+pub(crate) fn highlight_lines(text: &str, palette: &Palette) -> Vec<LayoutJob> {
+    let whole = highlight(text, palette);
+    let mut jobs = vec![LayoutJob::default()];
+    for section in &whole.sections {
+        let piece = &whole.text[section.byte_range.start.0..section.byte_range.end.0];
+        for (at, part) in piece.split('\n').enumerate() {
+            if at > 0 {
+                jobs.push(LayoutJob::default());
+            }
+            if !part.is_empty() {
+                jobs.last_mut().expect("one").append(part, 0.0, section.format.clone());
+            }
+        }
+    }
+    jobs.into_iter()
+        .map(|mut job| {
+            // (An empty line: the height of its font, centered.)
+            if job.sections.is_empty() {
+                job.append("", 0.0, palette.format(palette.colors[0]));
+            }
+            palette.pitched(job)
+        })
+        .collect()
+}
+
+/// `text` highlighted and laid out a line at a time, each line
+/// [`Palette::pitch`] high (Options' preview of the editor's look).
+pub(crate) fn highlight_galley(
+    ui: &Ui,
+    text: &str,
+    palette: &Palette,
+) -> std::sync::Arc<egui::Galley> {
+    let lines: Vec<_> = highlight_lines(text, palette)
+        .into_iter()
+        .map(|j| ui.fonts_mut(|f| f.layout_job(j)))
+        .collect();
+    let mut job =
+        LayoutJob::simple(text.to_owned(), palette.font(), palette.colors[0], f32::INFINITY);
+    job.wrap.max_width = f32::INFINITY;
+    std::sync::Arc::new(egui::Galley::concat(
+        std::sync::Arc::new(job),
+        &lines,
+        ui.ctx().pixels_per_point(),
+    ))
 }
 
 /// The element a token is coloured as.
@@ -406,12 +541,11 @@ pub(crate) fn element(kind: TokenKind) -> usize {
 /// Lays the text out with token colours.
 pub(crate) fn highlight(text: &str, palette: &Palette) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let font = palette.font();
     for t in tokenize(text.as_bytes()) {
         let c = palette.colors[element(t.kind)];
         // Tokens end on character boundaries except inside malformed UTF-8,
         // which the text (a String) cannot contain.
-        job.append(&text[t.span], 0.0, TextFormat::simple(font.clone(), c));
+        job.append(&text[t.span], 0.0, palette.format(c));
     }
     job
 }
@@ -849,9 +983,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let (save, compile, save_as, to_scratch) =
         (asked.save, asked.compile, asked.save_as, asked.to_scratch);
     // The check as you type: its error is the Status Bar's message while
-    // the script is the docked editor in front, and a wavy underline on
-    // its line with the error in its tip (below), whatever the host (M4's
-    // U13: the row of its own under the header is gone).
+    // the script is the editor the bar follows (the docked one in front,
+    // or a floating one under the pointer or pressed in last:
+    // `shell::update_shown`), at the end of a floating script's bottom
+    // tab bar too, and a wavy underline on its line with the error in its
+    // tip (below), whatever the host (M4's U13: the row of its own under
+    // the header is gone).
     if !app.settings.no_live_check {
         app.live_check(key, h, &ctx);
     }
@@ -1065,7 +1202,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Page Down and Page Up move the cursor by the lines in sight, and
         // the text with it (the field alone has no page keys); with Shift,
         // the selection.
-        let row = ui.fonts_mut(|f| f.row_height(&palette.font()));
+        let row = palette.row_height(ui.ctx().pixels_per_point());
         let page = ((ui.available_height() / row).floor() as isize - 1).max(1);
         for (k, lines) in [(Key::PageDown, page), (Key::PageUp, -page)] {
             let select = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, k));
@@ -1095,9 +1232,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let cached = laid_out.entry(key).or_default();
     cached.begin(ui, &palette);
     let lines = buf.text.bytes().filter(|b| *b == b'\n').count() + 1;
-    let numbers = cached.numbers(ui, lines, &buf.bookmarks, &buf.numbered, &palette);
-    let mut layouter =
-        |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| cached.text(ui, text.as_str(), &palette);
+    cached.numbers(ui, lines, &palette);
+    let gutter_width = cached.gutter_width();
     let mut completion_at = None;
     let mut area = egui::ScrollArea::both().id_salt(("script-scroll", key));
     if let Some(at) = kept_scroll {
@@ -1117,21 +1253,21 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.scroll_with_delta(egui::vec2(0.0, -d));
         }
         ui.horizontal_top(|ui| {
-            let drawn = ui.add(egui::Label::new(numbers.clone()).selectable(false));
-            crate::script_layout::paint_bookmarks(
-                ui,
-                &numbers,
-                drawn.rect.min,
-                &buf.bookmarks,
-                &buf.numbered,
-            );
+            // (The gutter and the text side by side, the board's room
+            // between them: `script_layout::GUTTER_RIGHT` and the text's
+            // frame, nothing more.)
+            ui.spacing_mut().item_spacing.x = 0.0;
             // The selection is drawn here, not by the field: to each
             // line's last character, where the field draws a line end
             // that is selected as half a character more (which reads
             // as a space the line does not have). The field's own is
-            // not drawn (no color), and the field's ground and the
-            // selection go under its text.
+            // not drawn (no color), and the field's ground, the current
+            // line's band and the selection go under its text and the
+            // line numbers.
             let under = ui.painter().add(egui::Shape::Noop);
+            let (gutter, numbers) =
+                ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
+            crate::script_layout::name_gutter(&numbers, lines);
             // (Options › Script Editor's, else the theme's.)
             let ground = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
             let selected = std::mem::replace(
@@ -1144,6 +1280,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let selection = egui::text_edit::TextEditState::load(&ctx, editor_id(key))
                 .and_then(|s| s.cursor.char_range())
                 .filter(|r| r.primary != r.secondary);
+            let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+                cached.text(ui, text.as_str(), &palette)
+            };
             let mut out = egui::TextEdit::multiline(&mut buf.text)
                 .code_editor()
                 .desired_width(f32::INFINITY)
@@ -1152,7 +1291,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .id(editor_id(key))
                 // (No frame: the mock's code has no border, with the
                 // keys or not; the ground is drawn under it.)
-                .frame(mg_uikit::code_frame())
+                .frame(crate::script_layout::text_frame())
                 .layouter(&mut layouter)
                 .show(ui);
             if let Some(range) = selection
@@ -1169,6 +1308,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let at = cursor_now.map_or(egui::text::CCursor::default(), |r| r.primary);
             let found = out.galley.layout_from_cursor(at);
             place_now = Some((found.row + 1, usize::from(found.column) + 1));
+            crate::script_layout::describe_line(&out.response.response, found.row + 1, lines);
             ui.visuals_mut().selection.bg_fill = selected;
             mg_uikit::context_menu(&out.response.response, |ui| {
                 for (tabs, label) in INDENT_CONVERSIONS {
@@ -1182,13 +1322,49 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             });
             let field = out.response.response.rect;
             let radius = ui.style().interact(&out.response.response).corner_radius;
-            let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
+            // (The gutter on the text's ground: the board's `.code`.)
+            let mut shapes = vec![egui::Shape::rect_filled(field.union(gutter), radius, ground)];
+            // The cursor's line (with nothing selected): its band across
+            // the view, the gutter's part and the text's, and the text's
+            // part between two hairlines (`.ln.cur`, `.tx.cur`).
+            let current =
+                cursor_now.filter(|r| r.is_empty()).map(|_| place_now.map_or(0, |p| p.0 - 1));
+            let band = current.and_then(|line| {
+                let row = out.galley.rows.get(line)?;
+                let y = out.galley_pos.y + row.pos.y;
+                Some(egui::Rangef::new(y, y + row.size.y))
+            });
+            ctx.data_mut(|d| d.insert_temp(gutter_id(key), (gutter.x_range(), band)));
+            if let Some(y) = band {
+                let t = match palette.background {
+                    Some(g) if ground_is_dark([g.r(), g.g(), g.b()]) => mg_uikit::Tokens::DARK,
+                    Some(_) => mg_uikit::Tokens::LIGHT,
+                    None => mg_uikit::tokens(&ctx),
+                };
+                let sight = ui.clip_rect().x_range();
+                let whole = egui::Rect::from_x_y_ranges(sight, y);
+                shapes.push(egui::Shape::rect_filled(whole, 0.0, t.current_line));
+                let text = egui::Rangef::new(gutter.right().max(sight.min), sight.max);
+                for edge in hairlines(y, ui.ctx().pixels_per_point()) {
+                    let line = egui::Rect::from_x_y_ranges(text, edge);
+                    shapes.push(egui::Shape::rect_filled(line, 0.0, t.current_line_edge));
+                }
+            }
             let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
             for rect in rows.unwrap_or_default() {
                 let rect = rect.translate(out.galley_pos.to_vec2());
                 shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
             }
             ui.painter().set(under, egui::Shape::Vec(shapes));
+            cached.paint_gutter(
+                ui,
+                gutter.left(),
+                &out.galley,
+                out.galley_pos,
+                band.and(current),
+                palette.colors[0],
+                crate::script_layout::Marks { bookmarks: &buf.bookmarks, numbered: &buf.numbered },
+            );
             // The live error's wavy underline on its line, and the error
             // in its tip: in either host (a floating script has no Status
             // Bar of its own).
@@ -1212,7 +1388,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     }
                 };
                 if let Some((_, span)) = under {
-                    let wave = paint_error_underline(ui, &out.galley, out.galley_pos, span);
+                    let wave =
+                        paint_error_underline(ui, &out.galley, out.galley_pos, span, palette.size);
                     if ui.rect_contains_pointer(wave.expand2(egui::vec2(0.0, 2.0))) {
                         let said = said.replace(['\r', '\n'], " ");
                         let tip = match &live_include {

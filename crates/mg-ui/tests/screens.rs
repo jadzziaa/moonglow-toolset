@@ -4533,6 +4533,50 @@ fn script_bottom_panels() {
     }
 }
 
+/// M5 W3's fix round: the check as you type's wave at Options › Script
+/// Editor's sizes 8 and 9, where the board's 3 points under the baseline
+/// would have run into the next line (the wave kept in its row), a
+/// bookmark on the line under it.
+#[test]
+#[ignore]
+fn script_live_error_small_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-wave");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "// The door's guard.\nvoid main()\n{\n    object oDoor = GetObjectByTag(\"door\");\n    \
+                int nOpen = GetIsOpen(oDoor) +;\n    ActionOpenDoor(oDoor);\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    for size in [8u8, 9] {
+        let game = GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(game), Box::new(NoDialogs::default()));
+        app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        app.settings.script_style.font_size = size;
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+        h.run();
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let at = text.find("ActionOpenDoor").unwrap();
+        h.state_mut().script_tools.jump = Some((key, at));
+        h.run_steps(10);
+        h.state_mut().scripts_mut_bookmark_for_test(key, at);
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("script-live-error-{size}"));
+    }
+}
+
 /// U13's review: the Status Bar at 1600 and 1400 beside a script (the
 /// switches' words kept, hints dropped first); a floating script with an
 /// error at its end (the underline on the line above, the message at its
@@ -7355,7 +7399,7 @@ fn project_plugins() {
     // which asks for a frame more.)
     h.run_steps(4);
     h.try_run().unwrap_or_else(|e| panic!("the Plugins tab at rest: {e}"));
-    h.get_by_label("This project's plugins").scroll_to_me();
+    h.get_by_label("This Project's Plugins").scroll_to_me();
     h.run_steps(4);
     h.try_run().unwrap_or_else(|e| panic!("scrolled, at rest: {e}"));
     shoot(&mut h, &dir, "project-plugins-window");
@@ -11223,6 +11267,23 @@ fn shell_by_hand() {
     shoot(&mut h, &dir, "shell_by_hand_420_left");
 }
 
+/// The Main board's window at the least window the shell takes
+/// (`mg_ui::LEAST_WINDOW_SIZE`, 420 by 320), as it yields there
+/// (`shell_least.png`), and with the Left Dock unfolded by hand
+/// (`shell_least_left.png`), for the manual's chapter on the main window.
+#[test]
+#[ignore]
+fn shell_least() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("shell");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, mg_ui::LEAST_WINDOW_SIZE);
+    shoot(&mut h, &dir, "shell_least");
+    unfold_left_dock(&mut h);
+    shoot(&mut h, &dir, "shell_least_left");
+}
+
 /// The Left Dock unfolded by hand where the window's width folds it (under
 /// 1500 points, M3 T14): its strip's chevron clicked, as a builder looking
 /// at the tree there does. Nothing where it is open or holds no panel.
@@ -12421,6 +12482,20 @@ fn board_main_areas_together() {
     h.run_steps(5);
     rest_pointer(&mut h);
     shoot(&mut h, &board_dir(), "board_main_areas_together_visual");
+    // (M5's W2, ruling 66: an edit made on the page, then Cancel All where
+    // there is one.)
+    h.get_by_label("Always Dark").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Always Dark").click();
+    h.run_steps(5);
+    rest_pointer(&mut h);
+    shoot(&mut h, &board_dir(), "board_main_areas_together_edited");
+    if let Some(cancel) = h.query_by_label("Cancel All") {
+        cancel.click();
+        h.run_steps(5);
+        rest_pointer(&mut h);
+        shoot(&mut h, &board_dir(), "board_main_areas_together_cancelled");
+    }
 }
 
 /// `board_main` with Custom Light open (M4's U29): the area view's menu's
@@ -12550,13 +12625,44 @@ fn board_wide() {
     shoot(&mut h, &board_dir(), "board_wide");
 }
 
+/// `board_main` with the area header's Overlays open (M5's W2, ruling 11:
+/// its rows without icons, as the Main board draws them).
+#[test]
+#[ignore]
+fn board_main_overlays() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    h.get_by_label("Area header").get_by_label("Overlays").click();
+    h.run_steps(4);
+    shoot(&mut h, &board_dir(), "board_main_overlays");
+}
+
+/// The pyre's Properties at 3440 by 1440 with the Right Dock at its least
+/// width, and at 1600 by 900 (M5's W2, ruling 12: every page on one scroll
+/// in the wide layout alone, one page at a time narrower).
+#[test]
+#[ignore]
+fn board_wide_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+    let least = mg_ui::RIGHT_DOCK_LEAST.round() as u32;
+    h.state_mut().settings.right_dock_width = Some(least);
+    h.state_mut().settings.right_dock_width_wide = Some(least);
+    h.run_steps(6);
+    shoot(&mut h, &board_dir(), "board_wide_least_dock");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    shoot(&mut h, &board_dir(), "board_wide_1600");
+}
+
 /// Floating.png: As Floating Windows (the board's mode, the default), the
 /// script floating over the area where the board has it, the pyre
 /// selected, `ActionMoveToObject` chosen in its Reference (M4's U12: its
-/// header, and Reference over Help at its right). Today its Compiler,
-/// Bookmarks and Search Results are still its own bottom strip (U13);
-/// the board's second script tab in the window (`m1q3_formosa_d`) is left
-/// out, a second script opening a window of its own.
+/// header, and Reference over Help at its right); its Compiler,
+/// Bookmarks and Search Results the window's bottom pane's tabs (M4's
+/// U13). The board's second script tab in the window (`m1q3_formosa_d`)
+/// is left out, a second script opening a window of its own.
 #[test]
 #[ignore]
 fn board_floating() {
@@ -13058,6 +13164,73 @@ fn board_creature() {
     shoot(&mut h, &board_dir(), "board_creature");
 }
 
+/// The module tree's rows at the Left Dock's least width (190), under
+/// each combination of the options that shape them (M5's W1): Faribeth's
+/// row among the creatures' (her tab in front), then the Plague Victim
+/// Pyre's among the area's placed objects (the area in front, the tree
+/// gone to, its area opened out); by ResRef (`_ref_`) and by name
+/// (`_name_`), with ResRefs, tags and extensions shown (`_resrefs`,
+/// `_tags`, `_ext`).
+#[test]
+#[ignore]
+fn w1_tree_rows_least() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("w1");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    left_dock_width(&mut h, 190.0);
+    h.state_mut().settings.tree_keeps_areas_closed = false;
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    for by_name in [false, true] {
+        for resrefs in [false, true] {
+            if resrefs && !by_name {
+                continue;
+            }
+            for (tags, extensions) in [(false, false), (true, false), (false, true), (true, true)] {
+                {
+                    let s = &mut h.state_mut().settings;
+                    (s.area_names, s.name_resrefs, s.tree_tags) = (by_name, resrefs, tags);
+                    s.tree_extensions = extensions;
+                }
+                let name = format!(
+                    "{}{}{}{}",
+                    if by_name { "name" } else { "ref" },
+                    if resrefs { "_resrefs" } else { "" },
+                    if tags { "_tags" } else { "" },
+                    if extensions { "_ext" } else { "" },
+                );
+                board_front(&mut h, &board_utc_tab());
+                shoot(&mut h, &dir, &format!("w1_tree_{name}_creature"));
+                board_front(&mut h, &board_area_tab());
+                let pyre = pyre_index(&mut h);
+                let view = h.state_mut().area_views.get_mut(&area).unwrap();
+                view.selection = Vec::new();
+                h.run_steps(3);
+                let view = h.state_mut().area_views.get_mut(&area).unwrap();
+                view.selection = vec![(mg_area::ObjectKind::Placeable, pyre)];
+                // (Gone to in the tree, its area opened out: beside the
+                // Outliner the tree follows no selection.)
+                let app = h.state_mut();
+                app.tree_object = Some((area, mg_area::ObjectKind::Placeable, pyre));
+                app.tree_object_pending = true;
+                app.tree_reveal = Some((ResKey::new(area, ResType::ARE), true));
+                h.run_steps(12);
+                shoot(&mut h, &dir, &format!("w1_tree_{name}_object"));
+            }
+        }
+    }
+    // The least window (420), the Left Dock unfolded by hand: by name,
+    // ResRefs and tags shown, Faribeth's row.
+    h.set_size(egui::vec2(420.0, 760.0));
+    board_front(&mut h, &board_utc_tab());
+    if let Some(show) = h.query_by_label("Show the Left Dock") {
+        show.click();
+    }
+    h.run_steps(8);
+    shoot(&mut h, &dir, "w1_tree_least_window");
+}
+
 /// A few seconds' frames for what is drawn on threads of its own (an
 /// area's shaders, a preview's model): an area keeps the window
 /// repainting, so not a settle.
@@ -13233,6 +13406,52 @@ fn board_script_state(h: &mut Harness<'_, Moonglow>) {
     h.run_steps(10);
 }
 
+/// The boards' script's line pitch and gutter (M5's W3, ruling 21: the
+/// board's 18 points, number 18 from the text) where Script.png does not
+/// draw it: at the least window, in a group of its own beside the area
+/// (Split Editor), with lines 18 to 20 selected, and at each interface
+/// size (Options › General).
+#[test]
+#[ignore]
+fn board_script_pitch() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let mut h = board_window(&root, mg_ui::LEAST_WINDOW_SIZE);
+    board_front(&mut h, &board_script_tab());
+    board_script_state(&mut h);
+    shoot(&mut h, &dir, "board_script_least");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &board_script_tab());
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(&mut h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    board_script_state(&mut h);
+    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+    let text = h.state().script_text(key).unwrap();
+    let (from, to) =
+        (mg_ui::script_tools::line_start(&text, 17), mg_ui::script_tools::line_start(&text, 20));
+    let id = egui::Id::new(("script", key));
+    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+        egui::text::CCursor::new(text[..from].chars().count()),
+        egui::text::CCursor::new(text[..to].chars().count() + 6),
+    )));
+    state.store(&h.ctx, id);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "board_script_split");
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &board_script_tab());
+    board_script_state(&mut h);
+    for size in mg_ui::UI_SCALES {
+        h.state_mut().settings.ui_scale = Some(size);
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("board_script_size_{size}"));
+    }
+}
+
 /// The boards' script with `name` chosen in its Reference (shown in
 /// Help), as a click on its row chooses it.
 fn board_help(h: &mut Harness<'_, Moonglow>, name: &str) {
@@ -13324,6 +13543,54 @@ fn conversation_panels() {
     strip.get_by_label(mg_ui::OUTLINER).click();
     h.run_steps(10);
     shoot(&mut h, &dir, "conversation-floating-strip-open");
+}
+
+/// `m1q1faribeth`'s long lines at depth (M5's W4, the owner's ruling 29:
+/// each line cut at the tree's right edge): its deepest line chosen and
+/// brought into sight, As Tabs at 1600 by 900 (`conversation-long-1600`),
+/// in the least window (`conversation-long-least`) and split beside the
+/// area (`conversation-long-split`).
+#[test]
+#[ignore]
+fn conversation_long_lines() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let key = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
+    let tab = mg_ui::Tab::Dialog(key);
+    let deepest = |h: &mut Harness<'_, Moonglow>| {
+        frames_until(h, "the conversation's view", |h| h.state().dialog_views.contains_key(&key));
+        let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+        let rows = mg_ui::dialog_view::shown_rows(&g, &Default::default());
+        let depth = |mut at: usize| {
+            let mut n = 0;
+            while let Some(up) = rows[at].up {
+                (at, n) = (up, n + 1);
+            }
+            n
+        };
+        let at = (0..rows.len()).max_by_key(|&i| depth(i)).unwrap();
+        let view = h.state_mut().dialog_views.get_mut(&key).unwrap();
+        (view.selected, view.reveal) = (rows[at].row, true);
+        h.run_steps(10);
+    };
+    for (name, size) in [
+        ("conversation-long-1600", egui::vec2(1600.0, 900.0)),
+        ("conversation-long-least", mg_ui::LEAST_WINDOW_SIZE),
+    ] {
+        let mut h = board_window(&root, size);
+        board_front(&mut h, &tab);
+        deepest(&mut h);
+        shoot(&mut h, &dir, name);
+    }
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    board_front(&mut h, &tab);
+    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+    frames_until(&mut h, "two editor groups", |h| {
+        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+    });
+    deepest(&mut h);
+    shoot(&mut h, &dir, "conversation-long-split");
 }
 
 /// Table.png: the game's `spells.2da` put in the module (Chapter1 has
@@ -14858,8 +15125,9 @@ fn u24_welcome() {
 /// window (the size the sheet gives): Rename (`board_dialogs_rename`),
 /// Delete from Module (`_delete`), Find and Replace Text (`_find_replace`),
 /// Build Module (`_build`), the Area Wizard (`_area_wizard`) and the
-/// Creature Wizard's third step (`_creature_wizard`). Today each lays out
-/// its own buttons, not the board's footer row. Not shown: Unsaved
+/// Creature Wizard's third step (`_creature_wizard`), each with the
+/// board's footer row (the kit's footer, M4's U27); Find and Replace Text
+/// is Search Results' form since U28, not a window. Not shown: Unsaved
 /// Changes, Duplicate Tags, Adjust Location, Resize Area and Recover
 /// Unsaved Work, which need a closing, a paste, a placed object's menu or
 /// a crash to open.
@@ -16158,5 +16426,520 @@ fn area_properties_at_800_by_600() {
         b.click();
         h.run_steps(4);
         shoot(&mut h, &dir, &format!("ap800-{}", page.to_lowercase()));
+    }
+}
+
+/// M5's W5, ruling 35 (in the boards' window, at 1600 by 900 and at the
+/// least window): the module's own talk table with a line typed and not
+/// saved, its tab's × pressed (`w5-talk-close`, `w5-talk-close-least`):
+/// the question over the Talk Table tab.
+#[test]
+#[ignore]
+fn w5_talk_close() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    for (size, shot) in [
+        (egui::vec2(1600.0, 900.0), "w5-talk-close"),
+        (mg_ui::LEAST_WINDOW_SIZE, "w5-talk-close-least"),
+    ] {
+        let mut h = board_window(&root, size);
+        board_own_talk(&mut h);
+        board_front(&mut h, &mg_ui::Tab::TalkTable);
+        h.state_mut().talk_view.go_to_line(7);
+        h.run_steps(5);
+        let mut line = h.state().talk.as_ref().unwrap().line(7);
+        line.text.push_str(" Not saved yet.");
+        h.state_mut().talk.as_mut().unwrap().set_line(7, &line, None).unwrap();
+        h.run_steps(5);
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![mg_ui::Tab::TalkTable]));
+        h.run_steps(10);
+        shoot(&mut h, &dir, shot);
+    }
+}
+
+/// M5's W5, ruling 44 (in the boards' window, at 1600 by 900 and at the
+/// least window): a copy of the game's tcn01 in the tileset editor, tile 16
+/// chosen (`w5-tileset-before`); its file rewritten by another program,
+/// tile 16's model renamed, without unsaved edits here
+/// (`w5-tileset-after`: the editor shows the file's); then a field changed
+/// here and the file rewritten again (`w5-tileset-conflict`: asked which
+/// to keep). Each wait gives up after a few seconds, so that the tree
+/// before W5 renders its pictures too.
+#[test]
+#[ignore]
+fn w5_tileset_outside() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = board_dir();
+    let scratch = mg_testkit::scratch_dir("screens-w5-tileset");
+    let tcn = {
+        let install = GameInstall::new(&root, None, "en");
+        let game = mg_resman::ResMan::for_game(&install).unwrap();
+        game.get(&ResKey::parse("tcn01", ResType::SET).unwrap()).unwrap().into_owned()
+    };
+    let text = String::from_utf8_lossy(&tcn).into_owned();
+    let model =
+        mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[16].model.clone();
+    let wait = |h: &mut Harness<'static, Moonglow>, done: &dyn Fn(&Moonglow) -> bool| {
+        let started = std::time::Instant::now();
+        while !done(h.state()) && started.elapsed().as_secs() < 8 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        h.run_steps(10);
+    };
+    for (size, tail) in [(egui::vec2(1600.0, 900.0), ""), (mg_ui::LEAST_WINDOW_SIZE, "-least")] {
+        let mut h = board_window(&root, size);
+        let path = scratch.join("tcn01.set");
+        std::fs::write(&path, &tcn).unwrap();
+        mg_ui::tileset_view::open_path(h.state_mut(), path.clone());
+        frames_until(&mut h, "the tileset open", |h| !h.state().tilesets.is_empty());
+        h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+        h.state_mut().tilesets[0].tile = Some(16);
+        h.run_steps(10);
+        // (The watch begins with the tileset open.)
+        wait(&mut h, &|_| false);
+        shoot(&mut h, &dir, &format!("w5-tileset-before{tail}"));
+        let theirs = text.replacen(&format!("Model={model}"), "Model=tcn01_w5_16", 1);
+        std::fs::write(&path, theirs.as_bytes()).unwrap();
+        let model_is = |app: &Moonglow, m: &str| {
+            app.tilesets[0].tileset().is_some_and(|t| t.tiles[16].model == m)
+        };
+        wait(&mut h, &|app| model_is(app, "tcn01_w5_16"));
+        shoot(&mut h, &dir, &format!("w5-tileset-after{tail}"));
+        h.state_mut().tilesets[0].change(|f| f.set("GENERAL", "SelectorHeight", "6"));
+        h.run_steps(5);
+        let again = theirs.replacen("Model=tcn01_w5_16", "Model=tcn01_w5_16b", 1);
+        std::fs::write(&path, again.as_bytes()).unwrap();
+        wait(&mut h, &|app| !app.outside_conflicts().is_empty());
+        shoot(&mut h, &dir, &format!("w5-tileset-conflict{tail}"));
+    }
+}
+
+/// M5's W6 (ruling 49): the read-only tab with a TGA, a DDS, a PLT, a
+/// WAV and a type with no viewer (a compiled script), each the first of
+/// its type in the game's data, at 1600 by 900 and the least window.
+#[test]
+#[ignore]
+fn w6_resource_viewers() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("w6");
+    std::fs::create_dir_all(&dir).unwrap();
+    for (size, tail) in [(egui::vec2(1600.0, 900.0), ""), (mg_ui::LEAST_WINDOW_SIZE, "-least")] {
+        let mut h = board_window(&root, size);
+        let mut open: Option<mg_ui::Tab> = None;
+        for t in [ResType::TGA, ResType::DDS, ResType::PLT, ResType::WAV, ResType::NCS] {
+            let key = {
+                let game = h.state().game.as_deref().unwrap();
+                let mut all = game.resman.list(t);
+                all.sort_by_key(|r| r.to_string());
+                ResKey::new(*all.first().expect("one in the game's data"), t)
+            };
+            if let Some(tab) = open.take() {
+                h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab]));
+            }
+            let tab = mg_ui::Tab::Resource(key);
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+            frames_until(&mut h, "the tab drawn", |h| h.state().tab_rect(&tab).is_some());
+            settle(&mut h);
+            let name = key.restype.extension().unwrap_or("x").to_string();
+            shoot(&mut h, &dir, &format!("w6-resource-{name}{tail}"));
+            open = Some(tab);
+        }
+    }
+}
+
+/// M5's W6 (ruling 19): the boards' creature floating with its own
+/// Preview in its window's pane, at 2560 by 1000, the palette's Preview
+/// beside the area showing the same blueprint (one picture, shown in
+/// both), then another creature (two pictures).
+#[test]
+#[ignore]
+fn w6_two_previews() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("w6");
+    std::fs::create_dir_all(&dir).unwrap();
+    let utc = board_utc_tab();
+    let mg_ui::Tab::Blueprint(key) = utc.clone() else { panic!("a blueprint's tab") };
+    let mut h = board_window(&root, egui::vec2(2560.0, 1000.0));
+    if let Some(at) = h.state().dock.find_tab(&utc) {
+        h.state_mut().dock.remove_tab(at);
+    }
+    h.run_steps(3);
+    {
+        let s = &mut h.state_mut().settings;
+        s.open_editors = mg_ui::OpenEditors::Floating;
+        s.window_places = vec![("creature".to_string(), "window".to_string())];
+        s.window_sizes.clear();
+    }
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Creature;
+    h.state_mut().palette.selected = Some(key);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(utc.clone()));
+    frames_until(&mut h, "the window drawn", |h| h.state().tab_rect(&utc).is_some());
+    pictures_shown(&mut h);
+    h.run_steps(10);
+    shoot(&mut h, &dir, "w6-previews-same");
+    let other = {
+        let game = h.state().game.as_deref().unwrap();
+        ResKey::parse("nw_bandit001", ResType::UTC).filter(|k| game.resman.contains(k))
+    };
+    if let Some(other) = other {
+        h.state_mut().palette.selected = Some(other);
+        h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+        h.run_steps(5);
+        pictures_shown(&mut h);
+        h.run_steps(10);
+        shoot(&mut h, &dir, "w6-previews-differ");
+    }
+}
+
+/// M5's W7, in the window's least size and at 1600 by 900: Options ›
+/// Verify with `references:` words of where a resource is found left out
+/// (`w7-verify`), the Conversation Test's footer (`w7-conversation-test`),
+/// a swap layout in Layers and its variant edited (`w7-swap-layout`,
+/// `w7-swap-variant`) and a placeable without an inventory
+/// (`w7-placeable-no-inventory`).
+#[test]
+#[ignore]
+fn w7_names() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-w7");
+    // A module with a conversation of a greeting and a reply.
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello there.");
+    add_node(&mut g, Parent::Node(mg_module::dialog::Kind::Entry, hello), "Who are you?");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"w7".to_vec()));
+    m.set_info(&info).unwrap();
+    let dlg = ResKey::parse("w7talk", ResType::DLG).unwrap();
+    m.set_gff(dlg, &g).unwrap();
+    // A window with a swap layout of two variants.
+    let jui = ResKey::parse("w7swap", ResType::JUI).unwrap();
+    let mut doc = mg_nui::window();
+    doc["root"]["children"] = json!([
+        {"type":"label","value":"Header","height":30.0},
+        {"type":"group","id":"content","width":360.0,"height":100.0,
+            "children":[{"type":"col","children":[{"type":"label","value":"Initial"}]}]}]);
+    let mut s = mg_nui::Settings::default();
+    s.variants.insert("details".into(), json!({"type":"label","value":"Details view"}));
+    s.variant_targets.insert("details".into(), "content".into());
+    m.set(jui, serde_json::to_vec(&doc).unwrap());
+    m.set(ResKey::parse("w7swap", ResType::TXT).unwrap(), s.bytes());
+    let path = dir.join("w7.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    for (w, hgt, at) in [(1600.0, 900.0, "1600"), (420.0, 320.0, "least")] {
+        let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+        app.settings.verify_skip =
+            vec!["tilesets".into(), "references:override".into(), "tdod_tiles01.hak".into()];
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(w, hgt))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        h.run_steps(3);
+        apart(&h, "Verify").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("w7-verify-{at}"));
+        h.state_mut().options = None;
+        h.run_steps(2);
+        // The Conversation Test, a turn taken: Back on.
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Dialog(dlg)));
+        h.run_steps(4);
+        h.state_mut().dialog_views.get_mut(&dlg).unwrap().test = Some(Vec::new());
+        h.run_steps(3);
+        if let Some(reply) = h.query_by_label("1. Who are you?") {
+            reply.click();
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("w7-conversation-test-{at}"));
+        h.state_mut().dialog_views.get_mut(&dlg).unwrap().test = None;
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Nui(jui)));
+        h.run_steps(5);
+        if let Some(row) = h.query_by_label("Swap layout · content") {
+            row.click();
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("w7-swap-layout-{at}"));
+        if let Some(row) = h.query_by_label("Variant · details") {
+            row.click();
+        }
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("w7-swap-variant-{at}"));
+        drop(h);
+        // A placeable with Has inventory off: its Inventory page.
+        let mut h = pictured_blueprint(
+            &root,
+            &dir,
+            ("plc_chest1", ResType::UTP),
+            "Basic",
+            egui::vec2(w, hgt),
+        );
+        h.run_steps(4);
+        h.get_by_label("Has inventory").click();
+        h.run_steps(2);
+        apart(&h, "Inventory").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("w7-placeable-no-inventory-{at}"));
+    }
+}
+
+/// M5's W8 (the owner's report: a wide placeable cut off at the sides in
+/// the tall Preview): wide placeables of the game's chosen in the palette
+/// with the Preview in front, at the dock's usual 320 and least 280 in
+/// 1600 by 900, and in the wide layout (3440 by 1440), with an object of
+/// the area selected (Properties under the Preview) and with none (the
+/// Preview the dock's whole height, `-tall`): a long table
+/// (`pwc_tabl_001`, 5 m), a wagon (`tnp_wagon_001`, 5.2 m) and the full
+/// wagon (`plc_fullwagon`). Blueprints of the first two are made in the
+/// module (`w8_table`, `w8_wagon`). Into `screens/w8/`.
+#[test]
+#[ignore]
+fn w8_wide_previews() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("w8");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let wagon = ResKey::parse("plc_fullwagon", ResType::UTP).unwrap();
+    let mut keys = vec![("fullwagon".to_string(), wagon)];
+    {
+        let game = h.state().game.as_deref().unwrap();
+        let bytes = game.resman.get(&wagon).unwrap().into_owned();
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        for (name, row) in [("w8_table", 732u32), ("w8_wagon", 636)] {
+            let mut g = mg_gff::Gff::read(&bytes).unwrap();
+            g.root.set("Appearance", mg_gff::Value::Dword(row));
+            let key = ResKey::parse(name, ResType::UTP).unwrap();
+            ws.module.set(key, g.to_bytes().unwrap());
+            keys.push((name.to_string(), key));
+        }
+    }
+    w8_shots(&mut h, &dir, &keys, true);
+    // A blueprint's own Preview beside its tab docked (the dock's whole
+    // height), at 320 and 280; then the table turned broadside by hand
+    // (the camera kept where the turn left it), and its appearance changed
+    // in its form to the wagon's (`-changed`).
+    h.set_size(egui::vec2(1600.0, 900.0));
+    h.state_mut().settings.window_places = vec![("placeable".to_string(), "middle".to_string())];
+    for (name, key) in &keys {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(*key)));
+        for width in [320.0, 280.0] {
+            right_dock_width(&mut h, width);
+            pictures_shown(&mut h);
+            shoot(&mut h, &dir, &format!("w8-own-{name}-{width}"));
+        }
+    }
+    let table = keys[1].1;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(table)));
+    right_dock_width(&mut h, 320.0);
+    pictures_shown(&mut h);
+    let source = mg_ui::model_view::Source::Resource(table);
+    h.state_mut().model_views.get_mut(&source).unwrap().orbit.yaw = 90f32.to_radians();
+    pictures_shown(&mut h);
+    shoot(&mut h, &dir, "w8-own-table-turned");
+    h.state_mut().model_views.get_mut(&source).unwrap().orbit.yaw = 60f32.to_radians();
+    h.state_mut().model_views.get_mut(&source).unwrap().frame();
+    let chest = ResKey::parse("w8_chest", ResType::UTP).unwrap();
+    {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let mut g = mg_gff::Gff::read(ws.module.get(&table).unwrap()).unwrap();
+        g.root.set("Appearance", mg_gff::Value::Dword(42));
+        ws.module.set(chest, g.to_bytes().unwrap());
+    }
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(chest)));
+    pictures_shown(&mut h);
+    shoot(&mut h, &dir, "w8-own-changed-before");
+    let edit = mg_edit::Edit::SetField {
+        key: chest,
+        path: mg_edit::GffPath::default(),
+        label: "Appearance".into(),
+        value: Some(mg_gff::Value::Dword(732)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+    pictures_shown(&mut h);
+    shoot(&mut h, &dir, "w8-own-changed");
+    // The Right Dock's edge beside the form, the pointer over it: lit.
+    let dock = h.state().right_dock_rect().unwrap();
+    h.hover_at(egui::pos2(dock.left() - 2.0, dock.center().y));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "w8-edge-hover");
+    // The least window, the Preview asked for.
+    h.set_size(mg_ui::LEAST_WINDOW_SIZE);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    pictures_shown(&mut h);
+    shoot(&mut h, &dir, "w8-own-changed-least");
+}
+
+/// [`w8_wide_previews`] on The Domains of Dread's wide placeables (its
+/// haks in `MOONGLOW_HAKS`, in its module's order, linked into a scratch
+/// user folder; skipped without): carts, a wagon, a bench, a ship's
+/// wreck. Into `screens/w8-tdod/` (the owner's content: never committed).
+#[test]
+#[ignore]
+fn w8_tdod_previews() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let Some(haks_dir) = (mg_testkit::builder_hak_dirs().into_iter())
+        .find(|d| d.join("tdod_blueprints.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_blueprints.hak in MOONGLOW_HAKS");
+        return;
+    };
+    let ifo = haks_dir.join("../../src/module.ifo.json");
+    let Ok(ifo) = std::fs::read(&ifo) else {
+        eprintln!("skipped: no TDoD module.ifo.json beside its haks");
+        return;
+    };
+    let ifo: serde_json::Value = serde_json::from_slice(&ifo).unwrap();
+    let haks: Vec<String> = ifo["Mod_HakList"]["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["Mod_Hak"]["value"].as_str().unwrap().to_owned())
+        .collect();
+    let dir = mg_testkit::output_dir("screens").join("w8-tdod");
+    std::fs::create_dir_all(&dir).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-w8-tdod");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in &haks {
+        let file = format!("{name}.hak");
+        let to = user.join("hak").join(&file);
+        let _ = std::fs::remove_file(&to);
+        mg_testkit::link_or_copy(&haks_dir.join(&file), &to).unwrap();
+    }
+    let install = GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Wide", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    let list = mg_module::attach::hak_list(&ifo.root, &haks);
+    ifo.root.set("Mod_HakList", list);
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = scratch.join("wide.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    show_palette(h.state_mut());
+    pictures_shown(&mut h);
+    let keys: Vec<(String, ResKey)> = [
+        "dd_bca_cart1",
+        "dd_bca_cart2",
+        "dd_bca_cartsacks",
+        "dd_bg3_wagon506",
+        "dd_bg3_bench626",
+        "dd_bg3_shipwr570",
+    ]
+    .iter()
+    .map(|n| (n.to_string(), ResKey::parse(n, ResType::UTP).unwrap()))
+    .collect();
+    w8_shots(&mut h, &dir, &keys, false);
+}
+
+/// Each of `keys` chosen in the placeables palette with the Preview in
+/// front, at 320 and 280 in 1600 by 900 and in the wide layout, with and
+/// (`selected`: its first creature) without an object of the area
+/// selected ([`w8_wide_previews`]).
+fn w8_shots(
+    h: &mut Harness<'_, Moonglow>,
+    dir: &std::path::Path,
+    keys: &[(String, ResKey)],
+    selected: bool,
+) {
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Preview));
+    for (width, size, at) in [
+        (320.0, egui::vec2(1600.0, 900.0), "320"),
+        (280.0, egui::vec2(1600.0, 900.0), "280"),
+        (549.0, egui::vec2(3440.0, 1440.0), "wide"),
+    ] {
+        h.set_size(size);
+        right_dock_width(h, width);
+        for tall in [false, true].into_iter().filter(|t| *t || selected) {
+            let selection = match tall {
+                true => Vec::new(),
+                false => vec![(mg_area::ObjectKind::Creature, 0)],
+            };
+            for view in h.state_mut().area_views.values_mut() {
+                view.selection = selection.clone();
+            }
+            for (name, key) in keys {
+                h.state_mut().palette.selected = Some(*key);
+                pictures_shown(h);
+                let tail = if tall { "-tall" } else { "" };
+                shoot(h, dir, &format!("w8-{name}-{at}{tail}"));
+            }
+        }
+    }
+}
+
+/// M5's W8 fix round (W8-1, the owner's ruling "preview turn: a"): a
+/// blueprint's own Preview beside its tab docked at 320 in 1600 by 900,
+/// at the first view's yaw, framed: the full wagon, the long table and
+/// the obelisk (a tall model), to see the size the fit gives. Into
+/// `screens/w8-fit/` (`MG_W8_FIT_DIR` names another folder, for a run
+/// before and one after).
+#[test]
+#[ignore]
+fn w8_fit_sizes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let name = std::env::var("MG_W8_FIT_DIR").unwrap_or_else(|_| "w8-fit".to_string());
+    let dir = mg_testkit::output_dir("screens").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let wagon = ResKey::parse("plc_fullwagon", ResType::UTP).unwrap();
+    let mut keys = vec![("fullwagon".to_string(), wagon)];
+    {
+        let game = h.state().game.as_deref().unwrap();
+        let bytes = game.resman.get(&wagon).unwrap().into_owned();
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        for (name, row) in [("w8_table", 732u32), ("w8_obelisk", 236)] {
+            let mut g = mg_gff::Gff::read(&bytes).unwrap();
+            g.root.set("Appearance", mg_gff::Value::Dword(row));
+            let key = ResKey::parse(name, ResType::UTP).unwrap();
+            ws.module.set(key, g.to_bytes().unwrap());
+            keys.push((name.to_string(), key));
+        }
+    }
+    h.state_mut().settings.window_places = vec![("placeable".to_string(), "middle".to_string())];
+    right_dock_width(&mut h, 320.0);
+    for (name, key) in &keys {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(*key)));
+        pictures_shown(&mut h);
+        shoot(&mut h, &dir, &format!("w8-fit-{name}"));
     }
 }

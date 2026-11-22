@@ -197,13 +197,23 @@ fn placeable_editor_fills_its_inventory() {
     h.run();
     assert!(h.query_by_value("PLC_A08_").is_some());
     assert!(h.query_by_value("Hostile").is_some());
-    // A static placeable holds nothing: Has Inventory is disabled.
+    // A static placeable holds nothing: Has inventory is disabled.
     page(&mut h, "Basic");
     h.run();
     h.get_by_label("Static").click();
     h.run();
     assert_eq!(field(&mut h, &key).integer("Static"), Some(1));
     assert!(h.get_by_label("Has inventory").accesskit_node().is_disabled());
+    // Without an inventory, the Inventory page names the box as it reads
+    // (M5's W7: it said "Has Inventory").
+    h.get_by_label("Static").click();
+    h.run();
+    h.get_by_label("Has inventory").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("HasInventory"), Some(0));
+    page(&mut h, "Inventory");
+    h.run();
+    h.get_by_label("The placeable has no inventory (Basic › Has inventory).");
 }
 
 #[test]
@@ -353,7 +363,7 @@ fn equipping_without_the_feat_asks_to_add_it() {
 }
 
 /// Find in Palette on an equipped item chooses its blueprint in the
-/// palette on the left, opens its branch, scrolls its row into view and
+/// page's item palette, opens its branch, scrolls its row into view and
 /// clears a search that hid it. It does the same for a backpack item. For
 /// an item whose blueprint is in neither palette, it is disabled.
 /// Properties on the palette row opens the blueprint.

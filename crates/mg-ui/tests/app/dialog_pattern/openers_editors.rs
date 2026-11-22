@@ -260,7 +260,7 @@ pub(crate) fn openers() -> Vec<Opener> {
         Opener::new("nui_view/bindings.rs:inspector#1", "New Bind for a Property", designer, |h| {
             h.get_by_label("Canvas Label · Hear ye").click();
             settle(h);
-            click_reached(h, "New Bind for Property")
+            click_reached(h, "New Bind for a Property")
         })
         .field(0)
         .off(|h| clear_field(h, "New Bind for a Property", 0)),
