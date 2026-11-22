@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T11:09:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T12:17:04Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -2221,7 +2221,7 @@ In this order, each its own change (the tasks U0 to U30 above): the area editor 
 - A toolset release, cut as this repository's releases are (an annotated tag, hand-written notes; **the owner signs each release**).
 - Exit: `cargo test` suites and clippy clean on the newest stable; the corpus tests pass; frame time recorded against the baseline.
 
-Open: the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. The owner ruled the version 5.0.0 on 2026-11-22; the release notes are drafted and fact-checked (`target/m5/release/`). The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
+Open: the toolset release itself (the version change to 5.0.0, the tag, the owner's signing, publishing, the Scoop manifest) and the `client_*` corpus tests, not run (they need a game client). The timings once owed (W8's refit cost, the area084 baseline retake, W4's conversation rows, W8's Preview rows) and the full corpus run were measured 2026-11-22 (see [the log](log.md)). The owner ruled the version 5.0.0 on 2026-11-22; the release notes are drafted and fact-checked (`target/m5/release/`). The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
 
 **V1. The manual's chapters 01 to 05 read against the program.**
 
