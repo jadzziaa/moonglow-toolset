@@ -45,6 +45,20 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.0.0" date="2026-11-22">
+      <description>
+        <p>A new shell around every editor: a Top Bar with Quick Open
+        (Ctrl+P), docks at the left, right and bottom that hold the
+        panels of the editor in front, an Outliner, a Status Bar that
+        shows the keys and clicks at hand, editor groups side by side,
+        and editors that open as tabs or as windows (Options, General,
+        Open editors).</p>
+        <p>Every editor has one header row: an area's Properties, Tile
+        Properties and Edit Areas Together are in the Right Dock, and
+        Find, Build and Verify results in the Bottom Dock. Some behavior
+        changes on purpose: see the release notes.</p>
+      </description>
+    </release>
     <release version="4.2.1" date="2026-11-14">
       <description>
         <p>A helmet is drawn in the PLT of its own name, as the game
