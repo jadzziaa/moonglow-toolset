@@ -2255,20 +2255,22 @@ fn find_references_to_row_finds_the_module_s_blueprints_and_scripts() {
         ],
     )));
     let mut h = harness(app, 1280.0, 900.0);
-    h.run_steps(3);
+    settle(&mut h);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), table).unwrap();
-    h.run_steps(4);
+    settle(&mut h);
     // (The creature's appearance is appearance.2da's row, not this one's.)
     let uses = mg_ui::table_view::module_row_uses(h.state(), "appearance", 2);
     assert_eq!(uses.len(), 1, "{uses:?}");
     assert!(uses[0].place.ends_with("Appearance_Type"), "{uses:?}");
     h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(2, 0);
-    h.run_steps(3);
+    settle(&mut h);
+    // (Its look is on a thread of its own: waited for, not a count of
+    // frames, which Linux CI's look once outlasted.)
     h.get_by_label("Find References to Row 2").click();
-    h.run_steps(3);
+    settle(&mut h);
     let line = h.get_by_label_contains("mg_look line 3: Get2DAString");
     line.click();
-    h.run_steps(4);
+    settle(&mut h);
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some(), "the script opened");
 }
 
