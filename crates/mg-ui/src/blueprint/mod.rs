@@ -17,9 +17,7 @@ use mg_rules::Choice;
 
 use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_edited_text};
-use crate::widgets::{
-    FieldTarget, LocStringEdit, VarTableEdit, commit_number, commit_text, resref_field,
-};
+use crate::widgets::{FieldTarget, LocStringEdit, VarTableEdit, commit_number, resref_field};
 use crate::{Action, Moonglow, Tab};
 
 mod creature;
@@ -392,6 +390,18 @@ pub(crate) fn ok_cancel_header(
     viewed: bool,
     tips: [&str; 2],
 ) -> Option<Pressed> {
+    ok_cancel_header_with(ui, title, viewed, tips, false).0
+}
+
+/// [`ok_cancel_header`], optionally with a `Pop In` button before `OK`/`Cancel`
+/// (shown when an instance Properties editor is docked as a main-surface tab).
+fn ok_cancel_header_with(
+    ui: &mut Ui,
+    title: &Title<'_>,
+    viewed: bool,
+    tips: [&str; 2],
+    pop_in: bool,
+) -> (Option<Pressed>, bool) {
     use mg_uikit::KitButton;
     let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
     let measure = |text: &str| {
@@ -400,13 +410,20 @@ pub(crate) fn ok_cancel_header(
         galley.size().x
     };
     const GAP: f32 = 8.0;
-    let buttons: Vec<KitButton> = match viewed {
-        true => vec![KitButton::new(None, "Close")],
-        false => vec![
-            KitButton::new(None, "OK").tip(tips[0]),
-            KitButton::new(None, "Cancel").tip(tips[1]),
-        ],
-    };
+    let mut buttons: Vec<KitButton> = Vec::new();
+    if pop_in {
+        buttons.push(
+            KitButton::new(Some(crate::icons::POP_IN), "Pop In")
+                .tip("Put these properties back in the Properties panel"),
+        );
+    }
+    match viewed {
+        true => buttons.push(KitButton::new(None, "Close")),
+        false => {
+            buttons.push(KitButton::new(None, "OK").tip(tips[0]));
+            buttons.push(KitButton::new(None, "Cancel").tip(tips[1]));
+        }
+    }
     let gap = mg_uikit::header::HEADER_GAP;
     let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
         + gap * (buttons.len() as f32 - 1.0).max(0.0);
@@ -459,13 +476,19 @@ pub(crate) fn ok_cancel_header(
         .show_with_end(ui, end_width, |ui| {
             ui.spacing_mut().item_spacing.x = gap;
             let mut pressed = None;
+            let mut popped_in = false;
             for b in buttons {
                 let words = b.accessible_name().to_string();
                 if ui.add(b).clicked() {
-                    pressed = Some(if words == "Cancel" { Pressed::Cancel } else { Pressed::Ok });
+                    if words == "Pop In" {
+                        popped_in = true;
+                    } else {
+                        pressed =
+                            Some(if words == "Cancel" { Pressed::Cancel } else { Pressed::Ok });
+                    }
                 }
             }
-            pressed
+            (pressed, popped_in)
         });
     out.end
 }
@@ -1426,7 +1449,16 @@ impl Form<'_> {
         self.mark_mixed(ui, label);
         let current = decode(self.root.string(label).unwrap_or_default());
         let id = self.id(label);
-        if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
+        let rows = if panel_scroll(ui) { Some(3) } else { Some(6) };
+        if let Some(v) = crate::widgets::commit_text_in(
+            &mut self.app.buffers,
+            ui,
+            id,
+            &current,
+            rows,
+            f32::INFINITY,
+            None,
+        ) {
             self.set(what, label, Value::String(encode(&v)));
         }
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
@@ -1580,14 +1612,56 @@ impl Form<'_> {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         let language = crate::text::edit_language().name().unwrap_or("?");
         let mut languages = false;
-        mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
-            languages = crate::widgets::languages_button(ui);
-        });
+        let in_panel_scroll = panel_scroll(ui);
+        let duplicate = panel_page(ui).as_deref() == Some(what);
+        if duplicate {
+            // (The panel's page heading already names this page: show only the
+            // language note and the languages button on one compact row.)
+            ui.horizontal(|ui| {
+                ui.weak(language);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    languages = crate::widgets::languages_button(ui);
+                });
+            });
+        } else {
+            mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
+                languages = crate::widgets::languages_button(ui);
+            });
+        }
         if languages {
             self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
         }
         self.mark_mixed(ui, label);
-        if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
+        let typed = if in_panel_scroll {
+            let id = self.id(label);
+            match crate::widgets::loc_shown(self.app, &current) {
+                (shown, None) => crate::widgets::commit_loc_text_in(
+                    &mut self.app.buffers,
+                    ui,
+                    id,
+                    &shown,
+                    Some(3),
+                    f32::INFINITY,
+                    None,
+                ),
+                (shown, Some((from, why))) => {
+                    crate::widgets::borrowed_field(ui, &from, why, |ui| {
+                        crate::widgets::commit_loc_text_in(
+                            &mut self.app.buffers,
+                            ui,
+                            id,
+                            &shown,
+                            Some(3),
+                            f32::INFINITY,
+                            None,
+                        )
+                    })
+                }
+            }
+        } else {
+            self.loc_text(ui, label, &current, true, f32::INFINITY)
+        };
+        if let Some(v) = typed {
             self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
         }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
@@ -2127,28 +2201,21 @@ impl Form<'_> {
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        // (Outside a narrow form, which wraps its rows, the field yields
-        // to its `…` and Edit where the row's room is short: Module
-        // Properties' events at a window of 420 put both past its edge,
-        // U30's #14. The grid's last column's room, which its first
-        // column's labels decide, not a column's width: no feedback.)
-        let yield_to = (!narrow(ui)).then(|| {
-            let s = ui.spacing();
-            let small = egui::TextStyle::Button.resolve(ui.style());
-            let color = ui.visuals().text_color();
-            let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
-            let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
-            let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
-            width.clamp(SCRIPT_FIELD_LEAST, 160.0)
-        });
-        row(ui, |ui| {
+        // Yield the resref field width so `…` and `Edit` always fit beside it
+        // on the same line, including in narrow Properties panels.
+        let s = ui.spacing();
+        let small = egui::TextStyle::Button.resolve(ui.style());
+        let color = ui.visuals().text_color();
+        let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+        let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
+        let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
+        let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
+        let yield_to = width.clamp(least, 160.0);
+        ui.horizontal(|ui| {
             let id = self.id(label);
-            let picked = match yield_to {
-                Some(width) => crate::widgets::with_resref_width(ui, width, |ui| {
-                    resref_field(self.app, ui, id, current, &what, &types)
-                }),
-                None => resref_field(self.app, ui, id, current, &what, &types),
-            };
+            let picked = crate::widgets::with_resref_width(ui, yield_to, |ui| {
+                resref_field(self.app, ui, id, current, &what, &types)
+            });
             if let Some(v) = picked {
                 self.set(&what, label, Value::resref(v));
             }
@@ -2249,8 +2316,20 @@ impl Form<'_> {
     ) {
         self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        row(ui, |ui| {
-            if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
+        let s = ui.spacing();
+        let small = egui::TextStyle::Button.resolve(ui.style());
+        let color = ui.visuals().text_color();
+        let edit_w = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+        let buttons = s.interact_size.y + edit_w + 2.0 * s.button_padding.x;
+        let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
+        let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
+        let yield_to = width.clamp(least, 160.0);
+        ui.horizontal(|ui| {
+            let id = self.id(label);
+            let picked = crate::widgets::with_resref_width(ui, yield_to, |ui| {
+                resref_field(self.app, ui, id, current, what, types)
+            });
+            if let Some(v) = picked {
                 self.set(what, label, Value::resref(v));
             }
             let key = ResKey::new(current, edit);
@@ -2522,8 +2601,24 @@ pub(crate) fn narrow(ui: &Ui) -> bool {
     ui.data(|d| d.get_temp::<bool>(egui::Id::new(NARROW_ID))).unwrap_or(false)
 }
 
+/// Whether the form being drawn is the Properties panel's single-column
+/// all-pages scroll (`AllPages { panel: true }` in the wide layout).
+pub(crate) fn panel_scroll(ui: &Ui) -> bool {
+    ui.data(|d| d.get_temp::<bool>(egui::Id::new(PANEL_SCROLL_ID))).unwrap_or(false)
+}
+
+/// The page name whose own heading was already drawn above its body in
+/// the Properties panel (`None` for a blueprint window without a panel heading).
+fn panel_page(ui: &Ui) -> Option<String> {
+    ui.data(|d| d.get_temp::<String>(egui::Id::new(PANEL_PAGE_ID)))
+}
+
 /// Where [`form_ui`] keeps whether the form it draws is narrow.
 const NARROW_ID: &str = "blueprint-form-narrow";
+/// Where [`form_ui`] keeps whether it is drawing the Properties panel's one scroll.
+const PANEL_SCROLL_ID: &str = "blueprint-form-panel-scroll";
+/// Where [`form_ui`] keeps the current panel page name so sub-headings avoid duplicating it.
+const PANEL_PAGE_ID: &str = "blueprint-form-panel-page";
 
 /// `add` drawn as a narrow form's ([`narrow`]): a panel's fields (the
 /// journal's Entry and Category, M4's U22) fill the room they are given,
@@ -2749,7 +2844,12 @@ pub(crate) fn edit_many(
         false => format!("{kind} properties header"),
     };
     let title = Title { header, icon: crate::tabs::icon(&tab), name: &name, sub: &sub };
-    let pressed = ok_cancel_header(ui, &title, is_viewed || held.is_some(), OK_CANCEL_TIPS);
+    let pop_in = !path.0.is_empty() && app.docked_instance_tabs.contains(&tab);
+    let (pressed, popped_in) =
+        ok_cancel_header_with(ui, &title, is_viewed || held.is_some(), OK_CANCEL_TIPS, pop_in);
+    if popped_in {
+        app.actions.push(Action::PopInProperties(tab.clone()));
+    }
     // (Every page, of several too: their lists are edited on each,
     // `docs/lists-together-proposal.md`.)
     let pages: Vec<&str> =
@@ -3031,8 +3131,13 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
                     if let Some(readout) = readout {
                         ui.label(egui::RichText::new(readout).small().weak());
                     }
+                    ui.data_mut(|d| {
+                        d.insert_temp(egui::Id::new(PANEL_PAGE_ID), (*title).to_string());
+                    });
                 }
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, page));
+                ui.data_mut(|d| d.remove::<String>(egui::Id::new(PANEL_PAGE_ID)));
+                ui.add_space(12.0);
             });
         }
         // (The window's: every page on one scroll, drawn where in sight.)
@@ -3046,14 +3151,26 @@ pub(crate) fn form_ui(app: &mut Moonglow, ui: &mut Ui, shown: FormShown<'_>) -> 
             // (The panel's one object's place under its first page's
             // heading, as WideArea draws it under Basic.)
             let readout = heading.and_then(|(_, r)| r).filter(|_| panel);
+            if panel {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new(PANEL_SCROLL_ID), true));
+            }
             scroll.show(ui, top, |ui, i| {
                 if i == 0
                     && let Some(readout) = &readout
                 {
                     ui.label(egui::RichText::new(readout).small().weak());
                 }
+                if panel {
+                    ui.data_mut(|d| {
+                        d.insert_temp(egui::Id::new(PANEL_PAGE_ID), pages[i].to_string());
+                    });
+                }
                 read_only_if(ui, viewed, |ui| page_ui(&mut form, ui, restype, pages[i]));
+                if panel {
+                    ui.data_mut(|d| d.remove::<String>(egui::Id::new(PANEL_PAGE_ID)));
+                }
             });
+            ui.data_mut(|d| d.remove::<bool>(egui::Id::new(PANEL_SCROLL_ID)));
         }
     }
     // (The form drawn: what is drawn after it judges its own room.)

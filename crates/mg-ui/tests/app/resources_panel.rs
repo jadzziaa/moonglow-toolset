@@ -1102,7 +1102,7 @@ fn a_name_longer_than_its_row_is_cut_in_its_middle() {
     app.open_module(&path);
     show_resources(&mut app);
     app.browser.filter = long.resref.to_string();
-    app.browser.restype = Some(ResType::NSS);
+    app.browser.restypes = [ResType::NSS].into();
     let mut h = harness(app, 1280.0, 800.0);
     left_dock_width(&mut h, 190.0);
     settle(&mut h);
@@ -1151,4 +1151,63 @@ fn a_window_over_the_fold_button_takes_its_clicks() {
     click_pos(&h, fold.center());
     settle(&mut h);
     assert!(h.state().settings.hide_tree, "the button's");
+}
+
+/// The Resources type dropdown filters choices with type-ahead, stays open
+/// while toggling multiple checkboxes, updates the button summary, and supports
+/// Clear, Select Matching, and Escape.
+#[test]
+fn browser_type_dropdown_supports_type_ahead_and_multi_select() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser-type-multi");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    show_resources(&mut app);
+    let mut h = harness(app, 1280.0, 800.0);
+    settle(&mut h);
+
+    // Open the Resources type dropdown ("all types").
+    h.get_by_value("all types").click();
+    settle(&mut h);
+    assert!(egui::Popup::is_any_open(&h.ctx), "type dropdown opened");
+
+    // Check `2da` — popup stays open and filters to 2da.
+    h.get_by_label("2da").click();
+    settle(&mut h);
+    assert!(egui::Popup::is_any_open(&h.ctx), "popup stays open after checking first type");
+    assert_eq!(h.state().browser.restypes, [ResType::TWODA].into());
+    h.get_by_value("2da");
+
+    // Type-ahead filters to `mdl`; check `mdl` too while staying open.
+    h.event(egui::Event::Text("mdl".into()));
+    settle(&mut h);
+    assert!(h.query_by_label("nss").is_none(), "non-matching type filtered out");
+    h.get_all_by_label("mdl").last().unwrap().click();
+    settle(&mut h);
+    assert!(egui::Popup::is_any_open(&h.ctx), "popup stays open after second type");
+    assert_eq!(h.state().browser.restypes, [ResType::TWODA, ResType::MDL].into());
+    h.get_by_value("2da, mdl");
+
+    // Clear All resets to "all types", while keeping popup open.
+    h.get_by_label("Clear All").click();
+    settle(&mut h);
+    assert!(h.state().browser.restypes.is_empty());
+    h.get_by_value("all types");
+    assert!(egui::Popup::is_any_open(&h.ctx));
+
+    // Select Matching checks visible matching types (`mdl`), Escape clears filter then closes.
+    h.get_by_label("Select Matching").click();
+    settle(&mut h);
+    assert!(h.state().browser.restypes.contains(&ResType::MDL));
+
+    // Escape first clears the type-ahead filter (staying open), second closes popup.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(egui::Popup::is_any_open(&h.ctx), "first Escape clears filter");
+    assert!(h.query_by_label("2da").is_some(), "other types visible again");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!egui::Popup::is_any_open(&h.ctx), "second Escape closes popup");
 }

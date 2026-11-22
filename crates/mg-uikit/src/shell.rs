@@ -117,6 +117,9 @@ pub const RIGHT_DOCK_WIDE: f32 = 741.0;
 /// (`WideArea.html`'s `.dock-col.pal-col`: `flex: 0 0 340px`); the second
 /// column takes the rest.
 pub const RIGHT_COLUMN: f32 = 340.0;
+/// The Area Right Dock's width in the wide layout when standing in one
+/// column (stacked half-height, one tab bar, or with Properties closed).
+pub const RIGHT_DOCK_WIDE_SINGLE: f32 = RIGHT_COLUMN;
 
 /// The Right Dock in the wide layout's two columns while the palettes
 /// show their Gallery (GalleryWide's `--right-w`), until it is dragged:
@@ -669,6 +672,8 @@ enum TabForm {
 pub struct DockTabsOutput<R> {
     /// The bar's response (its whole rectangle).
     pub response: Response,
+    /// Each tab button's response, in tab order.
+    pub tabs: Vec<Response>,
     /// The tabs showed their icons alone ([`DockTabs::tools_width`]).
     pub icons: bool,
     /// A tab was clicked and is now the one selected.
@@ -698,6 +703,7 @@ pub struct DockTabs {
     drawn_hovered: Option<usize>,
     tools_width: Option<f32>,
     title: Option<String>,
+    draggable: bool,
 }
 
 impl DockTabs {
@@ -709,7 +715,15 @@ impl DockTabs {
             drawn_hovered: None,
             tools_width: None,
             title: None,
+            draggable: false,
         }
+    }
+
+    /// Lets the tabs be dragged (and right-clicked on the bar) without
+    /// changing Tab focus order.
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
+        self
     }
 
     /// The panel's name before its tabs (`.docktab.title`, the Conversation
@@ -811,7 +825,8 @@ impl DockTabs {
         tools: impl FnOnce(&mut Ui) -> R,
     ) -> DockTabsOutput<R> {
         let t = ui.tokens();
-        let (bar, response) = bar_rect(ui);
+        let bar_sense = if self.draggable { Sense::CLICK } else { Sense::hover() };
+        let (bar, response) = bar_rect_with(ui, bar_sense);
         paint_bar(ui, &t, bar);
         let form = self.form_in(ui, bar.width());
         let icons = form == TabForm::Icons;
@@ -820,6 +835,8 @@ impl DockTabs {
         // known.)
         let mut focus_to = None;
         let mut ids = Vec::with_capacity(self.tabs.len());
+        let mut tab_responses = Vec::with_capacity(self.tabs.len());
+        let tab_sense = if self.draggable { Sense::click() | Sense::DRAG } else { Sense::click() };
         let builder = egui::UiBuilder::new()
             .max_rect(bar)
             .layout(egui::Layout::left_to_right(egui::Align::Center));
@@ -842,7 +859,7 @@ impl DockTabs {
                 for (i, tab) in self.tabs.iter().enumerate() {
                     let wide = tab.width_in(ui, form);
                     let size = vec2(wide, bar.height());
-                    let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+                    let (rect, r) = ui.allocate_exact_size(size, tab_sense);
                     ids.push(r.id);
                     let on = *selected == i;
                     if r.clicked() && !on {
@@ -889,9 +906,8 @@ impl DockTabs {
                     });
                     let hovered = self.drawn_hovered == Some(i) || r.hovered() || r.has_focus();
                     paint_dock_tab(ui, &t, rect, tab, on, hovered, r.has_focus(), form);
-                    if icons {
-                        r.on_hover_text(&name);
-                    }
+                    let r = if icons { r.on_hover_text(&name) } else { r };
+                    tab_responses.push(r);
                 }
                 tools_at_right_end(ui, bar, tools)
             })
@@ -902,7 +918,7 @@ impl DockTabs {
             ui.memory_mut(|m| m.request_focus(id));
             ui.ctx().request_repaint();
         }
-        DockTabsOutput { response, icons, changed, inner }
+        DockTabsOutput { response, tabs: tab_responses, icons, changed, inner }
     }
 }
 
@@ -919,9 +935,9 @@ fn tools_at_right_end<R>(ui: &mut Ui, bar: Rect, tools: impl FnOnce(&mut Ui) -> 
 
 /// The bar's rectangle: `ui`'s width, [`metrics::DOCK_TABS`] high, taken
 /// from `ui`.
-fn bar_rect(ui: &mut Ui) -> (Rect, Response) {
+fn bar_rect_with(ui: &mut Ui, sense: Sense) -> (Rect, Response) {
     let size = vec2(ui.available_width(), metrics::DOCK_TABS);
-    ui.allocate_exact_size(size, Sense::hover())
+    ui.allocate_exact_size(size, sense)
 }
 
 /// A tab bar's ground: `bar`, the 1 px `line` along its bottom.
@@ -1002,12 +1018,19 @@ pub struct PanelHeader {
     title: String,
     detail: Option<String>,
     name: Option<String>,
+    draggable: bool,
 }
 
 impl PanelHeader {
     /// The header of the panel `title`.
     pub fn new(title: impl Into<String>) -> Self {
-        PanelHeader { title: title.into(), detail: None, name: None }
+        PanelHeader { title: title.into(), detail: None, name: None, draggable: false }
+    }
+
+    /// Lets the header be dragged and right-clicked without adding a Tab stop.
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
+        self
     }
 
     /// A detail after the title, in weak text.
@@ -1026,7 +1049,8 @@ impl PanelHeader {
     /// the right end, in the order it makes them.
     pub fn show<R>(self, ui: &mut Ui, tools: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
         let t = ui.tokens();
-        let (bar, response) = bar_rect(ui);
+        let sense = if self.draggable { Sense::CLICK | Sense::DRAG } else { Sense::hover() };
+        let (bar, response) = bar_rect_with(ui, sense);
         paint_bar(ui, &t, bar);
         let builder = egui::UiBuilder::new()
             .max_rect(bar)

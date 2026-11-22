@@ -554,6 +554,130 @@ pub struct DockLayout {
     pub wide_width: Option<u16>,
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// One of the three Area Right Dock panes (`Palette`, `Preview`,
+/// `Properties`), used in [`AreaRightLayout`] to keep a builder-arranged
+/// layout in settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum AreaRightPanel {
+    Palette,
+    Preview,
+    Properties,
+}
+
+impl AreaRightPanel {
+    pub const ALL: [Self; 3] = [Self::Palette, Self::Preview, Self::Properties];
+}
+
+/// Custom arrangement of the Area editor's Right Dock columns, stacked
+/// sections and tab bars ([`Settings::area_right_layout`]).
+///
+/// Each outer element is a vertical column (1 column, or 2 columns side by
+/// side on ultrawide monitors); each column is a top-to-bottom list of
+/// sections; each section is a list of tabbed panes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AreaRightLayout {
+    pub columns: Vec<Vec<Vec<AreaRightPanel>>>,
+}
+
+impl AreaRightLayout {
+    pub fn two_columns() -> Self {
+        Self {
+            columns: vec![
+                vec![vec![AreaRightPanel::Palette, AreaRightPanel::Preview]],
+                vec![vec![AreaRightPanel::Properties]],
+            ],
+        }
+    }
+
+    pub fn stacked() -> Self {
+        Self {
+            columns: vec![vec![
+                vec![AreaRightPanel::Palette, AreaRightPanel::Preview],
+                vec![AreaRightPanel::Properties],
+            ]],
+        }
+    }
+
+    pub fn one_tab_bar() -> Self {
+        Self {
+            columns: vec![vec![vec![
+                AreaRightPanel::Palette,
+                AreaRightPanel::Preview,
+                AreaRightPanel::Properties,
+            ]]],
+        }
+    }
+
+    /// Deduplicates panes, drops empty sections and columns, caps at two
+    /// columns, and ensures every [`AreaRightPanel`] appears once.
+    pub fn normalized(&self) -> Self {
+        let mut seen = [false; 3];
+        let idx = |p: AreaRightPanel| match p {
+            AreaRightPanel::Palette => 0,
+            AreaRightPanel::Preview => 1,
+            AreaRightPanel::Properties => 2,
+        };
+        let mut columns: Vec<Vec<Vec<AreaRightPanel>>> = Vec::new();
+        for col in &self.columns {
+            let mut clean_col: Vec<Vec<AreaRightPanel>> = Vec::new();
+            for sec in col {
+                let mut clean_sec: Vec<AreaRightPanel> = Vec::new();
+                for &p in sec {
+                    let i = idx(p);
+                    if !seen[i] {
+                        seen[i] = true;
+                        clean_sec.push(p);
+                    }
+                }
+                if !clean_sec.is_empty() {
+                    clean_col.push(clean_sec);
+                }
+            }
+            if !clean_col.is_empty() {
+                if columns.len() >= 2 {
+                    columns[1].extend(clean_col);
+                } else {
+                    columns.push(clean_col);
+                }
+            }
+        }
+        if columns.is_empty() {
+            return Self::two_columns();
+        }
+        for p in AreaRightPanel::ALL {
+            if !seen[idx(p)] {
+                columns.last_mut().unwrap()[0].push(p);
+            }
+        }
+        Self { columns }
+    }
+
+    /// Returns columns with [`AreaRightPanel::Properties`] removed, dropping
+    /// any section or column that becomes empty.
+    pub fn without_properties(&self) -> Vec<Vec<Vec<AreaRightPanel>>> {
+        let norm = self.normalized();
+        norm.columns
+            .into_iter()
+            .filter_map(|col| {
+                let kept: Vec<Vec<AreaRightPanel>> = col
+                    .into_iter()
+                    .filter_map(|sec| {
+                        let s: Vec<_> =
+                            sec.into_iter().filter(|&p| p != AreaRightPanel::Properties).collect();
+                        (!s.is_empty()).then_some(s)
+                    })
+                    .collect();
+                (!kept.is_empty()).then_some(kept)
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -610,6 +734,11 @@ pub struct Settings {
     /// the Right Dock shows no Tile Properties section (U5). An older
     /// Moonglow ignores it.
     pub hide_tile_properties: bool,
+    /// Properties was hidden manually with its close button or View menu /
+    /// Area Header switch: only Properties is hidden while Palette and Preview
+    /// stay visible. Written only when true.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hide_properties: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,
@@ -772,6 +901,17 @@ pub struct Settings {
     /// narrower window), each the width of its own layout. `None`: not
     /// chosen there, 741.
     pub right_dock_width_wide: Option<u32>,
+    /// The Right Dock's width dragged to in the wide layout (`>= 2560`)
+    /// when the Area Right Dock stands in a single column (stacked
+    /// half-height, one tab bar, or with Properties closed). Kept apart from
+    /// `right_dock_width_wide` (two columns). Written only when chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right_dock_width_wide_one: Option<u32>,
+    /// Custom arrangement of the Area Right Dock panes (`Palette`,
+    /// `Preview`, `Properties`). `None`: the shell's default (two columns
+    /// when wide, stacked otherwise). Written only when customized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub area_right_layout: Option<AreaRightLayout>,
     /// The docks' layout for each kind of editor (by `Tab::kind`: "area",
     /// "script"…), as the builder left it (M4's U2): which panel is in
     /// front of each of the Right Dock's sections and of the Bottom Dock,
@@ -2544,5 +2684,75 @@ mod tests {
             .unwrap();
             assert_eq!(from_json, read, "JSON with the field reads as without it");
         }
+    }
+
+    #[test]
+    fn area_right_layout_normalizes_and_drops_properties_cleanly() {
+        let dirty = AreaRightLayout {
+            columns: vec![
+                vec![],
+                vec![vec![AreaRightPanel::Preview, AreaRightPanel::Preview], vec![]],
+                vec![vec![AreaRightPanel::Palette]],
+                vec![vec![AreaRightPanel::Properties]],
+            ],
+        };
+        let norm = dirty.normalized();
+        assert_eq!(
+            norm.columns,
+            vec![
+                vec![vec![AreaRightPanel::Preview]],
+                vec![vec![AreaRightPanel::Palette], vec![AreaRightPanel::Properties]],
+            ]
+        );
+        assert_eq!(
+            AreaRightLayout::two_columns().without_properties(),
+            vec![vec![vec![AreaRightPanel::Palette, AreaRightPanel::Preview]]]
+        );
+        assert_eq!(
+            AreaRightLayout::stacked().without_properties(),
+            vec![vec![vec![AreaRightPanel::Palette, AreaRightPanel::Preview]]]
+        );
+        assert_eq!(
+            AreaRightLayout::one_tab_bar().without_properties(),
+            vec![vec![vec![AreaRightPanel::Palette, AreaRightPanel::Preview]]]
+        );
+        assert_eq!(AreaRightLayout::default().normalized(), AreaRightLayout::two_columns());
+    }
+
+    #[test]
+    fn hide_properties_and_area_right_layout_omit_defaults_and_merge() {
+        let started = Settings::default();
+        let plain = started.saved_text();
+        assert!(!plain.contains("hide_properties"), "{plain}");
+        assert!(!plain.contains("right_dock_width_wide_one"), "{plain}");
+        assert!(!plain.contains("area_right_layout"), "{plain}");
+
+        let mut theirs = started.clone();
+        theirs.hide_properties = true;
+        theirs.right_dock_width_wide_one = Some(360);
+        theirs.area_right_layout = Some(AreaRightLayout::stacked());
+        let saved = theirs.saved_text();
+        assert!(saved.contains("hide_properties:true"), "{saved}");
+        assert!(saved.contains("right_dock_width_wide_one:Some(360)"), "{saved}");
+        assert!(saved.contains("area_right_layout:Some("), "{saved}");
+
+        // Another untouched window keeps theirs.
+        let merged: Settings = ron::from_str(&started.saved_over(&started, &saved)).unwrap();
+        assert!(merged.hide_properties);
+        assert_eq!(merged.right_dock_width_wide_one, Some(360));
+        assert_eq!(merged.area_right_layout, Some(AreaRightLayout::stacked()));
+
+        // Their reset to defaults is kept over our unchanged view of it.
+        let reset = started.saved_text();
+        let merged: Settings = ron::from_str(&theirs.saved_over(&theirs, &reset)).unwrap();
+        assert!(!merged.hide_properties);
+        assert_eq!(merged.right_dock_width_wide_one, None);
+        assert_eq!(merged.area_right_layout, None);
+
+        // Our own customization wins over theirs reset.
+        let mut mine = started.clone();
+        mine.area_right_layout = Some(AreaRightLayout::one_tab_bar());
+        let merged: Settings = ron::from_str(&mine.saved_over(&started, &reset)).unwrap();
+        assert_eq!(merged.area_right_layout, Some(AreaRightLayout::one_tab_bar()));
     }
 }

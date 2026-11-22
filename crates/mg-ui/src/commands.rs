@@ -132,6 +132,7 @@ pub enum Id {
     /// View: the panes beside the middle shown or folded away.
     ViewTree,
     ViewPalettes,
+    ViewProperties,
     ViewLog,
     /// View › Copy Log and Save Log…: the whole log, each line with its
     /// time, to the clipboard or into a text file (Jasperre's report).
@@ -230,6 +231,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
         &[
             Do(Id::ViewTree),
             Do(Id::ViewPalettes),
+            Do(Id::ViewProperties),
             Do(Id::ViewLog),
             Do(Id::CopyLog),
             Do(Id::SaveLog),
@@ -644,6 +646,9 @@ impl Id {
             Id::ViewPalettes => {
                 ("view-palettes", "Right Dock", "Show the Right Dock, or fold it away")
             }
+            Id::ViewProperties => {
+                ("view-properties", "Properties Panel", "Show or hide only the Properties panel")
+            }
             Id::ViewLog => ("view-log", "Log", "Show the log, or fold it away"),
             Id::CopyLog => {
                 ("copy-log", "Copy Log", "The whole log to the clipboard, each line with its time")
@@ -722,6 +727,13 @@ impl Id {
             Id::ViewPalettes => {
                 Some(app.panel_shown(self) && crate::shell::right_shown(app).is_some())
             }
+            Id::ViewProperties => Some(
+                !app.settings.hide_properties
+                    && matches!(
+                        app.active_editor(),
+                        Some(Tab::Area(a)) if !app.props_popped_out.contains(a)
+                    ),
+            ),
             Id::ViewTree | Id::ViewLog => Some(app.panel_shown(self)),
             _ => None,
         }
@@ -784,6 +796,7 @@ impl Id {
             // (Whenever the Right Dock holds a panel: the Palette panel
             // without a module too, once asked for.)
             Id::ViewPalettes => crate::shell::right_shown(app).is_some(),
+            Id::ViewProperties => open && matches!(app.active_editor(), Some(Tab::Area(_))),
             Id::CloseTab => app.front_tab().is_some(),
             Id::MaximizeWindow => app.front_window_tab().is_some(),
             Id::SplitEditor => app.can_split(),
@@ -886,6 +899,7 @@ impl Id {
             Id::ClaimsTable => "The project keeps no claims table",
             Id::TakeInLeftOut => "nasher.cfg leaves no files out",
             Id::ViewTree | Id::ViewPalettes => "The dock holds no panel now",
+            Id::ViewProperties if open => "Switch to an area first",
             Id::NextPane | Id::PreviousPane => "No pane is open",
             _ if !open => "Open a module first",
             _ => "It cannot be used now",
@@ -1067,6 +1081,20 @@ impl Id {
             Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
                 let shown = app.panel_shown(self);
                 return app.show_panel(self, !shown);
+            }
+            Id::ViewProperties => {
+                if let Some(Tab::Area(area)) = app.active_editor().cloned() {
+                    let shown =
+                        !app.settings.hide_properties && !app.props_popped_out.contains(&area);
+                    if shown {
+                        app.settings.hide_properties = true;
+                    } else {
+                        app.settings.hide_properties = false;
+                        app.props_popped_out.remove(&area);
+                        app.show_dock_panel(crate::Panel::Properties);
+                    }
+                }
+                return;
             }
             Id::HidePanels => {
                 let show = app.panels_hidden();

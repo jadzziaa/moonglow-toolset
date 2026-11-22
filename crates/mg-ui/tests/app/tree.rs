@@ -1375,8 +1375,21 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     // Sorted by tag: WP_00 (the last in the area's list) first.
     let y = |h: &Harness<'_, Moonglow>, tag: &str| h.get_by_label(tag).rect().center().y;
     assert!(y(&h, "WP_00") < y(&h, "WP_01") && y(&h, "WP_01") < y(&h, "WP_02"));
-    // A click on a row: the object is selected in the area, and the row
-    // stays under the pointer.
+    // A click on a row: the object is selected in the area without moving
+    // the camera, and the row stays under the pointer.
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = glam::Vec3::new(2.0, 2.0, 0.0);
+        o.distance = 40.0;
+    }
+    h.run_steps(2);
+    let wp_pos = h.state().area_views[&area]
+        .model
+        .as_ref()
+        .unwrap()
+        .object(ObjectKind::Waypoint, 36)
+        .unwrap()
+        .position;
     let row = h.get_by_label("WP_03").rect();
     let at = row.center();
     h.hover_at(at);
@@ -1384,9 +1397,13 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     press(&h, at, false, egui::Modifiers::NONE);
     h.run_steps(6);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 36)]);
+    assert_eq!(
+        h.state().area_views[&area].orbit.unwrap().target,
+        glam::Vec3::new(2.0, 2.0, 0.0),
+        "single click selects without moving the camera"
+    );
     assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");
-    // A double click there: its Properties, in the Right Dock's panel
-    // (the coordinator's ruling at U6's review, as the view's: no window).
+    // A double click there: focuses the camera on the object; no window opens.
     h.run_steps(30);
     for _ in 0..2 {
         press(&h, at, true, egui::Modifiers::NONE);
@@ -1395,7 +1412,9 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
         h.step();
     }
     h.run_steps(4);
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "its Properties");
+    let focused = h.state().area_views[&area].orbit.unwrap();
+    assert!((focused.target - wp_pos).length() < 0.01, "double click goes to {wp_pos:?}");
+    assert!(focused.distance <= 25.0, "zoomed in: {}", focused.distance);
     let path = mg_edit::GffPath::root().item("WaypointList", 36);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
     assert_eq!(h.get_by_label("WP_03").rect(), row, "the tree stays still");

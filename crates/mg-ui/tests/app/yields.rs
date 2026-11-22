@@ -176,7 +176,7 @@ fn build_words(h: &Harness<'_, Moonglow>) -> bool {
 #[test]
 fn what_the_shell_shows_at_each_width() {
     for mode in MODES {
-        let Some((mut h, _)) = yielding("yields-shown", mode) else { return };
+        let Some((mut h, area)) = yielding("yields-shown", mode) else { return };
         let at = |h: &mut Harness<'_, Moonglow>, width: f32, height: f32| {
             size(h, width, height);
             let right = h.state().right_dock_rect().map(|r| r.width());
@@ -217,6 +217,11 @@ fn what_the_shell_shows_at_each_width() {
         assert!((left - mg_uikit::metrics::LEFT_DOCK).abs() <= 1.0, "{mode:?} 260: {left}");
         assert!(tabs.left() < 10.0);
         let (shown, right) = at(&mut h, 3440.0, 1440.0);
+        assert_eq!(shown, ("field", true, "open", "tabs", false, true), "{mode:?} 3440 empty");
+        assert_eq!(right, Some(kit::RIGHT_DOCK_WIDE_SINGLE), "{mode:?} 3440 empty");
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            vec![(mg_area::ObjectKind::Placeable, 0)];
+        let (shown, right) = at(&mut h, 3440.0, 1440.0);
         assert_eq!(shown, ("field", true, "open", "columns", false, true), "{mode:?} 3440");
         assert_eq!(right, Some(kit::RIGHT_DOCK_WIDE), "{mode:?} 3440");
         let left = h.state().editor_area_rect().unwrap().left() - HARNESS_MARGIN;
@@ -230,7 +235,13 @@ fn what_the_shell_shows_at_each_width() {
             .map(|n| n.rect())
             .find(|r| dock.contains(r.center()))
             .expect("the palette's Expand All in the dock");
-        let props = h.get_by_label(mg_ui::properties_panel::NOTHING_SELECTED).rect();
+        let props = h
+            .query_all_by(|n| {
+                n.label().as_deref() == Some("Basic") && n.role() == egui::accesskit::Role::Button
+            })
+            .next()
+            .expect("the Properties rail's Basic button")
+            .rect();
         let open = h.get_by_label("Open in Tab").rect();
         assert!(types.right() <= dock.left() + kit::RIGHT_COLUMN + 0.5, "{types:?} {dock:?}");
         assert!(props.left() >= dock.left() + kit::RIGHT_COLUMN, "{props:?} {dock:?}");
@@ -332,7 +343,9 @@ fn every_width_is_whole_and_the_editor_keeps_its_least() {
 /// nothing stored by any width.
 #[test]
 fn a_window_narrowed_and_widened_writes_nothing_and_gives_all_back() {
-    let Some((mut h, _)) = yielding("yields-chosen", Mode::Tabs) else { return };
+    let Some((mut h, area)) = yielding("yields-chosen", Mode::Tabs) else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
     let sweep = |h: &mut Harness<'_, Moonglow>, saved: &str| {
         let widths = (420..=3440).rev().step_by(60).chain((420..=3440).step_by(60));
         for width in widths {
@@ -733,7 +746,9 @@ fn keys_leave_a_panel_no_longer_drawn() {
 /// press in a column makes its panel the dock's.
 #[test]
 fn the_wide_dock_s_columns_by_the_keys_and_a_chosen_blueprint() {
-    let Some((mut h, _)) = yielding("yields-columns", Mode::Tabs) else { return };
+    let Some((mut h, area)) = yielding("yields-columns", Mode::Tabs) else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
     size(&mut h, 3440.0, 1440.0);
     assert_eq!(right_as(&h), "columns");
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -885,7 +900,9 @@ fn a_dock_unfolded_by_hand_in_a_narrow_window_is_whole() {
 /// and a width dragged at 1600 alone leaves the wide layout its 741.
 #[test]
 fn each_layout_keeps_its_own_right_dock_width() {
-    let Some((mut h, _)) = yielding("yields-two-widths", Mode::Tabs) else { return };
+    let Some((mut h, area)) = yielding("yields-two-widths", Mode::Tabs) else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
     let width = |h: &Harness<'_, Moonglow>| h.state().right_dock_rect().unwrap().width();
     let drag_to = |h: &mut Harness<'_, Moonglow>, want: f32| {
         let dock = h.state().right_dock_rect().unwrap();
@@ -924,13 +941,21 @@ fn each_layout_keeps_its_own_right_dock_width() {
 /// Gallery's.
 #[test]
 fn the_wide_layout_gives_the_gallery_its_480_column() {
-    let Some((mut h, _)) = yielding("yields-gallery-wide", Mode::Tabs) else { return };
+    let Some((mut h, area)) = yielding("yields-gallery-wide", Mode::Tabs) else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Placeable, 0)];
     let width = |h: &Harness<'_, Moonglow>| h.state().right_dock_rect().unwrap().width();
     // (Where the second column's Properties begin: the first column's
     // width, the line and the panel's margin.)
     let column = |h: &Harness<'_, Moonglow>| {
         let dock = h.state().right_dock_rect().unwrap();
-        let props = h.get_by_label(mg_ui::properties_panel::NOTHING_SELECTED).rect();
+        let props = h
+            .query_all_by(|n| {
+                n.label().as_deref() == Some("Basic") && n.role() == egui::accesskit::Role::Button
+            })
+            .next()
+            .expect("the Properties rail's Basic button")
+            .rect();
         props.left() - dock.left()
     };
     size(&mut h, 3440.0, 1440.0);

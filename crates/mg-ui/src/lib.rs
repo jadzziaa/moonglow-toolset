@@ -289,6 +289,9 @@ pub enum Action {
     /// area is the active docked editor (a double click on one of its
     /// objects, ruling Q1; dragged out, its window's own pane shows it).
     ShowProperties(mg_core::ResRef),
+    /// Puts a popped-out placed-object Properties tab or window back into
+    /// the docked Properties panel without cancelling edits.
+    PopInProperties(Tab),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -949,6 +952,20 @@ pub struct Moonglow {
     /// (the wide layout's two columns, or stacked sections): F6 stops at
     /// each bar's panel in front ([`Moonglow::right_bars`]).
     pub(crate) right_columns: bool,
+    /// Whether the docked `Properties` panel is currently drawn in its own
+    /// full-height column on ultrawide (`shell::right_dock`), allowing
+    /// every-page-on-one-scroll layout (`properties_panel::one_scroll`).
+    pub(crate) props_full_height: bool,
+    /// Areas whose placed-object Properties were popped out into a tab or
+    /// floating window (`properties_panel::open_in_tab`). While present,
+    /// the docked Properties pane closes for that area to reclaim space.
+    pub(crate) props_popped_out: std::collections::HashSet<mg_core::ResRef>,
+    /// An Area Right Dock pane currently being dragged to rearrange the
+    /// dock's columns, stacked sections, or tab bars.
+    pub(crate) right_dock_drag: Option<Panel>,
+    /// Placed-object `Instance`/`Instances` tabs currently docked in the
+    /// main surface (`DockArea` moves `self.dock` out while drawing tabs).
+    pub(crate) docked_instance_tabs: Vec<Tab>,
     /// The panel in front of each of the Right Dock's tab bars at the
     /// last frame, in the order they were drawn (`shell::right_dock`).
     pub(crate) right_bars: Vec<Panel>,
@@ -1729,6 +1746,10 @@ impl Moonglow {
             right_unfolded_here: false,
             unfolded_last: None,
             right_columns: false,
+            props_full_height: false,
+            props_popped_out: Default::default(),
+            right_dock_drag: None,
+            docked_instance_tabs: Vec::new(),
             right_bars: Vec::new(),
             right_places: Vec::new(),
             window_bars: Vec::new(),
@@ -2361,6 +2382,12 @@ impl Moonglow {
                 .cloned()
                 .collect();
             self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
+            self.docked_instance_tabs = (self.dock.iter_all_tabs())
+                .filter(|(p, t)| {
+                    p.surface.is_main() && matches!(t, Tab::Instance { .. } | Tab::Instances { .. })
+                })
+                .map(|(_, t)| t.clone())
+                .collect();
             self.fronts = (self.dock.iter_leaves())
                 .filter_map(|(_, l)| l.tabs.get(l.active.0).cloned())
                 .collect();
@@ -3123,6 +3150,23 @@ impl Moonglow {
         self.right_rect
     }
 
+    /// Whether the Right Dock drew a `Properties` bar in the last frame.
+    pub fn properties_bar_shown(&self) -> bool {
+        self.right_bars.contains(&Panel::Properties)
+    }
+
+    /// Whether placed-object Properties for `area` are currently popped out
+    /// into a tab or floating window.
+    pub fn is_props_popped_out(&self, area: mg_core::ResRef) -> bool {
+        self.props_popped_out.contains(&area)
+    }
+
+    /// Whether the docked `Properties` panel is using every-page-on-one-scroll
+    /// mode (dedicated full-height column on ultrawide).
+    pub fn props_one_scroll(&self) -> bool {
+        properties_panel::one_scroll(self, shell::Host::Dock)
+    }
+
     /// Where the Left Dock was drawn at the last frame, from its outer
     /// edge to its inner one (the line along it included) and the Top Bar
     /// to the Status Bar: `None` where it was folded, or not drawn.
@@ -3343,6 +3387,7 @@ impl Moonglow {
         self.settings.hide_tree = false;
         self.settings.hide_log = Settings::new_installation().hide_log;
         self.settings.hide_palettes = false;
+        self.settings.hide_properties = false;
         // (In a narrow window, folded by its width again: as designed.)
         self.left_unfolded_here = false;
         self.right_unfolded_here = false;
@@ -3353,6 +3398,8 @@ impl Moonglow {
         self.settings.left_dock_width = None;
         self.settings.right_dock_width = None;
         self.settings.right_dock_width_wide = None;
+        self.settings.right_dock_width_wide_one = None;
+        self.settings.area_right_layout = None;
         self.settings.bottom_dock_height = None;
         self.settings.module_panel_height = None;
         self.settings.bookmarks_panel_height = None;
@@ -3382,10 +3429,22 @@ impl Moonglow {
         self.may_close_side(tab)
     }
 
+    /// Drops popped-out state for any area whose `Instance`/`Instances`
+    /// window or tab is no longer open.
+    pub(crate) fn sync_props_popped_out(&mut self) {
+        self.props_popped_out.retain(|area| {
+            self.dock.iter_all_tabs().any(|(_, t)| match t {
+                Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. } => a == area,
+                _ => false,
+            })
+        });
+    }
+
     /// Notes a tab closed, for Reopen Closed Tab: those that show a
     /// resource or a tool of the module, not a side editor's (a hak's, a
     /// 2DA's, a tileset's: closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
+        self.sync_props_popped_out();
         // (The Plugins tab's install note goes with it, as its window's
         // did: M4's U29.)
         if *tab == Tab::Plugins {
@@ -3918,6 +3977,7 @@ impl Moonglow {
     fn window_bars(&mut self, ui: &mut egui::Ui) {
         let buttons = std::mem::take(&mut self.tab_buttons);
         let mut toggle = None;
+        let mut pop_in = None;
         let mut grips: Vec<(egui::LayerId, egui::Rect)> = Vec::new();
         for (path, leaf) in self.dock.iter_leaves() {
             let Some(tab) = leaf.tabs.get(leaf.active.0).or(leaf.tabs.first()) else { continue };
@@ -3943,10 +4003,18 @@ impl Moonglow {
             if leaf.collapsed {
                 continue;
             }
-            // From the last tab to the Maximize (none where the tabs fill
-            // the bar: Maximize is there all the same).
+            let is_instance = matches!(tab, Tab::Instance { .. } | Tab::Instances { .. });
+            let pop_at = is_instance.then(|| {
+                egui::Rect::from_min_size(
+                    egui::pos2(at.left() - 2.0 - side, at.top()),
+                    egui::vec2(side, side),
+                )
+            });
+            let end_left = pop_at.map_or(at.left(), |r| r.left());
+            // From the last tab to Pop In / Maximize (none where the tabs
+            // fill the bar: Maximize is there all the same).
             let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
-            let bar = egui::Rect::from_x_y_ranges(left.min(at.left())..=at.left(), row);
+            let bar = egui::Rect::from_x_y_ranges(left.min(end_left)..=end_left, row);
             let response = bar.is_positive().then(|| {
                 let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
                 let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
@@ -3963,6 +4031,20 @@ impl Moonglow {
             });
             if response.as_ref().is_some_and(egui::Response::double_clicked) {
                 toggle = Some(tab.clone());
+            }
+            if let Some(pop_at) = pop_at {
+                let pop_btn = mg_uikit::IconButton::new(icons::POP_IN, "Pop In").icon_only(true);
+                let popped = ui
+                    .scope_builder(egui::UiBuilder::new().layer_id(layer).max_rect(pop_at), |ui| {
+                        ui.set_clip_rect(pop_at.expand(1.0));
+                        ui.put(pop_at, pop_btn)
+                            .on_hover_text("Put these properties back in the Properties panel")
+                            .clicked()
+                    })
+                    .inner;
+                if popped {
+                    pop_in = Some(tab.clone());
+                }
             }
             let maximized = self.windows_maximized(&leaf.tabs);
             let label = if maximized { "Restore" } else { "Maximize" };
@@ -3988,6 +4070,10 @@ impl Moonglow {
             }
             if let Some(response) = &response {
                 mg_uikit::context_menu(response, |ui| {
+                    if is_instance && ui.button("Pop In").clicked() {
+                        pop_in = Some(tab.clone());
+                        ui.close();
+                    }
                     if ui.button(label).clicked() {
                         toggle = Some(tab.clone());
                         ui.close();
@@ -4009,6 +4095,9 @@ impl Moonglow {
             // (Lit where egui resizes it by the corner, no further.)
             let hot = mg_uikit::window::resize_grip_hot(ui.ctx(), window, layer);
             mg_uikit::paint_resize_grip(&ui.ctx().layer_painter(layer), window, hot);
+        }
+        if let Some(tab) = pop_in {
+            self.actions.push(Action::PopInProperties(tab));
         }
         if let Some(tab) = toggle {
             self.actions.push(Action::ToggleMaximize(tab));
@@ -4793,6 +4882,8 @@ impl Moonglow {
         self.buffers.clear();
         self.properties_changed.clear();
         self.closing_cancels.clear();
+        self.props_popped_out.clear();
+        self.right_dock_drag = None;
         self.talk = None;
         self.talk_view = Default::default();
         self.typed.forget();
@@ -4980,6 +5071,7 @@ impl Moonglow {
         blueprint::cancel_closed(self);
         // (A tab of the middle closed just now: its place is kept at once.)
         self.keep_middle();
+        self.sync_props_popped_out();
     }
 
     /// Runs one action now. Actions that would discard unsaved work ask
@@ -5193,12 +5285,76 @@ impl Moonglow {
                 }
             }
             Action::ShowProperties(area) => {
+                self.settings.hide_properties = false;
+                self.props_popped_out.remove(&area);
                 if self.active_editor() == Some(&Tab::Area(area)) {
                     self.show_dock_panel(Panel::Properties);
                 } else if self.panes_dropped.contains(&Tab::Area(area)) {
                     // (Dragged out into a window too narrow for its pane:
                     // the Properties window, as before the panel.)
                     properties_panel::open_in_tab(self, Some(&Tab::Area(area)));
+                }
+            }
+            Action::PopInProperties(tab) => {
+                if let Some(held) = self.held_text.take() {
+                    if let Some(command) = held.command {
+                        match held.typed {
+                            true => talk_typed::apply(self, command),
+                            false => {
+                                if let Err(e) = self.apply(command)
+                                    && !std::mem::take(&mut self.claims.held)
+                                {
+                                    self.log.error(e.to_string());
+                                }
+                            }
+                        }
+                    }
+                    self.buffers.remove(&held.id);
+                }
+                self.properties_changed.retain(|_, c| c.tab != tab);
+                self.closing_cancels.retain(|(_, c)| c.tab != tab);
+                let (area, objects, first_path) = match &tab {
+                    Tab::Instance { area, path } => {
+                        (Some(*area), vec![path.clone()], Some(path.clone()))
+                    }
+                    Tab::Instances { area, paths } => {
+                        (Some(*area), paths.clone(), paths.first().cloned())
+                    }
+                    _ => (None, Vec::new(), None),
+                };
+                if let (Some(area), Some(first)) = (area, first_path) {
+                    let git = ResKey::new(area, ResType::GIT);
+                    if let Some(page) = self.blueprint_pages.get(&(git, first.clone())).copied()
+                        && let Some(restype) = blueprint::instance_type(&first)
+                    {
+                        self.panel_pages.insert(restype, page);
+                    }
+                }
+                tabs::close_tabs(&mut self.dock, |t| *t != tab);
+                if let Some(area) = area {
+                    self.props_popped_out.remove(&area);
+                    self.settings.hide_properties = false;
+                    let placed: Vec<(mg_area::ObjectKind, usize)> = objects
+                        .iter()
+                        .filter_map(|p| match p.0.as_slice() {
+                            [mg_edit::Step::Item(list, idx)] => {
+                                mg_area::ObjectKind::from_list(list).map(|k| (k, *idx))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    if let Some(view) = self.area_views.get_mut(&area)
+                        && !placed.is_empty()
+                    {
+                        view.selection = placed;
+                        view.start_selected = false;
+                    }
+                    if self.dock.find_tab(&Tab::Area(area)).is_some() {
+                        self.show_tab(Tab::Area(area));
+                    } else {
+                        self.actions.push(Action::OpenTab(Tab::Area(area)));
+                    }
+                    self.show_dock_panel(Panel::Properties);
                 }
             }
             Action::PackTarget => _ = self.pack_target(),

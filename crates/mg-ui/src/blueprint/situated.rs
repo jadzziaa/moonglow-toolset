@@ -93,9 +93,30 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// Event scripts: (label, field) rows.
 pub(super) fn scripts(f: &mut Form<'_>, ui: &mut Ui, events: &[(&str, &str)]) {
-    super::form_grid(ui, ("scripts", f.key)).spacing([12.0, 4.0]).show(ui, |ui| {
+    let narrow = super::narrow(ui);
+    let avail = ui.available_width();
+    if narrow && avail < 210.0 {
         for (label, field) in events {
             crate::widgets::field_label(ui, *label);
+            f.script(ui, label, field);
+            ui.add_space(4.0);
+        }
+        f.script_set_buttons(ui, events);
+        return;
+    }
+    let label_cap = (avail * 0.40).clamp(80.0, 128.0);
+    let spacing = if narrow { [6.0, 4.0] } else { [12.0, 4.0] };
+    egui::Grid::new(("scripts", f.key)).num_columns(2).spacing(spacing).show(ui, |ui| {
+        for (label, field) in events {
+            if narrow {
+                ui.scope(|ui| {
+                    ui.set_max_width(label_cap);
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                    crate::widgets::field_label(ui, *label).on_hover_text(*label);
+                });
+            } else {
+                crate::widgets::field_label(ui, *label);
+            }
             f.script(ui, label, field);
             ui.end_row();
         }

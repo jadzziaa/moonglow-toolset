@@ -109,6 +109,7 @@ pub enum Cmd {
     SurfaceAbove,
     SurfaceBelow,
     Overview,
+    FocusSelection,
     CameraForward,
     CameraBack,
     CameraLeft,
@@ -173,7 +174,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 85] = [
+    pub const ALL: [Cmd; 86] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -212,6 +213,7 @@ impl Cmd {
         Cmd::SurfaceAbove,
         Cmd::SurfaceBelow,
         Cmd::Overview,
+        Cmd::FocusSelection,
         Cmd::CameraForward,
         Cmd::CameraBack,
         Cmd::CameraLeft,
@@ -311,6 +313,7 @@ impl Cmd {
             Cmd::SurfaceAbove => ("surface-above", Some("Up to the Next Surface"), Area),
             Cmd::SurfaceBelow => ("surface-below", Some("Down to the Next Surface"), Area),
             Cmd::Overview => ("overview", Some("View the Whole Area"), Area),
+            Cmd::FocusSelection => ("focus-selection", Some("Focus Selection"), Area),
             Cmd::CameraForward => ("camera-forward", Some("Move Camera Forward"), Area),
             Cmd::CameraBack => ("camera-back", Some("Move Camera Back"), Area),
             Cmd::CameraLeft => ("camera-left", Some("Move Camera Left"), Area),
@@ -423,6 +426,7 @@ impl Cmd {
             Cmd::SurfaceAbove => vec![k(NONE, Key::PageUp)],
             Cmd::SurfaceBelow => vec![k(NONE, Key::PageDown)],
             Cmd::Overview => vec![k(NONE, Key::Num5)],
+            Cmd::FocusSelection => vec![k(NONE, Key::F), k(NONE, Key::Period)],
             Cmd::CameraForward => {
                 vec![k(NONE, Key::W), k(NONE, Key::ArrowUp), k(NONE, Key::Num8)]
             }
@@ -633,7 +637,7 @@ impl Eq for Keymap {}
 /// was given one of them (by the user, a plugin's manifest or a project's
 /// file), the key stays that command's and this one goes without it
 /// ([`Keymap::give_way`]). Quick Open's Ctrl+P.
-const GIVES_WAY: [Cmd; 2] = [Cmd::QuickOpen, Cmd::ReorientCamera];
+const GIVES_WAY: [Cmd; 3] = [Cmd::QuickOpen, Cmd::ReorientCamera, Cmd::FocusSelection];
 
 impl Default for Keymap {
     fn default() -> Keymap {
@@ -894,6 +898,27 @@ impl Keymap {
     pub fn pressed(&self, i: &InputState, cmd: Cmd) -> bool {
         let Some(keys) = self.keys.get(cmd.id()) else { return false };
         i.events.iter().any(|e| keys.iter().any(|s| is(e, s)))
+    }
+
+    /// [`pressed`](Self::pressed), respecting active list navigation / type-ahead
+    /// (`taken`) and open text fields (`typing`): plain single-alphanumeric
+    /// shortcuts yield while a list takes typed letters, while punctuation
+    /// shortcuts (such as `.` for Focus Selection) still fire.
+    pub fn pressed_but(&self, i: &InputState, cmd: Cmd, typing: bool, taken: Taken) -> bool {
+        use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+        if typing {
+            return false;
+        }
+        let Some(keys) = self.keys.get(cmd.id()) else { return false };
+        i.events.iter().any(|e| {
+            keys.iter().any(|s| {
+                let plain = s.modifiers.is_none();
+                let name = s.logical_key.name();
+                let alnum = name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric();
+                let arrow = matches!(s.logical_key, ArrowDown | ArrowLeft | ArrowRight | ArrowUp);
+                !(taken.arrows && arrow) && !(taken.letters && alnum && plain) && is(e, s)
+            })
+        })
     }
 
     /// Whether one of the command's keys is held down. A key without

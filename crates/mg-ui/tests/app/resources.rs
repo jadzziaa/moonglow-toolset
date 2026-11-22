@@ -179,7 +179,7 @@ fn a_hak_s_table_is_edited_by_the_window_s_own_buttons() {
     let mut h = harness(app, 1400.0, 900.0);
     show_resources(h.state_mut());
     h.state_mut().browser.filter = "portraits".into();
-    h.state_mut().browser.restype = Some(ResType::TWODA);
+    h.state_mut().browser.restypes = [ResType::TWODA].into();
     h.run();
     let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
     let hak_of = |h: &Harness<'_, Moonglow>, name: &str| {
@@ -261,7 +261,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     let mut h = harness(app, 1200.0, 800.0);
     show_resources(h.state_mut());
     h.state_mut().browser.filter = "portraits".into();
-    h.state_mut().browser.restype = Some(ResType::TWODA);
+    h.state_mut().browser.restypes = [ResType::TWODA].into();
     h.run();
     // The hak the game reads it from, then the other hak's and the game's,
     // overridden by it.
@@ -369,7 +369,7 @@ fn an_overridden_copy_is_previewed_as_its_layer_has_it() {
     let game_layer = game_layer.expect("the game's own under it");
     show_resources(&mut app);
     app.browser.filter = "plc_a01".into();
-    app.browser.restype = Some(ResType::MDL);
+    app.browser.restypes = [ResType::MDL].into();
     let mut h = gpu_harness(app, rs, 1100.0, 800.0);
     h.run();
     // The game's copy's row, under ours: its menu has Preview.

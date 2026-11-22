@@ -524,8 +524,14 @@ pub(super) fn item_list(
             ui.allocate_ui_with_layout(cell, centered, |ui| ui.strong("Infinite"));
         });
     }
-    // The list fills what is left of the page's visible height.
-    let height = (ui.clip_rect().bottom() - ui.cursor().top()).max(200.0);
+    // The list fills what is left of the page's visible height (or a fixed
+    // cap inside the Properties panel's all-pages scroll so it never depends
+    // on scroll position).
+    let height = if super::panel_scroll(ui) {
+        240.0
+    } else {
+        (ui.clip_rect().bottom() - ui.cursor().top()).max(200.0)
+    };
     // Each row's height as it was last drawn (0: not yet), for the rows
     // out of sight, which take their room only; one never drawn takes
     // the middle height of those that were.
