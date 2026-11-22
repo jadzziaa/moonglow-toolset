@@ -236,8 +236,40 @@ thread_local! {
 
 /// Asks `question` in the job's window, as a plugin's thread asks it.
 pub(super) fn ask(h: &mut Harness<'static, Moonglow>, question: Question) {
-    let answered = h.state_mut().ask_for_tests(question);
+    ask_late(h, question, std::time::Duration::ZERO);
+}
+
+/// [`ask`], the job's thread asking `late` after it starts; returns once
+/// the question waits in the window. (The job's window is there, still,
+/// before its thread asks: `rested` alone took it for the question's on
+/// Windows CI, where the thread asked later, with no buttons or fields.)
+fn ask_late(h: &mut Harness<'static, Moonglow>, question: Question, late: std::time::Duration) {
+    let answered = h.state_mut().ask_for_tests_late(question, late);
     ANSWERED.with(|a| *a.borrow_mut() = Some(answered));
+    let started = std::time::Instant::now();
+    while !h.state().question_waiting() {
+        assert!(started.elapsed().as_secs() < 20, "the plugin's question never came");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// A question asked late by its thread (as Windows CI's was) is the
+/// question's window once the opener returns and the window rests: its
+/// field and its main action there.
+#[test]
+fn a_question_asked_late_is_waited_for() {
+    super::running("-late-question");
+    let mut h = module().unwrap();
+    settle(&mut h);
+    ask_late(&mut h, form(), std::time::Duration::from_millis(300));
+    super::rested(&mut h, QUESTION, true);
+    assert_eq!(super::fields_in(&h, QUESTION).len(), 1, "the form's field");
+    let all = mg_ui::widgets::footers_shown(&h.ctx);
+    let seen = all.iter().find(|f| f.title == QUESTION).unwrap_or_else(|| panic!("{all:#?}"));
+    assert!(seen.buttons.iter().any(|b| b.main), "a main action: {:?}", seen.buttons);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
 }
 
 /// The answer given to the question asked last (`None`: none yet).

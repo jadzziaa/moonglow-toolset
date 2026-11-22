@@ -550,16 +550,32 @@ impl Moonglow {
     /// dialog pattern (M4's U27), which hold each kind of question to it.
     #[doc(hidden)]
     pub fn ask_for_tests(&mut self, question: Question) -> Answered {
+        self.ask_for_tests_late(question, Duration::ZERO)
+    }
+
+    /// [`Moonglow::ask_for_tests`], the job's thread asking `late` after
+    /// it starts (as a slow machine's thread asks: Windows CI's came after
+    /// the dialog tests had looked).
+    #[doc(hidden)]
+    pub fn ask_for_tests_late(&mut self, question: Question, late: Duration) -> Answered {
         let ask = Arc::new(Ask::default());
         self.plugins.ask = Some(ask.clone());
         self.plugins.form = None;
         let answered = Answered::default();
         let out = answered.clone();
         self.start_job_for_tests("Plugin Question", move |progress| {
+            std::thread::sleep(late);
             let answer = ask.ask(question, progress);
             *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(answer);
         });
         answered
+    }
+
+    /// Whether a plugin's question is waiting in the job's window (asked
+    /// by the job's thread, not answered yet): for a test to wait for it.
+    #[doc(hidden)]
+    pub fn question_waiting(&self) -> bool {
+        self.plugins.ask.as_ref().is_some_and(|a| a.pending().is_some())
     }
 }
 
