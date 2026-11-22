@@ -5,13 +5,13 @@ HEADER = r"""
 # Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
 
 Reimplementation checklist for **Moonglow Toolset**. Generated from the 105 VCL forms (DFM/TPF0 resources) embedded in
-`nwtoolset.exe`, cross-referenced with the exe's per-form localisation tables, `dialog.tlk` (EE, English), base-game 2DAs
+`nwtoolset.exe`, cross-referenced with the exe's per-form localization tables, `dialog.tlk` (EE, English), base-game 2DAs
 and sample GFFs. Every form is listed; every user-facing control of every form appears in a table row.
 
 ## How to read this document
 
 - **Form heading**: `` `TClassName` — runtime window title ``. Meta line: DFM resource name, design size (client W×H),
-  whether a localisation (StrRef) table was resolved, form-level event handlers.
+  whether a localization (StrRef) table was resolved, form-level event handlers.
 - **Where**: tab › group box › (captioned panel or embedded frame). Wizard steps are hidden tab sheets (`ts…`).
 - **Label / caption (runtime)**: the text the user actually sees. For captioned controls (buttons, checkboxes, radios,
   menu items) it is the control's own caption; for edits/combos it is the paired `TLabel` (paired by `FocusControl`,
@@ -28,10 +28,10 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 
 ## Key findings
 
-1. **Captions are localised from `dialog.tlk`, but not via Tag = StrRef.** Each form/frame has a static table in the
+1. **Captions are localized from `dialog.tlk`, but not via Tag = StrRef.** Each form/frame has a static table in the
    exe's `.data` section: an array of 12-byte records `{int32 CaptionStrRef, int32 HintStrRef, int32 HelpStrRef}`
-   indexed by the component's `Tag` (record 0 is usually `(0,0,0)`; `Tag = 1` usually marks "do not localise" — its
-   record is `(-1,-1,-1)` — but some forms use 1 as a real index; `Tag = -1` = never localised; `-1` in a record
+   indexed by the component's `Tag` (record 0 is usually `(0,0,0)`; `Tag = 1` usually marks "do not localize" — its
+   record is `(-1,-1,-1)` — but some forms use 1 as a real index; `Tag = -1` = never localized; `-1` in a record
    column = keep DFM text / no tooltip). Tags are therefore small per-form indices (repeated Tags share one string,
    e.g. every `...` button on a form). Example (TdlgWaypointEdit, `.data+0x10D980`): Tag 2 → 7492 "Waypoint Properties",
    Tag 7 → (5197 "OK", 7205 "Accept changes", 7206 "Press this button to save all changes"), Tag 11 → 7435
@@ -39,7 +39,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
    The toolset strings live mostly in StrRef ranges ~5000–8200 and ~61000–70000 and 83000+ of the base TLK.
    {LOCSTATS} (located by voting DFM caption ↔ TLK text over candidate table offsets, ambiguous ones verified by
    hand); the rest are tiny/generic dialogs (tables ambiguous) or have no Tags at all (item-generator dialogs,
-   confirmation, comments, export picker — English-only, never localised).
+   confirmation, comments, export picker — English-only, never localized).
    **Implication:** Moonglow can reuse `dialog.tlk` for all labels, tooltips (Hint) and status-bar help (Help).
 2. The DFM English captions are design-time text; where TLK differs, the TLK text wins at runtime
    (e.g. "Linked To"→"Destination Tag", "Filters"→"Object Filters", "Palette"→"Palettes").
@@ -48,7 +48,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
    grammar checking. They are listed (marked **hidden**) so the checklist can explicitly decide to skip them.
 4. EE-era additions visible in the forms: tabbed area/editor views (`pmEditorTab`, ini `Disable Tabs`), module
    events OnPlayerChat/Target/GuiEvent/TileAction/NuiEvent, module Tag, custom TLK + hak priority list + conflict
-   analyser, area Fog Clip Distance + Sky Box + Shadow Opacity, Visual Transforms (scale/rotate/translate) in
+   analyzer, area Fog Clip Distance + Sky Box + Shadow Opacity, Visual Transforms (scale/rotate/translate) in
    Adjust Location, 8 creature classes, creature Wings/Tail pickers, conversation script parameters
    (`ActionParams`/`ConditionParams`) and "Stop camera zoom in", item "Undroppable" (`Cursed`), placeable "Static",
    OnClick events for doors/placeables/triggers, external script editor, open-module-as-directory.
@@ -84,7 +84,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   toolbar dock positions/visibility, script-editor geometry) persists to `nwtoolset.ini`.
 - Warnings with "Never warn again" (`TdlgWarning`) are individually suppressible and re-enabled in Options › General:
   reserved blueprint resref namespace (`nw_`, `x0_`, `x2_`…), invalid creature spells, creature inventory,
-  32-bit colour depth, character set, resource-in-hak, standard-resource overwrite.
+  32-bit color depth, character set, resource-in-hak, standard-resource overwrite.
 - Duplicate tag / duplicate resref detection (TLK has "Duplicate tag detected", "Duplicate resref detected");
   `eTagChange`/`eResRefChange` handlers on every Tag/ResRef edit validate input while typing (resref: lower-case,
   16 chars, legal chars).
@@ -103,14 +103,14 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 - Object manipulation: left-drag moves (X/Y), **Alt+drag** moves Z, **Shift+Right-drag** rotates, **Ctrl+wheel**
   scales (VisualTransform), rubber-band multi-select; Delete removes; Ctrl+C/X/V copy/cut/paste groups with a ghost
   preview (left-click places, right-click cancels), relative positions kept; copy/paste works across open area tabs.
-  Camera-control buttons also rotate the selected object (`bGobRotate*`) or randomise facing (`bGobRotateRandom`).
+  Camera-control buttons also rotate the selected object (`bGobRotate*`) or randomize facing (`bGobRotateRandom`).
 - Camera: wheel zoom (Shift/Ctrl+wheel = fine), Ctrl+Left-drag orbit/move, Ctrl+Right/Middle-drag pan, numpad
   2/4/6/8 move, 7/9/1/3 pan, 5 reset to top-down; optional *Visual Camera Controls* pane (repeat-while-pressed
   buttons: pan L/R/F/B, rotate CW/CCW, pitch up/down, zoom in/out). Areas open facing north.
 - Undo/Redo (Ctrl+Z / Ctrl+Shift+Z) with configurable depth (Options › Area › Undo Levels 1–32, restart needed);
   only object/tile operations are undoable, not property-dialog edits.
 - Render toggles: grid, shadows, fog, area lighting, *Fade Geometry* (never / object mode only / always — fades roofs
-  and occluders near the camera), *Render AABB Nodes* (walkmesh/AABB debug), background colour, encounter spawn-point
+  and occluders near the camera), *Render AABB Nodes* (walkmesh/AABB debug), background color, encounter spawn-point
   markers (height/width), door orientation arrows, 3D sound listener marker. Object filters (show/hide per type,
   Show All / Show None) affect rendering (and, per nwn.wiki, what can be selected/copied).
 - Area audio preview: ambient sound, music, placed sounds (per-sound Mute/Turn On in context menu, saved as
@@ -140,7 +140,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   "leave unchanged".
 - Variables (`TdlgVarTable`) edit the `VarTable` list (Name / Type / Value; type list filled at runtime) on module,
   areas, all blueprints and instances.
-- Localised strings: the `...` next to every name/description opens `TdlgLocString` (per-language × gender grid,
+- Localized strings: the `...` next to every name/description opens `TdlgLocString` (per-language × gender grid,
   StrRef support via `TdlgNewEditStringExternal`); plain edit box edits the current editing language only
   (Options › Language).
 - Script-set files: *Load/Save Script Set* on every Events tab reads/writes an `.ini` of event→script mappings.
@@ -151,7 +151,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   property lists (`itemprops.2da`, `itempropdef.2da`, `iprp_*` tables) per base item.
 
 **Editors**
-- Conversation editor: node tree with NPC (red) / PC (blue) / link (grey) nodes, Ctrl+A add, Ctrl+C/X/V, Delete,
+- Conversation editor: node tree with NPC (red) / PC (blue) / link (gray) nodes, Ctrl+A add, Ctrl+C/X/V, Delete,
   drag to move/reorder, Ctrl+drag = link (configurable direction), *Paste As Link*, Cut → Scrap tab, bookmarks,
   search/replace (current / open / all files, language & gender scope), expand/collapse all, highlight filters,
   speaker portraits, token insertion, spell check, test-run (`TdlgConversationTest`), multiple open files as tabs,
@@ -159,7 +159,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 - Script editor: tabs per script, F7 compile (writes `.ncs`, optional `.ndb` debug), F2 code completion
   (`TSEditCodeCompletionList`), function/constant/variable/template side lists parsed from `nwscript.nss` + includes
   (F9 re-parse), help pane shows function doc comment, bookmarks (F5, Ctrl+Shift+1…9 / Ctrl+1…9), find-in-files,
-  print, external-editor hand-off, syntax colours (TfraScriptEditorColor), templates directory.
+  print, external-editor hand-off, syntax colors (TfraScriptEditorColor), templates directory.
 - Journal editor: category/entry tree, Add/Copy/Cut/Paste/Delete, Apply without closing.
 - Faction editor: basic (visual chart of checked factions in an OpenGL panel with mouse handlers) and advanced
   (N×N reputation grid 0–100), global effect flag, parent faction.
@@ -167,7 +167,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   journal entries, creatures/items/keys; Plot Manager tree in the palette pane (*Show Plots*).
 
 **Global**
-- Localisation: toolset UI language = TLK language (ini `[Display Options] Language=`); editing language separate.
+- Localization: toolset UI language = TLK language (ini `[Display Options] Language=`); editing language separate.
 - Help: `TfrmHelp` shows help text; the third column of every StrRef table is a per-control help string
   (e.g. "Press this button to save all changes") — usable for status-bar / context help.
 - Spell checker (third-party engine, About box `lNameSpellchecker`) — broken in EE per nwn.wiki; candidate for omission.
@@ -183,16 +183,16 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 | Area properties / environment / wizard / resize-rotate / transitions / location | 7 dialogs | L | Many fields + transition linking UI with target-area minimap |
 | Module properties, module wizard, hak/tlk, conflict analysis | TfrmIFOProp, TdlgModuleWizard, TdlgHakPak | M | Straightforward GFF + resman conflict report |
 | Shared situated frames + multi-editor | 8 frames + TdlgSituatedEdit/MultiEditor | M | Reused by door/placeable; multi-edit merge semantics |
-| Creature editor (+ wizard, level-up, colours, soundset, spells/feats/skills/special abilities, inventory) | 6+ forms | XL | Heavy 2DA-driven rules, CR/HP/save calc, 3D preview, spell lists |
-| Item editor (+ property editor, wizard, armour parts, colours) | 4 forms | L | Property tables (itemprops/iprp_*), part/colour previews, cost calc |
+| Creature editor (+ wizard, level-up, colors, soundset, spells/feats/skills/special abilities, inventory) | 6+ forms | XL | Heavy 2DA-driven rules, CR/HP/save calc, 3D preview, spell lists |
+| Item editor (+ property editor, wizard, armor parts, colors) | 4 forms | L | Property tables (itemprops/iprp_*), part/color previews, cost calc |
 | Placeable / door / trigger / encounter / sound / store / waypoint editors (+ wizards) | ~16 forms | L (together) | Individually S–M; sound editor timing/positioning and store restrictions are the larger ones |
 | Inventory editor (creature/placeable/store) | TdlgInventory | M | Drag-drop grids, equip slots, store categories |
 | Palette / blueprint selection / ITP handling | 6 forms | M | ITP read/write, custom palette mutation, find |
-| Resource pickers (portrait, sound, soundset, load screen, resource open, colour) | 8 forms | M | Thumbnails (TGA/DDS/PLT decode), audio playback |
+| Resource pickers (portrait, sound, soundset, load screen, resource open, color) | 8 forms | M | Thumbnails (TGA/DDS/PLT decode), audio playback |
 | Conversation editor (+ search, test, tokens, export) | 7 forms | L | Link semantics, scrap, multi-file tabs, params |
-| Script editor (+ search, colours, completion, wizard) | 5 forms | L | Editor widget, compiler integration (nwnsc/neverwinter.nim), completion; wizard codegen M |
+| Script editor (+ search, colors, completion, wizard) | 5 forms | L | Editor widget, compiler integration (nwnsc/neverwinter.nim), completion; wizard codegen M |
 | Journal editor | 1 | S | |
-| Faction editor | 2 | M | Chart visualisation optional |
+| Faction editor | 2 | M | Chart visualization optional |
 | Plot wizard / plot manager | 4 | L | Large code/conversation generator; low user value — candidate to defer |
 | Import/export (ERF), multi-select | 2 | M | Dependency discovery, overwrite resolution |
 | Options | 1 | S | Mostly ini settings |
@@ -214,8 +214,8 @@ LOC_OVERRIDE = {   # manually verified with loccheck.py
 }
 
 NOLOC_NOTE = {
-    'TDLGITEMGENERATOREDIT': 'no Tags — never localised (dead feature)',
-    'TDLGGENERATORCHOOSER': 'no Tags — never localised (dead feature)',
+    'TDLGITEMGENERATOREDIT': 'no Tags — never localized (dead feature)',
+    'TDLGGENERATORCHOOSER': 'no Tags — never localized (dead feature)',
     'TDLGCOMMENTS': 'no Tags — English only',
     'TDLGCONFIRMATION': 'no Tags — English only; button captions set at runtime',
     'TDLGCONVERSATIONEXPORTPICKER': 'no Tags — English only',
@@ -245,7 +245,7 @@ PARENT = {
 
 # ---------------------------------------------------------------- purposes
 PURPOSE = {
- 'TFRMFRAME': 'Main application window: menu bar, dockable toolbars (File, Display, Selection Mode, Object Filters, Preview) in a `TControlBar`, left pane = Module Contents (`TfraMainInventory`), centre = tabbed area viewers (`pArea`), right pane = palettes + plot manager (`TfraMainPalette`), bottom = message log + status bar.',
+ 'TFRMFRAME': 'Main application window: menu bar, dockable toolbars (File, Display, Selection Mode, Object Filters, Preview) in a `TControlBar`, left pane = Module Contents (`TfraMainInventory`), center = tabbed area viewers (`pArea`), right pane = palettes + plot manager (`TfraMainPalette`), bottom = message log + status bar.',
  'TFRAMAININVENTORY': 'Module Contents tree (left pane): Areas (with per-area object lists), Conversations, Scripts, and other module resources. Context menu drives most module-level resource operations.',
  'TFRMVIEWER': 'Base class of document windows (open/save dialogs, close query).',
  'TFRMVIEWERAREA': '3D area editor (one per open area tab): OpenGL viewport, optional visual camera-control pad, per-instance context menu, and an area-specific Edit/Scene menu merged into the main menu (GroupIndex 20/30).',
@@ -272,22 +272,22 @@ PURPOSE = {
  'TFRASITUATEDTRAP': 'Shared trap frame (variant; `TfrmTrap` is the one actually hosted in `pTrap`).',
  'TFRMTRAP': 'Trap settings frame hosted in the Trap tab of doors, placeables and triggers.',
  'TFRASITUATEDSCRIPTS': 'Shared frame: event scripts for doors/placeables (panels hidden per object type).',
- 'TFRASITUATEDDESC': 'Shared frame: localised description.',
+ 'TFRASITUATEDDESC': 'Shared frame: localized description.',
  'TFRASITUATEDCOMMENTS': 'Shared frame: designer comment.',
  'TDLGCREATUREEDIT': 'Creature Properties (UTC blueprint or GIT creature instance), with live 3D preview.',
  'TDLGCREATUREWIZARD': 'Creature Wizard: start → racial type → appearance/portrait/gender → class & level → faction → name → palette category → review → finish.',
  'TFRMCREATURELEVELUPWIZARD': 'Levelup Wizard: add classes/levels to an existing creature (auto-picks feats/skills/spells via packages).',
- 'TCOLORPICKER': 'Character/armour colour picker: palette image (PLT colour ramps) with a layer selector.',
- 'TDLGINVENTORY': 'Inventory editor for creatures (equipment slots + backpack), placeables (contents) and stores (categorised stock).',
+ 'TCOLORPICKER': 'Character/armor color picker: palette image (PLT color ramps) with a layer selector.',
+ 'TDLGINVENTORY': 'Inventory editor for creatures (equipment slots + backpack), placeables (contents) and stores (categorized stock).',
  'TDLGITEMEDIT': 'Item Properties (UTI blueprint or instance), with 3D/2D preview.',
  'TDLGPROPEDIT': 'Item property parameter editor ("Select Property Parameters").',
  'TDLGITEMWIZARD': 'Item Wizard: base item type → name/quality → palette category → finish.',
- 'TDLGITEMGENERATOREDIT': 'Random item generator editor (unlocalised, unreachable in retail UI).',
- 'TDLGGENERATORCHOOSER': 'Random item generator chooser (unlocalised, unreachable; `mbRandom` button hidden in inventory).',
+ 'TDLGITEMGENERATOREDIT': 'Random item generator editor (unlocalized, unreachable in retail UI).',
+ 'TDLGGENERATORCHOOSER': 'Random item generator chooser (unlocalized, unreachable; `mbRandom` button hidden in inventory).',
  'TDLGPLACEABLEEDIT': 'Placeable Object Properties (UTP / GIT placeable).',
  'TDLGPLACEABLEWIZARD': 'Placeable Wizard.',
  'TDLGDOOREDIT': 'Door Properties (UTD / GIT door).',
- 'TDLGDOORWIZARD': 'Door Wizard: palette category → name → (appearance list, strength — pages defined but not localised).',
+ 'TDLGDOORWIZARD': 'Door Wizard: palette category → name → (appearance list, strength — pages defined but not localized).',
  'TDLGTRIGGEREDIT': 'Trigger Properties (UTT / GIT trigger). Uses a split name/value property-sheet layout.',
  'TDLGTRIGGERWIZARD': 'Trigger Wizard: palette category → trigger type → name.',
  'TDLGENCOUNTEREDIT': 'Encounter Properties (UTE / GIT encounter).',
@@ -307,10 +307,10 @@ PURPOSE = {
  'TDLGCONVERSATIONSEARCH': 'Find / Replace in conversations.',
  'TDLGCONVERSATIONTEST': 'Conversation test-run window (click-through of the tree).',
  'TDLGCONVERSATIONEXPORTPICKER': 'Export mode chooser for conversation text export.',
- 'TDLGTOKENSELECTOR': 'Insert Token (custom tokens from stringtokens.2da, highlight colour tokens).',
+ 'TDLGTOKENSELECTOR': 'Insert Token (custom tokens from stringtokens.2da, highlight color tokens).',
  'TDLGSCRIPTEDITOR': 'Script Editor (NSS), multi-tab, with compiler output/help/bookmarks/search panes.',
  'TDLGSCRIPTSEARCH': 'Script Find / Replace / Find in Files.',
- 'TFRASCRIPTEDITORCOLOR': 'Syntax colour options (embedded in Options › Script Editor).',
+ 'TFRASCRIPTEDITORCOLOR': 'Syntax color options (embedded in Options › Script Editor).',
  'TSEDITCODECOMPLETIONLIST': 'Code-completion popup of the script editor (virtual list).',
  'TDLGSCRIPTWIZARD': 'Script Wizard: generates conversation condition or action scripts from checklists.',
  'TDLGJOURNALEDITOR': 'Journal Editor (module.jrl).',
@@ -332,7 +332,7 @@ PURPOSE = {
  'TDLGSOUNDSETSELECT': 'Sound Set Select (soundset.2da filtered by gender/type; click previews).',
  'TDLGLOADSCREEN': 'Select Load Screen (loadscreens.2da thumbnails, tileset filter, random).',
  'TDLGRESTYPESELECTOR': 'Resource Type Selection (radio buttons built at runtime).',
- 'TDLGCOLORSELECTION': '"Select A Color": fixed palette of 32 colour swatches (tile light colours, lightcolor.2da).',
+ 'TDLGCOLORSELECTION': '"Select A Color": fixed palette of 32 color swatches (tile light colors, lightcolor.2da).',
  'TDLGLOCSTRING': 'String Edit: CExoLocString editor (languages × genders grid).',
  'TDLGNEWEDITSTRINGEXTERNAL': 'Edit String (one language/gender entry or a TLK StrRef).',
  'TDLGVARTABLE': 'Scripting Variables (VarTable) editor.',
@@ -345,7 +345,7 @@ PURPOSE = {
  'TDLGWARNING': 'Suppressible warning box (Yes/No or OK, "Never warn again").',
  'TDLGCONFIRMATION': 'Yes / Yes to All / No / No to All / Cancel confirmation with "Remember this Response".',
  'TDLGPROGRESS': 'Two-bar progress dialog (task + total), optional Cancel.',
- 'TDLGABOUT': 'About box (versions, key file string, licence, expansions installed).',
+ 'TDLGABOUT': 'About box (versions, key file string, license, expansions installed).',
  'TFRMHELP': 'Help popup (TLK help text).',
  'TDLGWELCOME': 'Startup welcome dialog: create new module / open existing (list) / start normally.',
  'TDLGMODULESELECT': 'Open / Save module picker (modules folder or official campaign).',
@@ -403,7 +403,7 @@ MAP = {
  'TDLGAREAPROPERTIES': {
    'eName': 'ARE `Name`', 'bAreaName': 'ARE `Name` all languages', 'cbTileSet': 'ARE `Tileset` (*.set; editable only on creation)',
    'eLength': 'ARE `Height` (tiles; shown only when creating)', 'eWidth': 'ARE `Width` (tiles)',
-   'bCustomize': 'opens TdlgEnvironment', 'mmWarning': 'info text', 'lvLightingSchemes': 'ARE `LightingScheme` (environment.2da presets; applies sun/moon/fog colours)',
+   'bCustomize': 'opens TdlgEnvironment', 'mmWarning': 'info text', 'lvLightingSchemes': 'ARE `LightingScheme` (environment.2da presets; applies sun/moon/fog colors)',
    'cbAmbientSoundDay': 'GIT `AreaProperties.AmbientSndDay` (ambientsound.2da)', 'cbAmbientSoundNight': 'GIT `AreaProperties.AmbientSndNight` (ambientsound.2da)',
    'cbMusicBattle': 'GIT `AreaProperties.MusicBattle` (ambientmusic.2da)', 'cbMusicDay': 'GIT `AreaProperties.MusicDay` (ambientmusic.2da)',
    'cbMusicNight': 'GIT `AreaProperties.MusicNight` (ambientmusic.2da)', 'eMusicDelay': 'GIT `AreaProperties.MusicDelay`',
@@ -428,7 +428,7 @@ MAP = {
    'eLightning': 'ARE `ChanceLightning` (%)', 'eRain': 'ARE `ChanceRain` (%)', 'eSnow': 'ARE `ChanceSnow` (%)', 'tbWindPower': 'ARE `WindPower` (0 none,1 weak,2 strong)',
    'rbDayNightCycle': 'ARE `DayNightCycle`=1', 'rbAlwaysDay': 'ARE `DayNightCycle`=0, `IsNight`=0', 'rbAlwaysNight': 'ARE `DayNightCycle`=0, `IsNight`=1',
    'eShadowOpacity': 'ARE `ShadowOpacity` (0–100)', 'eFogClipDistance': 'ARE `FogClipDist` (EE)', 'cbSkyBox': 'ARE `SkyBox` (skyboxes.2da)',
-   'bApply': 'preview in viewer', 'dlgColor': 'colour chooser',
+   'bApply': 'preview in viewer', 'dlgColor': 'color chooser',
  },
  'TDLGAREAWIZARD': {'eName': 'ARE `Name` + resref/tag derived', 'lbTileSets': 'ARE `Tileset` (installed *.set)', 'lbSize': 'size presets (Tiny…Huge)',
                     'eWidth': 'ARE `Width`', 'eHeight': 'ARE `Height`', 'xbLaunchAreaDialog': 'open Area Properties after', 'xbOpenNewArea': 'open viewer tab after'},
@@ -530,7 +530,7 @@ MAP = {
    'xbDoNotShowAgain': '(hidden) ini', 'lbClasses': 'classes.2da (player + NPC classes)', 'bClassAdd': 'add selected class (max 8)',
    'eClass1': '`ClassList[0].Class`', 'eClass1Level': '`ClassList[0].ClassLevel`', 'apAppearance': 'model preview'},
  'TFRMCREATURELEVELUPWIZARD': {'lbClasses': 'classes.2da', 'bClassAdd': 'add class', 'eClass1': 'class 1', 'eClass1Level': 'levels to add'},
- 'TCOLORPICKER': {'Image': 'PLT colour ramp image (click = select index)', 'TexLayerList': 'layer: skin/hair/tattoo1/tattoo2 or cloth1/2, leather1/2, metal1/2'},
+ 'TCOLORPICKER': {'Image': 'PLT color ramp image (click = select index)', 'TexLayerList': 'layer: skin/hair/tattoo1/tattoo2 or cloth1/2, leather1/2, metal1/2'},
  'TDLGSOUNDSETSELECT': {'rbMale': 'filter soundset.2da `GENDER`', 'rbFemale': 'filter', 'rbMaleFemale': 'filter', 'cbTypes': 'filter soundset.2da `TYPE` (soundsettype.2da)',
    'lbStrRefs': 'soundset.2da rows (click = play sample)'},
  'TDLGINVENTORY': {
@@ -555,12 +555,12 @@ MAP = {
    'eName': 'UTI `LocalizedName`', 'bLocName': 'all languages', 'eResRef': 'UTI `TemplateResRef`', 'eTag': 'UTI `Tag`', 'eBaseName': 'UTI `BaseItem` name (baseitems.2da; fixed after creation)', 'bUniqueTag': 'generate unique tag',
    'icItem': 'inventory icon preview', 'cbSimple': 'UTI `ModelPart1` (simple items)', 'lvSimple': 'UTI `ModelPart1` (icon grid)',
    'cbWeaponTop': 'UTI `ModelPart3` model', 'cbWeaponMiddle': 'UTI `ModelPart2` model', 'cbWeaponBottom': 'UTI `ModelPart1` model',
-   'cbWeaponTopColor': 'UTI `ModelPart3` colour digit', 'cbWeaponMiddleColor': 'UTI `ModelPart2` colour digit', 'cbWeaponBottomColor': 'UTI `ModelPart1` colour digit',
+   'cbWeaponTopColor': 'UTI `ModelPart3` color digit', 'cbWeaponMiddleColor': 'UTI `ModelPart2` color digit', 'cbWeaponBottomColor': 'UTI `ModelPart1` color digit',
    'cbForearmRight': 'UTI `ArmorPart_RFArm`', 'cbHandRight': 'UTI `ArmorPart_RHand`', 'cbBicepRight': 'UTI `ArmorPart_RBicep`', 'cbBicepLeft': 'UTI `ArmorPart_LBicep`',
    'cbForearmLeft': 'UTI `ArmorPart_LFArm`', 'cbHandLeft': 'UTI `ArmorPart_LHand`', 'cbNeck': 'UTI `ArmorPart_Neck`', 'cbThighs': 'UTI `ArmorPart_LThigh`+`RThigh`',
    'cbShins': 'UTI `ArmorPart_LShin`+`RShin`', 'cbFeet': 'UTI `ArmorPart_LFoot`+`RFoot`', 'cbShoulderLeft': 'UTI `ArmorPart_LShoul`', 'cbShoulderRight': 'UTI `ArmorPart_RShoul`',
    'cbTorso': 'UTI `ArmorPart_Torso` (parts_chest.2da → AC)', 'cbBelt': 'UTI `ArmorPart_Belt`', 'cbPelvis': 'UTI `ArmorPart_Pelvis`', 'cbRobe': 'UTI `ArmorPart_Robe` (parts_robe.2da)',
-   'meArmor2': 'armour AC (derived)', 'rb2D': 'preview mode', 'rb3D': 'preview mode', 'rbColor': '(hidden)', 'rbModel': '(hidden)', 'rbFemale': 'preview body gender', 'rbMale': 'preview body gender',
+   'meArmor2': 'armor AC (derived)', 'rb2D': 'preview mode', 'rb3D': 'preview mode', 'rbColor': '(hidden)', 'rbModel': '(hidden)', 'rbFemale': 'preview body gender', 'rbMale': 'preview body gender',
    'bColorChooser': 'TColorPicker → `Cloth1Color`,`Cloth2Color`,`Leather1Color`,`Leather2Color`,`Metal1Color`,`Metal2Color` (also helmets/cloaks)',
    'tvMaster': 'available properties (itemprops.2da column for base item; itempropdef.2da names)', 'bAdd': 'add property (→ TdlgPropEdit if params)',
    'bRemove': 'remove property', 'tvAssigned': 'UTI `PropertiesList[]` (`PropertyName`,`Subtype`,`CostTable`,`CostValue`,`Param1`,`Param1Value`,`ChanceAppear`)',
@@ -674,7 +674,7 @@ MAP = {
    'lbTemplates': 'script templates dir', 'pcEditor': 'one tab per open .nss', 'bOK': 'close', 'dlgPrint': 'print'},
  'TDLGSCRIPTSEARCH': {'xbBackwards': 'direction', 'xbSelectedOnly': '(hidden)', 'xbPrompt': 'confirm each replace', 'xbReplaceAll': 'replace all', 'rbFindInOpenFiles': 'find-in-files scope',
    'rbFindInAllFiles': 'find-in-files scope (module)', 'cbFind': 'find text (history)', 'cbReplace': 'replace text (history)', 'xbMatchCase': 'option', 'xbWholeWord': 'option', 'xbFindInFiles': 'switches to find-in-files panel'},
- 'TFRASCRIPTEDITORCOLOR': {'lbColors': 'element: text/selected/margin/comment/directive/identifier/keyword/number/string/error (ini Color*)', 'pColor': 'current colour', 'bChangeColor': 'colour dialog', 'pScriptColorPreview': 'preview'},
+ 'TFRASCRIPTEDITORCOLOR': {'lbColors': 'element: text/selected/margin/comment/directive/identifier/keyword/number/string/error (ini Color*)', 'pColor': 'current color', 'bChangeColor': 'color dialog', 'pScriptColorPreview': 'preview'},
  'TSEDITCODECOMPLETIONLIST': {'lbCompletionCandidates': 'matching identifiers'},
  'TDLGSCRIPTWIZARD': {'lbCondFeats_All': 'feat.2da', 'lbCondFeats_Required': 'required feats → GetHasFeat', 'lbCondGender': 'gender.2da', 'lbCondItem': 'item tags → GetItemPossessedBy',
    'eCondItem_Tag': 'item tag', 'lbCondRace_Player_Accept': 'racialtypes.2da (player races)', 'lbCondRace_Other_Accept': 'racialtypes.2da (other)', 'lbCondRace_Player_Reject': 'rejected', 'lbCondRace_Other_Reject': 'rejected',
@@ -719,7 +719,7 @@ MAP = {
  'TDLGRESOPENSOUND': {'bPlay': 'play WAV', 'bStop': 'stop', 'lvResources': 'WAV resources', 'cbResType': 'resource type (wav)', 'cbResRef': 'sound resref'},
  'TDLGLOADSCREEN': {'imgLoadScreen': 'large preview', 'lvLoadScreens': 'loadscreens.2da thumbnails → `LoadScreenID`', 'cbTileSet': 'loadscreens.2da tileset filter', 'xbFilterTileSet': 'enable filter', 'xbRandom': '`LoadScreenID`=0 (random)'},
  'TDLGRESTYPESELECTOR': {},
- 'TDLGCOLORSELECTION': {**{f'Panel{i}': f'colour index {i} (tile light / lightcolor.2da)' for i in range(32)}},
+ 'TDLGCOLORSELECTION': {**{f'Panel{i}': f'color index {i} (tile light / lightcolor.2da)' for i in range(32)}},
  # ---- misc
  'TDLGLOCSTRING': {'sgStrings': 'CExoLocString entries (Language × Gender) / StrRef', 'mString': 'selected entry text', 'bEdit': 'opens TdlgNewEditStringExternal', 'bReset': 'clear entry', 'bApply': 'commit'},
  'TDLGNEWEDITSTRINGEXTERNAL': {'rbMale': 'gender', 'rbFemale': 'gender', 'cbLanguage': 'language id', 'eStrRef': 'CExoLocString `StringRef` (TLK)', 'StringMemo': 'substring text'},
@@ -805,9 +805,9 @@ NOTES = {
    '`m_bLoadDefault` / hidden `m_bSaveDefault`: area-property defaults template. `bApply` applies to the open viewer without closing.',
    'Hidden/dead: World Map icon/X/Y, Time.',
  ],
- 'TDLGENVIRONMENT': ['Colour swatches open the Windows colour dialog (`actBrowseColorExecute`); fog amount sliders are hidden (EE uses numeric edits 0–200 and Fog Clip Distance 25–999 m). `Apply` previews in the viewer.'],
+ 'TDLGENVIRONMENT': ['Color swatches open the Windows color dialog (`actBrowseColorExecute`); fog amount sliders are hidden (EE uses numeric edits 0–200 and Fog Clip Distance 25–999 m). `Apply` previews in the viewer.'],
  'TFRMAREARESIZE': ['Resize anchors at the south-west tile; shrinking deletes objects on removed tiles; growing repeats edge tiles. Rotation is loss-less.'],
- 'TDLGTILEPROPERTIES': ['Colour swatches open `TdlgColorSelection` (fixed tile light palette). Applies to all selected tiles.'],
+ 'TDLGTILEPROPERTIES': ['Color swatches open `TdlgColorSelection` (fixed tile light palette). Applies to all selected tiles.'],
  'TDLGAREATRANSITION': ['`apArea` renders the target area top-down with doors/triggers/waypoints; clicking an object selects it in the lists. Status label under the map. Linking writes `LinkedTo` = target tag and `LinkedToFlags` on source (and target when *Both Ways*).'],
  'TDLGLOCATION': ['Keyboard up/down on edits nudges values (`OnEditUpDownKeyDown`). Applies to all selected instances. Visual Transform group has no Tags (EE, English only).'],
  'TDLGSITUATEDEDIT': ['Tab set shared by doors/placeables; frames: Basic=`TfraSituatedBasic`, Lock=`TfraSituatedLock`, Trap=`xbTrapFlag` + `TfrmTrap` created into `pTrap` at runtime, Events=`TfraSituatedScripts`, Advanced=`TfraSituatedAdvanced`, Description=`TfraSituatedDesc`, Comments=`TfraSituatedComments`. 3D preview (`apAppearance`) supports mouse rotate/zoom.'],
@@ -832,7 +832,7 @@ NOTES = {
    'Equip slot validation against baseitems.2da `EquipableSlots`; warnings for invalid inventory (Options: creature inventory warning).',
  ],
  'TDLGITEMEDIT': [
-   'Appearance tab switches panel by base item `ModelType` (0 simple → `lvSimple` icon grid; 1 layered/2 composite weapon → top/middle/bottom model+colour; 3 armour → 18 part combos + robe). Colour button for PLT-coloured items.',
+   'Appearance tab switches panel by base item `ModelType` (0 simple → `lvSimple` icon grid; 1 layered/2 composite weapon → top/middle/bottom model+color; 3 armor → 18 part combos + robe). Color button for PLT-colored items.',
    'Properties tab: available tree filtered by base item (itemprops.2da column), assigned tree; double-click adds/edits; cost recalculated (`meCost2`).',
    'Description tab: unidentified/identified descriptions + read-only base-type description and generated statistics text.',
    'Stack size spin validated against baseitems.2da `Stacking`; charges 0–250.',
@@ -852,7 +852,7 @@ NOTES = {
    'Hidden: `xbOnceOnly`, `RightTextDelayEdit`, `xbAnimLoop`, `lUnique`; actions without UI: `actExportDialog`, `actImportDialog`, `actTest`, `actRemoveNPCTagFromList`.',
    'Conditional popup `pmConditional` → *Unique Script* (generate a node-specific script name).',
  ],
- 'TFRACONVERSATIONTREE': ['Custom-drawn nodes (colours from Options; link nodes grey; highlight filters); drag & drop move/link (`tvMainDragDrop`); timer `tMain` for auto-backup/scroll. Keyboard: Ctrl+A add, Ctrl+C/X/V, Delete, arrows.'],
+ 'TFRACONVERSATIONTREE': ['Custom-drawn nodes (colors from Options; link nodes gray; highlight filters); drag & drop move/link (`tvMainDragDrop`); timer `tMain` for auto-backup/scroll. Keyboard: Ctrl+A add, Ctrl+C/X/V, Delete, arrows.'],
  'TDLGSCRIPTEDITOR': [
    'Editor component is a custom syntax-highlighting memo (`TSEdit…`, completion list `TSEditCodeCompletionList`); tabs in `pcEditor`; `sHorizontalSplitter` between editor and info pane.',
    'Bottom info tabs are panels filled at runtime: Compiler (errors, double-click jumps to line), Help (doc comment of selected function), Bookmarks, Search Results.',
@@ -888,7 +888,7 @@ SECTIONS = [
    'TDLGAREATRANSITION', 'TDLGLOCATION', 'TDLGADDPOPUPTEXT', 'TDLGFINDINSTANCE', 'TDLGSYSTEMUSAGE', 'TFRMPREVIEW', 'TFRMOBJECTLIST']},
  {'title': '4. Shared "situated" frames and dialogs (doors, placeables, multi-edit, traps)', 'forms': [
    'TDLGSITUATEDEDIT', 'TFRASITUATEDBASIC', 'TFRASITUATEDLOCK', 'TFRMTRAP', 'TFRASITUATEDTRAP', 'TFRASITUATEDSCRIPTS', 'TFRASITUATEDADVANCED', 'TFRASITUATEDDESC', 'TFRASITUATEDCOMMENTS', 'TDLGSITUATEDMULTIEDITOR']},
- {'title': '5. Creature editor (+ wizard, level-up, colours, sound set, inventory)', 'forms': [
+ {'title': '5. Creature editor (+ wizard, level-up, colors, sound set, inventory)', 'forms': [
    'TDLGCREATUREEDIT', 'TDLGCREATUREWIZARD', 'TFRMCREATURELEVELUPWIZARD', 'TCOLORPICKER', 'TDLGSOUNDSETSELECT', 'TDLGINVENTORY']},
  {'title': '6. Item editor (+ property editor, wizard, generators)', 'forms': ['TDLGITEMEDIT', 'TDLGPROPEDIT', 'TDLGITEMWIZARD', 'TDLGITEMGENERATOREDIT', 'TDLGGENERATORCHOOSER']},
  {'title': '7. Placeable editor', 'forms': ['TDLGPLACEABLEEDIT', 'TDLGPLACEABLEWIZARD']},
@@ -906,11 +906,11 @@ SECTIONS = [
  {'title': '19. Plot wizard & plot manager', 'forms': ['TDLGPLOTWIZARD', 'TDLGPLOTNODEWIZARD', 'TFRAPLOTMANAGER', 'TFRAPROGRESS']},
  {'title': '20. Palettes & blueprint selection', 'forms': ['TFRAMAINPALETTE', 'TFRABLUEPRINTSELECT', 'TDLGPALETTECHOOSER', 'TDLGRESOURCESELECTION', 'TDLGCHOOSER', 'TDLGDEFAULTSELECTOR']},
  {'title': '21. Resource pickers (portrait, sound, sound set, load screen, resource open)', 'forms': ['TDLGPORTRAIT', 'TDLGRESOPEN', 'TDLGRESOPENSOUND', 'TDLGLOADSCREEN', 'TDLGRESTYPESELECTOR'],
-  'intro': 'Sound-set picker (`TdlgSoundSetSelect`) is in §5, colour pickers in §3/§5.'},
- {'title': '22. Localised strings, variables, comments', 'forms': ['TDLGLOCSTRING', 'TDLGNEWEDITSTRINGEXTERNAL', 'TDLGVARTABLE', 'TDLGCOMMENTS']},
+  'intro': 'Sound-set picker (`TdlgSoundSetSelect`) is in §5, color pickers in §3/§5.'},
+ {'title': '22. Localized strings, variables, comments', 'forms': ['TDLGLOCSTRING', 'TDLGNEWEDITSTRINGEXTERNAL', 'TDLGVARTABLE', 'TDLGCOMMENTS']},
  {'title': '23. Import / export', 'forms': ['TDLGIMPORTEXPORT', 'TDLGMULTISELECT']},
  {'title': '24. Hak paks & custom TLK', 'forms': ['TDLGHAKPAK'],
-  'intro': 'Hak list and custom TLK are edited in Module Properties › Custom Content (§2); this dialog is the conflict analyser.'},
+  'intro': 'Hak list and custom TLK are edited in Module Properties › Custom Content (§2); this dialog is the conflict analyzer.'},
  {'title': '25. Options', 'forms': ['TDLGOPTIONS']},
  {'title': '26. Build / verify / test module', 'forms': ['TDLGVERIFYMODULE'],
   'intro': 'Test Module (F9) has no dialog — see §1 notes and the implicit-behaviors section.'},
@@ -974,7 +974,7 @@ TABNAME = {
                  'tsSound': 'Sound', 'tsStore': 'Store', 'tsTrigger': 'Trigger', 'tsWaypoint': 'Waypoint', 'tsTerrain': 'Terrain'},
 }
 LABEL['TDLGOPTIONS'] = {'pBackgroundColor': 'Background Color (click panel to change)', 'pPlrTextColor': 'Player Text Color', 'pNPCTextColor': 'NPC Text Color',
-  'pConvBackColor': 'Background colour', 'eAutoBackup': 'Backup interval (minutes)', 'pScriptEditorColors': 'Colours', 'eScriptFontName': 'Font (name)',
+  'pConvBackColor': 'Background color', 'eAutoBackup': 'Backup interval (minutes)', 'pScriptEditorColors': 'Colors', 'eScriptFontName': 'Font (name)',
   'eScriptFontSize': 'Font (size)', 'ePlrDefaultDelay': 'Default delay for player speech', 'eNPCDefaultDelay': 'Default delay for NPC speech',
   'pTextColorSpellingError': 'Color of Text with Spelling Errors', 'pTextColorGrammaticalError': 'Color of Text with Grammatical Errors',
   'pTextColorSpellingAndGrammaticalError': 'Color of Text with both Spelling and Grammatical Errors', 'tbVolumeAmbientSound': 'Ambient sound volume',
@@ -984,7 +984,7 @@ MAP['TDLGOPTIONS'].update({'xbCheckSpellingLocEdit': '(hidden) ini `CheckSpellin
   'xbInteractiveCheckOnEnterLocEdit': '(hidden) ini `InteractiveCheckOnEnterLoc`', 'xbInteractiveCheckOnExitLocEdit': '(hidden) ini `InteractiveCheckOnExitLoc`',
   'pTextColorGrammaticalError': '(hidden) ini `TextColorGrammaticalError`', 'pTextColorSpellingAndGrammaticalError': '(hidden) ini `TextColorSpellingAndGrammaticalError`',
   'mLocEditSpellCheckOptions': 'info text', 'xbCheckSpellingConvEdit': '(hidden) ini `CheckSpellingConv`', 'xbCheckGrammarConvEdit': '(hidden) ini `CheckGrammarConv`',
-  'tbVolumeAmbientSound': '(hidden) ambient sound volume', 'mLanguageHelp': 'help text (read-only)', 'dlgColor': 'colour picker', 'dlgFileOpen': 'file/dir picker', 'dlgFont': 'font picker'})
+  'tbVolumeAmbientSound': '(hidden) ambient sound volume', 'mLanguageHelp': 'help text (read-only)', 'dlgColor': 'color picker', 'dlgFileOpen': 'file/dir picker', 'dlgFont': 'font picker'})
 TRAILER += r"""
 ## Provenance / regeneration
 

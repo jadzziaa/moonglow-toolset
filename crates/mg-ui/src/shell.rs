@@ -66,8 +66,8 @@
 //! area's least the one unfolded first): every read of a side dock's fold
 //! is [`left_folded`] or [`right_folded`], every write [`set_dock_open`].
 //! The Right Dock is 280 under 1400; from 2560 a dock not chosen is wider
-//! (320, 741) and the Right Dock stands in two columns, Palette and
-//! Preview. Hints (T12) and the Outliner (T13) are in their own places.
+//! (320, 741) and the Right Dock stands in two columns: the Palette and
+//! Preview tabs, then Properties. Hints (T12) and the Outliner (T13) are in their own places.
 
 use egui::{Margin, Ui};
 use mg_uikit::shell::{self as kit, DockTab, DockTabs, FoldStrip, Side, StripClick, Yields};

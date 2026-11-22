@@ -2920,12 +2920,20 @@ fn guides(ui: &Ui, row: egui::Rect, depth: usize, selected: bool) {
 /// right, the room between rows halved into it), at `at`, under the row.
 fn fill_row(ui: &Ui, at: egui::layers::ShapeIdx, row: egui::Rect) {
     let half = ui.spacing().item_spacing.y / 2.0;
-    let right = ui.clip_rect().right().max(row.right());
-    let x = egui::Rangef::new(ui.max_rect().left(), right);
-    let full =
-        egui::Rect::from_x_y_ranges(x, egui::Rangef::new(row.top() - half, row.bottom() + half));
+    let full = fill_span(ui.clip_rect(), ui.max_rect(), row, half);
     let fill = mg_uikit::tokens(ui.ctx()).accent_fill;
     ui.painter().set(at, egui::Shape::rect_filled(full, 0.0, fill));
+}
+
+/// Where [`fill_row`] fills: the tree's width (`max`, the rows' room)
+/// from its left edge to what of it is in sight (`clip`), `half` the
+/// room between rows on either side of `row`. (The tree's vertical
+/// scroll area clips up and down only: its clip rect is as wide as the
+/// window, and the fill ran on under the window's right pane.)
+fn fill_span(clip: egui::Rect, max: egui::Rect, row: egui::Rect, half: f32) -> egui::Rect {
+    let right = clip.right().min(max.right());
+    let x = egui::Rangef::new(max.left(), right);
+    egui::Rect::from_x_y_ranges(x, egui::Rangef::new(row.top() - half, row.bottom() + half))
 }
 
 /// Draws the rows under a parent of conversation `key`; `path` stops
@@ -4263,6 +4271,25 @@ mod tests {
     use super::*;
     use egui::Key;
     use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// The selected row's fill ends at the tree's right edge: a vertical
+    /// scroll area clips up and down only, its clip rect as wide as the
+    /// window, and the fill ran on under the window's right pane (Node,
+    /// Data, Search) in the README's picture (M5 P1).
+    #[test]
+    fn the_selected_row_s_fill_stays_in_the_tree() {
+        let r = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            egui::Rect::from_min_max((x0, y0).into(), (x1, y1).into())
+        };
+        let (clip, max) = (r(251.0, 135.0, 1561.0, 788.0), r(517.0, 135.0, 1275.0, 788.0));
+        let fill = fill_span(clip, max, r(517.0, 135.0, 561.2, 157.0), 0.0);
+        assert_eq!(fill, r(517.0, 135.0, 1275.0, 157.0));
+        // Scrolled half out of sight at the right (a window off the
+        // screen): to what is in sight.
+        let fill =
+            fill_span(r(251.0, 135.0, 900.0, 788.0), max, r(517.0, 135.0, 561.2, 157.0), 2.0);
+        assert_eq!(fill, r(517.0, 133.0, 900.0, 159.0));
+    }
 
     /// What a conversation's panel asked for in a frame its editor was not
     /// drawn after it is set with that frame's actions, never kept for a

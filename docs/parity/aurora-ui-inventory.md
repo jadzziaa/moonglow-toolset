@@ -1,25 +1,25 @@
 ---
 type: Reference
 title: Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
-description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behaviour each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
+description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behavior each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
 tags: [aurora, parity, ui, inventory, generated]
-generated: { by: process:aurora-uiinv-gen, at: 2026-10-12T05:28:37Z }
+generated: { by: process:aurora-uiinv-gen, at: 2026-11-22T08:14:36Z }
 sources:
   - id: nwtoolset
-    resource: nwtoolset.exe of NWN:EE 89.8193.37, build 26c6e57364a45246e3b58e4f2c49366df72d15db (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
+    resource: nwtoolset.exe of NWN:EE 89.8193.37, build 26c6e57364a45246e3b58e4f2c49366df72d15db (its embedded DFM forms and per-form localization tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
     title: The Aurora toolset's executable and the game's data
 ---
 
 # Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
 
 Reimplementation checklist for **Moonglow Toolset**. Generated from the 105 VCL forms (DFM/TPF0 resources) embedded in
-`nwtoolset.exe`, cross-referenced with the exe's per-form localisation tables, `dialog.tlk` (EE, English), base-game 2DAs
+`nwtoolset.exe`, cross-referenced with the exe's per-form localization tables, `dialog.tlk` (EE, English), base-game 2DAs
 and sample GFFs. Every form is listed; every user-facing control of every form appears in a table row.
 
 ## How to read this document
 
 - **Form heading**: `` `TClassName` — runtime window title ``. Meta line: DFM resource name, design size (client W×H),
-  whether a localisation (StrRef) table was resolved, form-level event handlers.
+  whether a localization (StrRef) table was resolved, form-level event handlers.
 - **Where**: tab › group box › (captioned panel or embedded frame). Wizard steps are hidden tab sheets (`ts…`).
 - **Label / caption (runtime)**: the text the user actually sees. For captioned controls (buttons, checkboxes, radios,
   menu items) it is the control's own caption; for edits/combos it is the paired `TLabel` (paired by `FocusControl`,
@@ -36,10 +36,10 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 
 ## Key findings
 
-1. **Captions are localised from `dialog.tlk`, but not via Tag = StrRef.** Each form/frame has a static table in the
+1. **Captions are localized from `dialog.tlk`, but not via Tag = StrRef.** Each form/frame has a static table in the
    exe's `.data` section: an array of 12-byte records `{int32 CaptionStrRef, int32 HintStrRef, int32 HelpStrRef}`
-   indexed by the component's `Tag` (record 0 is usually `(0,0,0)`; `Tag = 1` usually marks "do not localise" — its
-   record is `(-1,-1,-1)` — but some forms use 1 as a real index; `Tag = -1` = never localised; `-1` in a record
+   indexed by the component's `Tag` (record 0 is usually `(0,0,0)`; `Tag = 1` usually marks "do not localize" — its
+   record is `(-1,-1,-1)` — but some forms use 1 as a real index; `Tag = -1` = never localized; `-1` in a record
    column = keep DFM text / no tooltip). Tags are therefore small per-form indices (repeated Tags share one string,
    e.g. every `...` button on a form). Example (TdlgWaypointEdit, `.data+0x10D980`): Tag 2 → 7492 "Waypoint Properties",
    Tag 7 → (5197 "OK", 7205 "Accept changes", 7206 "Press this button to save all changes"), Tag 11 → 7435
@@ -47,7 +47,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
    The toolset strings live mostly in StrRef ranges ~5000–8200 and ~61000–70000 and 83000+ of the base TLK.
    The StrRef table was resolved for 83 of 105 forms (located by voting DFM caption ↔ TLK text over candidate table offsets, ambiguous ones verified by
    hand); the rest are tiny/generic dialogs (tables ambiguous) or have no Tags at all (item-generator dialogs,
-   confirmation, comments, export picker — English-only, never localised).
+   confirmation, comments, export picker — English-only, never localized).
    **Implication:** Moonglow can reuse `dialog.tlk` for all labels, tooltips (Hint) and status-bar help (Help).
 2. The DFM English captions are design-time text; where TLK differs, the TLK text wins at runtime
    (e.g. "Linked To"→"Destination Tag", "Filters"→"Object Filters", "Palette"→"Palettes").
@@ -56,7 +56,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
    grammar checking. They are listed (marked **hidden**) so the checklist can explicitly decide to skip them.
 4. EE-era additions visible in the forms: tabbed area/editor views (`pmEditorTab`, ini `Disable Tabs`), module
    events OnPlayerChat/Target/GuiEvent/TileAction/NuiEvent, module Tag, custom TLK + hak priority list + conflict
-   analyser, area Fog Clip Distance + Sky Box + Shadow Opacity, Visual Transforms (scale/rotate/translate) in
+   analyzer, area Fog Clip Distance + Sky Box + Shadow Opacity, Visual Transforms (scale/rotate/translate) in
    Adjust Location, 8 creature classes, creature Wings/Tail pickers, conversation script parameters
    (`ActionParams`/`ConditionParams`) and "Stop camera zoom in", item "Undroppable" (`Cursed`), placeable "Static",
    OnClick events for doors/placeables/triggers, external script editor, open-module-as-directory.
@@ -176,7 +176,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TfrmFrame` — BioWare Aurora Neverwinter Nights Toolset v%s.%s.%s-%s
 *DFM `TFRMFRAME` · 859×596 · StrRef table .data+0x7EECC (86/129 captions matched) · form events: OnActivate=FormActivate, OnCloseQuery=FormCloseQuery, OnDestroy=FormDestroy, OnDeactivate=FormDeactivate, OnKeyDown=FormKeyDown, OnKeyUp=FormKeyUp, OnMouseWheelDown=FormMouseWheelDown, OnMouseWheelUp=FormMouseWheelUp, OnResize=FormResize · DFM caption 'NeverWinter ToolSet - No Module'*
 
-**Purpose:** Main application window: menu bar, dockable toolbars (File, Display, Selection Mode, Object Filters, Preview) in a `TControlBar`, left pane = Module Contents (`TfraMainInventory`), centre = tabbed area viewers (`pArea`), right pane = palettes + plot manager (`TfraMainPalette`), bottom = message log + status bar.
+**Purpose:** Main application window: menu bar, dockable toolbars (File, Display, Selection Mode, Object Filters, Preview) in a `TControlBar`, left pane = Module Contents (`TfraMainInventory`), center = tabbed area viewers (`pArea`), right pane = palettes + plot manager (`TfraMainPalette`), bottom = message log + status bar.
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
@@ -751,7 +751,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | Basic | `bAreaName` | button | ... (Name) | ARE `Name` all languages | tip: “Edit text in multiple languages” |
 | Visual | `bCustomize` | button | Customize Environment | opens TdlgEnvironment | tip: “Edit specific values of the environment”; `OnClick=bCustomizeClick` |
 | Visual | `mmWarning` | memo | ⟨Visual⟩ | info text | read-only; text: “Note: Selecting an Environment Scheme from the above list will cause any custom area lighting or weather settings, as well as custom tile lighting, to be lost i” |
-| Visual | `lvLightingSchemes` | listview | ⟨Visual⟩ | ARE `LightingScheme` (environment.2da presets; applies sun/moon/fog colours) | `OnMouseDown=lvLightingSchemesMouseDown` |
+| Visual | `lvLightingSchemes` | listview | ⟨Visual⟩ | ARE `LightingScheme` (environment.2da presets; applies sun/moon/fog colors) | `OnMouseDown=lvLightingSchemesMouseDown` |
 | Audio | `cbAmbientSoundDay` | combo | Ambient Sound, Day | GIT `AreaProperties.AmbientSndDay` (ambientsound.2da) | max 16; list |
 | Audio | `cbAmbientSoundNight` | combo | Ambient Sound, Night | GIT `AreaProperties.AmbientSndNight` (ambientsound.2da) | max 16; list |
 | Audio | `cbMusicBattle` | combo | Music, Battle | GIT `AreaProperties.MusicBattle` (ambientmusic.2da) | max 16; list |
@@ -840,7 +840,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 |  | `bApply` | button | Apply | preview in viewer | `OnClick=bApplyClick` |
 |  | `bOK` | button | OK |  | tip: “Accept changes” |
 |  | `bCancel` | button | Cancel |  | tip: “Discard changes” |
-|  | `dlgColor` | ColorDialog |  | colour chooser |  |
+|  | `dlgColor` | ColorDialog |  | color chooser |  |
 
 **Action list `alEnvironment`**
 
@@ -849,7 +849,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | `actBrowseColor` | actBrowseColor |  | `actBrowseColorExecute` |  |  |
 
 **Notes / behaviors:**
-- Colour swatches open the Windows colour dialog (`actBrowseColorExecute`); fog amount sliders are hidden (EE uses numeric edits 0–200 and Fog Clip Distance 25–999 m). `Apply` previews in the viewer.
+- Color swatches open the Windows color dialog (`actBrowseColorExecute`); fog amount sliders are hidden (EE uses numeric edits 0–200 and Fog Clip Distance 25–999 m). `Apply` previews in the viewer.
 
 #### `TdlgAreaWizard` — Area Wizard
 *DFM `TDLGAREAWIZARD` · 366×387 · StrRef table .data+0x42F8 (13/13 captions matched)*
@@ -918,49 +918,49 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 |  | `pSourceLight2` | color swatch/panel | Source Light 2 | ARE `Tile_SrcLight2` | tip: “Click here to select a color”; `OnClick=pSourceLight2Click` |
 
 **Notes / behaviors:**
-- Colour swatches open `TdlgColorSelection` (fixed tile light palette). Applies to all selected tiles.
+- Color swatches open `TdlgColorSelection` (fixed tile light palette). Applies to all selected tiles.
 
 #### `TdlgColorSelection` — Select A Color
 *DFM `TDLGCOLORSELECTION` · 350×174 · border bsDialog · no StrRef table resolved*
 
-**Purpose:** "Select A Color": fixed palette of 32 colour swatches (tile light colours, lightcolor.2da).
+**Purpose:** "Select A Color": fixed palette of 32 color swatches (tile light colors, lightcolor.2da).
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
-|  | `Panel1` | color swatch/panel |  | colour index 1 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel2` | color swatch/panel |  | colour index 2 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel3` | color swatch/panel |  | colour index 3 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel8` | color swatch/panel |  | colour index 8 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel9` | color swatch/panel |  | colour index 9 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel10` | color swatch/panel |  | colour index 10 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel11` | color swatch/panel |  | colour index 11 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel16` | color swatch/panel |  | colour index 16 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel0` | color swatch/panel |  | colour index 0 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel17` | color swatch/panel |  | colour index 17 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel18` | color swatch/panel |  | colour index 18 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel19` | color swatch/panel |  | colour index 19 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel24` | color swatch/panel |  | colour index 24 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel25` | color swatch/panel |  | colour index 25 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel26` | color swatch/panel |  | colour index 26 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel27` | color swatch/panel |  | colour index 27 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel1` | color swatch/panel |  | color index 1 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel2` | color swatch/panel |  | color index 2 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel3` | color swatch/panel |  | color index 3 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel8` | color swatch/panel |  | color index 8 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel9` | color swatch/panel |  | color index 9 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel10` | color swatch/panel |  | color index 10 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel11` | color swatch/panel |  | color index 11 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel16` | color swatch/panel |  | color index 16 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel0` | color swatch/panel |  | color index 0 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel17` | color swatch/panel |  | color index 17 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel18` | color swatch/panel |  | color index 18 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel19` | color swatch/panel |  | color index 19 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel24` | color swatch/panel |  | color index 24 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel25` | color swatch/panel |  | color index 25 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel26` | color swatch/panel |  | color index 26 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel27` | color swatch/panel |  | color index 27 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
 |  | `OKButton` | button | OK |  |  |
 |  | `CancelButton` | button | Cancel |  |  |
-|  | `Panel7` | color swatch/panel |  | colour index 7 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel15` | color swatch/panel |  | colour index 15 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel23` | color swatch/panel |  | colour index 23 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel31` | color swatch/panel |  | colour index 31 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel6` | color swatch/panel |  | colour index 6 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel14` | color swatch/panel |  | colour index 14 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel22` | color swatch/panel |  | colour index 22 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel30` | color swatch/panel |  | colour index 30 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel5` | color swatch/panel |  | colour index 5 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel13` | color swatch/panel |  | colour index 13 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel21` | color swatch/panel |  | colour index 21 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel29` | color swatch/panel |  | colour index 29 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel4` | color swatch/panel |  | colour index 4 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel12` | color swatch/panel |  | colour index 12 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel20` | color swatch/panel |  | colour index 20 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
-|  | `Panel28` | color swatch/panel |  | colour index 28 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel7` | color swatch/panel |  | color index 7 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel15` | color swatch/panel |  | color index 15 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel23` | color swatch/panel |  | color index 23 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel31` | color swatch/panel |  | color index 31 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel6` | color swatch/panel |  | color index 6 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel14` | color swatch/panel |  | color index 14 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel22` | color swatch/panel |  | color index 22 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel30` | color swatch/panel |  | color index 30 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel5` | color swatch/panel |  | color index 5 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel13` | color swatch/panel |  | color index 13 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel21` | color swatch/panel |  | color index 21 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel29` | color swatch/panel |  | color index 29 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel4` | color swatch/panel |  | color index 4 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel12` | color swatch/panel |  | color index 12 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel20` | color swatch/panel |  | color index 20 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
+|  | `Panel28` | color swatch/panel |  | color index 28 (tile light / lightcolor.2da) | `OnClick=actHitPanelExecute OnDblClick=actDblHitPanelExecute` |
 
 **Action list `ActionList1`**
 
@@ -1264,7 +1264,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TfraSituatedDesc` — (no caption)
 *DFM `TFRASITUATEDDESC` · no StrRef table resolved*
 
-**Purpose:** Shared frame: localised description.
+**Purpose:** Shared frame: localized description.
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
@@ -1301,7 +1301,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 **Notes / behaviors:**
 - Shows a subset of each frame (Basic: name/tag/appearance; Advanced: faction/conversation/portrait; all scripts; description; lock; comments). Fields left blank/indeterminate are not written.
 
-## 5. Creature editor (+ wizard, level-up, colours, sound set, inventory)
+## 5. Creature editor (+ wizard, level-up, colors, sound set, inventory)
 
 #### `TdlgCreatureEdit` — Creature Properties
 *DFM `TDLGCREATUREEDIT` · 788×640 · border bsDialog · StrRef table .data+0x13DB8 (150/159 captions matched) · form events: OnClose=FormClose, OnPaint=FormPaint, OnShow=FormShow · DFM caption 'Creature Editor'*
@@ -1603,11 +1603,11 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TColorPicker` — Character Colors
 *DFM `TCOLORPICKER` · 254×323 · border bsDialog · no StrRef table resolved*
 
-**Purpose:** Character/armour colour picker: palette image (PLT colour ramps) with a layer selector.
+**Purpose:** Character/armor color picker: palette image (PLT color ramps) with a layer selector.
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
-|  | `Image` | image |  | PLT colour ramp image (click = select index) | `OnMouseDown=ImageMouseDown` |
+|  | `Image` | image |  | PLT color ramp image (click = select index) | `OnMouseDown=ImageMouseDown` |
 |  | `TexLayerList` | combo |  | layer: skin/hair/tattoo1/tattoo2 or cloth1/2, leather1/2, metal1/2 | list; `OnChange=TexLayerListChange` |
 |  | `m_bOk` | button | Ok |  |  |
 |  | `m_bCancel` | button | Cancel |  |  |
@@ -1636,7 +1636,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TdlgInventory` — Inventory Contents
 *DFM `TDLGINVENTORY` · 634×545 · border bsDialog · StrRef table .data+0xA7324 (26/28 captions matched) · form events: OnShow=FormShow*
 
-**Purpose:** Inventory editor for creatures (equipment slots + backpack), placeables (contents) and stores (categorised stock).
+**Purpose:** Inventory editor for creatures (equipment slots + backpack), placeables (contents) and stores (categorized stock).
 
 **Tabs** (`pcPalettes`): Standard Items · Custom Items
 **Tabs** (`pgInventory`): Standard Equipment · Natural Equipment
@@ -1738,9 +1738,9 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | Appearance | `cbWeaponMiddle` | combo | Middle | UTI `ModelPart2` model | list; tip: “Select model”; `OnChange=cbWeaponMiddleChange` |
 | Appearance | `cbWeaponBottom` | combo | Bottom | UTI `ModelPart1` model | list; tip: “Select model”; `OnChange=cbWeaponBottomChange` |
 | Appearance | `cbWeaponTop` | combo | Top | UTI `ModelPart3` model | list; tip: “Select model”; `OnChange=cbWeaponTopChange` |
-| Appearance | `cbWeaponTopColor` | combo | Color | UTI `ModelPart3` colour digit | list; tip: “Select color”; `OnChange=cbWeaponTopColorChange` |
-| Appearance | `cbWeaponMiddleColor` | combo | Middle | UTI `ModelPart2` colour digit | list; tip: “Select color”; `OnChange=cbWeaponMiddleColorChange` |
-| Appearance | `cbWeaponBottomColor` | combo | Bottom | UTI `ModelPart1` colour digit | list; tip: “Select color”; `OnChange=cbWeaponBottomColorChange` |
+| Appearance | `cbWeaponTopColor` | combo | Color | UTI `ModelPart3` color digit | list; tip: “Select color”; `OnChange=cbWeaponTopColorChange` |
+| Appearance | `cbWeaponMiddleColor` | combo | Middle | UTI `ModelPart2` color digit | list; tip: “Select color”; `OnChange=cbWeaponMiddleColorChange` |
+| Appearance | `cbWeaponBottomColor` | combo | Bottom | UTI `ModelPart1` color digit | list; tip: “Select color”; `OnChange=cbWeaponBottomColorChange` |
 | Appearance | `lvSimple` | listview | Appearance | UTI `ModelPart1` (icon grid) | tip: “Select appearance”; `OnChange=lvSimpleChange OnClick=lvSimpleClick` |
 | Appearance | `cbForearmRight` | combo | Right Forearm | UTI `ArmorPart_RFArm` | list; tip: “Select model”; `OnChange=cbForearmRightChange` |
 | Appearance | `cbHandRight` | combo | Right Hand | UTI `ArmorPart_RHand` | list; tip: “Select model”; `OnChange=cbHandRightChange` |
@@ -1757,7 +1757,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | Appearance | `cbTorso` | combo | Torso | UTI `ArmorPart_Torso` (parts_chest.2da → AC) | list; tip: “Select model”; `OnChange=cbTorsoChange` |
 | Appearance | `cbBelt` | combo | Belt | UTI `ArmorPart_Belt` | list; tip: “Select model”; `OnChange=cbBeltChange` |
 | Appearance | `cbPelvis` | combo | Pelvis | UTI `ArmorPart_Pelvis` | list; tip: “Select model”; `OnChange=cbPelvisChange` |
-| Appearance | `meArmor2` | masked edit | Armor Class | armour AC (derived) | read-only |
+| Appearance | `meArmor2` | masked edit | Armor Class | armor AC (derived) | read-only |
 | Appearance | `cbRobe` | combo | Robe | UTI `ArmorPart_Robe` (parts_robe.2da) | list; tip: “Select model”; `OnChange=cbRobeChange` |
 | Appearance › View | `rb2D` | radio | 2D Icon | preview mode | **hidden (container)**; default on; `OnClick=rbViewClick` |
 | Appearance › View | `rb3D` | radio | 3D Model | preview mode | **hidden (container)**; `OnClick=rbViewClick` |
@@ -1788,7 +1788,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 |  | `bUpdateInstancesInArea` | button | Update Instances (DFM: 'Update instances in current area') | push blueprint to instances | **hidden**; tip: “Update all instances created from this Blueprint”; `OnClick=bUpdateInstancesInAreaClick` |
 
 **Notes / behaviors:**
-- Appearance tab switches panel by base item `ModelType` (0 simple → `lvSimple` icon grid; 1 layered/2 composite weapon → top/middle/bottom model+colour; 3 armour → 18 part combos + robe). Colour button for PLT-coloured items.
+- Appearance tab switches panel by base item `ModelType` (0 simple → `lvSimple` icon grid; 1 layered/2 composite weapon → top/middle/bottom model+color; 3 armor → 18 part combos + robe). Color button for PLT-colored items.
 - Properties tab: available tree filtered by base item (itemprops.2da column), assigned tree; double-click adds/edits; cost recalculated (`meCost2`).
 - Description tab: unidentified/identified descriptions + read-only base-type description and generated statistics text.
 - Stack size spin validated against baseitems.2da `Stacking`; charges 0–250.
@@ -1836,9 +1836,9 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | Item Wizard | `tvPaletteSelector` | tree | ⟨Item Wizard⟩ | UTI `PaletteID` | tip: “Select a category”; `OnChange=tvPaletteSelectorChange OnClick=tvPaletteSelectorClick OnDblClick=tvPaletteSelectorDblClick OnMouseDown=tvPaletteSelectorMouseDown` |
 
 #### `TdlgItemGeneratorEdit` — Item Generator Editor
-*DFM `TDLGITEMGENERATOREDIT` · 634×388 · border bsDialog · no Tags — never localised (dead feature) · form events: OnShow=FormShow*
+*DFM `TDLGITEMGENERATOREDIT` · 634×388 · border bsDialog · no Tags — never localized (dead feature) · form events: OnShow=FormShow*
 
-**Purpose:** Random item generator editor (unlocalised, unreachable in retail UI).
+**Purpose:** Random item generator editor (unlocalized, unreachable in retail UI).
 
 **Tabs** (`pcProperties`): Basic · Advanced · Comments
 
@@ -1870,9 +1870,9 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | `miImport` | Import |  |  |  |
 
 #### `TdlgGeneratorChooser` — Random Item Generator Chooser
-*DFM `TDLGGENERATORCHOOSER` · 446×301 · border bsDialog · no Tags — never localised (dead feature)*
+*DFM `TDLGGENERATORCHOOSER` · 446×301 · border bsDialog · no Tags — never localized (dead feature)*
 
-**Purpose:** Random item generator chooser (unlocalised, unreachable; `mbRandom` button hidden in inventory).
+**Purpose:** Random item generator chooser (unlocalized, unreachable; `mbRandom` button hidden in inventory).
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
@@ -1983,7 +1983,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TdlgDoorWizard` — Door Wizard
 *DFM `TDLGDOORWIZARD` · 326×None · StrRef table .data+0x2CE04 (1/1 captions matched)*
 
-**Purpose:** Door Wizard: palette category → name → (appearance list, strength — pages defined but not localised).
+**Purpose:** Door Wizard: palette category → name → (appearance list, strength — pages defined but not localized).
 
 **Inherits:** `TdlgBlueprintWizard` (palette category → name).
 
@@ -2656,7 +2656,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 | `miTEXTDUMP` | -- TEXT DUMP -- |  |  `miTEXTDUMPClick` |  |
 
 **Notes / behaviors:**
-- Custom-drawn nodes (colours from Options; link nodes grey; highlight filters); drag & drop move/link (`tvMainDragDrop`); timer `tMain` for auto-backup/scroll. Keyboard: Ctrl+A add, Ctrl+C/X/V, Delete, arrows.
+- Custom-drawn nodes (colors from Options; link nodes gray; highlight filters); drag & drop move/link (`tvMainDragDrop`); timer `tMain` for auto-backup/scroll. Keyboard: Ctrl+A add, Ctrl+C/X/V, Delete, arrows.
 
 #### `TdlgConversationInput` — Input Text
 *DFM `TDLGCONVERSATIONINPUT` · 361×220 · border bsDialog · StrRef table .data+0xF3D0 (3/5 captions matched) · form events: OnActivate=FormActivate*
@@ -2727,7 +2727,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TdlgTokenSelector` — Select Token
 *DFM `TDLGTOKENSELECTOR` · 370×290 · border bsDialog · StrRef table .data+0xFF7D0 (9/9 captions matched) · form events: OnCreate=FormCreate, OnDestroy=FormDestroy*
 
-**Purpose:** Insert Token (custom tokens from stringtokens.2da, highlight colour tokens).
+**Purpose:** Insert Token (custom tokens from stringtokens.2da, highlight color tokens).
 
 **Tabs** (`pcMain`): Standard · Highlight
 
@@ -2866,14 +2866,14 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 #### `TfraScriptEditorColor` — (no caption)
 *DFM `TFRASCRIPTEDITORCOLOR` · StrRef table .data+0xE6564 (2/3 captions matched)*
 
-**Purpose:** Syntax colour options (embedded in Options › Script Editor).
+**Purpose:** Syntax color options (embedded in Options › Script Editor).
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
 |  | `pScriptColorPreview` | color swatch/panel | Preview: | preview |  |
 |  | `lbColors` | listbox | Text Type | element: text/selected/margin/comment/directive/identifier/keyword/number/string/error (ini Color*) | `OnClick=lbColorsClick` |
-|  | `pColor` | color swatch/panel | Color: | current colour | tip: “Click to change the color of the selected text type.” |
-|  | `bChangeColor` | button | Select Color (DFM: 'Change Color...') | colour dialog | disabled; tip: “Click to change the color of the selected text type.”; `OnClick=bChangeColorClick` |
+|  | `pColor` | color swatch/panel | Color: | current color | tip: “Click to change the color of the selected text type.” |
+|  | `bChangeColor` | button | Select Color (DFM: 'Change Color...') | color dialog | disabled; tip: “Click to change the color of the selected text type.”; `OnClick=bChangeColorClick` |
 |  | `dlgColor` | ColorDialog |  |  |  |
 
 #### `TSEditCodeCompletionList` — (no caption)
@@ -3511,7 +3511,7 @@ and sample GFFs. Every form is listed; every user-facing control of every form a
 
 ## 21. Resource pickers (portrait, sound, sound set, load screen, resource open)
 
-Sound-set picker (`TdlgSoundSetSelect`) is in §5, colour pickers in §3/§5.
+Sound-set picker (`TdlgSoundSetSelect`) is in §5, color pickers in §3/§5.
 
 #### `TdlgPortrait` — Select Portrait
 *DFM `TDLGPORTRAIT` · 632×453 · border bsDialog · StrRef table .data+0xD9CD4 (9/9 captions matched) · form events: OnShow=FormShow*
@@ -3630,7 +3630,7 @@ Sound-set picker (`TdlgSoundSetSelect`) is in §5, colour pickers in §3/§5.
 |  | `OK` | button | OK |  |  |
 |  | `bCancel` | button | Cancel |  |  |
 
-## 22. Localised strings, variables, comments
+## 22. Localized strings, variables, comments
 
 #### `TdlgLocString` — String Edit
 *DFM `TDLGLOCSTRING` · 368×343 · border bsDialog · StrRef table .data+0x77004 (3/3 captions matched) · form events: OnShow=FormShow*
@@ -3748,7 +3748,7 @@ Sound-set picker (`TdlgSoundSetSelect`) is in §5, colour pickers in §3/§5.
 
 ## 24. Hak paks & custom TLK
 
-Hak list and custom TLK are edited in Module Properties › Custom Content (§2); this dialog is the conflict analyser.
+Hak list and custom TLK are edited in Module Properties › Custom Content (§2); this dialog is the conflict analyzer.
 
 #### `TdlgHakPak` — Hak Pak Conflict Analysis
 *DFM `TDLGHAKPAK` · 781×548 · border bsDialog · StrRef table .data+0x3936C (8/10 captions matched) · form events: OnClose=FormClose*
@@ -3809,7 +3809,7 @@ Hak list and custom TLK are edited in Module Properties › Custom Content (§2)
 | Script Editor | `eScriptFontName` | edit | Font (name) | ini `FontName` | read-only |
 | Script Editor | `eScriptFontSize` | edit | Font (size) | ini `FontSize` | read-only |
 | Script Editor | `bScriptFont` | button | ... (Font) | font dialog | `OnClick=bScriptFontClick` |
-| Script Editor | `pScriptEditorColors` | color swatch/panel | Colours | hosts TfraScriptEditorColor |  |
+| Script Editor | `pScriptEditorColors` | color swatch/panel | Colors | hosts TfraScriptEditorColor |  |
 | Script Editor | `xbAutoCompile` | checkbox | Automatically Compile Scripts on Save | ini `AutoCompile` |  |
 | Script Editor | `xbScriptGenerateDebugInfo` | checkbox | Generate Debug Information When Compiling Scripts | ini `GenerateDebugInfo` (.ndb) |  |
 | Script Editor | `bScriptExternalEditor` | button | ... | browse exe | `OnClick=bScriptExternalEditorClick` |
@@ -3826,7 +3826,7 @@ Hak list and custom TLK are edited in Module Properties › Custom Content (§2)
 | Conversation Editor › Drag Link Options | `rbDestToSrc2` | radio | Link Destination To Source | ini `ConvLinkLinkMode` |  |
 | Conversation Editor | `xbAutoBackup` | checkbox | Automatically backup the conversation files (DFM: 'Automatically backup the conversatio… | ini `AutoBackup` | default on; `OnClick=xbAutoBackupClick` |
 | Conversation Editor | `eAutoBackup` | edit | Backup interval (minutes) | ini `AutoBackupInterval` (min) | read-only; spin 1…180 |
-| Conversation Editor | `pConvBackColor` | color swatch/panel | Background colour | (hidden) ini `BackgroundColor` | **hidden**; `OnClick=TextColorClick` |
+| Conversation Editor | `pConvBackColor` | color swatch/panel | Background color | (hidden) ini `BackgroundColor` | **hidden**; `OnClick=TextColorClick` |
 | Spell Checking | `xbEnableSpellCheck` | checkbox | Enable Spell Check (master toggle for all spell checking in toolset) | ini `EnableSpellCheck` | `OnClick=xbEnableSpellCheckClick` |
 | Spell Checking › Non-conversation automatic spellcheck | `xbCheckSpellingLocEdit` | checkbox | Spelling | (hidden) ini `CheckSpellingLoc` | **hidden** |
 | Spell Checking › Non-conversation automatic spellcheck | `xbCheckGrammarLocEdit` | checkbox | Grammar | (hidden) ini `CheckGrammarLoc` | **hidden** |
@@ -3858,7 +3858,7 @@ Hak list and custom TLK are edited in Module Properties › Custom Content (§2)
 | Language | `mLanguageHelp` | memo | help text | help text (read-only) | read-only |
 |  | `bOK` | button | OK |  | tip: “Accept changes”; `OnClick=bOKClick` |
 |  | `bCancel` | button | Cancel |  | tip: “Discard changes” |
-|  | `dlgColor` | ColorDialog |  | colour picker |  |
+|  | `dlgColor` | ColorDialog |  | color picker |  |
 |  | `dlgFileOpen` | file dialog |  | file/dir picker |  |
 |  | `dlgFont` | FontDialog |  | font picker |  |
 
@@ -3971,7 +3971,7 @@ Test Module (F9) has no dialog — see §1 notes and the implicit-behaviors sect
 #### `TdlgAbout` — About
 *DFM `TDLGABOUT` · 464×419 · border bsDialog · StrRef table .data+0x63514 (3/4 captions matched)*
 
-**Purpose:** About box (versions, key file string, licence, expansions installed).
+**Purpose:** About box (versions, key file string, license, expansions installed).
 
 | Where | Control | Type | Label / caption (runtime) | Maps to | Notes |
 |---|---|---|---|---|---|
@@ -4099,7 +4099,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   toolbar dock positions/visibility, script-editor geometry) persists to `nwtoolset.ini`.
 - Warnings with "Never warn again" (`TdlgWarning`) are individually suppressible and re-enabled in Options › General:
   reserved blueprint resref namespace (`nw_`, `x0_`, `x2_`…), invalid creature spells, creature inventory,
-  32-bit colour depth, character set, resource-in-hak, standard-resource overwrite.
+  32-bit color depth, character set, resource-in-hak, standard-resource overwrite.
 - Duplicate tag / duplicate resref detection (TLK has "Duplicate tag detected", "Duplicate resref detected");
   `eTagChange`/`eResRefChange` handlers on every Tag/ResRef edit validate input while typing (resref: lower-case,
   16 chars, legal chars).
@@ -4118,14 +4118,14 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 - Object manipulation: left-drag moves (X/Y), **Alt+drag** moves Z, **Shift+Right-drag** rotates, **Ctrl+wheel**
   scales (VisualTransform), rubber-band multi-select; Delete removes; Ctrl+C/X/V copy/cut/paste groups with a ghost
   preview (left-click places, right-click cancels), relative positions kept; copy/paste works across open area tabs.
-  Camera-control buttons also rotate the selected object (`bGobRotate*`) or randomise facing (`bGobRotateRandom`).
+  Camera-control buttons also rotate the selected object (`bGobRotate*`) or randomize facing (`bGobRotateRandom`).
 - Camera: wheel zoom (Shift/Ctrl+wheel = fine), Ctrl+Left-drag orbit/move, Ctrl+Right/Middle-drag pan, numpad
   2/4/6/8 move, 7/9/1/3 pan, 5 reset to top-down; optional *Visual Camera Controls* pane (repeat-while-pressed
   buttons: pan L/R/F/B, rotate CW/CCW, pitch up/down, zoom in/out). Areas open facing north.
 - Undo/Redo (Ctrl+Z / Ctrl+Shift+Z) with configurable depth (Options › Area › Undo Levels 1–32, restart needed);
   only object/tile operations are undoable, not property-dialog edits.
 - Render toggles: grid, shadows, fog, area lighting, *Fade Geometry* (never / object mode only / always — fades roofs
-  and occluders near the camera), *Render AABB Nodes* (walkmesh/AABB debug), background colour, encounter spawn-point
+  and occluders near the camera), *Render AABB Nodes* (walkmesh/AABB debug), background color, encounter spawn-point
   markers (height/width), door orientation arrows, 3D sound listener marker. Object filters (show/hide per type,
   Show All / Show None) affect rendering (and, per nwn.wiki, what can be selected/copied).
 - Area audio preview: ambient sound, music, placed sounds (per-sound Mute/Turn On in context menu, saved as
@@ -4155,7 +4155,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   "leave unchanged".
 - Variables (`TdlgVarTable`) edit the `VarTable` list (Name / Type / Value; type list filled at runtime) on module,
   areas, all blueprints and instances.
-- Localised strings: the `...` next to every name/description opens `TdlgLocString` (per-language × gender grid,
+- Localized strings: the `...` next to every name/description opens `TdlgLocString` (per-language × gender grid,
   StrRef support via `TdlgNewEditStringExternal`); plain edit box edits the current editing language only
   (Options › Language).
 - Script-set files: *Load/Save Script Set* on every Events tab reads/writes an `.ini` of event→script mappings.
@@ -4166,7 +4166,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   property lists (`itemprops.2da`, `itempropdef.2da`, `iprp_*` tables) per base item.
 
 **Editors**
-- Conversation editor: node tree with NPC (red) / PC (blue) / link (grey) nodes, Ctrl+A add, Ctrl+C/X/V, Delete,
+- Conversation editor: node tree with NPC (red) / PC (blue) / link (gray) nodes, Ctrl+A add, Ctrl+C/X/V, Delete,
   drag to move/reorder, Ctrl+drag = link (configurable direction), *Paste As Link*, Cut → Scrap tab, bookmarks,
   search/replace (current / open / all files, language & gender scope), expand/collapse all, highlight filters,
   speaker portraits, token insertion, spell check, test-run (`TdlgConversationTest`), multiple open files as tabs,
@@ -4174,7 +4174,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 - Script editor: tabs per script, F7 compile (writes `.ncs`, optional `.ndb` debug), F2 code completion
   (`TSEditCodeCompletionList`), function/constant/variable/template side lists parsed from `nwscript.nss` + includes
   (F9 re-parse), help pane shows function doc comment, bookmarks (F5, Ctrl+Shift+1…9 / Ctrl+1…9), find-in-files,
-  print, external-editor hand-off, syntax colours (TfraScriptEditorColor), templates directory.
+  print, external-editor hand-off, syntax colors (TfraScriptEditorColor), templates directory.
 - Journal editor: category/entry tree, Add/Copy/Cut/Paste/Delete, Apply without closing.
 - Faction editor: basic (visual chart of checked factions in an OpenGL panel with mouse handlers) and advanced
   (N×N reputation grid 0–100), global effect flag, parent faction.
@@ -4182,7 +4182,7 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
   journal entries, creatures/items/keys; Plot Manager tree in the palette pane (*Show Plots*).
 
 **Global**
-- Localisation: toolset UI language = TLK language (ini `[Display Options] Language=`); editing language separate.
+- Localization: toolset UI language = TLK language (ini `[Display Options] Language=`); editing language separate.
 - Help: `TfrmHelp` shows help text; the third column of every StrRef table is a per-control help string
   (e.g. "Press this button to save all changes") — usable for status-bar / context help.
 - Spell checker (third-party engine, About box `lNameSpellchecker`) — broken in EE per nwn.wiki; candidate for omission.
@@ -4198,16 +4198,16 @@ Behaviors that are not (fully) described by DFM properties — inferred from han
 | Area properties / environment / wizard / resize-rotate / transitions / location | 7 dialogs | L | Many fields + transition linking UI with target-area minimap |
 | Module properties, module wizard, hak/tlk, conflict analysis | TfrmIFOProp, TdlgModuleWizard, TdlgHakPak | M | Straightforward GFF + resman conflict report |
 | Shared situated frames + multi-editor | 8 frames + TdlgSituatedEdit/MultiEditor | M | Reused by door/placeable; multi-edit merge semantics |
-| Creature editor (+ wizard, level-up, colours, soundset, spells/feats/skills/special abilities, inventory) | 6+ forms | XL | Heavy 2DA-driven rules, CR/HP/save calc, 3D preview, spell lists |
-| Item editor (+ property editor, wizard, armour parts, colours) | 4 forms | L | Property tables (itemprops/iprp_*), part/colour previews, cost calc |
+| Creature editor (+ wizard, level-up, colors, soundset, spells/feats/skills/special abilities, inventory) | 6+ forms | XL | Heavy 2DA-driven rules, CR/HP/save calc, 3D preview, spell lists |
+| Item editor (+ property editor, wizard, armor parts, colors) | 4 forms | L | Property tables (itemprops/iprp_*), part/color previews, cost calc |
 | Placeable / door / trigger / encounter / sound / store / waypoint editors (+ wizards) | ~16 forms | L (together) | Individually S–M; sound editor timing/positioning and store restrictions are the larger ones |
 | Inventory editor (creature/placeable/store) | TdlgInventory | M | Drag-drop grids, equip slots, store categories |
 | Palette / blueprint selection / ITP handling | 6 forms | M | ITP read/write, custom palette mutation, find |
-| Resource pickers (portrait, sound, soundset, load screen, resource open, colour) | 8 forms | M | Thumbnails (TGA/DDS/PLT decode), audio playback |
+| Resource pickers (portrait, sound, soundset, load screen, resource open, color) | 8 forms | M | Thumbnails (TGA/DDS/PLT decode), audio playback |
 | Conversation editor (+ search, test, tokens, export) | 7 forms | L | Link semantics, scrap, multi-file tabs, params |
-| Script editor (+ search, colours, completion, wizard) | 5 forms | L | Editor widget, compiler integration (nwnsc/neverwinter.nim), completion; wizard codegen M |
+| Script editor (+ search, colors, completion, wizard) | 5 forms | L | Editor widget, compiler integration (nwnsc/neverwinter.nim), completion; wizard codegen M |
 | Journal editor | 1 | S | |
-| Faction editor | 2 | M | Chart visualisation optional |
+| Faction editor | 2 | M | Chart visualization optional |
 | Plot wizard / plot manager | 4 | L | Large code/conversation generator; low user value — candidate to defer |
 | Import/export (ERF), multi-select | 2 | M | Dependency discovery, overwrite resolution |
 | Options | 1 | S | Mostly ini settings |

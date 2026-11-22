@@ -132,6 +132,39 @@ fn a_long_line_is_cut_at_the_tree_s_right_edge() {
     }
 }
 
+/// In a floating window the selected row's fill (Root's, as a conversation
+/// opens) ends at the tree's edge, short of the window's right pane (Node,
+/// Data, Search): the tree's vertical scroll area clips up and down only,
+/// its clip rect as wide as the window, and the fill ran on under the pane
+/// (M5 P1, the README's picture). Docked, the pane is the Right Dock's.
+#[test]
+fn the_selected_row_s_fill_ends_at_the_tree_in_a_window() {
+    let size = egui::vec2(1600.0, 900.0);
+    let (mut h, keys) = window_with(
+        Mode::Floating,
+        "ui-dialog-fill-window",
+        &["talk"],
+        &long_talk(),
+        size,
+        Vec::new(),
+    );
+    let key = keys[0];
+    settle(&mut h);
+    let fill = mg_uikit::tokens(&h.ctx).accent_fill;
+    let root = at(&h, "Root").center();
+    let filled = (h.output().shapes.iter()).find_map(|c| match &c.shape {
+        egui::Shape::Rect(r) if r.fill == fill && r.rect.contains(root) => Some(r.rect),
+        _ => None,
+    });
+    let filled = filled.expect("Root's fill");
+    let tree = h.state().dialog_views[&key].rows_right();
+    assert!(filled.right() <= tree + 0.5, "{filled:?} past the tree's edge {tree}");
+    // (The window's right pane, beside the tree.)
+    let node = h.query_all_by_label("Node").map(|n| n.rect()).find(|r| r.left() > root.x);
+    let node = node.expect("the window's Node section");
+    assert!(filled.right() < node.left(), "{filled:?} under the Node section at {node:?}");
+}
+
 /// A conversation forty levels deep in a window `size`, its deepest line
 /// chosen and in sight: the width its rows have (from the chosen row's
 /// fill at their left to where they end, the scroll bar's side), the room

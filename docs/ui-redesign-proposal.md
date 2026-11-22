@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T07:22:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T08:22:55Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -2221,7 +2221,7 @@ In this order, each its own change (the tasks U0 to U30 above): the area editor 
 - A toolset release, cut as this repository's releases are (an annotated tag, hand-written notes; **the owner signs each release**).
 - Exit: `cargo test` suites and clippy clean on the newest stable; the corpus tests pass; frame time recorded against the baseline.
 
-Open: the screenshots, the parity inventory and the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. One known flake: `blueprints::an_armor_s_parts_take_colors_of_their_own_and_keep_them` overruns its harness's 4 steps under heavy load (thumbnails are made for 2 ms a frame; failed 1 run in 3 alone at load 30, passes otherwise), to be fixed in the small-faults pass. The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
+Open: the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. One known flake: `blueprints::an_armor_s_parts_take_colors_of_their_own_and_keep_them` overruns its harness's 4 steps under heavy load (thumbnails are made for 2 ms a frame; failed 1 run in 3 alone at load 30, passes otherwise), to be fixed in the small-faults pass. The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
 
 **V1. The manual's chapters 01 to 05 read against the program.**
 
@@ -2266,6 +2266,14 @@ Open: the screenshots, the parity inventory and the toolset release (with its ga
 **W8. Wide models in a tall Preview and the Right Dock's edge.**
 
 **Done, 2026-11-22.** A blueprint's appearance changed frames its preview again. By the owner's rulings "preview turn: a" and "fit: b" (2026-11-22), `model_view::Fit` fits every yaw at the pitch the view is framed at, as tight as that allows: a model stays whole as the view turns about it, in every view that frames a model. A tilt is not fitted, so a steep tilt can cut a long model in a wide picture (the ruling; no deferred entry). A picture of another shape is fitted from what Frame kept (`ModelView::refit`), reading no points. The Right Dock's edge beside a form and a floating form's Preview pane get a 6-point seam (`shell::edge_seam`) lit in the kit's accent, and every seam there senses a drag alone. `frame_perf`: none of 206 views over budget at the first round.
+
+**P1. The screenshots.**
+
+**Done, 2026-11-22.** The README's four pictures (`area.jpg`, `conversation.png`, `creature.jpg`, `script.png`), the manual's described 2DA table and the [2DA editor proposal](2da-editor-proposal.md)'s six made again from `crates/mg-ui/tests/screens.rs`, Dark, on the base game's content only, file names and formats kept (before and after in `target/m5/P1/`); the framebuffer proposal's three are renders against the client, not screens, and stay. In the creature's picture the model's window now stands beside the editor, not over its form; the 2DA editor's pictures are taken with the log closed and Find References finished. **Fault fixed**: in the Conversation Editor the selected row's fill ran past the tree under the window's right pane and hid the Node section's first line; it now ends at the tree's room (`dialog_view::fill_span`), held by `dialog_view::tests::the_selected_row_s_fill_stays_in_the_tree` and the UI test `conversation_lines::the_selected_row_s_fill_ends_at_the_tree_in_a_window`, both seen to fail. **Independent review** (`target/review-m5-P/`): its fault fixed, the fill test now also runs in a floating window.
+
+**P2. The parity documents.**
+
+**Done, 2026-11-22.** `docs/parity/aurora-ui-inventory.md` regenerated from its inputs (unchanged since 2026-10-12): identical apart from the timestamp, so the committed copy stayed; its generator's own words were then put in American English and the inventory regenerated (87 lines differ: the timestamp and those words). `docs/parity/checklists.md` checked against the code and the manual wherever a line names a Moonglow window, menu, panel, dock, key or command, and every test it names checked to exist: 7 untrue places fixed, 7 built things added, no tick flipped. **Independent review** (`target/review-m5-P/`), faults fixed: the palette's Edit Copy… row and the area camera's rows (Alt + drag, Options › Area › Middle drag moves the view) as built, and a second pass over the Blueprint editors and Palettes sections (7 more lines; Creature Spells' Meta-Magic now ✅).
 
 ### M6. The viewer
 

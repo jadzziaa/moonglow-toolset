@@ -879,7 +879,10 @@ fn table_editor() {
     t.set(5, label, Some("MyOwnDodge".into())).unwrap();
     let file = dir.join("feat.2da");
     std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The log closed: its lines showed at the window's left and right,
+    // as in `described_table`.)
+    app.settings.hide_log = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .wgpu()
@@ -944,6 +947,8 @@ fn table_editor() {
     }
     h.run_steps(4);
     h.get_by_label("Find References to Row 3").click();
+    // (Until the search through the game's tables has found them all.)
+    settle(&mut h);
     h.run_steps(4);
     shoot(&mut h, &dir, "table-editor-references");
     // The resource browser's Edit… on a table of the game's.
@@ -5458,9 +5463,9 @@ fn readme_area_candidates() {
     }
 }
 
-/// The README's screenshots, of the original campaign's first chapter,
-/// into `target/test-output/readme/`. They're cropped above the log pane
-/// (which shows the install's path) when copied to `docs/images`.
+/// The tiles palette's Gallery with Exact tile on, and Tile Properties
+/// with its Height, then with All tiles (#29), into
+/// `target/test-output/screens/`.
 #[test]
 #[ignore]
 fn exact_tiles_and_tile_height() {
@@ -7047,6 +7052,9 @@ fn area_paint() {
     h.run_steps(3);
 }
 
+/// The README's screenshots, of the original campaign's first chapter,
+/// into `target/test-output/readme/`. They're cut above the Bottom Dock
+/// (whose log shows the install's path) when copied to `docs/images`.
 #[test]
 #[ignore]
 fn readme_screenshots() {
@@ -7137,14 +7145,25 @@ fn readme_screenshots() {
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(utc)));
     h.run_steps(3);
-    for (tab, x) in [(mg_ui::Tab::Blueprint(utc), 250.0), (mg_ui::Tab::Model(utc), 960.0)] {
-        let path = h.state().dock.find_tab(&tab).unwrap();
-        if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
-            w.set_position(egui::pos2(x, 70.0))
-                .set_size(egui::vec2(if x < 500.0 { 700.0 } else { 600.0 }, 725.0));
+    // (Side by side, nothing of the editor's form under the model's
+    // window, and no gap between them, where what is behind showed. Each
+    // is put twice: egui holds a window inside the screen by the size it
+    // had the frame before (its `Area`'s constrain), so the model's
+    // window, opened wider than it is put, was pushed back to x 820; put
+    // again once it is narrow, it stays. Moonglow re-puts so in its own
+    // two cases (`lib.rs`'s `remember_window_sizes`, `track.aim`, and a
+    // NUI design's window put back narrow).)
+    let model = mg_ui::Tab::Model(utc);
+    for (tab, x, w) in [(mg_ui::Tab::Blueprint(utc), 250.0, 760.0), (model, 1010.0, 580.0)] {
+        for _ in 0..2 {
+            place(&mut h, &tab, (x, 70.0), (w, 725.0));
+            h.run_steps(5);
         }
     }
     h.run_steps(20);
+    let shown =
+        h.query_all_by_label("m1q1faribeth.utc").map(|n| n.rect().left()).fold(0.0, f32::max);
+    assert!(shown > 1010.0, "the model's tab at its window's place, not at {shown}");
     shoot(&mut h, &dir, "creature");
 
     // A script.

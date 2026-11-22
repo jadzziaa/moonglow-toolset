@@ -65,7 +65,7 @@ def items(c):
     return None
 
 
-# ---------- localisation tables ----------
+# ---------- localization tables ----------
 def base_for(fn):
     if fn in M.LOC_OVERRIDE: return M.LOC_OVERRIDE[fn]
     r = locb.get(fn)
@@ -482,12 +482,12 @@ def render_form(fn, out, parent_note=None, level='####'):
 FRONTMATTER = """---
 type: Reference
 title: Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
-description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behaviour each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
+description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behavior each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
 tags: [aurora, parity, ui, inventory, generated]
 generated: { by: process:aurora-uiinv-gen, at: {AT} }
 sources:
   - id: nwtoolset
-    resource: nwtoolset.exe of NWN:EE {VERSION} (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
+    resource: nwtoolset.exe of NWN:EE {VERSION} (its embedded DFM forms and per-form localization tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
     title: The Aurora toolset's executable and the game's data
 ---
 """

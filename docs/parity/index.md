@@ -1,4 +1,4 @@
-Parity with Aurora: the generated inventory of every Aurora form and control, and the control-by-control checklists of Moonglow against it. The `.json` files are the inventory generator's localisation data.
+Parity with Aurora: the generated inventory of every Aurora form and control, and the control-by-control checklists of Moonglow against it. The `.json` files are the inventory generator's localization data.
 
 <!-- okf index: generated; edit freely, or rerun `okf index` -->
 
@@ -8,4 +8,4 @@ Parity with Aurora: the generated inventory of every Aurora form and control, an
 
 # Reference
 
-* [Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory](aurora-ui-inventory.md) - Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behaviour each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
+* [Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory](aurora-ui-inventory.md) - Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behavior each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
