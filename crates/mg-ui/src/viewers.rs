@@ -35,8 +35,9 @@ static DECODED_OF: Mutex<Option<std::collections::HashMap<ResKey, usize>>> = Mut
 /// Pictures whose decodes wait until they are let go of (the tests': the
 /// frames go on meanwhile).
 static HELD: Mutex<Vec<ResKey>> = Mutex::new(Vec::new());
-/// A picture whose decode panics (the tests': nothing is left waiting).
-static FAILS: Mutex<Option<ResKey>> = Mutex::new(None);
+/// Pictures whose decodes panic (the tests': nothing is left waiting, the
+/// window decodes on).
+static FAILS: Mutex<Vec<ResKey>> = Mutex::new(Vec::new());
 
 /// How many pictures a window decodes at once; the rest wait their turn
 /// (a session restoring many picture tabs starts no more than this).
@@ -54,6 +55,11 @@ pub(crate) struct Decodes {
 #[derive(Default)]
 struct DecodesShared {
     queue: Mutex<Queue>,
+    /// Decodes waiting or under way. Taken down with `Release` after the
+    /// decode's picture is stored and `stored` set, and read with
+    /// `Acquire` (`busy`), so a frame that sees it at 0 sees `stored` too
+    /// and goes on one more frame to make the texture; relaxed, the two
+    /// could be seen in either order and `settle` stop a frame early.
     pending: AtomicUsize,
     /// A decode stored since the frame began: one more frame makes its
     /// texture where it is drawn (cleared as each frame begins, drawn or
@@ -63,7 +69,8 @@ struct DecodesShared {
 
 #[derive(Default)]
 struct Queue {
-    jobs: std::collections::VecDeque<Box<dyn FnOnce() + Send>>,
+    /// Each with its picture's mark (`Pending::id`), taken from the front.
+    jobs: std::collections::VecDeque<(usize, Box<dyn FnOnce() + Send>)>,
     workers: usize,
 }
 
@@ -76,11 +83,12 @@ impl std::fmt::Debug for Decodes {
 impl Decodes {
     /// How many pictures wait to be decoded or are being decoded.
     pub(crate) fn pending(&self) -> usize {
-        self.shared.pending.load(Ordering::Relaxed)
+        self.shared.pending.load(Ordering::Acquire)
     }
 
     /// Whether the window has decodes to wait for: waiting, under way, or
-    /// stored since this frame began (its texture made in the next).
+    /// stored since this frame began (its texture made in the next). The
+    /// count is read first (`Acquire`): see `DecodesShared::pending`.
     pub(crate) fn busy(&self) -> bool {
         self.pending() > 0 || self.shared.stored.load(Ordering::Relaxed)
     }
@@ -90,41 +98,76 @@ impl Decodes {
         self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).workers
     }
 
-    /// `job` run on one of the window's decoding threads, in its turn.
-    fn push(&self, job: Box<dyn FnOnce() + Send>) {
+    /// `job` (for the picture marked `id`) run on one of the window's
+    /// decoding threads, in its turn.
+    fn push(&self, id: usize, job: Box<dyn FnOnce() + Send>) {
         let mut q = self.shared.queue.lock().unwrap_or_else(|e| e.into_inner());
-        q.jobs.push_back(job);
-        if q.workers >= DECODERS {
-            return;
-        }
-        let shared = self.shared.clone();
-        let spawned =
-            std::thread::Builder::new().name("picture".into()).spawn(move || work(&shared));
-        match spawned {
-            Ok(_) => q.workers += 1,
-            // (No thread to be had and none at work: the jobs dropped, each
-            // picture saying it could not be read.)
-            Err(_) if q.workers == 0 => q.jobs.clear(),
-            Err(_) => {}
+        q.jobs.push_back((id, job));
+        staff(&self.shared, &mut q);
+    }
+}
+
+impl DecodesShared {
+    /// The picture marked `id`, drawn while it waits its turn, decoded
+    /// next: the one in sight before hidden ones (a session's restored
+    /// tabs behind it).
+    fn hurry(&self, id: usize) {
+        let mut q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = q.jobs.iter().position(|(i, _)| *i == id).filter(|&at| at > 0) {
+            let job = q.jobs.remove(at).expect("just found");
+            q.jobs.push_front(job);
         }
     }
 }
 
+/// A decoding thread started where jobs wait and fewer than
+/// [`DECODERS`] are at work (`q`: the queue, locked).
+fn staff(shared: &Arc<DecodesShared>, q: &mut Queue) {
+    if q.jobs.is_empty() || q.workers >= DECODERS {
+        return;
+    }
+    let held = shared.clone();
+    let spawned = std::thread::Builder::new().name("picture".into()).spawn(move || {
+        let worker = Worker(held);
+        work(&worker.0);
+    });
+    match spawned {
+        Ok(_) => q.workers += 1,
+        // (No thread to be had and none at work: the jobs dropped, each
+        // picture saying it could not be read.)
+        Err(_) if q.workers == 0 => q.jobs.clear(),
+        Err(_) => {}
+    }
+}
+
+/// A decoding thread's place in the count, given up however the thread
+/// ends (no job left, or a decode that panicked and took the thread): a
+/// thread that died uncounted would leave the window short of decoders,
+/// and after four every later picture would wait for ever. Jobs still
+/// waiting get a thread in its place.
+struct Worker(Arc<DecodesShared>);
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        let mut q = self.0.queue.lock().unwrap_or_else(|e| e.into_inner());
+        q.workers -= 1;
+        staff(&self.0, &mut q);
+    }
+}
+
 /// A decoding thread: the window's queued decodes taken in turn until
-/// none waits (a decode that panics is dropped, its picture failed).
+/// none waits. A decode that panics ends the thread (its `Done` fails
+/// its picture, its `Worker` gives up its place).
 fn work(shared: &DecodesShared) {
     loop {
         let job = {
             let mut q = shared.queue.lock().unwrap_or_else(|e| e.into_inner());
             match q.jobs.pop_front() {
-                Some(job) => job,
-                None => {
-                    q.workers -= 1;
-                    return;
-                }
+                Some((_, job)) => job,
+                None => return,
             }
         };
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+        job();
     }
 }
 
@@ -146,7 +189,7 @@ impl Drop for Done {
             }
         }
         self.shared.stored.store(true, Ordering::Relaxed);
-        self.shared.pending.fetch_sub(1, Ordering::Relaxed);
+        self.shared.pending.fetch_sub(1, Ordering::Release);
         self.ctx.request_repaint();
     }
 }
@@ -186,8 +229,14 @@ pub fn release(keys: &[ResKey]) {
 /// Makes the decode of `key`'s picture panic (`None`: none), for a test
 /// to see that nothing is left waiting.
 #[doc(hidden)]
-pub fn fail(key: Option<ResKey>) {
-    *FAILS.lock().unwrap_or_else(|e| e.into_inner()) = key;
+pub fn fail(keys: &[ResKey]) {
+    FAILS.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(keys);
+}
+
+/// Lets the decodes of `keys`' pictures succeed again.
+#[doc(hidden)]
+pub fn heal(keys: &[ResKey]) {
+    FAILS.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| !keys.contains(k));
 }
 
 type Decoded = Result<(egui::ColorImage, [usize; 2]), String>;
@@ -217,6 +266,10 @@ enum Stage {
 struct Pending {
     slot: Arc<Mutex<Option<Decoded>>>,
     name: String,
+    /// Its mark in the window's queue, and the queue (drawn while it
+    /// waits, it goes first: `DecodesShared::hurry`).
+    id: usize,
+    shared: Arc<DecodesShared>,
 }
 
 impl Picture {
@@ -237,34 +290,39 @@ impl Picture {
         };
         let side = ctx.input(|i| i.max_texture_side).max(16);
         let slot = Arc::new(Mutex::new(None));
-        let pending = Pending { slot: slot.clone(), name: format!("viewer-{key}") };
         let shared = app.decodes.shared.clone();
+        let id = Arc::as_ptr(&slot) as usize;
+        let name = format!("viewer-{key}");
+        let pending = Pending { slot: slot.clone(), name, id, shared: shared.clone() };
         shared.pending.fetch_add(1, Ordering::Relaxed);
         let done = Done { slot: Arc::downgrade(&slot), shared, ctx: ctx.clone() };
-        app.decodes.push(Box::new(move || {
-            // (Its picture let go of before its turn came: nothing to do.)
-            if done.slot.strong_count() == 0 {
-                return;
-            }
-            while HELD.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
-            if *FAILS.lock().unwrap_or_else(|e| e.into_inner()) == Some(key) {
-                panic!("a picture's decode failed on purpose (the tests')");
-            }
-            let made = decode_now(key.restype, &data, &palettes, side);
-            DECODED.fetch_add(1, Ordering::Relaxed);
-            *DECODED_OF
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .get_or_insert_default()
-                .entry(key)
-                .or_default() += 1;
-            if let Some(slot) = done.slot.upgrade() {
-                *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(made);
-            }
-            drop(done);
-        }));
+        app.decodes.push(
+            id,
+            Box::new(move || {
+                // (Its picture let go of before its turn came: nothing to do.)
+                if done.slot.strong_count() == 0 {
+                    return;
+                }
+                while HELD.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                if FAILS.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+                    panic!("a picture's decode failed on purpose (the tests')");
+                }
+                let made = decode_now(key.restype, &data, &palettes, side);
+                DECODED.fetch_add(1, Ordering::Relaxed);
+                *DECODED_OF
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_or_insert_default()
+                    .entry(key)
+                    .or_default() += 1;
+                if let Some(slot) = done.slot.upgrade() {
+                    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(made);
+                }
+                drop(done);
+            }),
+        );
         Picture { stage: Mutex::new(Stage::Decoding(pending)) }
     }
 
@@ -278,7 +336,10 @@ impl Picture {
         if let Stage::Decoding(p) = &*stage {
             let made = p.slot.lock().unwrap_or_else(|e| e.into_inner()).take();
             match made {
-                None => return Ok(None),
+                None => {
+                    p.shared.hurry(p.id);
+                    return Ok(None);
+                }
                 Some(Ok((image, size))) => {
                     let texture = ctx.load_texture(&p.name, image, egui::TextureOptions::LINEAR);
                     *stage = Stage::Ready(texture, size);

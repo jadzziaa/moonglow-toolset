@@ -587,6 +587,9 @@ pub struct AreaView {
     /// again only when either changes ([`sound_ranges_of`]).
     #[allow(clippy::type_complexity)]
     sound_ranges_kept: Option<((u64, Vec<(ObjectKind, usize)>), Vec<SoundRange>)>,
+    /// Sound Ranges' spheres and circles in the last picture made: each
+    /// one's middle, size (its distance) and opacity.
+    pub sound_rings: Vec<(Vec3, f32, f32)>,
     /// Tiles are selected rather than objects (Aurora's Select Terrain).
     pub tile_mode: bool,
     /// The selected tiles (column, row).
@@ -1247,6 +1250,7 @@ impl AreaView {
             object_walk_mesh: None,
             overlay_builds: [0; 2],
             sound_ranges_kept: None,
+            sound_rings: Vec::new(),
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
@@ -3729,6 +3733,9 @@ fn viewport(
             .collect();
         let size = (w as f32, h as f32);
         frame.line_shapes = sound_range_shapes(&placed, &sound_ranges, &orbit.camera(), size);
+        view.sound_rings = (frame.line_shapes.iter())
+            .flat_map(|s| s.copies.iter().map(|c| (c.offset, c.scale, c.color[3])))
+            .collect();
         // Options › Area: the background colour, if chosen (gamma space).
         if let Some([r, g, b]) = app.settings.area_background {
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
@@ -4174,12 +4181,14 @@ fn sound_ranges_of(app: &mut Moonglow, view: &mut AreaView) -> Vec<SoundRange> {
         return Vec::new();
     }
     let Some(ws) = app.ws.as_mut() else { return Vec::new() };
-    let key = (ws.revision(), view.selection.clone());
-    if let Some((kept, ranges)) = &view.sound_ranges_kept
-        && *kept == key
+    let revision = ws.revision();
+    if let Some(((at, selection), ranges)) = &view.sound_ranges_kept
+        && *at == revision
+        && *selection == view.selection
     {
         return ranges.clone();
     }
+    let key = (revision, view.selection.clone());
     let chosen = view.selected_set();
     let Ok(doc) = ws.doc(&view.git()) else { return Vec::new() };
     let list = doc.root.list(ObjectKind::Sound.list()).unwrap_or(&[]);
@@ -4361,11 +4370,13 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         return;
     }
     let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) else { return };
-    let baked = crate::bake_view::after_faces(app, model, view.area);
     let Some(at) = OverlayKey::of(view) else { return };
-    let key = ObjectOverlayKey { at, selection: view.selection.clone(), show: view.show, baked };
+    // (Nothing to work out without Bake Walkmesh to Transform open here.)
+    let baked = crate::bake_view::after_faces(app, model, view.area);
     if let Some((kept, mesh, edges)) = &view.object_walk_mesh
-        && *kept == key
+        && (kept.at, kept.show) == (at, view.show)
+        && kept.selection == view.selection
+        && kept.baked == baked
     {
         let painter = ui.painter_at(view.rect);
         painter.add(egui::Shape::Mesh(mesh.clone()));
@@ -4374,6 +4385,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         }
         return;
     }
+    let key = ObjectOverlayKey { at, selection: view.selection.clone(), show: view.show, baked };
     let baked = &key.baked;
     if view.object_faces.is_none() {
         view.object_faces = Some(view.object_walks.faces(game, model));

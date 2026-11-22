@@ -19,6 +19,12 @@ const WIDE: f32 = 659.0;
 /// ...and in the least window (a third of 334 - 6 is 109.33, less than
 /// 156).
 const NARROW: f32 = 334.0;
+/// The conversation editor's text sizes (Options › Conversation Editor,
+/// up to 48) at which the least window's tree has no room for an ellipsis
+/// of a reply's words beside its end words, and none for the end words
+/// themselves.
+const ALONE_SIZE: u8 = 34;
+const CUT_SIZE: u8 = 48;
 
 /// A line long enough to run past any tree.
 fn long(words: &str) -> String {
@@ -242,6 +248,10 @@ fn the_words_end_a_row_s_padding_short_of_the_scroll_bar() {
 #[test]
 fn marks_are_drawn_whole_or_not_at_all() {
     let mut g = new_dialog();
+    // (Twenty greetings first, so that the deep line can be out of sight.)
+    for i in 0..20 {
+        add_node(&mut g, Parent::Root, &format!("Greeting {i}."));
+    }
     let mut parent = Parent::Root;
     for i in 0..8 {
         let index = add_node(&mut g, parent, &format!("Step {i}."));
@@ -289,19 +299,108 @@ fn marks_are_drawn_whole_or_not_at_all() {
             }
         }
         let dropped = &all[drawn.len()..];
-        let named = match dropped.is_empty() {
-            true => label.clone(),
-            false => format!("{label}  {}", dropped.join("  ")),
-        };
-        let row = h.get_by_label(&named).rect();
+        // (One rule for the names: the row by its whole line, each mark a
+        // label by its words, drawn or dropped.)
+        let row = h.get_by_label(&label).rect();
+        for m in all {
+            h.get_by_label(m);
+        }
         if name == "1600" {
             assert_eq!(drawn, all, "every mark at 1600");
         } else {
             assert!(!dropped.is_empty(), "least: a mark dropped");
             let tip = tip_at(&mut h, row).unwrap_or_default();
             assert!(tip.contains(&label) && tip.contains(&dropped.join("  ")), "{tip:?}");
+            // Out of sight (Root chosen, the tree at its top): named alike.
+            let view = h.state_mut().dialog_views.get_mut(&key).unwrap();
+            view.selected = None;
+            view.nudge = true;
+            settle(&mut h);
+            assert!(
+                !painted(&h).iter().any(|(t, _, _)| t.starts_with("[OWNER] - Deep")),
+                "out of sight"
+            );
+            h.get_by_label(&label);
+            for m in all {
+                h.get_by_label(m);
+            }
         }
     }
+}
+
+/// A tree with no room for a row's padding, ` [END DIALOGUE]` and an
+/// ellipsis of the words (the least window, the editor's text at 34
+/// points): the reply's words go and its end words show alone, within the
+/// tree; at 48 points, the end words cut with an ellipsis. The row named
+/// by its whole line either way.
+#[test]
+fn a_very_narrow_tree_shows_the_end_words_alone() {
+    let who = long("Who are you?");
+    for (name, size, cut) in [("alone", ALONE_SIZE, false), ("cut", CUT_SIZE, true)] {
+        let (mut h, keys) = window_with(
+            Mode::Tabs,
+            &format!("ui-dialog-narrow-{name}"),
+            &["talk"],
+            &long_talk(),
+            mg_ui::LEAST_WINDOW_SIZE,
+            Vec::new(),
+        );
+        let key = keys[0];
+        h.state_mut().settings.dialog_font_size = Some(size);
+        settle(&mut h);
+        let right = h.state().dialog_views[&key].rows_right();
+        let tree = tree_rect(&h, key);
+        let shown: Vec<_> =
+            painted(&h).into_iter().filter(|(_, r, _)| tree.intersects(*r)).collect();
+        let end = shown.iter().find(|(t, _, _)| t.starts_with("[END DIALOGUE]"));
+        let (_, end, elided) = end.unwrap_or_else(|| panic!("{name}: the end words alone"));
+        assert_eq!(*elided, cut, "{name}: the end words cut");
+        assert!(
+            !shown.iter().any(|(t, r, _)| t.starts_with("Who are you?") && r.width() > 0.0),
+            "{name}"
+        );
+        let pad = h.ctx.global_style().spacing.button_padding.x;
+        let edge = right - mg_uikit::tree::ROW_PADDING_RIGHT - pad + 0.5;
+        assert!(end.right() <= edge, "{name}: {end:?} past {edge}");
+        let row = h.get_by_label(&format!("{who} [END DIALOGUE]")).rect();
+        assert!(row.right() <= right + 0.5, "{name}: the row within the tree");
+    }
+}
+
+/// A line found by the header's highlights (Sounds: the greeting and the
+/// reply given a sound) is marked behind its words as drawn: the cut words
+/// to their ellipsis and the reply's ` [END DIALOGUE]`, not the marks
+/// after them nor the row's padding.
+#[test]
+fn a_highlight_covers_the_line_as_drawn() {
+    let mut g = long_talk();
+    let rr = |s: &str| mg_gff::Value::resref(mg_core::ResRef::from_str(s).unwrap());
+    g.root.list_mut("ReplyList").unwrap()[0].set("Sound", rr("vs_who"));
+    let size = egui::vec2(1600.0, 900.0);
+    let (mut h, keys) = window_with(Mode::Tabs, "ui-dialog-highlight", &["talk"], &g, size, vec![]);
+    let key = keys[0];
+    h.state_mut().dialog_views.get_mut(&key).unwrap().highlight =
+        [false, false, false, false, true];
+    settle(&mut h);
+    let found = mg_uikit::tokens(&h.ctx).select.gamma_multiply(0.3);
+    let marked: Vec<egui::Rect> = (h.output().shapes.iter())
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Rect(r) if r.fill == found => Some(r.rect),
+            _ => None,
+        })
+        .collect();
+    let (_, hello, cut) = painted_from(&h, "[OWNER] - Hello there.");
+    assert!(cut, "the greeting cut");
+    let (_, reply, _) = painted_from(&h, "Who are you?");
+    let (_, end, _) = painted_from(&h, " [END DIALOGUE]");
+    let (_, sound, _) = painted_from(&h, "sound vs_long");
+    let near = |a: f32, b: f32| (a - b).abs() < 0.5;
+    let on = |left: f32, right: f32| {
+        marked.iter().any(|m| near(m.left(), left) && near(m.right(), right))
+    };
+    assert!(on(hello.left(), hello.right()), "the greeting's words: {marked:?} {hello:?}");
+    assert!(on(reply.left(), end.right()), "the reply's words and end words: {marked:?}");
+    assert!(marked.iter().all(|m| m.right() <= sound.left()), "not the marks");
 }
 
 /// The cut words are laid out for the rows in sight only, and again only

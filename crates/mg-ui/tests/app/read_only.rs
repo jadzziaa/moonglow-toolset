@@ -1074,9 +1074,9 @@ fn a_picture_under_its_bytes_is_kept_and_decoded_once() {
 fn a_picture_whose_decode_fails_leaves_nothing_waiting() {
     let bad = w6_key("mg_w6bad.tga");
     let files = [("mg_w6bad.tga", tga_of(8, 4))];
-    mg_ui::viewers::fail(Some(bad));
+    mg_ui::viewers::fail(&[bad]);
     let opened = viewed_in("ui-w6-decode-fails", 1600.0, &files, bad);
-    mg_ui::viewers::fail(None);
+    mg_ui::viewers::heal(&[bad]);
     let Some((h, _)) = opened else { return };
     assert!(in_tab(&h, "The picture could not be read.").is_some(), "said");
     assert_eq!(h.state().under_way(), None, "nothing waiting");
@@ -1116,6 +1116,119 @@ fn many_pictures_are_decoded_a_few_at_a_time() {
         decoded += n;
     }
     assert!(decoded >= 4, "the held ones decoded: {decoded}");
+}
+
+/// `key`'s tab opened in front, while its decode is held or waits: until
+/// it says it is being read.
+fn open_while_read(h: &mut Harness<'_, Moonglow>, key: ResKey) {
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(2);
+    let started = std::time::Instant::now();
+    while in_tab(h, "Reading the picture…").is_none() && started.elapsed().as_secs() < 10 {
+        h.run();
+    }
+    assert!(in_tab(h, "Reading the picture…").is_some(), "{key} being read");
+}
+
+/// Pictures of 8 by 4 pixels named `mg_w6{stem}{i}.tga` for each `i` in
+/// `0..n`: their file names and keys.
+fn w6_many(stem: &str, n: usize) -> (Vec<(String, Vec<u8>)>, Vec<ResKey>) {
+    let names: Vec<String> = (0..n).map(|i| format!("mg_w6{stem}{i}.tga")).collect();
+    let keys = names.iter().map(|n| w6_key(n)).collect();
+    (names.into_iter().map(|n| (n, tga_of(8, 4))).collect(), keys)
+}
+
+/// Five decodes that panic (each takes its decoding thread with it), then
+/// a good picture: the window still decodes it (a thread that died gives
+/// up its place, the review of M5, reviewer D; counted dead, four would
+/// have left every later picture waiting for ever).
+#[test]
+fn the_window_decodes_on_after_decodes_that_panic() {
+    let (mut files, keys) = w6_many("die", 5);
+    files.push(("mg_w6good.tga".into(), tga_of(8, 4)));
+    let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let good = w6_key("mg_w6good.tga");
+    mg_ui::viewers::fail(&keys);
+    let opened = viewed_in("ui-w6-panics", 1600.0, &files, keys[0]);
+    let Some((mut h, _)) = opened else {
+        mg_ui::viewers::heal(&keys);
+        return;
+    };
+    for k in &keys[1..] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(*k)));
+        settle(&mut h);
+        assert!(in_tab(&h, "The picture could not be read.").is_some(), "{k} failed");
+    }
+    mg_ui::viewers::heal(&keys);
+    let before = mg_ui::viewers::decoded_of(good);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(good)));
+    settle(&mut h);
+    assert!(in_tab(&h, "mg_w6good.tga, 8 by 4 pixels").is_some(), "decoded and shown");
+    assert_eq!(mg_ui::viewers::decoded_of(good), before + 1);
+    assert_eq!(h.state().picture_decodes(), (0, 0), "nothing left");
+}
+
+/// A picture whose tab closes while its decode waits its turn (four held
+/// ahead of it) is let go of before its turn comes, and not decoded.
+#[test]
+fn a_picture_let_go_of_before_its_turn_is_not_decoded() {
+    let (mut files, held) = w6_many("ahead", 4);
+    files.push(("mg_w6skip.tga".into(), tga_of(8, 4)));
+    let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let skip = w6_key("mg_w6skip.tga");
+    let Some((mut h, _)) = viewed_in("ui-w6-skip", 1600.0, &files, chicken()) else { return };
+    let before = mg_ui::viewers::decoded_of(skip);
+    mg_ui::viewers::hold(&held);
+    for k in &held {
+        open_while_read(&mut h, *k);
+    }
+    open_while_read(&mut h, skip);
+    assert_eq!(h.state().picture_decodes(), (4, 5), "four at work, one waiting");
+    for k in held.iter().chain([&skip]) {
+        close_tab(h.state_mut(), &Tab::Resource(*k));
+    }
+    let started = std::time::Instant::now();
+    while h.state().read_only_pictures() > 0 && started.elapsed().as_secs() < 10 {
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let let_go = h.state().read_only_pictures();
+    mg_ui::viewers::release(&held);
+    assert_eq!(let_go, 0, "let go of");
+    settle(&mut h);
+    assert_eq!(mg_ui::viewers::decoded_of(skip), before, "not decoded");
+    assert_eq!(h.state().picture_decodes(), (0, 0));
+}
+
+/// The picture in sight goes first: with every decoding thread busy and
+/// two pictures of tabs now behind waiting, the one in front (opened last)
+/// is decoded at the first free thread, before them.
+#[test]
+fn the_picture_in_sight_is_decoded_before_hidden_ones() {
+    let (files, keys) = w6_many("turn", 7);
+    let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, d)| (n.as_str(), d.clone())).collect();
+    let Some((mut h, _)) = viewed_in("ui-w6-turn", 1600.0, &files, chicken()) else { return };
+    let (held, front) = (&keys[..6], keys[6]);
+    let before = mg_ui::viewers::decoded_of(front);
+    mg_ui::viewers::hold(held);
+    for k in &keys {
+        open_while_read(&mut h, *k);
+    }
+    assert_eq!(h.state().picture_decodes(), (4, 7), "four at work, three waiting");
+    // (One thread freed: it takes the picture in front.)
+    mg_ui::viewers::release(&keys[..1]);
+    let started = std::time::Instant::now();
+    while mg_ui::viewers::decoded_of(front) == before && started.elapsed().as_secs() < 5 {
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let decoded = mg_ui::viewers::decoded_of(front) - before;
+    let waiting = h.state().picture_decodes().1;
+    mg_ui::viewers::release(held);
+    assert_eq!(decoded, 1, "the one in front decoded first");
+    assert_eq!(waiting, 5, "the hidden ones still waiting (two) or held (three)");
+    settle(&mut h);
+    assert!(in_tab(&h, "mg_w6turn6.tga, 8 by 4 pixels").is_some(), "shown");
 }
 
 /// A model open read-only (a layer's copy, or opened so by a plugin) is

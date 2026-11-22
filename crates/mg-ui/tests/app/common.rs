@@ -2757,6 +2757,22 @@ pub(crate) fn painted_inside(h: &Harness<'_, Moonglow>, within: egui::Rect) -> b
     seen
 }
 
+/// The rectangle around what the last frame painted, other than text,
+/// inside `within` (an icon's ink).
+pub(crate) fn painted_extent(h: &Harness<'_, Moonglow>, within: egui::Rect) -> Option<egui::Rect> {
+    let mut seen: Option<egui::Rect> = None;
+    for clipped in &h.output().shapes {
+        painted(&clipped.shape, &mut |shape| {
+            let r = shape.visual_bounding_rect();
+            let text = matches!(shape, egui::Shape::Text(_));
+            if !text && r.is_positive() && within.contains_rect(r) {
+                seen = Some(seen.map_or(r, |s| s.union(r)));
+            }
+        });
+    }
+    seen
+}
+
 fn painted(shape: &egui::Shape, f: &mut impl FnMut(&egui::Shape)) {
     match shape {
         egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| painted(s, f)),

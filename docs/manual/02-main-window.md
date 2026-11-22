@@ -1386,8 +1386,9 @@ page or a panel, **Pop Out** is there too), never onto a second row. A
 model's tab says its name, nodes, meshes, parts and supermodel over the
 row. **Frame** fits the whole model in the view, across a narrow one too
 (the Preview beside a form), and the view stays framed as its shape
-changes until you move or zoom it; turned, the model stays whole in the
-view, at the same size. An item modeled lying
+changes until you move or zoom it; turned about, the model stays whole
+in the view, at the same size (tilted far over or under it, a long model
+can reach past the view's edges). An item modeled lying
 (a sword, an axe) is stood on its end, its broad side to you: a blade
 shows its flat, not its edge. **Lights**
 lights it with its own light nodes. **Shadow** (on unless you turn it

@@ -2813,9 +2813,15 @@ fn the_script_editor_has_the_board_s_line_pitch_and_gutter() {
         let (_, r) = at.unwrap_or_else(|| panic!("line {number}'s number not on its row"));
         assert!((r.right() - (drawn.max - 10.0)).abs() < 0.5, "{number} right-aligned: {r:?}");
     }
+    // (The mark in the first 10 points, 2 clear before the numbers' column:
+    // its ink, which fills about 70% of its square, 3 or more clear.)
     let pad =
-        egui::Rect::from_x_y_ranges(drawn.min..=drawn.min + 12.0, a.top() + 54.0..=a.top() + 72.0);
+        egui::Rect::from_x_y_ranges(drawn.min..=drawn.min + 10.0, a.top() + 54.0..=a.top() + 72.0);
     assert!(painted_inside(&h, pad), "the bookmark's icon before line 4's number");
+    let room = egui::Rect::from_x_y_ranges(drawn.min..=drawn.min + 12.0, pad.y_range());
+    let icon = painted_extent(&h, room).expect("the icon");
+    let column = drawn.min + 12.0;
+    assert!(column - icon.right() >= 3.0, "the icon clear of the numbers: {icon:?}");
     let above = pad.translate(egui::vec2(0.0, -18.0));
     assert!(!painted_inside(&h, above), "none before line 3's");
     // For a screen reader: the gutter by what it shows, the field by the

@@ -2404,6 +2404,113 @@ fn a_sound_s_random_range_is_drawn_its_ranges_wide() {
     image.save(mg_testkit::output_dir("sound-range").join(format!("{name}-pitched.png"))).unwrap();
 }
 
+/// Sound Ranges' rings follow the area's sounds as they change, though
+/// the view keeps the sounds it read while nothing changes: a sound's
+/// MaxDistance edited, a sound added, one taken out, that undone, and the
+/// selection changed (its rings brighter), each seen in the next picture.
+#[test]
+fn sound_ranges_follow_each_edit_of_the_sounds() {
+    use glam::Vec3;
+    use mg_module::instances::{Placement, Placing, instance};
+    let sound = |game: &mg_rules::GameData, at: Vec3, min: f32, max: f32| {
+        let key = ResKey::parse("animalcriesday", ResType::UTS).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let place = Placement { position: [at.x, at.y, at.z], rotation: 0.0 };
+        let mut s = instance(&placing, ResType::UTS, &bp.root, place, &[]).unwrap();
+        s.set("MinDistance", mg_gff::Value::Float(min));
+        s.set("MaxDistance", mg_gff::Value::Float(max));
+        s.set("Positional", mg_gff::Value::Byte(1));
+        s
+    };
+    let (a, b, c) =
+        (Vec3::new(14.0, 20.0, 1.0), Vec3::new(26.0, 20.0, 1.0), Vec3::new(20.0, 28.0, 1.0));
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let list = vec![sound(game, a, 3.0, 12.0), sound(game, b, 2.0, 6.0)];
+        git.root.set("SoundList", mg_gff::Value::List(list));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("sound-follow", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.sound_ranges = true;
+        if let Some(o) = &mut view.orbit {
+            o.target = Vec3::new(20.0, 20.0, 0.0);
+            (o.pitch, o.yaw, o.distance) = (89f32.to_radians(), -90f32.to_radians(), 70.0);
+        }
+    }
+    settle(&mut h);
+    h.run_steps(2);
+    // Each sound's rings (its spheres' and circle's sizes and opacities)
+    // in the last picture, by its place.
+    let rings = |h: &Harness<'_, Moonglow>, at: Vec3| {
+        let mut out: Vec<(f32, f32)> = (h.state().area_views[&area].sound_rings.iter())
+            .filter(|(p, _, _)| p.truncate().distance(at.truncate()) < 0.1)
+            .map(|&(_, size, alpha)| (size, alpha))
+            .collect();
+        out.sort_by(|x, y| x.0.total_cmp(&y.0));
+        out
+    };
+    let dim = |sizes: &[f32]| sizes.iter().map(|&s| (s, 0.8)).collect::<Vec<_>>();
+    assert_eq!(rings(&h, a), dim(&[3.0, 12.0, 12.0]), "as read");
+    assert_eq!(rings(&h, b), dim(&[2.0, 6.0, 6.0]), "as read");
+    let git = ResKey::new(area, ResType::GIT);
+    let step = |h: &mut Harness<'_, Moonglow>, edit: mg_edit::Edit| {
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Edit", vec![edit])));
+        settle(h);
+        h.run_steps(2);
+    };
+    step(
+        &mut h,
+        mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("SoundList", 0),
+            label: "MaxDistance".into(),
+            value: Some(mg_gff::Value::Float(9.0)),
+        },
+    );
+    assert_eq!(rings(&h, a), dim(&[3.0, 9.0, 9.0]), "its MaxDistance edited");
+    let added = sound(h.state().game.as_deref().unwrap(), c, 1.0, 4.0);
+    step(
+        &mut h,
+        mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "SoundList".into(),
+            index: 2,
+            item: added,
+        },
+    );
+    assert_eq!(rings(&h, c), dim(&[1.0, 4.0, 4.0]), "a sound added");
+    step(
+        &mut h,
+        mg_edit::Edit::RemoveItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "SoundList".into(),
+            index: 1,
+        },
+    );
+    assert_eq!(rings(&h, b), [], "a sound taken out");
+    assert_eq!(rings(&h, c), dim(&[1.0, 4.0, 4.0]), "the one after it kept");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    h.run_steps(2);
+    assert_eq!(rings(&h, b), dim(&[2.0, 6.0, 6.0]), "taken out, undone");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Sound, 1)];
+    h.run_steps(2);
+    let bright = [2.0, 6.0, 6.0].map(|s| (s, 1.0));
+    assert_eq!(rings(&h, b), bright, "selected: brighter");
+    assert_eq!(rings(&h, a), dim(&[3.0, 9.0, 9.0]), "the others as they were");
+}
+
 #[test]
 fn a_blueprint_about_to_be_placed_shows_in_the_views_picture() {
     // A dark stone statue, see-through over the ground, shows in the

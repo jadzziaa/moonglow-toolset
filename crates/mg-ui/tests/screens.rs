@@ -4553,7 +4553,7 @@ fn script_live_error_small_sizes() {
     m.set(key, text.as_bytes().to_vec());
     let path = dir.join("s.mod");
     m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
-    for size in [8u8, 9] {
+    for size in [6u8, 8, 9, 13] {
         let game = GameInstall::new(&root, None, "en");
         let mut app = Moonglow::new(Some(game), Box::new(NoDialogs::default()));
         app.settings.open_editors = mg_ui::OpenEditors::Tabs;
@@ -16906,12 +16906,14 @@ fn w8_shots(
     }
 }
 
-/// M5's W8 fix round (W8-1, the owner's ruling "preview turn: a"): a
+/// M5's W8 (the owner's rulings "preview turn: a" and "fit: b"): a
 /// blueprint's own Preview beside its tab docked at 320 in 1600 by 900,
-/// at the first view's yaw, framed: the full wagon, the long table and
-/// the obelisk (a tall model), to see the size the fit gives. Into
-/// `screens/w8-fit/` (`MG_W8_FIT_DIR` names another folder, for a run
-/// before and one after).
+/// framed (`w8-fit-NAME`), and its model's tab in a window of its own,
+/// its picture wide (`-wide`): the full wagon, the long table, the
+/// obelisk (a tall model) and a commoner, to see the size the fit gives;
+/// and in `fit-sizes.txt` the distances each rule needs, by an oracle
+/// ([`w8_needed`]). Into `screens/w8-fit/` (`MG_W8_FIT_DIR` names
+/// another folder).
 #[test]
 #[ignore]
 fn w8_fit_sizes() {
@@ -16935,11 +16937,163 @@ fn w8_fit_sizes() {
             keys.push((name.to_string(), key));
         }
     }
-    h.state_mut().settings.window_places = vec![("placeable".to_string(), "middle".to_string())];
+    keys.push(("commoner".to_string(), ResKey::parse("nw_comfemale", ResType::UTC).unwrap()));
+    h.state_mut().settings.window_places = vec![
+        ("placeable".to_string(), "middle".to_string()),
+        ("creature".to_string(), "middle".to_string()),
+    ];
     right_dock_width(&mut h, 320.0);
+    let mut table = String::from(
+        "model, picture (aspect): the framed distance; the distance needed (of the target) for \
+         the first view's angle alone (U11), every yaw at its pitch (W8, \"fit: b\"), every yaw \
+         and pitch (review D's round, taken back); the size framed against each (their \
+         distance over the framed)\n",
+    );
     for (name, key) in &keys {
-        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(*key)));
+        let source = mg_ui::model_view::Source::Resource(*key);
+        let blueprint = mg_ui::Tab::Blueprint(*key);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(blueprint.clone()));
         pictures_shown(&mut h);
         shoot(&mut h, &dir, &format!("w8-fit-{name}"));
+        table.push_str(&w8_sizes(&h, &source, name, "tall Preview"));
+        // (Its model's tab, the blueprint's closed: in a window of its own
+        // whose picture is about review D's 906 by 631.)
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(blueprint));
+        let model = mg_ui::Tab::Model(*key);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(model.clone()));
+        pictures_shown(&mut h);
+        {
+            let dock = &mut h.state_mut().dock;
+            let found = dock.find_tab(&model).unwrap();
+            let tab = dock.remove_tab(found).unwrap();
+            let surface = dock.add_window(vec![tab]);
+            dock.get_window_state_mut(surface)
+                .unwrap()
+                .set_position(egui::pos2(100.0, 80.0))
+                .set_size(egui::vec2(920.0, 700.0));
+        }
+        pictures_shown(&mut h);
+        shoot(&mut h, &dir, &format!("w8-fit-{name}-wide"));
+        table.push_str(&w8_sizes(&h, &source, name, "wide picture"));
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(model));
+        pictures_shown(&mut h);
+    }
+    eprint!("{table}");
+    std::fs::write(dir.join("fit-sizes.txt"), table).unwrap();
+}
+
+/// [`w8_fit_sizes`]'s line for `source`'s view as it is now (`picture`
+/// names where it is shown).
+fn w8_sizes(
+    h: &Harness<'_, Moonglow>,
+    source: &mg_ui::model_view::Source,
+    name: &str,
+    picture: &str,
+) -> String {
+    let view = &h.state().model_views[source];
+    let (orbit, points) = (view.orbit, view.reached());
+    let shown = view.shown_at().unwrap();
+    let aspect = shown.width() / shown.height();
+    let yaws: Vec<f32> = (0..72).map(|i| (i as f32 * 5.0).to_radians()).collect();
+    let pitches: Vec<f32> = (0..30).map(|i| -1.45 + 2.9 * i as f32 / 29.0).collect();
+    let first = w8_needed(orbit, &points, aspect, &[orbit.yaw], &[orbit.pitch]);
+    let at_pitch = w8_needed(orbit, &points, aspect, &yaws, &[orbit.pitch]);
+    let every = w8_needed(orbit, &points, aspect, &yaws, &pitches);
+    let framed = orbit.distance;
+    format!(
+        "{name}, {picture} ({aspect:.3}): framed {framed:.3}; {first:.3}, {at_pitch:.3}, \
+         {every:.3}; size {:.2} of U11's, {:.2} of \"fit: b\"'s, {:.2} of review D's round's\n",
+        first / framed,
+        at_pitch / framed,
+        every / framed,
+    )
+}
+
+/// The least distance from `orbit`'s target at which `points` show whole
+/// in a picture `aspect` wide to its height, the fit's room (1.08) round
+/// them, at every one of `yaws` and `pitches` ([`w8_fit_sizes`]'s
+/// oracle: by the projection the views draw with, apart from the fit).
+fn w8_needed(
+    orbit: mg_ui::area_view::Orbit,
+    points: &[glam::Vec3],
+    aspect: f32,
+    yaws: &[f32],
+    pitches: &[f32],
+) -> f32 {
+    let whole = |distance: f32| {
+        pitches.iter().all(|&pitch| {
+            yaws.iter().all(|&yaw| {
+                let o = mg_ui::area_view::Orbit { yaw, pitch, distance, ..orbit };
+                let camera = o.camera();
+                let vp = camera.projection(aspect) * camera.view();
+                points.iter().all(|p| {
+                    mg_area::pick::project_by(vp, camera.near, *p).is_some_and(|q| {
+                        (2.0 * q.x - 1.0).abs() * 1.08 <= 1.0
+                            && (2.0 * q.y - 1.0).abs() * 1.08 <= 1.0
+                    })
+                })
+            })
+        })
+    };
+    let (mut low, mut high) = (0.01f32, 1.0f32);
+    while !whole(high) {
+        high *= 2.0;
+    }
+    for _ in 0..24 {
+        let mid = 0.5 * (low + high);
+        if whole(mid) { high = mid } else { low = mid }
+    }
+    high
+}
+
+/// M5's W8, second fix round (review D: in Light the lit edge went dark
+/// beside the Preview's dark picture): the Right Dock's edge beside a
+/// placeable's tab docked, its own Preview showing the long table, the
+/// pointer over the edge 2 points outside it, in Dark and in Light
+/// (`w8-seam-hover-dark`, `-light`), and a crop of the edge 3 times as big
+/// (`-near`). Into `screens/w8-seam/`.
+#[test]
+#[ignore]
+fn w8_seam_hover() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("w8-seam");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+    let wagon = ResKey::parse("plc_fullwagon", ResType::UTP).unwrap();
+    let table = ResKey::parse("w8_table", ResType::UTP).unwrap();
+    {
+        let game = h.state().game.as_deref().unwrap();
+        let bytes = game.resman.get(&wagon).unwrap().into_owned();
+        let mut g = mg_gff::Gff::read(&bytes).unwrap();
+        g.root.set("Appearance", mg_gff::Value::Dword(732));
+        h.state_mut().ws.as_mut().unwrap().module.set(table, g.to_bytes().unwrap());
+    }
+    h.state_mut().settings.window_places = vec![("placeable".to_string(), "middle".to_string())];
+    right_dock_width(&mut h, 320.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(table)));
+    for (light, name) in [(false, "dark"), (true, "light")] {
+        h.state_mut().settings.light_theme = light;
+        pictures_shown(&mut h);
+        let dock = h.state().right_dock_rect().unwrap();
+        h.hover_at(egui::pos2(dock.left() - 2.0, dock.center().y));
+        h.run_steps(3);
+        let image = h.render().expect("render");
+        image.save(dir.join(format!("w8-seam-hover-{name}.png"))).unwrap();
+        let ppp = h.ctx.pixels_per_point();
+        let near = egui::Rect::from_center_size(dock.left_center(), egui::vec2(120.0, 160.0));
+        let crop = image::imageops::crop_imm(
+            &image,
+            (near.left() * ppp) as u32,
+            (near.top() * ppp) as u32,
+            (near.width() * ppp) as u32,
+            (near.height() * ppp) as u32,
+        )
+        .to_image();
+        let (w, h3) = (crop.width() * 3, crop.height() * 3);
+        let big = image::imageops::resize(&crop, w, h3, image::imageops::FilterType::Nearest);
+        big.save(dir.join(format!("w8-seam-hover-{name}-near.png"))).unwrap();
+        h.hover_at(egui::pos2(dock.left() - 300.0, dock.center().y));
+        h.run_steps(2);
     }
 }

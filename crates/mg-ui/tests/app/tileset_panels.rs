@@ -1661,6 +1661,29 @@ fn a_tileset_in_the_override_changed_outside_is_redrawn() {
     assert!(logged(&h, "Reloaded override") >= 1, "the override read again");
 }
 
+/// A look at every file (the watch's start, its walk every few seconds
+/// where the system does not tell it, or after its events overflowed)
+/// reads only the tilesets whose file's time or length moved: one made
+/// unreadable without changing them (its mode) is not read as the watch
+/// starts again, so nothing is said of it; rewritten, the walk finds it and
+/// it is read again.
+#[test]
+fn a_look_at_every_file_reads_only_a_tileset_changed() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut h, path, _) = tileset_window(Mode::Tabs, "ui-w5-walk", 1600.0, None, false);
+    watched(&mut h);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+    h.state_mut().walk_tileset_files();
+    outside_quiet(&mut h, 900);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(logged(&h, "can't be read now"), 0, "the untouched file not read");
+    std::fs::write(&path, SET.replace("Model=tcn01_a01_01", "Model=zzt01_walked")).unwrap();
+    outside_wait(&mut h, "read again by the walk", |app| {
+        app.tilesets[0].tileset().is_some_and(|t| t.tiles[0].model == "zzt01_walked")
+    });
+    assert_eq!(logged(&h, "read again (changed outside Moonglow)"), 1);
+}
+
 /// Text typed into a tileset's field and not yet set when its file changes
 /// outside is set first, so that it counts as an unsaved change: kept, and
 /// asked about (Changed Outside Moonglow), never lost to the file's text.

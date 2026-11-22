@@ -245,6 +245,11 @@ pub(crate) fn describe_line(field: &egui::Response, line: usize, lines: usize) {
 /// a bookmark's mark is painted.
 pub(crate) const GUTTER_LEFT: f32 = 12.0;
 
+/// Between a bookmark's mark and the widest line number: the marks are
+/// drawn in the rest of [`GUTTER_LEFT`] (the board draws no mark, so no
+/// measure of its own; a 12-point icon there touched the numbers).
+pub(crate) const MARK_GAP: f32 = 2.0;
+
 /// The room after them (`.code .ln`'s `padding-right`).
 pub(crate) const GUTTER_RIGHT: f32 = 10.0;
 
@@ -427,7 +432,7 @@ fn paint_marks(
         let row = galley.rows.get(line)?;
         let rect = egui::Rect::from_min_size(
             at + row.pos.to_vec2() + egui::vec2(left - at.x - row.pos.x, 0.0),
-            egui::vec2(GUTTER_LEFT, row.size.y),
+            egui::vec2(GUTTER_LEFT - MARK_GAP, row.size.y),
         );
         clip.intersects(rect).then_some(rect)
     };
@@ -436,7 +441,7 @@ fn paint_marks(
             continue;
         }
         let Some(rect) = place(*line) else { continue };
-        let side = rect.height().min(GUTTER_LEFT);
+        let side = rect.height().min(rect.width());
         let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
         mg_uikit::Icon::Bookmark.paint(ui.painter(), square, color);
     }
@@ -748,10 +753,14 @@ mod tests {
         }
     }
 
-    /// The live error's wave (`script_view::wave_y`) under the text and
+    /// The live error's wave (`script_view::wave_y`) under the baseline and
     /// within its row at every size Options allows and every interface
     /// size: the board's 3 points under the baseline at 13, never into the
-    /// next line (at 9 and under, 3 points would have run into it).
+    /// next line (at 9 and under, 3 points would have run into it). It may
+    /// touch the descenders: it lies at their foot, as the board draws it
+    /// and as editors do (the coordinator's ruling, W3's second fix round:
+    /// a wave clear of them would need a 24-point pitch at 13, or the text
+    /// off center).
     #[test]
     fn the_error_wave_stays_in_its_row() {
         let half = mg_uikit::WAVE_HEIGHT / 2.0 + 0.5;

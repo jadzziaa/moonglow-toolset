@@ -851,7 +851,8 @@ Shared parts:
   window of its own). A change
   shows as you make it. The model is framed whole whatever the panel's
   shape (until you move or zoom the view), and stays whole, at the same
-  size, as the view turns; a new appearance is framed
+  size, as the view turns about it (tilted far over or under it, a long
+  model can reach past the picture's edges); a new appearance is framed
   anew. Over the
   model is one header row:
   **Animation**, **Play** or **Pause**, **Frame**, the **Lights**,

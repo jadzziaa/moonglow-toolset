@@ -5059,7 +5059,7 @@ const RIGHT_EDGE: &str = "right-dock-edge";
 /// has a widget there (a form's scroll area beside the Preview), which
 /// left 2.5 points to find. Made after the editor area, 3 points either
 /// side of the edge, as the dock's other seams are: the resize cursor, the
-/// edge lit as egui lights a panel's, and a drag keeps the width dragged
+/// edge lit in the kit's accent, and a drag keeps the width dragged
 /// to (`keep_right_width`), held to the dock's range, the point taken
 /// staying under the pointer.
 pub(crate) fn right_edge_seam(app: &mut Moonglow, ui: &Ui) {
@@ -5091,7 +5091,7 @@ pub(crate) fn window_edge_id(pane: egui::Id) -> egui::Id {
 }
 
 /// A panel's left edge `edge` as a seam of id `id`, 3 points either side
-/// of it (the resize cursor, the edge lit as egui lights a panel's):
+/// of it (the resize cursor, the edge lit in the kit's accent):
 /// dragged, the width it is dragged to, held to its range, the point
 /// taken staying under the pointer.
 fn edge_seam(ui: &Ui, id: egui::Id, edge: RightEdge) -> Option<f32> {
@@ -5104,11 +5104,14 @@ fn edge_seam(ui: &Ui, id: egui::Id, edge: RightEdge) -> Option<f32> {
         return None;
     }
     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-    let widgets = &ui.visuals().widgets;
-    let stroke = if seam.dragged() { widgets.active.fg_stroke } else { widgets.hovered.fg_stroke };
+    // (In the kit's accent, as the editor groups' seams light (egui_dock's
+    // separators, `mg_uikit::dock`), 2 points across the edge: the hovered
+    // stroke's colour was dark in Light and all but gone beside the
+    // Preview's dark picture, review D.)
+    let stroke = egui::Stroke::new(2.0, mg_uikit::tokens(ui.ctx()).accent);
     let painter =
         (ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Middle, id))).with_clip_rect(grip);
-    painter.vline(x + 0.5 * stroke.width, edge.dock.y_range(), stroke);
+    painter.vline(x, edge.dock.y_range(), stroke);
     let at = seam.interact_pointer_pos()?;
     // (Where on the seam it was taken: the edge follows that point.)
     let taken = id.with("taken");

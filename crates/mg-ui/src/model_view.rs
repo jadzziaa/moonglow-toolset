@@ -352,6 +352,11 @@ pub struct ModelView {
     /// since): framed again when the picture's shape changes, so that a
     /// tall, narrow view (the Preview panel's) shows the model whole.
     framed: bool,
+    /// What [`ModelView::frame`] made of the model's points last, kept so
+    /// that a picture of another shape is framed anew by it alone, not by
+    /// the model's points read again (a Right Dock dragged wider fits it
+    /// every frame).
+    fit: Option<Fit>,
     /// Where its picture was last drawn in the window (for the tests).
     shown_at: Option<egui::Rect>,
     /// Its pictures drawn, all told (once a pass at most), and how many
@@ -965,9 +970,13 @@ impl ModelView {
         // (Another model, framed anew where the camera is where Frame put
         // it: a 2 m wagon changed to a 5 m table in its form was cut at
         // the sides of a tall Preview. Moved by hand, it stays; a model's
-        // file read again keeps its camera.)
+        // file read again keeps its camera, and a picture of another shape
+        // is framed by its points as they are now, not by the fit kept.)
         if self.framed && !model {
             self.frame();
+        }
+        if model {
+            self.fit = None;
         }
     }
 
@@ -1021,6 +1030,7 @@ impl ModelView {
             rest_box: None,
             aspect: 1.0,
             framed: false,
+            fit: None,
             shown_at: None,
         };
         view.frame();
@@ -1063,9 +1073,22 @@ impl ModelView {
     pub fn frame(&mut self) {
         let stood = self.reached();
         let Some((min, max)) = mg_render::box_of(stood.iter().copied()) else { return };
-        self.orbit.target = (min + max) * 0.5;
-        self.orbit.distance = fitting_distance(&self.orbit, &stood, self.aspect);
+        let fit = Fit::of((min + max) * 0.5, &stood, self.orbit.pitch);
+        self.orbit.target = fit.target;
+        self.orbit.distance = fit.distance(self.aspect);
+        self.fit = Some(fit);
         self.framed = true;
+    }
+
+    /// Framed anew for a picture of another shape, by what the last
+    /// [`ModelView::frame`] kept (else framed from the start).
+    fn refit(&mut self) {
+        match &self.fit {
+            Some(fit) => {
+                (self.orbit.target, self.orbit.distance) = (fit.target, fit.distance(self.aspect))
+            }
+            None => self.frame(),
+        }
     }
 
     fn camera(&self) -> Camera {
@@ -1093,58 +1116,78 @@ const BACKGROUND: [f32; 3] = [0.16, 0.18, 0.21];
 /// the viewer's dark background, so more.
 const GROUND_SHADOW_OPACITY: f32 = 0.6;
 
-/// The ground the model viewer's model casts its shadow on (the Shadow
-/// switch): a square, unlit, of the viewer's background color, so that it
-/// is unseen but for the shadow on it; facing up alone (seen from below,
-/// the model shows whole). A 2 m square about the origin, at height 0.
-/// How far from its target `orbit`'s camera stands to show the points
-/// `corners` whole in a picture `aspect` wide to its height, a little room
-/// round them: what the camera sees fitted across and up apart (the
-/// camera sees 20° either way up and down, and across as much more or
-/// less as the picture is wider or narrower), so that a tall creature
-/// fills a tall view's height and a wide door a narrow view's width.
+/// What fitting a model's points in a view needs, made once from them
+/// ([`Fit::of`]) and kept: where the camera looks (`target`) and, for a
+/// picture of any shape, how far from it it stands ([`Fit::distance`]) to
+/// show the points whole, a little room round them. The camera sees 20°
+/// either way up and down, and across as much more or less as the picture
+/// is wider or narrower: what it sees is fitted across and up apart, so
+/// that a tall creature fills a tall view's height and a wide door a
+/// narrow view's width.
 ///
-/// Fitted for every turn about the up axis at once (M5's W8, the owner's
-/// ruling "preview turn: a"): each point as the ring it sweeps as the
-/// model turns about the target's up line (its height and its distance
-/// from that line), so that a drag or an arrow key never carries a framed
-/// model out of the picture and its size holds while it turns; a long
-/// model shows a little smaller at the first view's yaw than a fit for
-/// that yaw alone would make it. (The distance a point needs is, at
-/// each turn, the largest of sums of terms linear in its distance from
-/// the line and its height: convex in them, so the rings at the corners
-/// of the hull of those pairs alone need fitting.)
-fn fitting_distance(orbit: &Orbit, corners: &[Vec3], aspect: f32) -> f32 {
+/// Fitted for every yaw at the pitch the view is framed at (M5's W8, the
+/// owner's rulings "preview turn: a" and "fit: b"): a turn about the up
+/// axis never carries a framed model out of the picture and its size holds
+/// while it turns. A tilt is not fitted: tilted steeply, a long model in a
+/// wide picture can reach past its edges (fitting every pitch too made a
+/// creature in the tall Preview about a quarter smaller). Each point is
+/// the ring it sweeps about the target's up line (its distance from that
+/// line and its height); the distance a ring's point needs, at each yaw,
+/// is the larger of two sums of terms linear in those two: convex in them,
+/// so the rings at the corners of the hull of those pairs alone are
+/// fitted. What the picture's shape changes (the across fit) is kept as a
+/// line for each ring's point; the up fit is the same for every shape.
+#[derive(Clone, Debug)]
+pub(crate) struct Fit {
+    pub(crate) target: Vec3,
+    /// The distance the up and down fit needs (and in front of the
+    /// nearest point), whatever the picture's shape.
+    up: f32,
+    /// For each ring's point, how far toward the camera it is and how far
+    /// across (with the room): it needs `toward + across / tan` of the
+    /// picture's across angle.
+    across: Vec<(f32, f32)>,
+}
+
+impl Fit {
+    /// The room round the model.
     const ROOM: f32 = 1.08;
-    /// Points round each ring (5° apart: a ring's chord falls short of
-    /// its arc by under 0.4% of its radius, well within `ROOM`).
+    /// Points round each ring (5° apart: a ring's chord falls short of its
+    /// arc by under 0.4% of its radius, well within the room).
     const RING: usize = 72;
-    let up_tan = 20f32.to_radians().tan();
-    let across_tan = up_tan * aspect.max(0.05);
-    let cam = orbit.camera();
-    let fwd = (cam.target - cam.eye).normalize_or_zero();
-    let right = fwd.cross(Vec3::Z).normalize_or_zero();
-    let radius = corners.iter().map(|c| (*c - orbit.target).length()).fold(0.1, f32::max);
-    // (Looking straight down: the round fit, by the narrower angle.)
-    if right == Vec3::ZERO {
-        return radius / up_tan.min(across_tan).atan().sin() * ROOM;
-    }
-    let up = right.cross(fwd);
-    let rings = hull_of(corners.iter().map(|c| {
-        let rel = *c - orbit.target;
-        (rel.truncate().length(), rel.z)
-    }));
-    let mut distance = 0.1f32;
-    for (out, height) in rings {
-        for k in 0..RING {
-            let (sin, cos) = (k as f32 * std::f32::consts::TAU / RING as f32).sin_cos();
-            let rel = Vec3::new(out * cos, out * sin, height);
-            let (x, y, toward) = (rel.dot(right), rel.dot(up), -rel.dot(fwd));
-            let need = toward + (x.abs() * ROOM / across_tan).max(y.abs() * ROOM / up_tan);
-            distance = distance.max(need).max(toward + 0.1);
+
+    /// The fit of `points` about `target`, seen from `pitch` (radians up
+    /// from the ground).
+    pub(crate) fn of(target: Vec3, points: &[Vec3], pitch: f32) -> Fit {
+        let up_tan = 20f32.to_radians().tan();
+        let (sp, cp) = pitch.sin_cos();
+        let rings = hull_of(points.iter().map(|p| {
+            let rel = *p - target;
+            (rel.truncate().length(), rel.z)
+        }));
+        let (mut up, mut across) = (0.1f32, Vec::with_capacity(rings.len() * Self::RING));
+        for (out, height) in rings {
+            for k in 0..Self::RING {
+                // (The ring's point at `beta` from the camera's side of the
+                // up line: across, `out * sin`; toward the camera and up
+                // the picture as the pitch turns it.)
+                let (sin, cos) = (k as f32 * std::f32::consts::TAU / Self::RING as f32).sin_cos();
+                let (ahead, x) = (out * cos, out * sin);
+                let toward = ahead * cp + height * sp;
+                let y = height * cp - ahead * sp;
+                up = up.max(toward + y.abs() * Self::ROOM / up_tan).max(toward + 0.1);
+                across.push((toward, x.abs() * Self::ROOM));
+            }
         }
+        Fit { target, up, across }
     }
-    distance
+
+    /// How far from the target the camera stands for a picture `aspect`
+    /// wide to its height.
+    pub(crate) fn distance(&self, aspect: f32) -> f32 {
+        let across_tan = 20f32.to_radians().tan() * aspect.max(0.05);
+        self.across.iter().map(|(toward, x)| toward + x / across_tan).fold(self.up, f32::max)
+    }
 }
 
 /// The corners of the convex hull of `points` (all of them where fewer
@@ -1177,6 +1220,10 @@ fn hull_of(points: impl Iterator<Item = (f32, f32)>) -> Vec<(f32, f32)> {
     if hull.is_empty() { p } else { hull }
 }
 
+/// The ground the model viewer's model casts its shadow on (the Shadow
+/// switch): a square, unlit, of the viewer's background color, so that it
+/// is unseen but for the shadow on it; facing up alone (seen from below,
+/// the model shows whole). A 2 m square about the origin, at height 0.
 fn ground_model() -> Model {
     use mg_mdl::{Mesh, Node, NodeKind};
     let mesh = Mesh::square(2.0, 0.0, BACKGROUND);
@@ -1584,7 +1631,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, shown: Shown) -> 
     if (aspect - view.aspect).abs() > 0.01 {
         view.aspect = aspect;
         if view.framed {
-            view.frame();
+            view.refit();
         }
     }
 
@@ -3142,5 +3189,81 @@ mod tests {
             assert!(drawn[0].iter().any(|&b| b > 0), "{key}: a picture");
             assert!(drawn[0] == drawn[1], "{key}: the same with the Shadow switch on");
         }
+    }
+
+    /// A long plank's points (6 m along x, 0.3 by 0.4 m), every vertex of
+    /// a mesh of `n` along it, about its middle.
+    fn plank(n: usize) -> Vec<Vec3> {
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / (n - 1).max(1) as f32;
+                let corner = i % 4;
+                let y = if corner & 1 == 0 { -0.15 } else { 0.15 };
+                let z = if corner & 2 == 0 { 0.0 } else { 0.4 };
+                Vec3::new(-3.0 + 6.0 * t, y, z)
+            })
+            .collect()
+    }
+
+    /// M5's W8 (the owner's rulings "preview turn: a" and "fit: b"): the
+    /// fit holds every point inside the picture at every yaw at the pitch
+    /// it is made for, in a tall picture and a wide one, and comes near the
+    /// picture's edge at some yaw (no larger than it needs); it is the fit
+    /// of the hull's corners alone (the same for the points inside them).
+    #[test]
+    fn the_fit_holds_the_points_at_every_turn() {
+        let points = plank(400);
+        let target = Vec3::new(0.0, 0.0, 0.2);
+        let corners: Vec<Vec3> = [-3.0f32, 3.0]
+            .iter()
+            .flat_map(|x| {
+                [(-0.15f32, 0.0f32), (0.15, 0.0), (-0.15, 0.4), (0.15, 0.4)]
+                    .map(|(y, z)| Vec3::new(*x, y, z))
+            })
+            .collect();
+        for pitch in [-0.8f32, 0.0, 0.35, 20f32.to_radians(), 1.2] {
+            let fit = Fit::of(target, &points, pitch);
+            for aspect in [319.0 / 864.0, 906.0 / 631.0, 1.0] {
+                let d = fit.distance(aspect);
+                let corners_d = Fit::of(target, &corners, pitch).distance(aspect);
+                assert!(
+                    (d - corners_d).abs() < 1e-3,
+                    "{pitch} {aspect}: {d} by every point, {corners_d} by the corners"
+                );
+                let mut most = 0f32;
+                for y in 0..144 {
+                    let yaw = y as f32 * 2.5f32.to_radians() + 0.01;
+                    let camera = Orbit { target, yaw, pitch, distance: d }.camera();
+                    for c in &corners {
+                        let at = mg_area::pick::project(&camera, aspect, *c).expect("in front");
+                        let inside = (0.0..=1.0).contains(&at.x) && (0.0..=1.0).contains(&at.y);
+                        assert!(inside, "{aspect}: yaw {yaw}, pitch {pitch}: {c} at {at}");
+                        most = most.max((2.0 * at.x - 1.0).abs().max((2.0 * at.y - 1.0).abs()));
+                    }
+                }
+                assert!(most > 0.9, "{pitch} {aspect}: larger than it needs, nearest {most}");
+            }
+        }
+    }
+
+    /// What framing costs (M5's W8, review D's 1.7 ms for 50,000 points
+    /// fitted every frame of a dock's drag): made once from the points,
+    /// then a picture of another shape fitted from what was kept. By hand:
+    /// `cargo test -p mg-ui --release --lib -- fit_costs --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn fit_costs() {
+        let points = plank(50_000);
+        let target = Vec3::new(0.0, 0.0, 0.2);
+        let started = std::time::Instant::now();
+        let fit = Fit::of(target, &points, 0.35);
+        let made = started.elapsed();
+        let started = std::time::Instant::now();
+        let mut sum = 0.0;
+        for i in 0..10_000 {
+            sum += fit.distance(0.3 + i as f32 * 1e-4);
+        }
+        let shaped = started.elapsed() / 10_000;
+        println!("made from 50,000 points: {made:?}; a shape fitted from it: {shaped:?} ({sum})");
     }
 }

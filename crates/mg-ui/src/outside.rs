@@ -551,6 +551,15 @@ impl Moonglow {
         self.outside.conflicts.iter().map(|c| c.path.clone()).chain(tilesets).collect()
     }
 
+    /// Has the tilesets' watch walk the files every few seconds rather than
+    /// be told by the system, as where it can't be (a test of the look at
+    /// every file: the watch's start, its walk), started again now.
+    #[doc(hidden)]
+    pub fn walk_tileset_files(&mut self) {
+        self.outside.walk = true;
+        self.outside.tilesets = None;
+    }
+
     /// Changed Outside Moonglow asks again, though Later was its answer
     /// (a tileset changed outside again, or its Save refused meanwhile).
     pub(crate) fn ask_outside_again(&mut self) {

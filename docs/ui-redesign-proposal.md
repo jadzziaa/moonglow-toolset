@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:24:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T07:22:11Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -2221,7 +2221,7 @@ In this order, each its own change (the tasks U0 to U30 above): the area editor 
 - A toolset release, cut as this repository's releases are (an annotated tag, hand-written notes; **the owner signs each release**).
 - Exit: `cargo test` suites and clippy clean on the newest stable; the corpus tests pass; frame time recorded against the baseline.
 
-Open: the screenshots, the parity inventory and the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
+Open: the screenshots, the parity inventory and the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. One known flake: `blueprints::an_armor_s_parts_take_colors_of_their_own_and_keep_them` overruns its harness's 4 steps under heavy load (thumbnails are made for 2 ms a frame; failed 1 run in 3 alone at load 30, passes otherwise), to be fixed in the small-faults pass. The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
 
 **V1. The manual's chapters 01 to 05 read against the program.**
 
@@ -2233,7 +2233,7 @@ Open: the screenshots, the parity inventory and the toolset release (with its ga
 
 **V3. The red grid over the fog (the owner's ruling: fog B, camera 1).**
 
-**Done, 2026-11-21.** The grid fades with the lit shader's fog factor down to `GRID_LEAST_IN_FOG` = 0.3 (chosen from pictures of 0.15, 0.3 and 0.5); Sound Ranges' spheres and Fog off unchanged. `Orbit::overview_over` puts the opening target on the ground at the area's middle (the nearest tile's level where the middle has none), for a view opening and View the Whole Area; the watch expects each tile at its ground's level. **Fix round** (review C): the walkmesh overlays and Sound Ranges' sounds are kept until what they show changes; the game's fog measures view depth, as Moonglow's does. area084's rows now draw the area: 18 wheel rows and 6 "all selected, walkmesh" rows over budget are the whole area from far off, named in `KNOWN_OVER` under "The largest areas in full view" (the owner's ruling); the baseline (`target/m5/V3/frame_perf-baseline.log`, taken with a game client running) is to be retaken at the release gates.
+**Done, 2026-11-21.** The grid fades with the lit shader's fog factor down to `GRID_LEAST_IN_FOG` = 0.3 (chosen from pictures of 0.15, 0.3 and 0.5); Sound Ranges' spheres and Fog off unchanged. `Orbit::overview_over` puts the opening target on the ground at the area's middle (the nearest tile's level where the middle has none), for a view opening and View the Whole Area; the watch expects each tile at its ground's level. **Fix round** (review C): the walkmesh overlays and Sound Ranges' sounds are kept until what they show changes; the game's fog measures view depth, as Moonglow's does. area084's rows now draw the area: 18 wheel rows and 6 "all selected, walkmesh" rows over budget are the whole area from far off, named in `KNOWN_OVER` under "The largest areas in full view" (the owner's ruling); the baseline (`target/m5/V3/frame_perf-baseline.log`, taken with a game client running) is to be retaken at the release gates. **Second fix round** (review D): a test holds Sound Ranges' rings to the sounds through each edit and selection change (`AreaView::sound_rings`); the kept overlays compare the selection before copying, so a frame that draws them copies nothing.
 
 **W1. The module tree's rows (rulings 7 and 8).**
 
@@ -2245,19 +2245,19 @@ Open: the screenshots, the parity inventory and the toolset release (with its ga
 
 **W3. The script editor's line pitch (ruling 21, "match the board").**
 
-**Done, 2026-11-21.** Lines 18 points apart at 13 points (`round(size × 18/13)`, with a point clear of the glyphs at 6 to 9), the board's gutter and text frame, the cursor's line marked, in every place the editor's lines are drawn; numbers painted for the rows in sight. **Fix round** (review B): the small sizes' floor, the wave scaled and kept in its row, hairlines on whole pixels, the gutter and field named for a screen reader. Typing about 0.4 ms slower on the huge script, not from W3's names (an A/B).
+**Done, 2026-11-21.** Lines 18 points apart at 13 points (`round(size × 18/13)`, with a point clear of the glyphs at 6 to 9), the board's gutter and text frame, the cursor's line marked, in every place the editor's lines are drawn; numbers painted for the rows in sight. **Fix round** (review B): the small sizes' floor, the wave scaled and kept in its row, hairlines on whole pixels, the gutter and field named for a screen reader. Typing about 0.4 ms slower on the huge script, not from W3's names (an A/B). **Second fix round** (review D): the bookmark's mark keeps 2 points clear of the line numbers (`script_layout::MARK_GAP`); the error wave stays at the descenders' foot (the coordinator's ruling), never leaving its row.
 
 **W4. Conversation lines and F5 Bookmark (rulings 29 and 28).**
 
-**Done, 2026-11-21.** The tree scrolls up and down only; a line's words cut with an ellipsis at the tree's edge, ` [END DIALOGUE]` and whole marks after them, the whole line its accessible name and tip; `least_line` keeps a deep line's words twelve ems or a third of the tree; cuts kept, none laid out out of sight. Toggle Bookmark on F5 (`Cmd::DialogBookmark`). The reload frame it found over budget was W1's first version (W7).
+**Done, 2026-11-21.** The tree scrolls up and down only; a line's words cut with an ellipsis at the tree's edge, ` [END DIALOGUE]` and whole marks after them, the whole line its accessible name and tip; `least_line` keeps a deep line's words twelve ems or a third of the tree; cuts kept, none laid out out of sight; where not even an ellipsis of the words fits beside ` [END DIALOGUE]` the row shows the end words alone, cut as the last resort. One rule for the names: the row is named by its whole line, every mark a label of its own, in sight or not. The highlight (the header's five toggles) covers the line as drawn, never the marks or padding. Toggle Bookmark on F5 (`Cmd::DialogBookmark`). The reload frame it found over budget was W1's first version (W7).
 
 **W5. The Talk Table tab's question and tilesets changed outside (answers 35 and 44).**
 
-**Done, 2026-11-21.** The Talk Table tab asks Save, Don't Save or Cancel on every way it closes with its own lines changed; a tileset open in its editor is read again when its file changes outside, its unsaved edits asked about in Changed Outside Moonglow, off with the reloading switch. A tileset kept in the module is not redrawn in open areas: filed in `docs/deferred.md`. **Fix round** (review B): Keep Moonglow's next look, `dialog.tlk` in front, the keys only from that tileset's editor, a look at every file reading only what moved.
+**Done, 2026-11-21.** The Talk Table tab asks Save, Don't Save or Cancel on every way it closes with its own lines changed; a tileset open in its editor is read again when its file changes outside, its unsaved edits asked about in Changed Outside Moonglow, off with the reloading switch. A tileset kept in the module is not redrawn in open areas: filed in `docs/deferred.md`. **Fix round** (review B): Keep Moonglow's next look, `dialog.tlk` in front, the keys only from that tileset's editor, a look at every file reading only what moved. **Second fix round** (review D): that look at every file now has its test (`a_look_at_every_file_reads_only_a_tileset_changed`).
 
 **W6. One shared preview and the read-only tab's viewers (rulings 19 and 49).**
 
-**Done, 2026-11-21.** `viewers.rs` holds the picture viewer (decoded off the frame, at most four at once a window) and the sound viewer (one owner of the Preview channel), shared by the hak Preview and the read-only tab, which now shows pictures, sounds and models, its bytes under More's **Show Bytes**. A model shown twice in a pass shows the first place's picture, steered as one camera (`model_view::follow`); deferred "A preview shown twice in a frame" closed; the brief's zoom filed for the owner. **Fix round** (reviewer C): Show Bytes keeps its picture, the decode count the window's, the drag shown at once.
+**Done, 2026-11-21.** `viewers.rs` holds the picture viewer (decoded off the frame, at most four at once a window) and the sound viewer (one owner of the Preview channel), shared by the hak Preview and the read-only tab, which now shows pictures, sounds and models, its bytes under More's **Show Bytes**. A model shown twice in a pass shows the first place's picture, steered as one camera (`model_view::follow`); deferred "A preview shown twice in a frame" closed; the brief's zoom filed for the owner. **Fix round** (reviewer C): Show Bytes keeps its picture, the decode count the window's, the drag shown at once. **Second fix round** (reviewer D): a decode that panics no longer stays counted (the thread's guard gives up its place in its drop, and a new thread takes it); the picture in sight is decoded before hidden ones; the decode count is released and acquired in order.
 
 **W7. Small faults from the manual's writers and reviewer.**
 
@@ -2265,7 +2265,7 @@ Open: the screenshots, the parity inventory and the toolset release (with its ga
 
 **W8. Wide models in a tall Preview and the Right Dock's edge.**
 
-**Done, 2026-11-21.** A blueprint's appearance changed frames its preview again; by the owner's ruling "preview turn: a" the fit is yaw-free (`fitting_distance`), whole at every turn. The Right Dock's edge beside a form and a floating form's Preview pane get a 6-point seam (`shell::edge_seam`), and every seam there senses a drag alone. `frame_perf`: none of 206 views over budget.
+**Done, 2026-11-22.** A blueprint's appearance changed frames its preview again. By the owner's rulings "preview turn: a" and "fit: b" (2026-11-22), `model_view::Fit` fits every yaw at the pitch the view is framed at, as tight as that allows: a model stays whole as the view turns about it, in every view that frames a model. A tilt is not fitted, so a steep tilt can cut a long model in a wide picture (the ruling; no deferred entry). A picture of another shape is fitted from what Frame kept (`ModelView::refit`), reading no points. The Right Dock's edge beside a form and a floating form's Preview pane get a 6-point seam (`shell::edge_seam`) lit in the kit's accent, and every seam there senses a drag alone. `frame_perf`: none of 206 views over budget at the first round.
 
 ### M6. The viewer
 

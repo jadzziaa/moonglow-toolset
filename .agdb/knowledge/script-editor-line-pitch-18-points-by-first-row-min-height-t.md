@@ -58,3 +58,12 @@ Fix round (review B, the coordinator's rulings):
   `None` included, or it outlives the band (Binding JSON).
 - In AccessKit a LongText line's text is the node's value, not its label; "int nLine5 " also
   starts another run in the window, so the Page Down check measures line 30.
+
+Second fix round (review D):
+- Ruled: the error wave lies at the descenders' foot and may touch them (as the board's
+  `text-underline-offset: 3px` and every editor); it only must stay inside its row. At 13
+  the descenders' ink ends at 17 of 18, so a wave clear of them (3 high, 1-point stroke) would
+  need a 24-point pitch or text 3 points off center. Don't "fix" this again.
+- Bookmark marks: drawn in the first 10 of GUTTER_LEFT's 12 points (`MARK_GAP` = 2); the
+  icon's ink fills about 70% of its square, so the test asserts its ink 3+ points clear of the
+  numbers' column (with no gap it is 2). The board draws no mark: no measure of its own.

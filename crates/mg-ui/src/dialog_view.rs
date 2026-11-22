@@ -2764,12 +2764,14 @@ struct LineLook<'a> {
 /// after them would run past the tree's right edge ([`RIGHT_ROOM`] short
 /// of it), the marks following them. A mark is drawn whole or not at all:
 /// the words are cut first, down to `least`, then the marks go from the
-/// right (the owner's ruling 29, M5's W4 fix round). A selectable label,
-/// named by the row's whole text (and the marks with no room after it),
-/// as wide as its words; each mark drawn a label named by its words. Laid
-/// out only where it is in sight (a row out of sight keeps its place, its
-/// names and what it answers, and lays out nothing). Its response,
-/// whether its words were cut, and the marks that had no room.
+/// right, then the words further; and where even an ellipsis of them has
+/// no room beside ` [END DIALOGUE]`, the end words alone, cut themselves
+/// (the owner's ruling 29, M5's W4 fix rounds). A selectable label, named
+/// by the row's whole text, as wide as its words; each mark a label named
+/// by its words, drawn or not, in sight or not. Laid out only where it is
+/// in sight (a row out of sight keeps its place, its names and what it
+/// answers, and lays out nothing). Its response, whether its words were
+/// cut, and the marks that had no room.
 fn line_row(
     ui: &mut Ui,
     view: &mut DialogView,
@@ -2808,13 +2810,12 @@ fn line_row(
         false => line.label,
     };
     let inf = f32::INFINITY;
-    let end = (line.ends).then(|| cut_words(ui, view, END_WORDS, &font, line.italics, inf));
+    let mut end = (line.ends).then(|| cut_words(ui, view, END_WORDS, &font, line.italics, inf));
     let laid: Vec<_> = match &line.marks {
         Some((m, f, _)) => m.iter().map(|m| cut_words(ui, view, m, f, false, inf)).collect(),
         None => Vec::new(),
     };
-    let end_w = end.as_ref().map_or(0.0, |g| g.size().x);
-    let fixed = 2.0 * pad.x + end_w;
+    let fixed = 2.0 * pad.x + end.as_ref().map_or(0.0, |g| g.size().x);
     // (The most marks kept, from the left, that leave the words their
     // least room, or their whole width where that is less.)
     let natural = cut_words(ui, view, words, &font, line.italics, inf).size().x;
@@ -2825,14 +2826,22 @@ fn line_row(
         kept -= 1;
     }
     let text_room = (room - fixed - marks_w(kept)).max(want).max(1.0);
-    let cut = cut_words(ui, view, words, &font, line.italics, text_room);
+    let mut cut = cut_words(ui, view, words, &font, line.italics, text_room);
+    // (Last of all, where the row has no room for an ellipsis of its words
+    // beside ` [END DIALOGUE]`: the end words alone, cut themselves.)
+    let ellipsis = cut_words(ui, view, "…", &font, line.italics, inf).size().x;
+    let mut elided = cut.elided;
+    if line.ends && room - fixed < ellipsis {
+        cut = cut_words(ui, view, "", &font, line.italics, inf);
+        let alone = (room - 2.0 * pad.x).max(1.0);
+        end = Some(cut_words(ui, view, END_WORDS.trim_start(), &font, line.italics, alone));
+        elided = true;
+    }
+    let end_w = end.as_ref().map_or(0.0, |g| g.size().x);
     let size = egui::vec2(2.0 * pad.x + cut.size().x + end_w, height);
     let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     let dropped = marks[kept..].to_vec();
-    match dropped.is_empty() {
-        true => named(&r, line.label),
-        false => named(&r, &format!("{}  {}", line.label, dropped.join("  "))),
-    }
+    named(&r, line.label);
     // (As egui's selectable label: framed while chosen, under the pointer,
     // held or with the keyboard's focus.)
     let painter = ui.painter();
@@ -2852,7 +2861,6 @@ fn line_row(
     if let Some(found) = line.found {
         painter.rect_filled(text, 0.0, found);
     }
-    let elided = cut.elided;
     painter.galley(at, cut.clone(), line.color);
     if let Some(end) = end {
         painter.galley(egui::pos2(at.x + cut.size().x, at.y), end, line.color);
@@ -2864,6 +2872,13 @@ fn line_row(
         mark_named(&response, words);
         let y = marked.center().y - galley.size().y / 2.0;
         ui.painter().galley(egui::pos2(marked.left(), y), galley, color);
+    }
+    // (The marks with no room still each a label, named by their words, as
+    // a row's out of sight are: one rule wherever the row is.)
+    for words in &dropped {
+        let (_, response) = ui.allocate_exact_size(egui::vec2(0.0, height), egui::Sense::hover());
+        ui.add_space(-ui.spacing().item_spacing.x);
+        mark_named(&response, words);
     }
     (r, elided, dropped)
 }

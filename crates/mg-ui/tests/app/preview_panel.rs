@@ -754,7 +754,8 @@ fn a_tall_preview_frames_the_model_across() {
 /// The view framed: a tall creature fills the Preview's height (Creature
 /// board: Aribeth from head to feet down the panel; here a commoner, who
 /// holds no sword out at her side), what it reaches fitted
-/// across and up apart (the review's A8); moved or zoomed by hand, the
+/// across and up apart (the review's A8), as far as a fit for every yaw
+/// allows (M5's W8); moved or zoomed by hand, the
 /// camera stays where it was put as the panel changes shape (B6).
 #[test]
 fn a_tall_creature_fills_the_preview_and_a_zoom_is_kept() {
@@ -788,6 +789,17 @@ fn a_tall_creature_fills_the_preview_and_a_zoom_is_kept() {
         .collect();
     let (top, bottom) = (rows.first().copied().unwrap(), rows.last().copied().unwrap());
     let filled = (bottom - top) / view.height();
+    // (Fitted for every yaw at this pitch, M5's W8: as tight as turning
+    // about her allows, at some yaw she comes to the fit's room's edge. A
+    // fit for every tilt too made her fill 0.64: the owner's ruling "fit:
+    // b" took it back.)
+    {
+        let source = mg_ui::model_view::Source::Resource(bandit);
+        let framed = h.state().model_views[&source].orbit;
+        swept(&mut h, &source, "the creature");
+        h.state_mut().model_views.get_mut(&source).unwrap().orbit = framed;
+        h.run_steps(2);
+    }
     assert!(
         filled >= 0.8,
         "the creature fills {filled:.2} of the view's height ({top}..{bottom} in {view:?})"
@@ -978,10 +990,13 @@ fn projected(h: &Harness<'_, Moonglow>, key: ResKey) -> Vec<glam::Vec2> {
 }
 
 /// `key`'s model whole in the Preview's picture (`what`, for the
-/// failure): every point it reaches projected inside it, and fitting its
-/// width or its height (the outermost within an eighth of each side); in
-/// the picture as drawn, nothing at its sides' edges, and where it fits
-/// the width something near each.
+/// failure): every point it reaches projected inside it, and framed no
+/// farther than it needs to stay whole however it is turned
+/// ([`nearest_over_turns`]: since M5's W8 the fit holds every yaw, so at
+/// the first view's yaw a model need not fill the width or the height); in
+/// the picture as drawn, nothing at
+/// its sides' edges, and where it fits the width (the outermost within an
+/// eighth of each side) something near each.
 #[track_caller]
 fn whole(h: &mut Harness<'_, Moonglow>, key: ResKey, what: &str) {
     let points = projected(h, key);
@@ -996,7 +1011,12 @@ fn whole(h: &mut Harness<'_, Moonglow>, key: ResKey, what: &str) {
     );
     let fills = |(l, r): (f32, f32)| l < 0.125 && r > 0.875;
     let across = fills((low, high));
-    assert!(across || fills((top, bottom)), "{what}: {key} fills {low:.3}..{high:.3} across");
+    let nearest = nearest_over_turns(h, &mg_ui::model_view::Source::Resource(key));
+    assert!(
+        nearest > 0.88,
+        "{what}: {key} framed larger than it needs, nearest the edge {nearest:.3} at any turn \
+         (fills {low:.3}..{high:.3} across)"
+    );
     let view = picture_rect(h, key);
     let image = h.render().expect("render");
     let ppp = h.ctx.pixels_per_point();
@@ -1256,12 +1276,13 @@ fn lit_towards(
         .unwrap()
 }
 
-/// The Right Dock's edge seam lit as egui lights a panel's edge (M5's W8,
-/// B5 of review C): beside a placeable's tab docked, in Dark and in
-/// Light, the pointer 2 points outside the edge (where egui's own edge
-/// gives way to the form) draws the line in the hovered stroke's colour,
-/// and a drag in the active stroke's, at the edge where it is dragged to;
-/// the pointer away, neither.
+/// The Right Dock's edge seam lit in the kit's accent (M5's W8, B5 of
+/// review C; the colour by review D): beside a placeable's tab docked, in
+/// Dark and in Light, the pointer 2 points outside the edge (where egui's
+/// own edge gives way to the form) draws the line in the accent, and a
+/// drag too, at the edge where it is dragged to; the pointer away, not.
+/// Lit, it stands apart from both its sides: the form at its left and the
+/// Preview's dark picture at its right.
 #[test]
 fn the_right_dock_s_seam_is_lit_on_hover_and_drag() {
     for light in [false, true] {
@@ -1276,8 +1297,8 @@ fn the_right_dock_s_seam_is_lit_on_hover_and_drag() {
         show(&mut h, Panel::Preview);
         let theme = if light { mg_uikit::Theme::Light } else { mg_uikit::Theme::Dark };
         assert_eq!(mg_uikit::applied(&h.ctx), Some(theme), "the theme applied");
-        let widgets = h.ctx.global_style().visuals.widgets.clone();
-        let (hovered, active) = (widgets.hovered.fg_stroke.color, widgets.active.fg_stroke.color);
+        let accent = mg_uikit::tokens(&h.ctx).accent;
+        let (hovered, active) = (accent, accent);
         let ppp = h.ctx.pixels_per_point();
         let dock = right_dock_rect(&h);
         let (x, y) = (dock.left(), dock.center().y);
@@ -1292,9 +1313,14 @@ fn the_right_dock_s_seam_is_lit_on_hover_and_drag() {
         let image = h.render().expect("render");
         let (lit, off, gain) = lit_towards(&rest, x, &image, x, look, ppp, hovered);
         assert!(
-            gain >= 30 && off <= 80,
+            gain >= 30 && off <= 40,
             "{what}: hovered, the edge {lit:?}, {off} from {hovered:?}, {gain} nearer than at rest"
         );
+        for side in [x - 8.0, x + 8.0] {
+            let p = image.get_pixel((side * ppp) as u32, (look * ppp) as u32);
+            let apart = lit.iter().zip(&p.0[..3]).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            assert!(apart >= 60, "{what}: the lit edge {lit:?} beside {:?} at {side}", &p.0[..3]);
+        }
         h.drag_at(egui::pos2(x - 2.0, y));
         h.run_steps(1);
         for k in 1..=4 {
@@ -1306,7 +1332,7 @@ fn the_right_dock_s_seam_is_lit_on_hover_and_drag() {
         let image = h.render().expect("render");
         let (lit, off, gain) = lit_towards(&rest, x, &image, moved, look, ppp, active);
         assert!(
-            gain >= 30 && off <= 80,
+            gain >= 30 && off <= 40,
             "{what}: dragged, the edge {lit:?}, {off} from {active:?}, {gain} nearer than at rest"
         );
         h.drop_at(egui::pos2(x - 22.0, y));
@@ -1445,11 +1471,92 @@ fn no_seam_at_a_floating_pane_held_to_half_its_window() {
     assert!(seams(&h).is_empty(), "held to half the window: {:?}", seams(&h));
 }
 
-/// Turns `key`'s model in the Preview by a drag of `degrees` across its
-/// picture (0.01 radian a point, `ModelView`'s drag).
-fn turn(h: &mut Harness<'_, Moonglow>, key: ResKey, degrees: f32) {
+/// Where `source`'s model reaches in its picture as last drawn (0..1 from
+/// its top-left, by the picture's own shape), seen from its camera now.
+fn projected_of(h: &Harness<'_, Moonglow>, source: &mg_ui::model_view::Source) -> Vec<glam::Vec2> {
+    let view = h.state().model_views.get(source).expect("the model's view");
+    let picture = view.shown_at().expect("its picture drawn");
+    let camera = view.orbit.camera();
+    let aspect = picture.width() / picture.height();
+    let reached = view.reached();
+    assert!(!reached.is_empty(), "something to fit");
+    reached
+        .iter()
+        .map(|p| mg_area::pick::project(&camera, aspect, *p).expect("in front of the camera"))
+        .collect()
+}
+
+/// How near the edge of its picture (of the half picture, either way)
+/// `source`'s model comes at its distance now, turned every 15° about it
+/// at its pitch now: by the fit's room, 1/1.08 where it is framed for
+/// every yaw and no farther (computed, not drawn).
+fn nearest_over_turns(h: &Harness<'_, Moonglow>, source: &mg_ui::model_view::Source) -> f32 {
+    let view = h.state().model_views.get(source).expect("the model's view");
+    let picture = view.shown_at().expect("its picture drawn");
+    let aspect = picture.width() / picture.height();
+    let reached = view.reached();
+    let mut most = 0f32;
+    for step in 0..24 {
+        let yaw = (15.0 * step as f32).to_radians();
+        let camera = mg_ui::area_view::Orbit { yaw, ..view.orbit }.camera();
+        for p in &reached {
+            let q = mg_area::pick::project(&camera, aspect, *p).expect("in front");
+            most = most.max((2.0 * q.x - 1.0).abs().max((2.0 * q.y - 1.0).abs()));
+        }
+    }
+    most
+}
+
+/// `source`'s model inside its picture (`what`, for the failure).
+#[track_caller]
+fn inside(h: &Harness<'_, Moonglow>, source: &mg_ui::model_view::Source, what: &str) {
+    let points = projected_of(h, source);
+    let span = |of: fn(&glam::Vec2) -> f32| {
+        points.iter().map(of).fold((f32::MAX, f32::MIN), |(l, r), v| (l.min(v), r.max(v)))
+    };
+    let ((l, r), (t, b)) = (span(|p| p.x), span(|p| p.y));
+    assert!(
+        l >= -0.001 && r <= 1.001 && t >= -0.001 && b <= 1.001,
+        "{what}: reaches {l:.3}..{r:.3} across, {t:.3}..{b:.3} up"
+    );
+}
+
+/// `source`'s framed model turned all the way round in 15° steps at the
+/// pitch it is at (the camera as a drag leaves it; a tilt is not fitted,
+/// by the owner's ruling "fit: b"): inside the picture at every step, at
+/// the one distance Frame gave; and at some step it comes
+/// near the picture's edge (the fit no larger than it needs: its room
+/// leaves 1/1.08 of the half picture, and the sweep's steps are coarser
+/// than the fit's). Gives that nearest, of the half picture.
+#[track_caller]
+fn swept(h: &mut Harness<'_, Moonglow>, source: &mg_ui::model_view::Source, what: &str) -> f32 {
+    let framed = h.state().model_views[source].orbit;
+    let mut most = 0f32;
+    for step in 0..24 {
+        let o = &mut h.state_mut().model_views.get_mut(source).unwrap().orbit;
+        o.yaw = (15.0 * step as f32).to_radians();
+        h.run_steps(1);
+        let now = h.state().model_views[source].orbit;
+        assert_eq!(now.distance, framed.distance, "{what}: the distance held");
+        assert_eq!(now.pitch, framed.pitch, "{what}: the pitch held");
+        inside(h, source, &format!("{what}, yaw {}°", 15 * step));
+        let out = projected_of(h, source)
+            .iter()
+            .map(|p| (2.0 * p.x - 1.0).abs().max((2.0 * p.y - 1.0).abs()))
+            .fold(0f32, f32::max);
+        most = most.max(out);
+    }
+    eprintln!("{what}: nearest the edge {most:.3} of the half picture");
+    assert!(most > 0.88, "{what}: framed larger than it needs, nearest the edge {most:.3}");
+    most
+}
+
+/// Turns `key`'s model in the Preview by a drag of `by` (degrees about
+/// it, across; over or under it, up) across its picture (0.01 radian a
+/// point, `ModelView`'s drag).
+fn turn(h: &mut Harness<'_, Moonglow>, key: ResKey, by: egui::Vec2) {
     let from = picture_rect(h, key).center();
-    let to = from + egui::vec2(degrees.to_radians() / 0.01, 0.0);
+    let to = from + egui::vec2(by.x.to_radians(), by.y.to_radians()) / 0.01;
     h.hover_at(from);
     h.run_steps(1);
     h.drag_at(from);
@@ -1462,13 +1569,14 @@ fn turn(h: &mut Harness<'_, Moonglow>, key: ResKey, degrees: f32) {
     h.run_steps(2);
 }
 
-/// M5's W8, W8-1 of review C, the owner's ruling "preview turn: a": the
-/// fit holds the model whole at every turn about the up axis. The plank
-/// of our own (6 m) and the game's long table, framed at yaws 60 (the
-/// first view's), 0, -30 and 90 in the docked Preview (319 by 864), then
-/// turned through a whole turn by drags 15° at a time: inside the picture
-/// at every step, at one distance throughout. (The fit for the yaw it was
-/// made at carried the plank framed end-on to -1.3..2.3 of the width.)
+/// M5's W8, the owner's rulings "preview turn: a" (W8-1 of review C) and
+/// "fit: b": a framed model stays whole however it is turned about it.
+/// The plank of our own (6 m) and the game's long table, framed at yaws
+/// 60 (the first view's), 0, -30 and 90 in the docked Preview (319 by
+/// 864): turned by drags across, inside at every step and at one
+/// distance, and swept all the way round; then tilted over and under it,
+/// at the same distance (a tilt is not fitted). (The fit for the angle it
+/// was made at carried the plank framed end-on to -1.3..2.3 of the width.)
 #[test]
 fn a_framed_model_stays_whole_as_it_turns() {
     let rows = [("w8_plank", 0), ("w8_table", 732)];
@@ -1485,28 +1593,190 @@ fn a_framed_model_stays_whole_as_it_turns() {
         assert!((318.0..=320.0).contains(&shape.0) && shape.1 > 800.0, "the picture {shape:?}");
         let source = mg_ui::model_view::Source::Resource(key);
         for yaw in [60f32, 0.0, -30.0, 90.0] {
-            h.state_mut().model_views.get_mut(&source).unwrap().orbit.yaw = yaw.to_radians();
+            let o = &mut h.state_mut().model_views.get_mut(&source).unwrap().orbit;
+            (o.yaw, o.pitch) = (yaw.to_radians(), 20f32.to_radians());
             h.get_by_label(mg_ui::model_view::MODEL_HEADER).get_by_label("Frame").click();
             settle(&mut h);
             let distance = h.state().model_views[&source].orbit.distance;
-            for step in 0..=24 {
-                if step > 0 {
-                    turn(&mut h, key, 15.0);
-                }
-                let what = format!("{name} framed at {yaw}°, turned {}°", 15 * step);
-                let points = projected(&h, key);
-                let span = |of: fn(&glam::Vec2) -> f32| {
-                    let v = points.iter().map(of);
-                    v.fold((f32::MAX, f32::MIN), |(l, r), v| (l.min(v), r.max(v)))
-                };
-                let ((l, r), (t, b)) = (span(|p| p.x), span(|p| p.y));
-                assert!(
-                    l >= -0.001 && r <= 1.001 && t >= -0.001 && b <= 1.001,
-                    "{what}: reaches {l:.3}..{r:.3} across, {t:.3}..{b:.3} up"
-                );
+            for across in [15.0, 15.0, 30.0, -90.0] {
+                turn(&mut h, key, egui::vec2(across, 0.0));
+                let what = format!("{name} framed at {yaw}°, dragged {across}° across");
+                inside(&h, &source, &what);
                 let now = h.state().model_views[&source].orbit.distance;
+                assert!((now - distance).abs() < 1e-3, "{what}: {distance} became {now}");
+            }
+            swept(&mut h, &source, &format!("{name} framed at {yaw}°"));
+            for over in [25.0, -50.0] {
+                turn(&mut h, key, egui::vec2(0.0, over));
+                let now = h.state().model_views[&source].orbit.distance;
+                let what = format!("{name} framed at {yaw}°, tilted {over}°");
                 assert!((now - distance).abs() < 1e-3, "{what}: {distance} became {now}");
             }
         }
     }
+}
+
+/// The same in a wide picture (M5's W8, review D's case): the plank's
+/// model in a window of its own, its picture far wider than tall, framed at
+/// the first view's angle and swept all the way round. Tilted steeply, it
+/// reaches past the picture at the same distance: by the owner's ruling
+/// "fit: b" (2026-11-22) a tilt is not fitted (fitting it made a creature
+/// in the tall Preview about a quarter smaller).
+#[test]
+fn a_model_in_a_wide_picture_stays_whole_as_it_turns() {
+    let Some((mut h, _area)) = wide_harness("preview-turned-wide", &[("w8_plank", 0)]) else {
+        return;
+    };
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Model(model)));
+    settle(&mut h);
+    // (Its window made as wide as review D's, 906 by 631 of picture.)
+    own_window(&mut h, &Tab::Model(model), egui::pos2(100.0, 80.0), egui::vec2(920.0, 700.0));
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(model);
+    let picture = h.state().model_views[&source].shown_at().expect("drawn");
+    assert!(picture.width() > 1.4 * picture.height(), "a wide picture: {picture:?}");
+    h.get_by_label(mg_ui::model_view::MODEL_HEADER).get_by_label("Frame").click();
+    settle(&mut h);
+    inside(&h, &source, "framed");
+    swept(&mut h, &source, "the plank's tab");
+    let framed = h.state().model_views[&source].orbit;
+    let o = &mut h.state_mut().model_views.get_mut(&source).unwrap().orbit;
+    (o.yaw, o.pitch) = (0.0, -1.45);
+    h.run_steps(2);
+    assert_eq!(h.state().model_views[&source].orbit.distance, framed.distance, "not refitted");
+    let reach = projected_of(&h, &source).iter().map(|p| p.y).fold(0f32, f32::max);
+    assert!(reach > 1.0, "tilted under it, end-on: reaches {reach:.3} of the height");
+}
+
+/// A framed model's file read again (exported again into the override)
+/// keeps its camera; its picture then given another shape, it is framed
+/// by its points as they are now, not by the fit Frame kept of the old
+/// ones (M5's W8, review D: the fit kept for a dock drag's refits).
+#[test]
+fn a_model_read_again_is_framed_anew_by_its_new_points() {
+    let Some((mut h, _area)) = wide_harness("preview-read-again", &[("w8_plank", 0)]) else {
+        return;
+    };
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let tab = Tab::Model(model);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    settle(&mut h);
+    own_window(&mut h, &tab, egui::pos2(100.0, 80.0), egui::vec2(920.0, 700.0));
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Resource(model);
+    h.get_by_label(mg_ui::model_view::MODEL_HEADER).get_by_label("Frame").click();
+    settle(&mut h);
+    // (Exported again into the module: twice as long.)
+    let longer = PLANK.replace("\n    -3 ", "\n    -6 ").replace("\n    3 ", "\n    6 ");
+    assert_ne!(longer, PLANK, "the plank made longer");
+    h.state_mut().ws.as_mut().unwrap().module.set(model, longer.into_bytes());
+    let kept = h.state().model_views[&source].orbit;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while h.state().model_views[&source].reached().iter().all(|p| p.x.abs() < 4.0) {
+        assert!(std::time::Instant::now() < deadline, "the model read again");
+        h.run_steps(1);
+    }
+    assert_eq!(h.state().model_views[&source].orbit, kept, "its camera kept");
+    own_window(&mut h, &tab, egui::pos2(100.0, 80.0), egui::vec2(600.0, 700.0));
+    settle(&mut h);
+    inside(&h, &source, "read again, its picture narrower");
+    swept(&mut h, &source, "the longer plank");
+}
+
+/// The Preview's arrow keys (F6 to it) turn the framed plank about it,
+/// inside the picture at every key, and over and under it as far as they
+/// go at the same distance (M5's W8; a tilt is not fitted, the owner's
+/// ruling "fit: b", so not asserted whole).
+#[test]
+fn the_arrow_keys_turn_a_framed_model_whole() {
+    let Some((mut h, area)) = wide_harness("preview-turned-keys", &[("w8_plank", 0)]) else {
+        return;
+    };
+    let plank = ResKey::parse("w8_plank", ResType::UTP).unwrap();
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    h.state_mut().palette.selected = Some(plank);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    settle(&mut h);
+    show(&mut h, Panel::Preview);
+    h.hover_at(egui::pos2(800.0, 20.0));
+    for _ in 0..8 {
+        if mg_ui::palette_view::arrow_keys_are(&h.ctx) == "Preview" {
+            break;
+        }
+        h.key_press(egui::Key::F6);
+        settle(&mut h);
+    }
+    assert_eq!(mg_ui::palette_view::arrow_keys_are(&h.ctx), "Preview", "the keys the Preview's");
+    let source = mg_ui::model_view::Source::Resource(plank);
+    let distance = h.state().model_views[&source].orbit.distance;
+    for (key, times) in [
+        (egui::Key::ArrowRight, 24),
+        (egui::Key::ArrowLeft, 30),
+        (egui::Key::ArrowUp, 9),
+        (egui::Key::ArrowDown, 18),
+    ] {
+        for i in 0..times {
+            h.key_press(key);
+            settle(&mut h);
+            let o = h.state().model_views[&source].orbit;
+            let what = format!("{key:?} {i}: yaw {}, pitch {}", o.yaw, o.pitch);
+            if matches!(key, egui::Key::ArrowRight | egui::Key::ArrowLeft) {
+                inside(&h, &source, &what);
+            }
+            assert!((o.distance - distance).abs() < 1e-3, "{what}: the distance held");
+        }
+    }
+}
+
+/// The hak editor's Preview (M5's W8): the plank's model in a hak of ours,
+/// chosen in the editor, framed and swept all the way round.
+#[test]
+fn the_hak_editor_s_preview_stays_whole_as_it_turns() {
+    use mg_module::hak_edit::{Hak, Source};
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let path = mg_testkit::scratch_dir("preview-turned-hak").join("zz_plank.hak");
+    let model = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let mut hak = Hak::new();
+    hak.add_sources(vec![(model, Source::Bytes(PLANK.as_bytes().to_vec().into()))]).unwrap();
+    hak.save(Some(&path)).unwrap();
+    let mut app = game_app(&root, None);
+    app.settings = Mode::Tabs.settings();
+    app.set_render_state(rs.clone());
+    let mut h = gpu_harness(app, rs, 1600.0, 1000.0);
+    settle(&mut h);
+    let id = mg_ui::hak_view::open_at(h.state_mut(), &path).unwrap();
+    settle(&mut h);
+    h.state_mut().haks.iter_mut().find(|d| d.id == id).unwrap().choose(model);
+    settle(&mut h);
+    let source = (h.state().model_views.keys())
+        .find(|s| matches!(s, mg_ui::model_view::Source::Hak { .. }))
+        .cloned()
+        .expect("the hak's model's view");
+    inside(&h, &source, "framed");
+    swept(&mut h, &source, "the hak's plank");
+}
+
+/// The Appearance Gallery's Preview (a picker's live preview, M5's W8):
+/// the plank's appearance chosen, framed and swept all the way round.
+#[test]
+fn the_gallery_s_preview_stays_whole_as_it_turns() {
+    let Some((mut h, _area)) = wide_harness("preview-turned-gallery", &[("w8_plank", 0)]) else {
+        return;
+    };
+    let plank = ResKey::parse("w8_plank", ResType::UTP).unwrap();
+    h.set_size(egui::vec2(1600.0, 1000.0));
+    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+    h.state_mut().settings.window_places = vec![("placeable".into(), "middle".into())];
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(plank)));
+    settle(&mut h);
+    h.get_by_label("Gallery…").click();
+    settle(&mut h);
+    let source = mg_ui::model_view::Source::Appearance { restype: ResType::UTP, row: 0 };
+    assert!(h.state().model_views.contains_key(&source), "the plank's row in the Preview");
+    inside(&h, &source, "framed");
+    swept(&mut h, &source, "the gallery's plank");
 }
