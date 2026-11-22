@@ -223,7 +223,20 @@ fn in_outliner(n: &egui_kittest::Node<'_>) -> bool {
 #[track_caller]
 fn layer<'t>(h: &'t Harness<'_, Moonglow>, words: &'t str) -> egui_kittest::Node<'t> {
     let found = h.get_all_by_label(words).find(in_outliner);
-    found.unwrap_or_else(|| panic!("no row {words} in Layers"))
+    found.unwrap_or_else(|| panic!("no row {words} in the Outliner"))
+}
+
+/// A component's tip says where a drag adds it by the panel's name, the
+/// Outliner (it said Layers, the panel's name before M4's U18).
+#[test]
+fn a_component_s_tip_names_the_outliner() {
+    let mut h = designer(Mode::Tabs, 1920.0);
+    h.get_by_label("Button").scroll_to_me();
+    settle(&mut h);
+    let rect = h.get_by_label("Button").rect();
+    let tip = tip_at(&mut h, rect).expect("the Button component's tip");
+    assert!(tip.contains("or drag into the Outliner or onto the canvas"), "{tip}");
+    assert!(!tip.contains("Layers"), "{tip}");
 }
 
 /// Choosing goes both ways: a click on a Layers row chooses the control on

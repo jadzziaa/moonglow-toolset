@@ -93,6 +93,11 @@ impl Decodes {
         self.pending() > 0 || self.shared.stored.load(Ordering::Relaxed)
     }
 
+    /// How many decodes wait for a thread to take them.
+    pub(crate) fn untaken(&self) -> usize {
+        self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).jobs.len()
+    }
+
     /// How many threads are decoding.
     pub(crate) fn workers(&self) -> usize {
         self.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).workers

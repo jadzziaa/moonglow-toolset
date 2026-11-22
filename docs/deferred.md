@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T21:04:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1353,6 +1353,18 @@ contribution itself states as not done or not checked.
   - `mg` and the other headless renderers take Automatic (or
     `WGPU_BACKEND`), not the GUI's setting; Moonglow Viewer, which builds
     on mg-render, doesn't use `pick_adapter` yet. (S each)
+- **The texture and picture readers end detached, holding the GPU:**
+  the threads "moonglow textures" (`mg_render::renderer`) and "moonglow
+  pictures" (`model_view`) hold `Gpu` clones and end by themselves, so
+  one still working as the process exits can race its end, as the
+  shader worker and the lit check did (a crash at exit, debug builds
+  with Vulkan's validation layer only, which release builds do not
+  load; none with the layers off). Those two are joined at drop since
+  M5's S1; these are not: they are replaced mid-session (the texture
+  reader whenever the game data changes), where a join would hold the
+  window. Not seen to crash (picture readers 0 in 10 lone runs).
+  Deferred for the unintended consequence, by the owner's ruling of
+  2026-11-22. (S, the owner's ruling; M5 S1's review)
 
 ## Documentation
 

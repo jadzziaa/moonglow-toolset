@@ -1757,6 +1757,27 @@ struct Done {
 struct WorkerLink {
     jobs: std::sync::mpsc::Sender<Job>,
     done: std::sync::mpsc::Receiver<Done>,
+    /// Set as this end goes: the worker takes no more jobs.
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+/// The worker is waited for as its end goes (the renderer dropped as the
+/// window closes): the last of the GPU it holds is then let go before the
+/// process ends. Left to end by itself, its device was destroyed while
+/// the process was ending, after the Vulkan layers' and driver's own
+/// state had gone, and the process crashed as it ended (a lone test's,
+/// seen every run with the validation layer). It finishes the program it
+/// is making, if any, and takes no other.
+impl Drop for WorkerLink {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        drop(std::mem::replace(&mut self.jobs, std::sync::mpsc::channel().0));
+        drop(std::mem::replace(&mut self.done, std::sync::mpsc::channel().1));
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl std::fmt::Debug for WorkerLink {
@@ -1782,13 +1803,18 @@ impl Worker {
         jobs: std::sync::mpsc::Receiver<Job>,
         done: std::sync::mpsc::Sender<Done>,
         waker: Arc<std::sync::Mutex<Option<Waker>>>,
+        stop: &std::sync::atomic::AtomicBool,
     ) {
+        let stopped = || stop.load(std::sync::atomic::Ordering::SeqCst);
         let mut w = Worker { gpu, era: 0, programs: HashMap::new(), stats: ShaderStats::default() };
         while let Ok(job) = jobs.recv() {
             // (Held back, in a test: the programs pending as long as it
-            // wants.)
-            while crate::guard::programs_held() {
+            // wants, or until the renderer goes.)
+            while crate::guard::programs_held() && !stopped() {
                 std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            if stopped() {
+                break;
             }
             if job.era != w.era {
                 w.era = job.era;
@@ -2339,13 +2365,15 @@ impl GameShaders {
             let (jobs, inbox) = std::sync::mpsc::channel();
             let (outbox, done) = std::sync::mpsc::channel();
             let (gpu, waker) = (gpu.clone(), self.waker.clone());
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let stopping = stop.clone();
             let started = std::thread::Builder::new()
                 .name("moonglow shaders".into())
-                .spawn(move || Worker::run(gpu, inbox, outbox, waker));
-            if started.is_err() {
+                .spawn(move || Worker::run(gpu, inbox, outbox, waker, &stopping));
+            let Ok(thread) = started else {
                 return failed(self, "no thread to compile in");
-            }
-            self.worker = Some(WorkerLink { jobs, done });
+            };
+            self.worker = Some(WorkerLink { jobs, done, stop, thread: Some(thread) });
         }
         let sent = self.worker.as_ref().is_some_and(|w| w.jobs.send(job).is_ok());
         if !sent {
@@ -3780,5 +3808,65 @@ void main ()
         let mut bare = vec![0u8; plan.size as usize];
         fill(&Plan::new(block), &FrameValues::default().derive(), &d, &mut bare);
         assert_eq!(f32_at(&bare, m("rowHair")), 0.0);
+    }
+
+    /// The renderer's end of the shader worker waits for the worker as it
+    /// goes, and the worker takes no more jobs: the GPU it holds is let go
+    /// before the renderer's drop returns. Left to end by itself, the
+    /// worker's device was destroyed while the process ended, which
+    /// crashed it (a lone test of model_view's, with the validation layer).
+    #[test]
+    fn the_shader_worker_has_let_the_gpu_go_when_its_renderer_goes() {
+        struct Unhold;
+        impl Drop for Unhold {
+            fn drop(&mut self) {
+                crate::guard::hold_programs(false);
+            }
+        }
+        // (Holding the programs back is the process's: no other test makes
+        // any meanwhile.)
+        mg_testkit::gpu::alone();
+        let Some(gpu) = mg_testkit::gpu::open(crate::Gpu::headless) else { return };
+        let _unhold = Unhold;
+        // (The worker kept waiting with its job: it ends at once only by
+        // being told to.)
+        crate::guard::hold_programs(true);
+        let mut shaders = GameShaders::new(&gpu);
+        let waker = shaders.waker.clone();
+        let key = PipelineKey {
+            vs: "vslit".into(),
+            fs: "fslit".into(),
+            no_discard: false,
+            skinned: false,
+            tangents: false,
+            twosided: false,
+            pass: GamePass::Opaque,
+        };
+        let job = Job {
+            era: 0,
+            key,
+            quiet: true,
+            vs: Err("none".into()),
+            fs: Err("none".into()),
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            samples: 1,
+            cache: None,
+            capture: None,
+        };
+        assert!(shaders.send(&gpu, job), "the worker took the job");
+        // (Time for the worker to reach its job and wait there: just
+        // started, it could end within the drop by itself.)
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        // (Dropped on a thread of its own: a drop waiting for a worker that
+        // never ends fails here in seconds, not by hanging the test.)
+        let (dropped, done) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            drop(shaders);
+            let _ = dropped.send(());
+        });
+        let waited = done.recv_timeout(std::time::Duration::from_secs(5));
+        assert!(waited.is_ok(), "the renderer's drop did not return in 5 s");
+        // (The waker's other holder is the worker.)
+        assert_eq!(std::sync::Arc::strong_count(&waker), 1, "the worker still runs");
     }
 }

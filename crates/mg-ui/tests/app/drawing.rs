@@ -596,12 +596,22 @@ fn reload_resources_reads_an_area_again_on_a_thread() {
         std::thread::sleep(std::time::Duration::from_millis(5));
         h.run_steps(1);
     }
-    h.run_steps(6);
     // (The textures too: the renderer kept those it had by name, so one
     // repainted in the override, or missing and now there, was drawn as
-    // before. The review's B15.)
-    let read = h.state().viewport.as_ref().unwrap().renderer.textures_read();
-    assert!(read > 0, "the area's textures are read again");
+    // before. The review's B15. Waited for, not run for six frames: read
+    // on threads, on a busy machine they took longer.)
+    let started = std::time::Instant::now();
+    loop {
+        h.run_steps(1);
+        let renderer = &h.state().viewport.as_ref().unwrap().renderer;
+        if renderer.textures_read() > 0 && renderer.drawn.textures_pending == 0 {
+            break;
+        }
+        let waited = started.elapsed() < std::time::Duration::from_secs(30);
+        assert!(waited, "the area's textures are read again");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run_steps(6);
     h.state_mut().background_jobs = false;
     assert_eq!(h.state().area_views[&area].orbit, camera, "the camera stays");
     let again = view_picture(&mut h, area);

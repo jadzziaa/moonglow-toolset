@@ -3,7 +3,7 @@ type: Proposal
 title: 'One look and one shell for the suite: the UI redesign'
 description: The approved redesign of Moonglow Toolset and Moonglow Viewer - the seven rules, every color token in dark and light, type and metrics, the shell and how it yields at small widths, the components, the icons, what the redesign does to each editor, the area view's handles (Fine Lines), the owner's rulings, the features it adds, what is decided but not drawn, the probable bugs found in today's app, and the milestones to build it (M1 the shared crate mg-uikit to M6 the viewer).
 tags: [proposal, ui, redesign, theme, tokens, shell, icons, gizmos, galleries, light-theme, viewer, mg-uikit]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T08:22:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T11:09:51Z }
 status: stable
 stale_after: 2027-03-01T00:00:00Z
 sources:
@@ -2221,7 +2221,7 @@ In this order, each its own change (the tasks U0 to U30 above): the area editor 
 - A toolset release, cut as this repository's releases are (an annotated tag, hand-written notes; **the owner signs each release**).
 - Exit: `cargo test` suites and clippy clean on the newest stable; the corpus tests pass; frame time recorded against the baseline.
 
-Open: the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. One known flake: `blueprints::an_armor_s_parts_take_colors_of_their_own_and_keep_them` overruns its harness's 4 steps under heavy load (thumbnails are made for 2 ms a frame; failed 1 run in 3 alone at load 30, passes otherwise), to be fixed in the small-faults pass. The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
+Open: the toolset release (with its gates: the full suites, the corpus tests, frame time against V3's baseline retaken). Timings owed at the release gates because the machine was loaded: W8's refit cost (two figures: making the kept fit, fitting a shape from it); the retake of the area084 baseline (`target/m5/V3/frame_perf-baseline.log`, taken with the owner's game running); W4's conversation rows (editor_perf has none, and frame_perf's waited for a load that never came); W8's Preview rows. The owner ruled the version 5.0.0 on 2026-11-22; the release notes are drafted and fact-checked (`target/m5/release/`). The tasks done so far, each with its record in `docs/log.md` and its evidence under `target/m5/<task>/`:
 
 **V1. The manual's chapters 01 to 05 read against the program.**
 
@@ -2274,6 +2274,10 @@ Open: the toolset release (with its gates: the full suites, the corpus tests, fr
 **P2. The parity documents.**
 
 **Done, 2026-11-22.** `docs/parity/aurora-ui-inventory.md` regenerated from its inputs (unchanged since 2026-10-12): identical apart from the timestamp, so the committed copy stayed; its generator's own words were then put in American English and the inventory regenerated (87 lines differ: the timestamp and those words). `docs/parity/checklists.md` checked against the code and the manual wherever a line names a Moonglow window, menu, panel, dock, key or command, and every test it names checked to exist: 7 untrue places fixed, 7 built things added, no tick flipped. **Independent review** (`target/review-m5-P/`), faults fixed: the palette's Edit Copy… row and the area camera's rows (Alt + drag, Options › Area › Middle drag moves the view) as built, and a second pass over the Blueprint editors and Palettes sections (7 more lines; Creature Spells' Meta-Magic now ✅).
+
+**S1. The small-faults pass.**
+
+**Done, 2026-11-22.** Five items, each reproduced first. Tests that failed under load (the armor test among them; others of the same shape, and races in the job, external-editor and decode-pool tests) now settle or wait with a deadline; the known flake is fixed. The crash at exit in debug builds with Vulkan's validation layer: the shader worker and the lit check are joined as their owners go (the texture and picture readers are not, by the owner's ruling, filed in `docs/deferred.md`). The NUI editor's words say the Outliner where they said Layers, and its `…` is **Outliner Actions** (owner: "layer actions: Outliner Actions"; "Find a layer or ID…" stays, "layer words: keep"). Review D's unprobed items: a floated tileset tab changed outside now shows the new values at once (`widgets::commit_field`); the bake, W1's painted text and the Previews are no fault. The NUI review's line reference is left, being pinned to its commit. **Independent review** (`target/review-m5-S1/`), faults fixed. Whole suite 5104 passed, 0 failed.
 
 ### M6. The viewer
 

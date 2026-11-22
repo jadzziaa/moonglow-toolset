@@ -355,8 +355,16 @@ fn frames_that_never_get_ready_are_judged_after_a_while() {
     mg_render::guard::stall_textures(true);
     let mut h = watched(app, rs);
     // (The area read on a thread of its own, as in the desktop app: its
-    // first look a few seconds in.)
-    let verdicts = watch_for(&mut h, area, PATIENCE as f32 + 20.0, |_, _| {});
+    // first look a few seconds in, and on a busy machine many more frames
+    // in. The watch is counted from that look: counted from the start, a
+    // first look 18 s of frames in left too few for the failure.)
+    let (started, before) = (std::time::Instant::now(), h.state().area_views[&area].watching.looks);
+    while h.state().area_views[&area].watching.looks == before {
+        h.step();
+        assert!(started.elapsed() < std::time::Duration::from_secs(60), "never looked at");
+    }
+    let mut verdicts = vec![h.state().area_views[&area].watching.seen.expect("a verdict").1];
+    verdicts.extend(watch_for(&mut h, area, PATIENCE as f32 + 20.0, |_, _| {}));
     eprintln!("never ready: {verdicts:?}");
     picture(&mut h, "never_ready");
     let pending = h.state().viewport.as_ref().unwrap().renderer.drawn.textures_pending;

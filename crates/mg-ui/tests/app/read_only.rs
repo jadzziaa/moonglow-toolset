@@ -1108,7 +1108,7 @@ fn many_pictures_are_decoded_a_few_at_a_time() {
     mg_ui::viewers::release(&keys);
     assert_eq!((workers, waiting), (4, 6), "four at a time, six waiting or under way");
     settle(&mut h);
-    assert_eq!(h.state().picture_decodes(), (0, 0), "all done");
+    decodes_ended(&mut h, "all done");
     let mut decoded = 0;
     for (i, k) in keys.iter().enumerate().skip(1) {
         let n = mg_ui::viewers::decoded_of(*k) - before[i];
@@ -1128,6 +1128,19 @@ fn open_while_read(h: &mut Harness<'_, Moonglow>, key: ResKey) {
         h.run();
     }
     assert!(in_tab(h, "Reading the picture…").is_some(), "{key} being read");
+}
+
+/// Steps the window until no picture decode is left and no decoding
+/// thread is counted: a thread is counted a moment after its last
+/// picture's decode is, which `settle` (by the decodes) does not wait for.
+#[track_caller]
+fn decodes_ended(h: &mut Harness<'_, Moonglow>, what: &str) {
+    let started = std::time::Instant::now();
+    while h.state().picture_decodes() != (0, 0) {
+        assert!(started.elapsed().as_secs() < 10, "{what}: {:?}", h.state().picture_decodes());
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
 
 /// Pictures of 8 by 4 pixels named `mg_w6{stem}{i}.tga` for each `i` in
@@ -1165,7 +1178,7 @@ fn the_window_decodes_on_after_decodes_that_panic() {
     settle(&mut h);
     assert!(in_tab(&h, "mg_w6good.tga, 8 by 4 pixels").is_some(), "decoded and shown");
     assert_eq!(mg_ui::viewers::decoded_of(good), before + 1);
-    assert_eq!(h.state().picture_decodes(), (0, 0), "nothing left");
+    decodes_ended(&mut h, "nothing left");
 }
 
 /// A picture whose tab closes while its decode waits its turn (four held
@@ -1182,6 +1195,15 @@ fn a_picture_let_go_of_before_its_turn_is_not_decoded() {
     for k in &held {
         open_while_read(&mut h, *k);
     }
+    // (The four taken by the threads first: the picture in sight goes
+    // before those waiting, and on a busy machine the threads had not
+    // taken them yet when the last was opened, which then went first.)
+    let started = std::time::Instant::now();
+    while h.state().picture_decodes_untaken() > 0 {
+        assert!(started.elapsed().as_secs() < 10, "the four never taken");
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     open_while_read(&mut h, skip);
     assert_eq!(h.state().picture_decodes(), (4, 5), "four at work, one waiting");
     for k in held.iter().chain([&skip]) {
@@ -1197,7 +1219,7 @@ fn a_picture_let_go_of_before_its_turn_is_not_decoded() {
     assert_eq!(let_go, 0, "let go of");
     settle(&mut h);
     assert_eq!(mg_ui::viewers::decoded_of(skip), before, "not decoded");
-    assert_eq!(h.state().picture_decodes(), (0, 0));
+    decodes_ended(&mut h, "nothing left");
 }
 
 /// The picture in sight goes first: with every decoding thread busy and

@@ -1811,7 +1811,7 @@ fn text_typed_is_set_when_layers_selects_another_control() {
     h.run();
     h.get_by_label("Element ID").type_text("_typed");
     h.run();
-    let row = h.get_all_by_label("Label · Label").next().expect("its row in Layers").rect();
+    let row = h.get_all_by_label("Label · Label").next().expect("its row in the Outliner").rect();
     h.hover_at(row.center());
     h.run();
     h.drag_at(row.center());

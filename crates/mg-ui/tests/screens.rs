@@ -15976,7 +15976,7 @@ fn u26_pickers_least() {
 // round): headings, notes, check boxes, fields and separators in the
 // application's own menus, each opened as a builder opens it, into
 // `screens/menus/`. And a row's keys under the pointer (the NUI
-// designer's Layer Actions).
+// designer's Outliner Actions).
 
 /// The pictures' folder of the menus' cases.
 fn menus_dir() -> std::path::PathBuf {
@@ -16054,13 +16054,13 @@ fn menus_area_harness(
     (h, area)
 }
 
-/// The NUI designer wide, Layer Actions (the Outliner's, M4's U18) open
+/// The NUI designer wide, Outliner Actions (the Outliner's, M4's U18) open
 /// with its first row under the pointer (a row's keys, lit), and narrower
 /// than 760 px, its Properties its window's right pane (a menu that held
 /// the whole inspector before U18).
 #[test]
 #[ignore]
-fn menus_nui_properties_and_layer_actions() {
+fn menus_nui_properties_and_outliner_actions() {
     use serde_json::json;
     mg_testkit::gpu::hold();
     let dir = menus_dir();
@@ -16076,16 +16076,16 @@ fn menus_nui_properties_and_layer_actions() {
         ]
     }]);
     app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
-    // (Wide enough for its Layers' pane, where Layer Actions is.)
+    // (Wide enough for its Outliner, where Outliner Actions is.)
     let mut h = nui_harness(app, key, (1400.0, 760.0));
     themed(&mut h);
     h.get_by_label_contains("Canvas Button").click();
     h.run_steps(3);
-    h.get_by_label("Layer Actions").click();
+    h.get_by_label("Outliner Actions").click();
     h.run_steps(3);
     h.get_by_label_contains("Move Up").hover();
     h.run_steps(3);
-    shoot(&mut h, &dir, "menu-nui-layer-actions");
+    shoot(&mut h, &dir, "menu-nui-outliner-actions");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // (Narrower than 760, its Properties are its window's right pane, a

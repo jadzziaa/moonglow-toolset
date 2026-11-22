@@ -178,7 +178,7 @@ pub(super) fn ui(
         widgets::section_heading(ui, "Swap Layout Variants");
         ui.label(
             "A Swap Layout is added in Design; its variants are made and edited in Properties \
-             or Layers.",
+             or the Outliner.",
         );
         let (mut remove, mut rename) = (None, None);
         for name in s.variants.keys() {

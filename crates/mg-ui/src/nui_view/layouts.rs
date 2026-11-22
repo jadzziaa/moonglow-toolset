@@ -763,10 +763,10 @@ mod tests {
             rows(&h, ["Variant · details", "Label · Left", "Variant · other"]);
         assert!(details.top() < left.top() && left.top() < other.top());
         assert!(left.left() > details.left());
-        // The bar's way back to the swap layout names it as Layers does
+        // The bar's way back to the swap layout names it as the Outliner does
         // (M5's W7: it said "Swap Layout · content").
         let named = h.get_all_by_label("Swap layout · content").count();
-        assert_eq!(named, 2, "Layers' row and the bar's button");
+        assert_eq!(named, 2, "the Outliner's row and the bar's button");
         assert!(h.query_by_label("Swap Layout · content").is_none());
         // The inspector says which swap layout the variant belongs to, in
         // the same words.

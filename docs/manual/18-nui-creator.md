@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:04:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -84,33 +84,33 @@ Undo. Where the text you typed over was changed from elsewhere meanwhile,
 what you typed is let go. A draft that doesn't read is set too: it is
 kept, and the pages ask for it to be put right; meanwhile the canvas shows
 what you type wherever it reads. The design and the source follow each
-other: a control chosen on the canvas or in Layers brings the text's
+other: a control chosen on the canvas or in the Outliner brings the text's
 cursor to its first line, the cursor's line marked; a click in the text
 chooses the control it is in, and moving the cursor with the keys goes on
 choosing while it was the text that chose (a control chosen on the canvas
-or in Layers stays chosen as you read with the keys, and several chosen
-are never let go by the cursor). Choosing a swap layout variant to edit
-moves the switch to Binding JSON, where the variant is written. The switch
-is kept for each window while Moonglow runs, and with the module's open
-tabs when it is opened again. **Editor** or **Preview only** in **View ›
-Layout**, or the group's own ×, closes the group, and closing the design
-closes it too. While the source group is the editor in front, the keys are
-its own (Delete and Tab are the text's); a click on the canvas gives them
-back to the design.
+or in the Outliner stays chosen as you read with the keys, and several
+chosen are never let go by the cursor). Choosing a swap layout variant to
+edit moves the switch to Binding JSON, where the variant is written. The
+switch is kept for each window while Moonglow runs, and with the module's
+open tabs when it is opened again. **Editor** or **Preview only** in
+**View › Layout**, or the group's own ×, closes the group, and closing the
+design closes it too. While the source group is the editor in front, the
+keys are its own (Delete and Tab are the text's); a click on the canvas
+gives them back to the design.
 
-**Checks** is a panel of the Bottom Dock, its switch in the Status Bar with
-the count of what the checks found, errors and warnings together (in the
-error color where one is an error, else in the warning color; no count
+**Checks** is a panel of the Bottom Dock, its switch in the Status Bar
+with the count of what the checks found, errors and warnings together (in
+the error color where one is an error, else in the warning color; no count
 when they found nothing). It has a row for each finding, errors first, a
 window or settings that don't read first of all, each with its kind, the
-control it is about (a click chooses it on the canvas, in Layers and in
-the source), its message (whole in its tip) and its fix (**Bind It**,
+control it is about (a click chooses it on the canvas, in the Outliner and
+in the source), its message (whole in its tip) and its fix (**Bind It**,
 **Turn It Off**, **Add Close Handler**); its bar says the window's count
 (`crier: 0 errors · 1 warning`). New errors bring it to the front and open
 the Bottom Dock (warnings open nothing); a designer in a window of its own
-shows it in the window's bottom pane. Layers marks a control a check names
-with a warning (or error) mark at its row's right, its message as the
-mark's tip; a click on the mark goes to Checks.
+shows it in the window's bottom pane. The Outliner marks a control a check
+names with a warning (or error) mark at its row's right, its message as
+the mark's tip; a click on the mark goes to Checks.
 
 **The Status Bar** says, while the designer is the editor in front, what
 the last Build & Compile left, in the warning color (**Not built**: the
@@ -124,17 +124,17 @@ Duplicate, **Alt+Up** Move up and **Delete**; in Interact, **Click** Try a
 control. It shows none while a field is typed in or a popover is open, on
 the other pages, or while the source group is in front.
 
-The designer's panels are the docks', on every page and in every **Layout**
-(the editor keeps its width as you switch): **Components** over
+The designer's panels are the docks', on every page and in every
+**Layout** (the editor keeps its width as you switch): **Components** over
 **Properties** over **Bindings** in the Right Dock (one bar of three tabs
 in a window narrower than 1400 points, and in a narrow editor too:
 Properties is always a panel, never a menu, and a dropdown in it opens and
-chooses as anywhere), and **Layers** in the Outliner under the Left Dock's
-tabs. A designer in a window of its own brings them into its window: the
-three at its right, Layers at its left where the window has the room (else
-a strip at the canvas's left whose icon unfolds them over it). Two
-designers in two groups each bring their own as their group is chosen; a
-designer's source group brings its designer's.
+chooses as anywhere), and the window as a tree in the **Outliner** under
+the Left Dock's tabs. A designer in a window of its own brings them into
+its window: the three at its right, the Outliner at its left where the
+window has the room (else a strip at the canvas's left whose icon unfolds
+them over it). Two designers in two groups each bring their own as their
+group is chosen; a designer's source group brings its designer's.
 
 **Properties** is a form: each label beside its field (over it only where
 the panel is too narrow for both), under bold section headings that fold
@@ -152,47 +152,48 @@ designer closes (its **Cancel** drops it), and before the module is saved;
 if the window changes under it from elsewhere, what you typed is let go,
 never set on another control.
 
-**Adding and arranging controls.** Click a control on the canvas or in
-**Layers** to select it; Ctrl+click in Layers adds controls to the
+**Adding and arranging controls.** Click a control on the canvas or in the
+**Outliner** to select it; Ctrl+click in the Outliner adds controls to the
 selection, to delete several at once. Click a component in **Components**
-(**Find a control…** narrows them) to add it to the selected layout, or
-to the selected control's parent. To choose where it goes, drag it into
-Layers or onto the canvas instead: dropped on the middle of a row, column
-or list it becomes its last child, and dropped on a control's upper
+(**Find a control…** narrows them) to add it to the selected layout, or to
+the selected control's parent. To choose where it goes, drag it into the
+Outliner or onto the canvas instead: dropped on the middle of a row,
+column or list it becomes its last child, and dropped on a control's upper
 or lower edge it goes before or after that control (a control that holds
 nothing takes it after itself from its middle too). A line or outline
 shows where it will land. A component added to a list adds template cells.
-Drag the controls already in Layers in the same way to put them in another
-order or into another container; a control moved from list to list keeps
-its cell width and variable-width settings. **Element Actions** (the `…`
-at the Properties panel's header) and **Layer Actions** (the `…` at the
-Outliner's) move, duplicate, wrap (in a row, column or group), delete,
+Drag the controls already in the Outliner in the same way to put them in
+another order or into another container; a control moved from list to list
+keeps its cell width and variable-width settings. **Element Actions** (the
+`…` at the Properties panel's header) and **Outliner Actions** (the `…` at
+the Outliner's) move, duplicate, wrap (in a row, column or group), delete,
 copy, cut and paste. The Properties panel's header names the control
 selected; the Bindings panel's counts the binds.
 
-**Layers** is a tree whose branches fold, only the rows in sight laid out:
-use its arrows or **Expand All** and **Collapse All** at the Outliner's
+The **Outliner** is a tree whose branches fold, only the rows in sight
+laid out: use its arrows or **Expand All** and **Collapse All** at its
 header, and **Find a layer or ID…** to list the controls that hold what
 you type, their branches unfolded. Selecting a control on the canvas
-unfolds its ancestors and brings its row into sight. A click in Layers gives them the keys (F6 too,
-through the panes): Up and Down visit the visible rows, Home and End the
-first and the last, Page Up and Page Down go by a page, Left and Right
-fold and unfold branches (Left on a folded or plain one goes to its
-parent), Enter folds or unfolds, letters go to a control by its words,
-Delete, Duplicate, Move Up and Move Down are Options › Keyboard's NUI
-keys, and Escape hands the keys back to the canvas.
+unfolds its ancestors and brings its row into sight. A click in the
+Outliner gives it the keys (F6 too, through the panes): Up and Down visit
+the visible rows, Home and End the first and the last, Page Up and Page
+Down go by a page, Left and Right fold and unfold branches (Left on a
+folded or plain one goes to its parent), Enter folds or unfolds, letters
+go to a control by its words, Delete, Duplicate, Move Up and Move Down are
+Options › Keyboard's NUI keys, and Escape hands the keys back to the
+canvas.
 
 A new list starts with an empty row template and a height of 150 points.
 Add the controls you want repeated in each row; the hint an empty list
 shows is the editor's alone. A list's existing contents are kept.
 
-**Resizing.** To resize the whole window, select **Window** in Layers (or
-click the preview's title); to resize a list or another control, select
-it. Then drag its right, bottom or corner handle to change its width, its
-height or both: releasing it is one Undo step, and Esc cancels. The
-handles hide in Clean view and stay in Interact. Resizing the window
-changes its geometry and keeps its position and its `resizable` setting,
-which decides whether players may resize it in the game. A list
+**Resizing.** To resize the whole window, select **Window** in the
+Outliner (or click the preview's title); to resize a list or another
+control, select it. Then drag its right, bottom or corner handle to change
+its width, its height or both: releasing it is one Undo step, and Esc
+cancels. The handles hide in Clean view and stay in Interact. Resizing the
+window changes its geometry and keeps its position and its `resizable`
+setting, which decides whether players may resize it in the game. A list
 template's cells take their width from the template: resize the list that
 holds them, or change the cell's settings in JUI Source. A size that a
 bind gives stays a bind when you drag a handle.
@@ -261,12 +262,12 @@ state and the Undo history stay as they were. **Reset** sets them back to
 their initial values, and so does any change to the window, in its source
 or in its panels; leaving Interact drops them.
 
-Components, Layers and Properties stay editable in Interact, and you can
-drag components into the layout there too. Select controls in Layers
-while the preview takes their input. The element keys work in Layers, and
-over the canvas outside Interact; over the canvas in Interact, the keys
-are the controls'. Interact simulates local input only: the game's event
-timing and its own layout solver want a test in the game.
+Components, the Outliner and Properties stay editable in Interact, and you
+can drag components into the layout there too. Select controls in the
+Outliner while the preview takes their input. The element keys work in the
+Outliner, and over the canvas outside Interact; over the canvas in
+Interact, the keys are the controls'. Interact simulates local input only:
+the game's event timing and its own layout solver want a test in the game.
 
 **Values and properties.** Select a list's cell to edit its width and
 whether it stretches. Select the list itself to edit its **Row Data**:
@@ -337,10 +338,10 @@ picture puts a picture file into the module (named as the file; a name the
 game can't read, over 16 characters or with other symbols, is shortened,
 and the log says to what) and uses it there. A file of a name the module
 has takes that picture's place, which the log says (Undo brings the other
-back); a file over 64 MB is refused. **Layers** lists each control's draw
-layers under it: choose one to see its outline on the canvas, drag inside
-it to move it, its corner to size it, or its points (a line's ends, a
-curve's, an arc's center); the change lands on release, one Undo step.
+back); a file over 64 MB is refused. The **Outliner** lists each control's
+draw layers under it: choose one to see its outline on the canvas, drag
+inside it to move it, its corner to size it, or its points (a line's ends,
+a curve's, an arc's center); the change lands on release, one Undo step.
 
 **Choose image** searches the resources in the load order and shows up to
 24 matching thumbnails. A picture is cropped with the game's own image
@@ -355,7 +356,7 @@ With the pointer over **Design**, outside a text field or an open menu:
 | Delete | Delete the selected element; select its neighbor |
 | Ctrl+D | Duplicate with new element IDs |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste elements between NUI windows in this Moonglow session |
-| Up / Down | Select the previous / next element in Layers |
+| Up / Down | Select the previous / next element in the Outliner |
 | Left / Right | Collapse / expand the selected branch, or visit its parent / child |
 | Alt+Up / Alt+Down | Move the element among its siblings |
 | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Module Undo / Redo |
@@ -445,17 +446,17 @@ step each, and neither adds an event. A variant's target can also be the
 whole window (**Whole window**): it replaces the root's contents and keeps
 the window's title and geometry.
 
-**Layers** names a swap layout **Swap layout · ID** and lists **Initial
-Contents** and its variants (**Variant · NAME**) under it. Choose a
-variant there to edit its contents in place, inside the rest of the
-window, whose other controls are read-only meanwhile; components dragged
-into it land in it. A bar over the canvas names the variant: its **Swap
-layout · ID** button goes to that area's properties (as **Swap Layout
-Properties** in Properties does), and **Back to Main Window**, or
-**Initial Contents** in Layers, ends the editing. A target nested inside
-another variant is found through its declared parent target. Choosing a
-variant to edit changes nothing the window shows first in the game, and
-sends no event.
+The **Outliner** names a swap layout **Swap layout · ID** and lists
+**Initial Contents** and its variants (**Variant · NAME**) under it.
+Choose a variant there to edit its contents in place, inside the rest of
+the window, whose other controls are read-only meanwhile; components
+dragged into it land in it. A bar over the canvas names the variant: its
+**Swap layout · ID** button goes to that area's properties (as **Swap
+Layout Properties** in Properties does), and **Back to Main Window**, or
+**Initial Contents** in the Outliner, ends the editing. A target nested
+inside another variant is found through its declared parent target.
+Choosing a variant to edit changes nothing the window shows first in the
+game, and sends no event.
 
 A variant shows when a script sets it: add a handler (a button's
 **Clicked**, say) and choose **Show variant** in its **Insert…** with the

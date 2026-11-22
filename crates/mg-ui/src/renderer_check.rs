@@ -57,7 +57,20 @@ pub struct RendererCheck {
 pub struct LitCheck {
     started: bool,
     pending: Option<std::sync::mpsc::Receiver<mg_render::probe::Lit>>,
+    /// The check's thread, waited for when the window ends: it holds the
+    /// GPU, and a check still making a pipeline as the process exited
+    /// crashed it there (with Vulkan's validation layer, which debug
+    /// builds load).
+    thread: Option<std::thread::JoinHandle<()>>,
     pub found: Option<mg_render::probe::Lit>,
+}
+
+impl Drop for LitCheck {
+    fn drop(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl LitCheck {
@@ -98,8 +111,9 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
             std::thread::Builder::new().name("moonglow lit check".into()).spawn(move || {
                 let _ = tx.send(mg_render::probe::probe_lit(&gpu, &assets, cache));
             });
-        if spawned.is_ok() {
+        if let Ok(thread) = spawned {
             app.lit_check.pending = Some(rx);
+            app.lit_check.thread = Some(thread);
         }
         return;
     }

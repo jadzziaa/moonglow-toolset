@@ -1519,40 +1519,41 @@ fn a_resref_typed_in_a_wizard_is_offered_the_builder_code() {
     h.run();
     assert!(module_gff(&mut h, "ab_shop", ResType::UTM).is_some());
 
-    // The Creature Wizard: a ResRef the module has.
+    // The Creature Wizard: a ResRef the module has. (Settled, not run: its
+    // pages' pictures, the portraits, are made a few a frame.)
     let guard = ResKey::parse("guard", ResType::UTC).unwrap();
     let data = mg_gff::Gff::new(*b"UTC ").to_bytes().unwrap();
     let made = mg_edit::Edit::SetResource { key: guard, data: Some(data) };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("guard", vec![made])));
-    h.run();
+    settle(&mut h);
     h.get_by_label("Wizards").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label_contains("Creature Wizard…").click();
-    h.run();
+    settle(&mut h);
     let next = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("Next >").click();
-        h.run();
+        settle(h);
     };
     next(&mut h);
     h.get_by_label("Human").click();
-    h.run();
+    settle(&mut h);
     for _ in 0..4 {
         next(&mut h);
     }
     let w = h.state_mut().creature_wizard.as_mut().unwrap();
     (w.first_name, w.resref) = ("Hent".into(), "guard".into());
-    h.run();
+    settle(&mut h);
     assert!(h.query_by_label("Use ab_guard").is_some());
     next(&mut h);
     h.get_by_label("Tutorial").click();
-    h.run();
+    settle(&mut h);
     next(&mut h);
     next(&mut h);
     h.query_all_by_label("Finish")
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
         .unwrap()
         .click();
-    h.run();
+    settle(&mut h);
     assert!(module_gff(&mut h, "ab_guard", ResType::UTC).is_some(), "the next free, with the code");
 }
 

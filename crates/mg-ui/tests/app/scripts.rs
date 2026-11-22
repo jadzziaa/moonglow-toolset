@@ -1286,7 +1286,10 @@ fn the_external_script_editor_s_saves_come_back() {
     };
     let dir = mg_testkit::scratch_dir("ui-external-editor");
     let path = sample_module(&dir);
-    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    // (A script of its own: the copies for the external editor are in the
+    // process's one scratch folder by the script's name, and other tests
+    // open `hello` there at the same time.)
+    let key = ResKey::parse("saves_back", ResType::NSS).unwrap();
     let mut m = Module::open(&path).unwrap();
     m.set(key, b"void main() {}\n".to_vec());
     m.save().unwrap();
@@ -1303,8 +1306,8 @@ fn the_external_script_editor_s_saves_come_back() {
     // system's temporary folder's `moonglow-PID`, which another user of
     // the machine could make first. The last pass's item 24.)
     let guessable = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
-    assert!(!guessable.join("hello.nss").exists());
-    let file = mg_module::build::own_scratch_dir().unwrap().join("edit").join("hello.nss");
+    assert!(!guessable.join("saves_back.nss").exists());
+    let file = mg_module::build::own_scratch_dir().unwrap().join("edit").join("saves_back.nss");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "void main() {}\n");
     std::fs::write(&file, "void main() { int n; }\n").unwrap();
     let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);

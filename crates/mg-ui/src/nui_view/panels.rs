@@ -199,8 +199,8 @@ pub(crate) fn components(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) 
                             let r = ui.add_enabled(can_add, button);
                             let r = r.interact(egui::Sense::click_and_drag());
                             let r = r.on_hover_text(format!(
-                                "{what}. Click to add to the selected layout, or drag into Layers \
-                                 or onto the canvas."
+                                "{what}. Click to add to the selected layout, or drag into the \
+                                 Outliner or onto the canvas."
                             ));
                             if can_add {
                                 r.dnd_set_drag_payload(design::Insert(ty));
@@ -310,8 +310,8 @@ pub(crate) fn actions(app: &Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
 
 /// Element actions' name (the Properties header's `…`).
 pub const ELEMENT_ACTIONS: &str = "Element Actions";
-/// The same actions on the Outliner's header (Layers' `…`, its old name).
-pub const LAYER_ACTIONS: &str = "Layer Actions";
+/// The same actions on the Outliner's header (its `…`).
+pub const OUTLINER_ACTIONS: &str = "Outliner Actions";
 
 /// Where an Element action chosen on a header waits for its panel's body.
 fn act_id(key: ResKey) -> egui::Id {
@@ -785,7 +785,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                 .on_hover_text("Fold every control that holds others")
                 .clicked();
             if let Some(work) = &state.work {
-                let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, LAYER_ACTIONS);
+                let more = widgets::icon_only(mg_uikit::Icon::MoreHorizontal, OUTLINER_ACTIONS);
                 let menu = more.menu(ui, |ui| {
                     mg_uikit::menu_rows(ui);
                     if let Some(a) = act_rows(ui, &work.window, &state, &app.keymap) {

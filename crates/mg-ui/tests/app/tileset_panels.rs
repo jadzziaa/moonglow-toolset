@@ -1448,7 +1448,9 @@ fn a_tileset_changed_outside_is_read_again() {
     let d = doc(&h);
     assert!(!d.is_dirty() && !d.has_undo() && !d.has_redo(), "as saved, no history");
     assert_eq!((d.page, d.tile), (Page::Tiles, Some(2)), "the page and the tile kept");
-    assert!(h.query_all_by_value("zzt01_b01_01").next().is_some(), "the form shows it");
+    // (The form's field, not the table's row of the same words: the field
+    // showed the old model, the window resting on it.)
+    field_with(&h, "zzt01_b01_01");
     assert_eq!(logged(&h, "read again (changed outside Moonglow)"), 1);
     // A burst: read once.
     for n in 0..5 {
@@ -1733,4 +1735,37 @@ fn text_typed_in_another_editor_keeps_the_keyboard_when_a_file_changes_outside()
     });
     assert!(h.ctx.memory(|m| m.focused()).is_some(), "the other's field keeps the keyboard");
     assert!(!h.state().tilesets[second].is_dirty(), "its text not set by the change");
+}
+
+/// A floating tileset's file changed outside (review D of M5's fix rounds
+/// had not looked at one): read again as a docked one is, with nothing
+/// typed; with text typed into one of its fields (in its own window, of
+/// a layer of its own), that text set and kept, and Changed Outside
+/// Moonglow asking which to keep.
+#[test]
+fn a_floating_tileset_changed_outside_is_read_again_and_typed_text_kept() {
+    let (mut h, path, _) =
+        tileset_window(Mode::Floating, "ui-w5-floating-reread", 1600.0, None, false);
+    let at = h.state().dock.find_tab(&Tab::Tileset(h.state().tilesets[0].id)).unwrap();
+    assert!(!at.surface.is_main(), "floating");
+    h.state_mut().tilesets[0].tile = Some(2);
+    settle(&mut h);
+    watched(&mut h);
+    let model = |app: &Moonglow, n: usize| {
+        app.tilesets[0].tileset().map(|t| t.tiles[n].model.clone()).unwrap_or_default()
+    };
+    std::fs::write(&path, SET.replace("Model=tcn01_a02_01", "Model=zzt01_b01_01")).unwrap();
+    outside_wait(&mut h, "read again", |app| model(app, 2) == "zzt01_b01_01");
+    // Typed into its field (which shows the model read): set, kept and asked about.
+    field_with(&h, "zzt01_b01_01").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    field_with(&h, "zzt01_b01_01").type_text("zzt01_typed");
+    settle(&mut h);
+    assert!(!doc(&h).is_dirty(), "typed, not yet set");
+    std::fs::write(&path, SET.replace("Model=tcn01_a01_01", "Model=zzt01_theirs")).unwrap();
+    outside_wait(&mut h, "asked", |app| !app.outside_conflicts().is_empty());
+    let t = set(&h);
+    assert_eq!(t.tiles[2].model, "zzt01_typed", "what was typed set and kept");
+    assert_eq!(t.tiles[0].model, "tcn01_a01_01", "theirs not taken");
 }

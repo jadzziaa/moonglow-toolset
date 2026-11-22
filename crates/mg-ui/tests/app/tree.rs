@@ -885,6 +885,31 @@ fn painted_in(h: &Harness<'_, Moonglow>, rect: egui::Rect) -> Vec<String> {
     out
 }
 
+/// The texts the last frame painted within `rect`, each with its color
+/// and where it was drawn.
+fn painted_colored(
+    h: &Harness<'_, Moonglow>,
+    rect: egui::Rect,
+) -> Vec<(String, egui::Color32, egui::Rect)> {
+    fn texts(
+        shape: &egui::Shape,
+        rect: egui::Rect,
+        out: &mut Vec<(String, egui::Color32, egui::Rect)>,
+    ) {
+        match shape {
+            egui::Shape::Text(t) if rect.contains(t.visual_bounding_rect().center()) => {
+                let color = t.override_text_color.unwrap_or(t.fallback_color);
+                out.push((t.galley.text().to_string(), color, t.visual_bounding_rect()));
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, rect, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    h.output().shapes.iter().for_each(|c| texts(&c.shape, rect, &mut out));
+    out
+}
+
 /// The module tree's Filter emptied, then `text` typed into it.
 fn filter_anew(h: &mut Harness<'_, Moonglow>, text: &str) {
     h.get(egui_kittest::kittest::by().predicate(tree_filter)).click();
@@ -1016,6 +1041,13 @@ fn the_module_tree_dims_tags_and_keeps_its_rows_in_the_dock() {
     // words it took 480 points, and the tree scrolled sideways to them).
     let (row, dock) = (tree_row(&h, &said).rect(), left_dock_rect(&h));
     assert!(row.right() <= dock.right() + 1.0, "the row past the dock: {row:?} {dock:?}");
+    // Painted so (review D of M5's fix rounds had not looked): the tag
+    // after the words, dimmed, and cut inside the row.
+    let painted = painted_colored(&h, row);
+    let [(name, strong, _), (tag, weak, at)] = &painted[..] else { panic!("{painted:?}") };
+    assert_eq!((name.as_str(), tag.as_str()), ("longtag", LONG_TAG));
+    assert!(weak != strong && *weak == mg_uikit::tokens(&h.ctx).text_3, "dimmed: {painted:?}");
+    assert!(at.right() <= row.right(), "the tag cut inside the row: {at:?} {row:?}");
     // Named, its ResRef and tag dimmed after its name together.
     h.state_mut().settings.area_names = true;
     h.state_mut().settings.name_resrefs = true;
@@ -1023,6 +1055,11 @@ fn the_module_tree_dims_tags_and_keeps_its_rows_in_the_dock() {
     tree_row(&h, "Hent Fynolds (creature007) (GUARD_HENT)");
     let [words, dimmed, ..] = creature_row(&h, "creature007");
     assert_eq!((words.as_str(), dimmed.as_str()), ("Hent Fynolds", "creature007 · GUARD_HENT"));
+    let row = tree_row(&h, "Hent Fynolds (creature007) (GUARD_HENT)").rect();
+    let painted = painted_colored(&h, row);
+    let [(name, strong, _), (second, weak, _)] = &painted[..] else { panic!("{painted:?}") };
+    assert_eq!((name.as_str(), second.as_str()), ("Hent Fynolds", "creature007 · GUARD_HENT"));
+    assert!(weak != strong && *weak == mg_uikit::tokens(&h.ctx).text_3, "dimmed: {painted:?}");
 }
 
 /// The module tree leaves the middle its room: a very long name is cut

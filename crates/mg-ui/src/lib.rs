@@ -59,7 +59,7 @@ mod nui_view;
 pub mod nui_names {
     pub use crate::nui_view::checks::CHECKS_ROWS;
     pub use crate::nui_view::design::BINDS_TABLE;
-    pub use crate::nui_view::panels::{ELEMENT_ACTIONS, LAYER_ACTIONS};
+    pub use crate::nui_view::panels::{ELEMENT_ACTIONS, OUTLINER_ACTIONS};
     // (The source group's, M4's U19.)
     pub use crate::nui_view::source::{
         BINDING_JSON, EVENT_SCRIPT, JUI_SOURCE, OPENER_SCRIPT, SETTINGS_TEXT, SOURCE,
@@ -3257,6 +3257,13 @@ impl Moonglow {
     #[doc(hidden)]
     pub fn picture_decodes(&self) -> (usize, usize) {
         (self.decodes.workers(), self.decodes.pending())
+    }
+
+    /// How many of the window's picture decodes no thread has taken yet.
+    /// For the tests.
+    #[doc(hidden)]
+    pub fn picture_decodes_untaken(&self) -> usize {
+        self.decodes.untaken()
     }
 
     /// How many times NUI window `key`'s Bindings table walked the window

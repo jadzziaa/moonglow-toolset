@@ -686,18 +686,22 @@ mod tests {
     fn a_job_to_its_end_hands_over_when_called_off() {
         let mut app = app("ui-job-to-its-end");
         let (go, wait) = mpsc::channel::<()>();
+        let (looked, look) = mpsc::channel::<()>();
         app.start_job_to_its_end(
             "Write",
             move |job| {
                 // (Its last look at Cancel, then the rest of its work.)
                 let stopped = job.progress.cancelled();
+                looked.send(()).ok();
                 wait.recv().ok();
                 stopped
             },
             |app, stopped| app.log.info(format!("handed over, stopped: {stopped}")),
         );
         let progress = app.job.as_ref().unwrap().progress.clone();
-        std::thread::sleep(Duration::from_millis(50));
+        // (Called off once the work has looked: a pause of 50 ms had the
+        // thread, on a busy machine, not started by then.)
+        look.recv_timeout(Duration::from_secs(20)).expect("the work never looked at Cancel");
         progress.cancel.store(true, Ordering::Relaxed);
         go.send(()).unwrap();
         until_done(&mut app);

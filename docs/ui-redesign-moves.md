@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T17:36:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -297,7 +297,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Zoom: Fit, 100%, "Game preview" label | Overlays in the canvas corners ✓ M4 U19 (Game preview with the UI scale and state at the top left, Fit and 100% at the bottom right; View › Zoom too) |
 | Canvas hint line | Status Bar key caps ✓ M4 U19 (Click Select, Drag Resize by handle, Esc Cancel resize, Ctrl + D Duplicate, Alt + Up Move up, Delete, as bound; "3 binds, 3 handlers") |
 | Components palette | Right Dock, top panel ✓ M4 U18 (Find a control…, the components by group in title case; added to the control chosen; on every page) |
-| Layers with search, Expand All, Collapse All | Outliner in the Left Dock ✓ M4 U18 (Find a layer or ID…, Expand All, Collapse All and Layer Actions on its header; the Window row's detail its title; only the rows in sight laid out; their keys; a floating designer's window's left pane or its strip) |
+| Layers with search, Expand All, Collapse All | Outliner in the Left Dock ✓ M4 U18 (Find a layer or ID…, Expand All, Collapse All and Outliner Actions on its header; the Window row's detail its title; only the rows in sight laid out; their keys; a floating designer's window's left pane or its strip) |
 | Properties: binding, Content, Size & layout, Behavior, Events, Element actions | Properties panel in the Right Dock ✓ M4 U18 (the board's form: each label beside its field, over it only where the row has no room; bold section headings that fold; Width and Height on one row; Source with the plus that makes a bind; descriptions as tooltips; Add Property and the other adding buttons with the kit's drawn plus, named by their words; Property Binding first; Element Actions its header's `…`; a panel, not a menu, under 760 points) |
 | Bindings, Create bind, Window identity, Client delivery | Bindings panel under Properties ✓ M4 U18; as a table ✓ M4 U19 (Name, Initial Value, Watch; New Bind on its header's plus; Custom window ID and the two delivery checks under it; the bind chosen's form under them; on the Bindings page, whose body is every bind's form, the table alone) |
 

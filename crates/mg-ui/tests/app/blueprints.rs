@@ -779,7 +779,8 @@ fn showing_blueprint_editors_changes_nothing() {
         };
         for page in mg_ui::blueprint::pages(t) {
             h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
-            h.run();
+            // (Settled, not run: a page's pictures are made a few a frame.)
+            settle(&mut h);
         }
         let ws = h.state().ws.as_ref().unwrap();
         assert_eq!(ws.can_undo(), Some("copy"), "{name}");
@@ -1950,16 +1951,16 @@ fn a_weapon_s_parts_are_pictured_alone() {
     let Some((mut h, key)) = blueprint_harness("nw_wswgs001", "sword_copy", ResType::UTI) else {
         return;
     };
-    h.run();
+    settle(&mut h);
     page(&mut h, "Appearance");
-    h.run_steps(4);
     for part in ["Top", "Middle", "Bottom"] {
         let size = h.get_by_label(&format!("{part} 12")).rect().size();
         assert!(size.y <= 96.0 && size.x <= 64.0, "{part}: {size:?}");
     }
     // A click on one chooses it.
     h.get_by_label("Middle 21").click();
-    h.run();
+    // (Settled, not run: the part chosen has the pictures made again.)
+    settle(&mut h);
     assert_eq!(field(&mut h, &key).integer("ModelPart2"), Some(21));
 }
 
@@ -3633,21 +3634,22 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     app.open_module(&path);
     app.palette_dock = false;
     let mut h = harness(app, 1000.0, 900.0);
-    h.run();
+    settle(&mut h);
     h.get_by_label("Wizards").click();
-    h.run();
+    settle(&mut h);
     h.get_by_label_contains("Creature Wizard…").click();
-    h.run();
-    // Each page as it comes, nothing drawn over anything else.
+    settle(&mut h);
+    // Each page as it comes, nothing drawn over anything else. (Settled,
+    // not run: a page's pictures, its portraits, are made a few a frame.)
     let next = |h: &mut Harness<'_, Moonglow>| {
         let over = overlapping(h);
         assert!(over.is_empty(), "drawn over each other: {over:?}");
         h.get_by_label("Next >").click();
-        h.run();
+        settle(h);
     };
     next(&mut h);
     h.get_by_label("Human").click();
-    h.run();
+    settle(&mut h);
     next(&mut h);
     // Fighter 1, the Human's default class.
     assert_eq!(h.state().creature_wizard.as_ref().unwrap().classes, [(4, 1)]);
@@ -3657,12 +3659,12 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     assert!(first.is_some(), "a portrait is chosen when the page opens");
     // The portraits are pictures (named after them once loaded).
     h.get_by_label("po_hu_m_01_").click();
-    h.run();
+    settle(&mut h);
     next(&mut h);
     next(&mut h); // Hostile
     let w = h.state_mut().creature_wizard.as_mut().unwrap();
     (w.first_name, w.last_name) = ("Hent".into(), "Fynolds".into());
-    h.run();
+    settle(&mut h);
     next(&mut h);
     // The custom palette's categories, as Aurora's wizard offers them:
     // no Familiars nor Summoned Monsters (the skeleton's `TYPE` 1 nodes).
@@ -3670,7 +3672,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     assert!(h.query_by_label("Familiars").is_none(), "not offered");
     assert!(h.query_by_label("Summoned Monsters").is_none(), "not offered");
     h.get_by_label("Tutorial").click();
-    h.run();
+    settle(&mut h);
     next(&mut h); // the review
     next(&mut h);
     // The button (the last page's heading is "Finish" too).
@@ -3678,7 +3680,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
         .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
         .unwrap()
         .click();
-    h.run();
+    settle(&mut h);
     let ws = h.state_mut().ws.as_mut().unwrap();
     let c = ws.doc(&ResKey::parse("hent", ResType::UTC).unwrap()).unwrap().root.clone();
     assert_eq!((c.integer("HitPoints"), c.integer("MaxHitPoints")), (Some(10), Some(13)));
@@ -3944,7 +3946,6 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
         return;
     };
     page(&mut h, "Appearance");
-    h.run();
     let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
     let before = torso(&mut h).expect("a torso");
     // The torso's list: beside its label, on its row, the first after it
@@ -3997,7 +3998,7 @@ fn an_armor_s_part_can_be_none() {
         return;
     };
     page(&mut h, "Appearance");
-    h.run();
+    settle(&mut h);
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
     let label = (h.get_all_by_label("Left bicep"))
@@ -4011,7 +4012,7 @@ fn an_armor_s_part_can_be_none() {
         })
         .expect("the left bicep's list")
         .click();
-    h.run();
+    settle(&mut h);
     // (The open list's row, over or under the box as there is room; Belt
     // and Robe show it in their boxes.)
     h.get_all_by_label("0 (none)")
@@ -4021,7 +4022,9 @@ fn an_armor_s_part_can_be_none() {
         })
         .expect("the row of none")
         .click();
-    h.run();
+    // (Settled, not run: the part changed has its pictures made again, a
+    // few a frame.)
+    settle(&mut h);
     assert_eq!(bicep(&mut h, "ArmorPart_LBicep"), Some(0));
     let wide = mg_rules::items::wide_label("ArmorPart_LBicep");
     assert_eq!(bicep(&mut h, &wide), Some(0), "its EE twin");
@@ -4082,9 +4085,10 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
             value: Some(Value::Byte(171)),
         }],
     )));
-    h.run();
+    // (Settled, not run: a color changed has the part pictures made again,
+    // a few a frame.)
+    settle(&mut h);
     page(&mut h, "Appearance");
-    h.run();
     // (Rendering opens a GPU device.)
     mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
@@ -4123,7 +4127,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     h.get_by_label(&format!("Cloth 1 {pick}")).click();
     settle(&mut h);
     h.state_mut().actions.push(mg_ui::Action::Save);
-    h.run();
+    settle(&mut h);
     let path = mg_testkit::test_output().join("ui-bp-part_colors/sample.mod");
     let saved = mg_module::Module::open(&path).unwrap();
     let uti = saved.gff(&key).unwrap().unwrap().root;
@@ -4133,7 +4137,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
 
     // Reset: the part takes the armor's color again, and the field goes.
     h.get_by_label("Reset Torso Cloth 1").click();
-    h.run();
+    settle(&mut h);
     assert_eq!(field(&mut h, &key).get("APart_7_Col_2"), None);
     assert_eq!(field(&mut h, &key).get("APart_17_Col_5"), Some(&Value::Byte(171)));
 }

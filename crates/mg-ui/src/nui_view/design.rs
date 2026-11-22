@@ -277,7 +277,7 @@ pub(super) fn inspector(
     key: ResKey,
 ) {
     let Some(node) = v.pointer(&state.selected) else {
-        ui.weak("Choose a control on the canvas or in Layers.");
+        ui.weak("Choose a control on the canvas or in the Outliner.");
         return;
     };
     // (Its bind chips' clicks are this designer's: `form::chip_asked`.)

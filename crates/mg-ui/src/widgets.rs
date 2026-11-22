@@ -2291,8 +2291,12 @@ fn commit_field(
     let r = out.response.response;
     leaves_at_a_press(ui.ctx(), &r);
     if !has_keys(&r) && !r.lost_focus() && *buf != shown {
-        // Changed underneath (undo, another selection): show the value.
+        // Changed underneath (undo, another selection, the file read again
+        // as another program changed it): show the value, in a frame asked
+        // for. (Drawn already with the old: where no input followed, the
+        // window rested on it until the next input.)
         *buf = shown.to_owned();
+        ui.ctx().request_repaint();
     }
     (r.lost_focus() && *buf != shown).then(|| buf.clone())
 }
