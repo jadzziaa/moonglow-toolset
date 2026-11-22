@@ -1354,13 +1354,11 @@ fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
     if wide(text) <= width {
         return text.to_string();
     }
-    // (Whole folders dropped first: "…/data/hk/id_resources.hak".)
-    let parts: Vec<&str> = text.split(['/', '\\']).collect();
-    for k in 1..parts.len() {
-        let s = format!("…/{}", parts[k..].join("/"));
-        if wide(&s) <= width {
-            return s;
-        }
+    // (Whole folders dropped first, the path's own separators kept:
+    // "…/data/hk/id_resources.hak", on Windows "…\data\hk\id_resources.hak".)
+    let windows = crate::shown_path::WINDOWS;
+    if let Some(s) = crate::shown_path::cut_folders(text, windows, |s| wide(s) <= width) {
+        return s;
     }
     let chars: Vec<char> = text.chars().collect();
     let (mut lo, mut hi) = (0, chars.len());

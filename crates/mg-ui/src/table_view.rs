@@ -1017,7 +1017,7 @@ fn describe(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
         std::thread::spawn(move || look_for_description(table, had, &walking, &hold))
     };
     doc.walking = Some((walking, look));
-    ctx.request_repaint_after(std::time::Duration::from_millis(30));
+    app.frame_after(ctx, std::time::Duration::from_millis(30));
 }
 
 /// Each frame, for every table: a look for its description that has
@@ -1034,14 +1034,16 @@ pub(crate) fn follow_looks(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// Takes in table `at`'s look for its description where it has ended;
-/// where one is under way, asks for a frame soon. Whether one was under
-/// way (ended now or not).
+/// where one is under way, asks for a frame soon ([`Moonglow::frame_after`]:
+/// a test's run of frames doesn't wait for the look's thread, which on
+/// Windows CI outlasted `Harness::run`'s four steps). Whether one was
+/// under way (ended now or not).
 fn take_look(app: &mut Moonglow, ctx: &egui::Context, at: usize) -> bool {
     use mg_module::table_desc::game_description;
     // (A look under way is looked at every frame.)
     if let Some((_, look)) = &app.tables[at].walking {
         if !look.is_finished() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            app.frame_after(ctx, std::time::Duration::from_millis(30));
             return true;
         }
         let (_, look) = app.tables[at].walking.take().expect("looking");

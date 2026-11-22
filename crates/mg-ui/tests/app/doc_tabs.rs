@@ -1205,6 +1205,35 @@ fn a_table_s_look_ends_with_its_tab_behind_another() {
     assert!(!walking(&h));
 }
 
+/// A table's look for its description, under way, asks for no frames at
+/// once in a test (`Moonglow::frame_after`): it asked for one in 30 ms,
+/// which kittest draws at once, so a plain `Harness::run` went on frame
+/// after frame until the look's thread was done, and on Windows CI, where
+/// the look took longer, two dialog tests overran its four steps
+/// (`table_view.rs`'s `take_look` the repaint's cause).
+#[test]
+fn a_table_s_look_under_way_asks_for_no_frames_at_once() {
+    let mut h = one_group("ui-doc-tab-look-frames", 0, &[], egui::vec2(1400.0, 900.0));
+    h.state_mut().settings.window_places = vec![("table".into(), "middle".into())];
+    let hold = h.state().hold_description_looks.clone();
+    hold.store(true, std::sync::atomic::Ordering::Relaxed);
+    let key = ResKey::parse("mytable", ResType::TWODA).unwrap();
+    mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    let walking = |h: &Harness<'_, Moonglow>| h.state().tables.iter().any(|t| t.walking());
+    let started = std::time::Instant::now();
+    while !walking(&h) && started.elapsed().as_secs() < 10 {
+        h.step();
+    }
+    assert!(walking(&h), "its look under way");
+    let ran = h.try_run();
+    hold.store(false, std::sync::atomic::Ordering::Relaxed);
+    if let Err(e) = ran {
+        panic!("frames asked for at once while the look is under way: {e}");
+    }
+    settle(&mut h);
+    assert!(!walking(&h));
+}
+
 /// The sample module with its area `start`'s placed objects (a GIT with a
 /// placeable) and their comments (a GIC with the placeable's), open with
 /// the area's tab in front.

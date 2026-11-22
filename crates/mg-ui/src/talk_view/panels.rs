@@ -396,23 +396,14 @@ pub const COPY_STRREF: &str = "Copy the StrRef";
 const COPY_STRREF_TIP: &str = "Copy the StrRef of the line chosen";
 
 /// `path` broken into lines at its separators (each line as many of its
-/// parts, `/` ending each, as fit in `width`; a part longer than the width
-/// a line of its own, cut by the panel's edge).
+/// parts, a separator ending each, as fit in `width`; a part longer than
+/// the width a line of its own, cut by the panel's edge).
 fn at_separators(ui: &Ui, path: &str, font: &egui::FontId, width: f32) -> String {
     let wide = |s: &str| {
         let g = ui.painter().layout_no_wrap(s.to_string(), font.clone(), egui::Color32::WHITE);
         g.size().x
     };
-    let mut lines: Vec<String> = Vec::new();
-    let mut line = String::new();
-    for part in path.split_inclusive('/') {
-        if !line.is_empty() && wide(&format!("{line}{part}")) > width {
-            lines.push(std::mem::take(&mut line));
-        }
-        line.push_str(part);
-    }
-    lines.push(line);
-    lines.join("\n")
+    crate::shown_path::lines_at_separators(path, crate::shown_path::WINDOWS, |s| wide(s) <= width)
 }
 
 /// A place that names a line, as the Talk board's References row says it:
@@ -745,14 +736,10 @@ pub(crate) fn file(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
 }
 
 /// A file's path as the panel shows it (the Talk board's): its last five
-/// parts after "…/" where it has more; the whole in its tip.
+/// parts after "…" and a separator (the path's own: `\` on Windows)
+/// where it has more; the whole in its tip.
 fn shorter(path: &std::path::Path) -> String {
-    let parts: Vec<String> =
-        path.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-    match parts.len() > 5 {
-        true => format!("…/{}", parts[parts.len() - 5..].join("/")),
-        false => path.display().to_string(),
-    }
+    crate::shown_path::last_parts(&path.display().to_string(), 5, crate::shown_path::WINDOWS)
 }
 
 /// Module's Table (M4's U17, the Talk Table panel's section; before it, the

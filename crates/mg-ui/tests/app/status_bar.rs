@@ -331,9 +331,9 @@ fn with_no_line_yet_nothing_is_shown_or_kept() {
     let names: Vec<String> = bar_controls(&h, "Status Bar").into_iter().map(|c| c.0).collect();
     // (The switches: the Log's, Problems' and Search Results', M4's U13
     // and U20.)
-    let folder = format!("…/{FOLDER}");
+    let folder = format!("…{}{FOLDER}", std::path::MAIN_SEPARATOR);
     assert_eq!(names, ["Log", "Problems", "Search Results", MODULE, folder.as_str()]);
-    let folder = &format!("…/{FOLDER}");
+    let folder = &format!("…{}{FOLDER}", std::path::MAIN_SEPARATOR);
     let folder_width = in_bar(&h, folder).unwrap().rect().width();
     let mut differ = Vec::new();
     let mut dropped = 0;
@@ -606,7 +606,11 @@ fn the_status_bar_holds_at_every_width() {
                 functions declared one way and defined another";
     let line = &format!("{LAST}{said}");
     let name = "a_module_with_a_rather_long_file_name_for_the_status_bar_check (modified)";
-    let folder = "…/Neverwinter Nights Enhanced Edition on the second drive";
+    let folder = format!(
+        "…{}Neverwinter Nights Enhanced Edition on the second drive",
+        std::path::MAIN_SEPARATOR
+    );
+    let folder = folder.as_str();
     let job_title = "Compile All Scripts";
     let mut h = harness(app, 1600.0, 600.0);
     settle(&mut h);

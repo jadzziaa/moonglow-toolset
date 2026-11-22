@@ -110,6 +110,7 @@ pub mod search;
 pub mod search_results;
 pub mod settings;
 mod shell;
+mod shown_path;
 mod side_doc;
 pub mod store_wizard;
 pub mod table_view;

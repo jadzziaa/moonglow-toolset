@@ -561,9 +561,9 @@ fn the_preview_and_details_show_the_hak() {
     let contents = h.get_all_by_label_contains("6 resources, ").map(|n| n.rect());
     assert!(contents.into_iter().any(|r| dock.contains_rect(r)), "Contents in Details");
     assert!(h.query_all_by_label("(not built from a folder)").next().is_some());
-    let file = path.display().to_string();
-    let tail = file.rsplit('/').next().unwrap();
-    let tail = format!("/{tail}");
+    // (Its name after a separator, `\\` on Windows: the path's own.)
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    let tail = format!("{}{name}", std::path::MAIN_SEPARATOR);
     let mut shown = h.get_all_by_label_contains(&tail).map(|n| n.rect());
     assert!(shown.any(|r| dock.contains_rect(r)), "the file in Details");
     let update = h.get_by_label(hv::UPDATE_FROM_FOLDER);
@@ -1362,7 +1362,8 @@ fn a_hak_s_model_view_goes_when_unseen() {
 }
 
 /// A long path is cut cleanly in Details (whole folders dropped from its
-/// start, "…/" before what is left; whole in its tip), never in the middle
+/// start, "…" and the separator before what is left, the path's own, which
+/// on Windows CI mixes `\\` and `/`; whole in its tip), never in the middle
 /// of a folder's name.
 #[test]
 fn details_cuts_a_long_path_by_its_folders() {
@@ -1386,7 +1387,8 @@ fn details_cuts_a_long_path_by_its_folders() {
         .filter(|l| l.starts_with('…'))
         .collect();
     let cut = shown.first().unwrap_or_else(|| panic!("the File cut: {shown:?}"));
-    assert!(cut.starts_with("…/"), "cut by its folders: {cut}");
+    let after = cut["…".len()..].chars().next();
+    assert!(after.is_some_and(std::path::is_separator), "cut by its folders: {cut}");
     let whole = path.display().to_string();
     assert!(whole.ends_with(&cut["…".len()..]), "{cut} the end of {whole}");
 }

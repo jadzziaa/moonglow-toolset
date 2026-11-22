@@ -2780,7 +2780,10 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     let (folder, folder_tip) = match &app.install {
         Some(gi) => {
             let name = gi.root.file_name().map(|n| n.to_string_lossy().into_owned());
-            let shown = name.map_or_else(|| gi.root.display().to_string(), |n| format!("…/{n}"));
+            let shown = name.map_or_else(
+                || gi.root.display().to_string(),
+                |n| format!("…{}{n}", std::path::MAIN_SEPARATOR),
+            );
             (shown, Some(gi.root.display().to_string()))
         }
         None => ("No game install".to_string(), None),

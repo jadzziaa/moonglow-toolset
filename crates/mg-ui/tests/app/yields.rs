@@ -149,10 +149,12 @@ fn switches_as_icons(h: &Harness<'_, Moonglow>) -> bool {
     switch.width() < 30.0
 }
 
-/// Whether the Status Bar shows the game folder (`…/` and its name).
+/// Whether the Status Bar shows the game folder (`…/`, on Windows `…\`,
+/// and its name).
 fn folder_shown(h: &Harness<'_, Moonglow>) -> bool {
     let root = h.state().install.as_ref().unwrap().root.clone();
-    let name = format!("…/{}", root.file_name().unwrap().to_string_lossy());
+    let name =
+        format!("…{}{}", std::path::MAIN_SEPARATOR, root.file_name().unwrap().to_string_lossy());
     h.get_by_label("Status Bar").query_by_label(&name).is_some()
 }
 
