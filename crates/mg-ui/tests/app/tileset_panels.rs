@@ -1669,6 +1669,7 @@ fn a_tileset_in_the_override_changed_outside_is_redrawn() {
 /// unreadable without changing them (its mode) is not read as the watch
 /// starts again, so nothing is said of it; rewritten, the walk finds it and
 /// it is read again.
+#[cfg(unix)]
 #[test]
 fn a_look_at_every_file_reads_only_a_tileset_changed() {
     use std::os::unix::fs::PermissionsExt;

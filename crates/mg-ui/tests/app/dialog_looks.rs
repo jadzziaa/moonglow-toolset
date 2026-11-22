@@ -60,6 +60,9 @@ fn words_contrast(img: &image::RgbaImage, rect: egui::Rect, ppp: f32) -> (f32, e
 /// for the record (the numbers in the report).
 #[test]
 fn the_job_window_s_progress_words_read_in_light() {
+    if no_adapter() {
+        return;
+    }
     mg_testkit::gpu::hold();
     for light in [true, false] {
         let mut app = app_with(Vec::new());
@@ -115,6 +118,9 @@ fn the_job_window_s_progress_words_read_in_light() {
 /// Unsaved Changes' Save against Don't Save.
 #[test]
 fn the_main_action_is_drawn_in_the_accent_fill() {
+    if no_adapter() {
+        return;
+    }
     mg_testkit::gpu::hold();
     for light in [false, true] {
         for title in ["New Module", "Unsaved Changes"] {
@@ -155,6 +161,9 @@ fn the_main_action_is_drawn_in_the_accent_fill() {
 /// button. The pointer is parked off the window, so no button is hovered.
 #[test]
 fn every_dialog_s_main_action_is_drawn_in_the_accent_fill() {
+    if no_adapter() {
+        return;
+    }
     mg_testkit::gpu::hold();
     crate::dialog_pattern::running("-accent");
     let mut failed = Vec::new();

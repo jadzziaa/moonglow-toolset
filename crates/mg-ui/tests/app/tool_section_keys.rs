@@ -453,6 +453,9 @@ fn the_mixed_mark_is_readable_on_the_group_and_says_mixed() {
 /// its actions' row alone).
 #[test]
 fn edit_areas_together_is_outlined_whole_while_it_holds_the_keys() {
+    if no_adapter() {
+        return;
+    }
     for size in [egui::vec2(1600.0, 900.0), egui::vec2(1280.0, 720.0)] {
         let mut h = together_harness("u29f-outline", 30, size.x, size.y);
         h.state_mut().settings.hide_palettes = false;

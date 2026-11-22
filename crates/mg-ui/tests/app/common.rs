@@ -321,6 +321,17 @@ pub(crate) fn adapter() -> bool {
     })
 }
 
+/// For a test whose assertions read the pixels `render` gives (kittest's
+/// own wgpu device): `true`, said, without a GPU adapter, and the test
+/// returns (`if no_adapter() { return; }`); CI's Linux runner has none.
+pub(crate) fn no_adapter() -> bool {
+    let none = !adapter();
+    if none {
+        eprintln!("skipped: no GPU adapter");
+    }
+    none
+}
+
 /// [`harness`] drawn on the GPU's render state `rs` (from [`gpu`], given
 /// to `app` too). Takes the GPU as well, so that no harness draws without
 /// it.
