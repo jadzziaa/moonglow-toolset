@@ -770,6 +770,26 @@ fn pressed(h: &mut Harness<'static, Moonglow>, op: &Opener, key: egui::Key) {
     rested(h, op.title, op.job);
 }
 
+/// Whether `done` holds for `op`, open in `h`, after a key [`pressed`]:
+/// for a dialog of the window's, once it has rested; for a job's, by a
+/// deadline, frames stepped meanwhile. (A job's window goes, and its
+/// answer is seen, when its thread has taken the press and ended; the
+/// window is still until then, and on a busy machine longer than
+/// [`rested`]'s four frames: Windows CI saw Plugin Question still shown
+/// after its Escape.)
+fn comes_to(
+    h: &mut Harness<'static, Moonglow>,
+    op: &Opener,
+    done: impl Fn(&Harness<'static, Moonglow>) -> bool,
+) -> bool {
+    let started = std::time::Instant::now();
+    while op.job && !done(h) && started.elapsed() < SETTLE_TIME {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    done(h)
+}
+
 thread_local! {
     /// The words the dialog showed before the last Enter ([`enter`]).
     static BEFORE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -820,7 +840,7 @@ fn escape(h: &mut Harness<'static, Moonglow>, op: &Opener, seen: &mg_ui::widgets
         });
         assert!(pressed, "{title}: Escape is its {}: {presses:?}", leave.words);
     }
-    assert!(!is_shown(h, title), "{title}: closed by Escape");
+    assert!(comes_to(h, op, |h| !is_shown(h, title)), "{title}: closed by Escape");
 }
 
 /// Enter for `op`, open in `h`, the keys held by its `field`th text field
@@ -846,11 +866,11 @@ fn enter(h: &mut Harness<'static, Moonglow>, op: &Opener, field: Option<usize>, 
     let main = before.buttons.iter().find(|b| b.main && b.enabled);
     // (For the message: what the log said last.)
     let log = &h.state().log.entries;
-    let said = &log[log.len().saturating_sub(3)..];
+    let said = log[log.len().saturating_sub(3)..].to_vec();
     match main.filter(|_| !before.enter_withheld) {
         Some(main) => match op.effect {
             Some((what, done)) => assert!(
-                done(h),
+                comes_to(h, op, done),
                 "{title} ({how}): Enter is its {}: {what}: {presses:?}, the log {said:?}, \
                  the words before {:?} and after {:?}",
                 main.words,
@@ -858,7 +878,7 @@ fn enter(h: &mut Harness<'static, Moonglow>, op: &Opener, field: Option<usize>, 
                 words_in(h, title)
             ),
             None => assert!(
-                !is_shown(h, title),
+                comes_to(h, op, |h| !is_shown(h, title)),
                 "{title} ({how}): Enter is its {}, which closes it: {presses:?}, the log {said:?}",
                 main.words
             ),
@@ -870,7 +890,8 @@ fn enter(h: &mut Harness<'static, Moonglow>, op: &Opener, field: Option<usize>, 
             );
             match op.enter_when_off.filter(|_| !before.enter_withheld) {
                 Some((what, done)) => {
-                    assert!(done(h), "{title} ({how}): its main action off, Enter {what}")
+                    let done = comes_to(h, op, done);
+                    assert!(done, "{title} ({how}): its main action off, Enter {what}")
                 }
                 None => assert!(is_shown(h, title), "{title} ({how}): Enter leaves it open"),
             }
@@ -900,8 +921,12 @@ fn enter_on_the_focused_main(h: &mut Harness<'static, Moonglow>, op: &Opener) {
         main.words
     );
     match op.effect {
-        Some((what, done)) => assert!(done(h), "{title}: {}: {what}", main.words),
-        None => assert!(!is_shown(h, title), "{title}: its {} closes it", main.words),
+        Some((what, done)) => assert!(comes_to(h, op, done), "{title}: {}: {what}", main.words),
+        None => assert!(
+            comes_to(h, op, |h| !is_shown(h, title)),
+            "{title}: its {} closes it",
+            main.words
+        ),
     }
 }
 
@@ -1088,6 +1113,8 @@ fn keys_reach_the_job_window_not_the_dialog_under_it() {
         assert!(is_shown(&h, "New Module"), "{key:?}: New Module stays open");
         match key {
             egui::Key::Escape => {
+                // (The window goes once the job's thread has seen Cancel.)
+                settle(&mut h);
                 assert!(!is_shown(&h, "Held") && !h.state().busy(), "Escape calls the job off")
             }
             _ => assert!(is_shown(&h, "Held"), "Enter leaves the job running (no main action)"),
@@ -1202,7 +1229,10 @@ fn a_plugin_message_closes_by_escape_and_by_enter() {
         unfocus(&mut h);
         rested(&mut h, message.title, true);
         press_key(&mut h, key, message.title, true);
-        assert!(!is_shown(&h, message.title), "{key:?} closes the message");
+        let closed = comes_to(&mut h, &message, |h| {
+            !is_shown(h, message.title) && openers_shared::answered().is_some()
+        });
+        assert!(closed, "{key:?} closes the message");
         let answer = openers_shared::answered();
         assert_eq!(answer, Some(Some(mg_plugin::Answer::Yes)), "{key:?}: answered OK");
     }

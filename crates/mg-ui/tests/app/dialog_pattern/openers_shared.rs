@@ -236,15 +236,21 @@ thread_local! {
 
 /// Asks `question` in the job's window, as a plugin's thread asks it.
 pub(super) fn ask(h: &mut Harness<'static, Moonglow>, question: Question) {
-    ask_late(h, question, std::time::Duration::ZERO);
+    ask_late(h, question, std::time::Duration::ZERO, std::time::Duration::ZERO);
 }
 
-/// [`ask`], the job's thread asking `late` after it starts; returns once
-/// the question waits in the window. (The job's window is there, still,
+/// [`ask`], the job's thread asking `late` after it starts and ending
+/// `ends_late` after it is answered; returns once the question waits in
+/// the window. (The job's window is there, still,
 /// before its thread asks: `rested` alone took it for the question's on
 /// Windows CI, where the thread asked later, with no buttons or fields.)
-fn ask_late(h: &mut Harness<'static, Moonglow>, question: Question, late: std::time::Duration) {
-    let answered = h.state_mut().ask_for_tests_late(question, late);
+fn ask_late(
+    h: &mut Harness<'static, Moonglow>,
+    question: Question,
+    late: std::time::Duration,
+    ends_late: std::time::Duration,
+) {
+    let answered = h.state_mut().ask_for_tests_late(question, late, ends_late);
     ANSWERED.with(|a| *a.borrow_mut() = Some(answered));
     let started = std::time::Instant::now();
     while !h.state().question_waiting() {
@@ -262,7 +268,7 @@ fn a_question_asked_late_is_waited_for() {
     super::running("-late-question");
     let mut h = module().unwrap();
     settle(&mut h);
-    ask_late(&mut h, form(), std::time::Duration::from_millis(300));
+    ask_late(&mut h, form(), std::time::Duration::from_millis(300), std::time::Duration::ZERO);
     super::rested(&mut h, QUESTION, true);
     assert_eq!(super::fields_in(&h, QUESTION).len(), 1, "the form's field");
     let all = mg_ui::widgets::footers_shown(&h.ctx);
@@ -270,6 +276,34 @@ fn a_question_asked_late_is_waited_for() {
     assert!(seen.buttons.iter().any(|b| b.main), "a main action: {:?}", seen.buttons);
     h.get_all_by_label("Cancel").last().unwrap().click();
     settle(&mut h);
+}
+
+/// A question whose thread ends late after it is answered (as Windows
+/// CI's once did: Plugin Question still shown after its Escape) is seen
+/// closed by Escape, and answered and closed by Enter: the dialog
+/// pattern's checks wait for a job's window to go, not for it to be still.
+#[test]
+fn a_question_ending_late_is_waited_for() {
+    super::running("-late-end");
+    let ends_late = std::time::Duration::from_millis(300);
+    let op = Opener::new("jobs.rs:window#1 Confirm", QUESTION, module, |_| {})
+        .job()
+        .enter_does("answered yes, and closed", |h| {
+            answered() == Some(Some(Answer::Yes)) && !is_shown(h, QUESTION)
+        });
+    let opened = || {
+        let mut h = module().unwrap();
+        settle(&mut h);
+        ask_late(&mut h, confirm(), std::time::Duration::ZERO, ends_late);
+        super::rested(&mut h, QUESTION, true);
+        h
+    };
+    let mut h = opened();
+    let seen = super::seen(&h, QUESTION);
+    super::escape(&mut h, &op, &seen);
+    assert_eq!(answered(), Some(Some(Answer::No)), "Escape answered no");
+    let mut h = opened();
+    super::enter(&mut h, &op, None, "nothing holding the keys");
 }
 
 /// The answer given to the question asked last (`None`: none yet).
