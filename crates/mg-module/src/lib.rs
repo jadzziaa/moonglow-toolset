@@ -570,6 +570,7 @@ impl Module {
                     self.project = made;
                 }
                 self.location = Some(location);
+                self.folder = None;
                 self.archive = None;
                 self.dirty = false;
                 self.reread_project_file();
@@ -1696,5 +1697,26 @@ mod tests {
         let back = Module::open(&dir.join("m")).unwrap();
         assert_eq!(back.get(&ResKey::new(ResRef::EMPTY, ResType::RES)), Some(&b"junk"[..]));
         assert_eq!(folder_key(".hidden"), None);
+    }
+
+    #[test]
+    fn save_as_project_from_folder_clears_folder_state() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-to-project");
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = dir.join("folder");
+        let project = dir.join("project");
+        let mut m = Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.set_gff(
+            ResKey::new(ResRef::from_str("area001").unwrap(), ResType::ARE),
+            &mg_gff::Gff::new(*b"ARE "),
+        )
+        .unwrap();
+        m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+        assert!(m.folder.is_some());
+        m.save_as(&ModuleLocation::Project { root: project, target: "module".into() }).unwrap();
+        assert!(m.project.is_some());
+        assert!(m.folder.is_none());
+        assert!(m.archive.is_none());
     }
 }

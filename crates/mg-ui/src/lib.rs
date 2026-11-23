@@ -4908,6 +4908,7 @@ impl Moonglow {
         }
         self.sound_said.clear();
         self.tag_cache = Default::default();
+        self.area_holds.clear();
         // (The project's plugins were its own.)
         self.plugins.settings_form = None;
         self.load_project_plugins();
@@ -6897,6 +6898,10 @@ impl Moonglow {
     /// whose tags the module's scripts name), and says in the log what was
     /// left, and why.
     fn static_placeables(&mut self, areas: &[mg_core::ResRef]) {
+        let cp = self
+            .game
+            .as_deref()
+            .map_or(mg_core::Codepage::WINDOWS_1252, mg_rules::GameData::text_codepage);
         let Some(ws) = self.ws.as_mut() else { return };
         let rules = ws.module.project_file.make_static.clone().with_scripts(&ws.module);
         let mut edits = Vec::new();
@@ -6907,7 +6912,7 @@ impl Moonglow {
         for &area in areas {
             let key = ResKey::new(area, ResType::GIT);
             let Ok(git) = ws.doc(&key) else { continue };
-            let plan = mg_module::areas::static_plan(&git.root, &rules);
+            let plan = mg_module::areas::static_plan_in(&git.root, &rules, cp);
             let list = git.root.list("Placeable List").unwrap_or(&[]);
             for &i in &plan.convert {
                 let path = mg_edit::GffPath::root().item("Placeable List", i);

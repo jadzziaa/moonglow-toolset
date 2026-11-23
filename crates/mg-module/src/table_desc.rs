@@ -139,7 +139,7 @@ pub fn names_table(pattern: &str, name: &str) -> bool {
             _ => false,
         }
     }
-    let pattern = pattern.trim().trim_end_matches(".2da");
+    let pattern = mg_core::text::strip_suffix_ascii_ci(pattern.trim(), ".2da");
     fits(pattern.as_bytes(), name.as_bytes())
 }
 
@@ -236,7 +236,7 @@ pub fn description_in_module(module: &crate::Module, key: &mg_resman::ResKey) ->
 /// description of the builder's is held to it, its lists and flags shown
 /// by name.
 pub fn game_description(name: &str) -> Option<&'static str> {
-    match name.trim_end_matches(".2da").to_ascii_lowercase().as_str() {
+    match mg_core::text::strip_suffix_ascii_ci(name, ".2da").to_ascii_lowercase().as_str() {
         "spells" => Some(include_str!("table_desc/spells.2da.toml")),
         "baseitems" => Some(include_str!("table_desc/baseitems.2da.toml")),
         _ => None,
@@ -417,7 +417,8 @@ pub(crate) fn constants_in(
     ) {
         let outline = mg_script::outline::outline(&source);
         for include in &outline.includes {
-            let name = include.name.trim_end_matches(".nss").to_ascii_lowercase();
+            let name =
+                mg_core::text::strip_suffix_ascii_ci(&include.name, ".nss").to_ascii_lowercase();
             if seen.contains(&name) || seen.len() > 64 {
                 continue;
             }
@@ -904,7 +905,9 @@ impl Description {
             "strref" => Kind::StrRef,
             "script" => Kind::Script,
             "row" => match text(c, "table") {
-                Some(table) => Kind::Row(table.trim_end_matches(".2da").to_ascii_lowercase()),
+                Some(table) => Kind::Row(
+                    mg_core::text::strip_suffix_ascii_ci(&table, ".2da").to_ascii_lowercase(),
+                ),
                 None => {
                     let message = format!("column {name}: a row of which table? (table = \"…\")");
                     return Err(("kind", message));
@@ -975,7 +978,7 @@ impl Description {
         }
         if let Some(from) = text(c, "constants") {
             let prefix = text(c, "prefix").unwrap_or_default();
-            let from = from.trim_end_matches(".nss");
+            let from = mg_core::text::strip_suffix_ascii_ci(&from, ".nss");
             let Some(source) = script(from) else {
                 return Err((
                     "constants",
@@ -1476,5 +1479,28 @@ require = "Cures"
         );
         assert!(Description::read("[columns", &script).is_err());
         assert!(Description::read("columns = 3\nrules = 4\n", &script).unwrap().notes.len() == 2);
+    }
+
+    #[test]
+    fn uppercase_extensions_strip_case_insensitively() {
+        assert!(game_description("SPELLS.2DA").is_some());
+        assert!(names_table("LOOT_*.2DA", "loot_a"));
+        let script = |name: &str| {
+            if name == "INC_FOO" || name == "inc_foo" {
+                Some(b"#include \"INC_BAR.NSS\"\nconst int X = 1;\n".to_vec())
+            } else if name == "inc_bar" {
+                Some(b"const int Y = 2;\n".to_vec())
+            } else {
+                None
+            }
+        };
+        let d = Description::read(
+            "[columns.Kind]\nkind = \"list\"\nconstants = \"INC_FOO.NSS\"\n[columns.Ref]\nkind = \"row\"\ntable = \"CLS_FEAT.2DA\"\n",
+            &script,
+        )
+        .unwrap();
+        assert!(d.notes.is_empty(), "{:?}", d.notes);
+        let ref_kind = d.columns.iter().find(|(n, _)| n == "Ref").map(|(_, c)| &c.kind);
+        assert_eq!(ref_kind, Some(&Kind::Row("cls_feat".into())));
     }
 }

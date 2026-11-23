@@ -1256,8 +1256,10 @@ impl ProjectFile {
                             },
                             "hak" => {
                                 if let Some(t) = r.text(e) {
-                                    self.lights.hak =
-                                        Some(t.trim().trim_end_matches(".hak").into());
+                                    self.lights.hak = Some(
+                                        mg_core::text::strip_suffix_ascii_ci(t.trim(), ".hak")
+                                            .into(),
+                                    );
                                 }
                             }
                             "first_row" => match e.1.get_ref() {
@@ -1511,7 +1513,10 @@ impl ProjectFile {
                         None => r.warn(at, "rows is to be rows in quotes: \"16500-16999\""),
                     }
                 }
-                "hak" => match r.text(e).map(|t| t.trim().trim_end_matches(".hak").to_string()) {
+                "hak" => match r
+                    .text(e)
+                    .map(|t| mg_core::text::strip_suffix_ascii_ci(t.trim(), ".hak").to_string())
+                {
                     Some(h) if !h.is_empty() && h.len() <= 16 => rules.hak = Some(h),
                     Some(h) => {
                         r.warn(at, format!("hak \"{h}\": a hak's name is 1 to 16 characters"))
@@ -3114,5 +3119,13 @@ keeper_variable = "tdod_store"
         assert!(m.reread_project_file());
         assert_eq!(m.project_file.talk.lines, Some(Lines { from: 7, to: 7 }));
         assert!(m.project_file.warnings.is_empty(), "read beside a .mod");
+    }
+
+    #[test]
+    fn uppercase_hak_extensions_strip_case_insensitively() {
+        let p = read("[lights]\nhak = \"TDOD.HAK\"\n[bake]\nrows = \"1-2\"\nhak = \"BAKE.HAK\"\n");
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        assert_eq!(p.lights.hak.as_deref(), Some("TDOD"));
+        assert_eq!(p.bake.hak.as_deref(), Some("BAKE"));
     }
 }

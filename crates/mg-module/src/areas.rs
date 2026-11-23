@@ -73,10 +73,21 @@ pub fn info_of(
     named: crate::query::Namer<'_>,
     listed: bool,
 ) -> AreaInfo {
+    info_of_in(resref, are, named, Codepage::WINDOWS_1252, listed)
+}
+
+/// [`info_of`] decoding `Tag` bytes in `codepage`.
+pub fn info_of_in(
+    resref: ResRef,
+    are: &Struct,
+    named: crate::query::Namer<'_>,
+    codepage: Codepage,
+    listed: bool,
+) -> AreaInfo {
     AreaInfo {
         resref,
         name: are.locstring("Name").map_or(String::new(), named),
-        tag: String::from_utf8_lossy(are.string("Tag").unwrap_or_default()).into(),
+        tag: codepage.decode(are.string("Tag").unwrap_or_default()).into_owned(),
         tileset: are.resref("Tileset").unwrap_or(ResRef::EMPTY),
         flags: are.integer("Flags").unwrap_or(0) as u32,
         listed,
@@ -92,19 +103,28 @@ pub fn list(m: &Module) -> Vec<AreaInfo> {
 /// [`list`] with the game's codepage, where a module has its own table
 /// (`encoding.2da`): names in English, else another language's.
 pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
-    list_named(m, &|n| n.shown_in(Language::ENGLISH, game))
+    list_named_in(m, &|n| n.shown_in(Language::ENGLISH, game), game)
 }
 
 /// [`list`] with names read by `named` (`mg_rules::shown`, with the game's
 /// data: as the module tree shows them).
 pub fn list_named(m: &Module, named: crate::query::Namer<'_>) -> Vec<AreaInfo> {
+    list_named_in(m, named, Codepage::WINDOWS_1252)
+}
+
+/// [`list_named`] decoding non-localized `Tag` bytes in `codepage`.
+pub fn list_named_in(
+    m: &Module,
+    named: crate::query::Namer<'_>,
+    codepage: Codepage,
+) -> Vec<AreaInfo> {
     let listed = listed_in(m);
     let listed = |r: &ResRef| listed.as_ref().is_none_or(|l| l.contains(r));
     let mut out: Vec<AreaInfo> = m
         .keys_of(ResType::ARE)
         .filter_map(|k| {
             let are = m.gff(k)?.ok()?;
-            Some(info_of(k.resref, &are.root, named, listed(&k.resref)))
+            Some(info_of_in(k.resref, &are.root, named, codepage, listed(&k.resref)))
         })
         .collect();
     out.sort_by_key(|a| a.resref);
@@ -249,12 +269,17 @@ impl Has {
 /// tags (a chooser asked again as a builder types reads nothing anew).
 #[derive(Debug, Default)]
 pub struct HoldsCache {
-    parts: std::collections::HashMap<ResRef, (Bytes, Bytes, Holds)>,
+    parts: std::collections::HashMap<ResRef, (Bytes, Bytes, Codepage, Holds)>,
 }
 
 type Bytes = Option<std::sync::Arc<[u8]>>;
 
 impl HoldsCache {
+    /// Empties the cache (for instance when closing a module).
+    pub fn clear(&mut self) {
+        self.parts.clear();
+    }
+
     /// What `area` holds in the module as it is (its bytes: flush the
     /// workspace's documents first), none for an area it lacks.
     pub fn of(&mut self, m: &Module, area: ResRef, cp: Codepage) -> Option<&Holds> {
@@ -269,15 +294,15 @@ impl HoldsCache {
         let kept = self
             .parts
             .get(&area)
-            .is_some_and(|(a, g, _)| same(a, &Some(are.clone())) && same(g, &git));
+            .is_some_and(|(a, g, c, _)| *c == cp && same(a, &Some(are.clone())) && same(g, &git));
         if !kept {
             let read = |b: &[u8]| mg_gff::Gff::read(b).ok();
             let are_gff = read(&are)?;
             let git_gff = git.as_deref().and_then(read);
             let h = holds(&are_gff.root, git_gff.as_ref().map(|g| &g.root), cp);
-            self.parts.insert(area, (Some(are), git, h));
+            self.parts.insert(area, (Some(are), git, cp, h));
         }
-        self.parts.get(&area).map(|(_, _, h)| h)
+        self.parts.get(&area).map(|(_, _, _, h)| h)
     }
 }
 
@@ -486,7 +511,7 @@ impl StaticPlan {
 }
 
 /// Why a placeable that isn't static is to stay dynamic, if it is.
-fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
+fn kept(p: &Struct, rules: &StaticRules, codepage: Codepage) -> Option<Kept> {
     let on = |label: &str| p.integer(label).unwrap_or(0) != 0;
     if on("Useable") {
         return Some(Kept::Useable);
@@ -513,7 +538,7 @@ fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
     if p.child("Material").and_then(|m| m.list("ShaderParams")).is_some_and(|l| !l.is_empty()) {
         return Some(Kept::Active("Material".into()));
     }
-    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let text = |b: &[u8]| codepage.decode(b).into_owned();
     for v in p.list("VarTable").unwrap_or(&[]) {
         let name = text(v.string("Name").unwrap_or_default());
         // (A tint's, whatever the project's rules: the client draws a
@@ -591,13 +616,18 @@ impl ScriptStrings {
 /// GIT root), by the project's rules (`StaticRules::default()` without a
 /// project file: a placeable with any variable stays dynamic).
 pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
+    static_plan_in(git, rules, Codepage::WINDOWS_1252)
+}
+
+/// [`static_plan`] decoding variable names and placeable tags in `codepage`.
+pub fn static_plan_in(git: &Struct, rules: &StaticRules, codepage: Codepage) -> StaticPlan {
     let mut plan = StaticPlan::default();
     for (i, p) in git.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
         if p.integer("Static").unwrap_or(0) != 0 {
             plan.already += 1;
             continue;
         }
-        let Some(why) = kept(p, rules) else {
+        let Some(why) = kept(p, rules, codepage) else {
             plan.convert.push(i);
             continue;
         };
@@ -852,7 +882,7 @@ pub fn apply(
                 }
                 Change::StaticPlaceables => {
                     let Some(git) = git.as_mut() else { continue };
-                    let plan = static_plan(&git.root, &rules);
+                    let plan = static_plan_in(&git.root, &rules, codepage);
                     let Some(list) = git.root.list_mut("Placeable List") else { continue };
                     for &i in &plan.convert {
                         let p = &mut list[i];
@@ -862,7 +892,7 @@ pub fn apply(
                                 None => _ = p.remove(label),
                             }
                         }
-                        let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
+                        let tag = codepage.decode(p.string("Tag").unwrap_or_default());
                         note(
                             format!("placeable {i} {tag} Static"),
                             Some("0".into()),
@@ -879,7 +909,7 @@ pub fn apply(
                     for (i, p) in list.iter_mut().enumerate() {
                         if p.integer("Static").unwrap_or(0) != 0 {
                             p.set("Static", Value::Byte(0));
-                            let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
+                            let tag = codepage.decode(p.string("Tag").unwrap_or_default());
                             let what = format!("placeable {i} {tag} Static");
                             note(what, Some("1".into()), Some("0".into()));
                             git_changed = true;
@@ -1576,5 +1606,57 @@ mod tests {
             assert_eq!(t.integer("Tile_MainLight1"), Some(4));
             assert_eq!(t.integer("Tile_SrcLight2"), Some(7));
         }
+    }
+
+    #[test]
+    fn holds_cache_keys_on_codepage_clears_and_areas_decode_windows_1252() {
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        let mut area_entry = Struct::new(0);
+        area_entry.set("Area_Name", Value::resref(r("cp_area")));
+        ifo.root.set("Mod_Area_list", Value::List(vec![area_entry]));
+        m.set_info(&ifo).unwrap();
+
+        let mut are = Gff::new(*b"ARE ");
+        // Byte 0xA3 is '£' in Windows-1252 and 'Ł' in Windows-1250.
+        are.root.set("Tag", Value::String(vec![b'K', b'i', b'n', b'g', 0xa3]));
+        m.set_gff(ResKey::new(r("cp_area"), ResType::ARE), &are).unwrap();
+
+        let mut p1 = Struct::new(0);
+        p1.set("Tag", Value::String(vec![b'K', b'E', b'E', b'P', 0xa3]));
+        let mut p2 = Struct::new(1);
+        p2.set("Tag", Value::String(b"plain".to_vec()));
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Placeable List", Value::List(vec![p1, p2]));
+        m.set_gff(ResKey::new(r("cp_area"), ResType::GIT), &git).unwrap();
+
+        // HoldsCache re-decodes when Codepage changes and empties on clear().
+        let mut cache = HoldsCache::default();
+        let h_1252 = cache.of(&m, r("cp_area"), Codepage::WINDOWS_1252).unwrap().clone();
+        let h_1250 = cache.of(&m, r("cp_area"), Codepage::WINDOWS_1250).unwrap().clone();
+        fn field<'a>(h: &'a Holds, k: &str) -> Option<&'a str> {
+            h.fields.iter().find(|(name, _)| name == k).map(|(_, v)| v.as_str())
+        }
+        assert_eq!(field(&h_1252, "Tag"), Some("King\u{a3}"));
+        assert_eq!(field(&h_1250, "Tag"), Some("King\u{141}"));
+        cache.clear();
+        assert!(cache.parts.is_empty());
+
+        // info_of_in / list_named_in decode non-ASCII Tag in codepage.
+        let listed = list_named_in(&m, &|_| String::new(), Codepage::WINDOWS_1252);
+        assert_eq!(listed[0].tag, "King\u{a3}");
+
+        // static_plan_in and apply decode Tags and VarTable names using codepage.
+        let rules = StaticRules {
+            keep_tags: crate::project_file::Patterns::new(&["KEEP\u{a3}"]).unwrap(),
+            ..StaticRules::default()
+        };
+        let plan = static_plan_in(
+            &m.gff(&ResKey::new(r("cp_area"), ResType::GIT)).unwrap().unwrap().root,
+            &rules,
+            Codepage::WINDOWS_1252,
+        );
+        assert_eq!(plan.convert, [1]);
+        assert_eq!(plan.kept.len(), 1);
     }
 }

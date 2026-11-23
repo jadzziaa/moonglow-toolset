@@ -712,6 +712,16 @@ fn elsewhere(game: &GameData, key: &mg_resman::ResKey) -> bool {
     game.resman.layers().iter().any(|l| l.priority != MODULE && l.container.contains(key))
 }
 
+fn elsewhere_gff(game: &GameData, key: &mg_resman::ResKey) -> Option<Gff> {
+    use mg_resman::priority::MODULE;
+    game.resman
+        .layers()
+        .iter()
+        .filter(|l| l.priority != MODULE && l.container.contains(key))
+        .find_map(|l| l.container.read(key).ok())
+        .and_then(|bytes| Gff::read(&bytes).ok())
+}
+
 /// Where a palette's entries are, by ResRef (each one's path from `MAIN`
 /// through the `LIST`s), and its categories, by id (the first, as
 /// [`category_path`] finds it), from one walk.
@@ -1057,10 +1067,21 @@ fn updated(
         .filter(|k| !module.contains(k) && !elsewhere(game, k))
         .map(|k| k.resref)
         .collect();
-    for key in changed.iter().filter(|k| module.contains(k)) {
-        let Some(Ok(g)) = module.gff(key) else { continue };
+    for key in &changed {
+        let (g, allow_insert) = if module.contains(key) {
+            let Some(Ok(g)) = module.gff(key) else { continue };
+            (g, true)
+        } else if elsewhere(game, key) {
+            let Some(g) = elsewhere_gff(game, key) else { continue };
+            (g, false)
+        } else {
+            continue;
+        };
         let here = places.get_or_insert_with(|| Places::of(main));
         let at = here.entries(key.resref);
+        if at.is_empty() && !allow_insert {
+            continue;
+        }
         let category = category_of(kind, &g.root)
             .and_then(|id| here.categories.get(&id).map(|p| (id, p.clone())));
         let Some((id, category)) = category else {

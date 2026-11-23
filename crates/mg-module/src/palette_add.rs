@@ -84,7 +84,7 @@ pub fn new_resref_named(
     while n < 999 && used(n) {
         n += 1;
     }
-    naming.numbered(stem, n + 1, taken)
+    naming.numbered(stem, n.saturating_add(1), taken)
 }
 
 /// A new blueprint resref for a copy of `template`, a placeable's, door's,
@@ -143,7 +143,7 @@ pub fn copy_resref_named(
     let n: u32 = base[stem.len()..].parse().unwrap_or(0);
     let stem = first_chars(stem, 13);
     let stem = if stem.is_empty() { "blueprint" } else { stem };
-    naming.numbered(stem, n + 1, taken)
+    naming.numbered(stem, n.saturating_add(1), taken)
 }
 
 /// The fields a placed object has and its blueprint does not: where it
@@ -205,7 +205,7 @@ pub fn add_to_palette(
     let mut bp = blueprint_fields(game, restype, instance, from.as_ref(), resref);
 
     // The items it holds, each a new item blueprint.
-    let item_blueprint = |item: &Struct, blueprints: &mut Vec<(ResKey, Gff)>| -> ResRef {
+    let item_blueprint = |item: &Struct, blueprints: &mut Vec<(ResKey, Gff)>| -> Option<ResRef> {
         let template = item.resref("TemplateResRef").map(|r| r.to_string()).unwrap_or_default();
         // (The object's own new name is taken too: an item may hold one
         // of its own blueprint.)
@@ -214,7 +214,7 @@ pub fn add_to_palette(
             let key = ResKey::parse(name, ResType::UTI);
             key.is_some_and(|k| k == own || taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
         };
-        let r = new_resref_named(&template, naming, &used).unwrap_or(ResRef::EMPTY);
+        let r = new_resref_named(&template, naming, &used)?;
         let from = item
             .resref("TemplateResRef")
             .filter(|t| !t.is_empty())
@@ -226,7 +226,7 @@ pub fn add_to_palette(
         let mut g = Gff::new(*b"UTI ");
         g.root = fields;
         blueprints.push((ResKey::new(r, ResType::UTI), g));
-        r
+        Some(r)
     };
     let mut items = Vec::new();
     // Inventories: the object's own, and each store page's.
@@ -245,7 +245,7 @@ pub fn add_to_palette(
         let mut entries = Vec::new();
         let mut renamed = Vec::new();
         for (i, item) in held.iter().enumerate() {
-            let r = item_blueprint(item, &mut items);
+            let r = item_blueprint(item, &mut items)?;
             let mut entry = Struct::new(i as u32);
             entry.set("InventoryRes", Value::resref(r));
             for label in HELD {
@@ -279,7 +279,7 @@ pub fn add_to_palette(
         let mut entries = Vec::new();
         let mut renamed = Vec::new();
         for item in &equipped {
-            let r = item_blueprint(item, &mut items);
+            let r = item_blueprint(item, &mut items)?;
             let mut entry = Struct::new(item.id);
             entry.set("EquippedRes", Value::resref(r));
             for label in ["Dropable", "Pickpocketable"] {
@@ -528,5 +528,24 @@ mod tests {
         assert_eq!(add("x3_plc_rubble1"), "plc_rubble1", "one prefix at a time");
         assert_eq!(add("plc_rubble1"), "rubble1");
         assert_eq!(add("rubble1"), "rubble002");
+    }
+
+    #[test]
+    fn u32_max_suffix_does_not_overflow_and_exhausted_items_return_none() {
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        let naming = Naming::default();
+        assert_eq!(new_resref_named("x4294967295", &naming, &|_| false), None);
+        assert_eq!(copy_resref_named("x4294967295", &naming, &|_| false), None);
+        assert_eq!(copy_resref_named("x9998", &naming, &|_| false), Some(r("x9999")));
+
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut held = Struct::new(0);
+        held.set("TemplateResRef", Value::resref(r("x_item")));
+        let mut chest = Struct::new(0);
+        chest.set("TemplateResRef", Value::resref(r("chest")));
+        chest.set("ItemList", Value::List(vec![held]));
+        let taken = |k: &ResKey| k.restype == ResType::UTI;
+        assert!(add_to_palette(&game, ResType::UTP, &chest, &|_| None, &taken, &naming).is_none());
     }
 }

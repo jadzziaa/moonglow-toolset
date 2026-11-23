@@ -8,7 +8,10 @@
 //! [`GameData::table`] and [`GameData::choices`].
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+
+static NEXT_GAME_DATA_ID: AtomicU64 = AtomicU64::new(1);
 
 use mg_2da::TwoDa;
 use mg_core::{Codepage, Gender, Language, LocString, ResRef, ResType, StrRef};
@@ -185,6 +188,8 @@ pub struct GameData {
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
+    id: u64,
+    revision: AtomicU64,
 }
 
 /// The codepage of an `encoding.2da`: its `Codepoint` column is the
@@ -299,7 +304,14 @@ impl GameData {
             named: RwLock::new(HashMap::new()),
             property_types: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
+            id: NEXT_GAME_DATA_ID.fetch_add(1, Ordering::Relaxed),
+            revision: AtomicU64::new(0),
         }
+    }
+
+    /// Unique instance identity and mutation counter for external cache invalidation.
+    pub fn generation(&self) -> (u64, u64) {
+        (self.id, self.revision.load(Ordering::Relaxed))
     }
 
     /// Sets (or clears) the module's custom talk table.
@@ -310,6 +322,7 @@ impl GameData {
         self.marked.get_mut().expect("marked cache poisoned").clear();
         self.named.get_mut().expect("named cache poisoned").clear();
         self.property_types.get_mut().expect("property type cache poisoned").clear();
+        self.revision.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Brings the module's custom talk table up to `tlk`, the table as
@@ -342,6 +355,7 @@ impl GameData {
             self.marked.get_mut().expect("marked cache poisoned").clear();
             self.named.get_mut().expect("named cache poisoned").clear();
             self.property_types.get_mut().expect("property type cache poisoned").clear();
+            self.revision.fetch_add(1, Ordering::Relaxed);
         }
         changed
     }
@@ -379,6 +393,7 @@ impl GameData {
         self.named.write().expect("named cache poisoned").clear();
         self.property_types.write().expect("property type cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
+        self.revision.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The codepage of the game's text: the language's, or the table of a

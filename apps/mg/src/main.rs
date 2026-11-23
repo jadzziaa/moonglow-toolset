@@ -4103,7 +4103,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let cp = codepage_with(cli, &m, game.as_ref());
             let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
             let shown = |n: &mg_core::LocString| mg_rules::shown(game.as_ref(), n, language, cp);
-            let listed = areas::list_named(&m, &shown);
+            let listed = areas::list_named_in(&m, &shown, cp);
             for a in listed.iter().filter(|a| !a.listed) {
                 out.note(format!("warning: {}", areas::unlisted_warning(a.resref)));
             }
@@ -4169,7 +4169,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     let key = ResKey::new(area, ResType::GIT);
                     let Some(Ok(git)) = m.gff(&key) else { continue };
                     let list = git.root.list("Placeable List").unwrap_or(&[]);
-                    for (i, why) in areas::static_plan(&git.root, &rules).kept {
+                    for (i, why) in areas::static_plan_in(&git.root, &rules, codepage).kept {
                         let tag = list[i].string("Tag").unwrap_or_default();
                         let tag = codepage.decode(tag).into_owned();
                         left_dynamic.push((area, i, tag, why.describe()));
@@ -4888,7 +4888,7 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let language = game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
             let shown = |ls: &mg_core::LocString| mg_rules::shown(game.as_ref(), ls, language, cp);
-            let found = mg_module::query::find_named(&m, &q, &shown);
+            let found = mg_module::query::find_named_in(&m, &q, &shown, cp);
             let mut out = Output::new(json!({
                 "found": found.iter().map(|f| json!({
                     "kind": if f.placed.is_some() { "placed" } else { "blueprint" },

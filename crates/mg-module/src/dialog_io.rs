@@ -332,7 +332,10 @@ fn condition(l: &Struct) -> Option<String> {
 /// [`condition`] writes it: the script and its parameters.
 fn set_condition_call(g: &mut Gff, parent: Parent, pos: usize, call: &str) -> Result<(), String> {
     let (script, params) = read_call(call)?;
-    set_condition(g, parent, pos, &script);
+    let _ = ResRef::from_str(&script).map_err(|e| format!("{script}: {e}"))?;
+    if !set_condition(g, parent, pos, &script) {
+        return Err(format!("{script}: condition link not found"));
+    }
     if !params.is_empty()
         && let Some(l) = crate::dialog::links_mut(g, parent).and_then(|l| l.get_mut(pos))
     {
@@ -398,7 +401,7 @@ fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     let mut out = Vec::new();
     let speaker = string(n, "Speaker");
     if kind == Kind::Entry && !speaker.is_empty() {
-        out.push(format!("speaker:{}", escape(&speaker)));
+        out.push(format!("speaker:{}", percent(&speaker, " ")));
     }
     if let Some(a) = resref(n, "Script") {
         let p = params(n, "ActionParams");
@@ -410,7 +413,11 @@ fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     }
     let quest = string(n, "Quest");
     if !quest.is_empty() {
-        out.push(format!("journal:{}:{}", escape(&quest), n.integer("QuestEntry").unwrap_or(0)));
+        out.push(format!(
+            "journal:{}:{}",
+            percent(&quest, " :"),
+            n.integer("QuestEntry").unwrap_or(0)
+        ));
     }
     if let Some(s) = resref(n, "Sound") {
         out.push(format!("sound:{}", escape(&s)));
@@ -439,14 +446,15 @@ fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
     let r = |v: &str| ResRef::from_str(v).map(Value::resref).map_err(|e| format!("{v}: {e}"));
     for t in tags {
         let (k, raw) = t.split_once(':').unwrap_or((t, ""));
-        let v = unescape(raw.trim());
+        let raw_trimmed = raw.trim();
+        let v = unescape(raw_trimmed);
         match k.trim() {
-            "speaker" => n.set("Speaker", string_value(&v)),
+            "speaker" => n.set("Speaker", string_value(&unpercent(raw_trimmed))),
             "do" => {
                 // `a_give?item=gold%20coins` (a Twine passage's tag) or
                 // `a_give item="gold coins"`.
                 let query =
-                    raw.trim().split_once('?').filter(|(s, _)| !s.contains(char::is_whitespace));
+                    raw_trimmed.split_once('?').filter(|(s, _)| !s.contains(char::is_whitespace));
                 let (script, params) = match query {
                     Some((s, q)) => (unescape(s), read_query(q)?),
                     None => read_call(raw).map(|(s, p)| (unescape(&s), p))?,
@@ -458,8 +466,8 @@ fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
             }
             "sound" => n.set("Sound", r(&v)?),
             "journal" => {
-                let (q, e) = v.rsplit_once(':').unwrap_or((&v, "0"));
-                n.set("Quest", string_value(q));
+                let (q, e) = raw_trimmed.rsplit_once(':').unwrap_or((raw_trimmed, "0"));
+                n.set("Quest", string_value(&unpercent(q)));
                 n.set("QuestEntry", Value::Dword(e.trim().parse().unwrap_or(0)));
             }
             "anim" => n.set("Animation", Value::Dword(read_animation(&v)?)),
@@ -1327,15 +1335,22 @@ fn parse_twee(source: &str) -> Story {
             finish(current.take(), &mut passages, &mut start);
             // Name, then [tags], then {metadata}.
             let header = header.trim();
-            let (head, _) = header.split_once('{').map_or((header, ""), |(a, b)| (a.trim(), b));
-            let (name, tags) = match head.split_once('[') {
-                Some((n, t)) => (
-                    n.trim(),
-                    t.trim_end_matches(']').split_whitespace().map(str::to_string).collect(),
+            let (head, _) = match ink_find(header, '{') {
+                Some(at) => (header[..at].trim(), &header[at + 1..]),
+                None => (header, ""),
+            };
+            let (name, tags) = match ink_find(head, '[') {
+                Some(at) => (
+                    head[..at].trim(),
+                    head[at + 1..]
+                        .trim_end_matches(']')
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect(),
                 ),
                 None => (head, Vec::new()),
             };
-            let name = name.replace("\\[", "[").replace("\\]", "]");
+            let name = ink_unescape(name);
             if !matches!(name.as_str(), "StoryTitle" | "StoryData") {
                 order.push(name.clone());
             }
@@ -2303,5 +2318,44 @@ mod tests {
     fn unsupported_ink_is_refused_with_its_line() {
         let e = from_ink("-> a\n=== a ===\nHi\n- gather\n").unwrap_err();
         assert!(e.starts_with("line 4:"), "{e}");
+    }
+
+    #[test]
+    fn overlong_condition_errors_and_special_tags_and_escaped_headers_round_trip() {
+        // Overlong condition script (>16 chars) returns an error instead of writing ConditionParams alone.
+        let bad_twee = ":: StoryTitle\nTest\n\n:: StoryData\n{\"start\":\"Start\"}\n\n:: Start [npc-choice]\n[[if cond_script_too_long_17 item=1->E0]]\n\n:: E0\nHi\n";
+        assert!(from_twee(bad_twee).is_err());
+        let bad_ink = "VAR cond_script_too_long_17 = true\n-> Start\n=== Start ===\n{cond_script_too_long_17 item=1: -> E0}\n=== E0 ===\nHi\n";
+        assert!(from_ink(bad_ink).is_err());
+
+        // Speaker and journal tags containing brackets, braces, comments, colons, spaces, newlines round-trip.
+        let mut g = new_dialog();
+        let e = add_node(&mut g, Parent::Root, "Line");
+        let speaker = "Sir [A] {B} // C:1\nD";
+        let quest = "q_[sub]:{part}//x";
+        let n = node_mut(&mut g, Kind::Entry, e).unwrap();
+        n.set("Speaker", Value::String(speaker.as_bytes().to_vec()));
+        n.set("Quest", Value::String(quest.as_bytes().to_vec()));
+        n.set("QuestEntry", Value::Dword(7));
+
+        let twee = to_twee(&g, "T");
+        let back_twee = from_twee(&twee).unwrap();
+        let ne = node(&back_twee, Kind::Entry, 0).unwrap();
+        assert_eq!(string(ne, "Speaker"), speaker);
+        assert_eq!(string(ne, "Quest"), quest);
+        assert_eq!(ne.integer("QuestEntry"), Some(7));
+
+        let ink = to_ink(&g);
+        let back_ink = from_ink(&ink).unwrap();
+        let ie = node(&back_ink, Kind::Entry, 0).unwrap();
+        assert_eq!(string(ie, "Speaker"), speaker);
+        assert_eq!(string(ie, "Quest"), quest);
+        assert_eq!(ie.integer("QuestEntry"), Some(7));
+
+        // parse_twee keeps escaped brackets in passage names before real [tags].
+        let (passages, start, _, _) =
+            parse_twee(":: Escaped\\[Name\\] [speaker:NPC] {\"position\":\"1,2\"}\nHello\n");
+        assert!(start.is_none());
+        assert_eq!(passages["Escaped[Name]"].tags, ["speaker:NPC"]);
     }
 }

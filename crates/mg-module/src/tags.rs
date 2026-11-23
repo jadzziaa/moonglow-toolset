@@ -395,23 +395,42 @@ pub fn retag(tag: &str, taken: &dyn Fn(&str) -> bool) -> String {
         Some((stem, n))
             if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) =>
         {
-            (stem, n.parse::<u32>().map_or(2, |n| n.saturating_add(1)), n.len())
+            match n.parse::<u32>().ok().and_then(|v| v.checked_add(1)) {
+                Some(next) => (stem, next, n.len()),
+                None => (stem, 2, 1),
+            }
         }
         _ => (tag, 2, 1),
     };
-    for n in from.. {
-        let end = format!("_{n:0width$}");
-        let room = MAX_TAG.saturating_sub(end.len());
-        let mut cut = stem.len().min(room);
-        while !stem.is_char_boundary(cut) {
+    let min_stem = stem.chars().next().map_or(0, char::len_utf8);
+    let max_width = MAX_TAG.saturating_sub(1 + min_stem).max(1);
+    let width = width.min(max_width).max(1);
+    let search = |start: u32, w: usize| -> Option<String> {
+        let limit = start.saturating_add(100_000);
+        for n in start..=limit {
+            let end = format!("_{n:0w$}");
+            let room = MAX_TAG.saturating_sub(end.len());
+            if end.len() > MAX_TAG || (!stem.is_empty() && room < min_stem) {
+                break;
+            }
+            let mut cut = stem.len().min(room);
+            while !stem.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let candidate = format!("{}{end}", &stem[..cut]);
+            if !taken(&candidate) {
+                return Some(candidate);
+            }
+        }
+        None
+    };
+    search(from, width).or_else(|| search(2, 1)).unwrap_or_else(|| {
+        let mut cut = tag.len().min(MAX_TAG);
+        while !tag.is_char_boundary(cut) {
             cut -= 1;
         }
-        let candidate = format!("{}{end}", &stem[..cut]);
-        if !taken(&candidate) {
-            return candidate;
-        }
-    }
-    unreachable!("a number is free")
+        tag[..cut].to_string()
+    })
 }
 
 /// Whether a new object's tag (its bytes, as the module has them) in
@@ -771,5 +790,20 @@ mod tests {
         let rules = TagRules::default();
         let counted = taken_in(&i, &rules, r("inn"));
         assert_eq!(store_tag("KZ_STORE_{n}", "", &|t| counted(t.as_bytes())), "KZ_STORE_3");
+    }
+
+    #[test]
+    fn retag_handles_u32_max_long_padding_and_saturated_predicates() {
+        assert_eq!(retag("foo_4294967295", &|_| false), "foo_2");
+        let near_max = retag("foo_4294967294", &|t| t == "foo_4294967295");
+        assert_eq!(near_max, "foo_2");
+
+        let long_pad = format!("a_{}1", "0".repeat(30));
+        let next = retag(&long_pad, &|_| false);
+        assert!(next.len() <= MAX_TAG);
+        assert!(next.starts_with("a_"), "stem preserved: {next}");
+
+        let fallback = retag(&"z".repeat(40), &|_| true);
+        assert_eq!(fallback.len(), MAX_TAG);
     }
 }

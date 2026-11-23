@@ -879,6 +879,10 @@ pub struct Kept {
     searches: Vec<Search>,
     /// Whether they were asked as regular expressions.
     regex: bool,
+    /// The codepage the cached hits were decoded with.
+    cp: Option<Codepage>,
+    /// The game data identity and mutation revision the cached hits used.
+    game_gen: Option<(u64, u64)>,
     /// Each GFF resource, as read, and what they found in it (none: it
     /// doesn't read).
     found: HashMap<ResKey, KeptOne>,
@@ -915,9 +919,16 @@ impl Kept {
         cp: Codepage,
     ) -> Vec<Hit> {
         let searches = q.searches();
-        if !self.searches.iter().eq(searches.iter().copied()) || self.regex != q.regex {
+        let game_gen = game.map(GameData::generation);
+        if !self.searches.iter().eq(searches.iter().copied())
+            || self.regex != q.regex
+            || self.cp != Some(cp)
+            || self.game_gen != game_gen
+        {
             self.searches = searches.iter().map(|s| (*s).clone()).collect();
             self.regex = q.regex;
+            self.cp = Some(cp);
+            self.game_gen = game_gen;
             self.found.clear();
             self.outside.clear();
         }
@@ -2210,5 +2221,41 @@ mod tests {
         m.set(ResKey::parse("broken", ResType::UTC).unwrap(), b"UTC V3.2 truncated".to_vec());
         let t = Search::Field { label: None, value: Some(FieldValue::Text("lag".into())) };
         assert_eq!(places(&find(&m, t)), [("camp.utw", "LocalizedName = \"Camp\"")]);
+    }
+
+    #[test]
+    fn kept_invalidates_on_codepage_and_game_data_changes() {
+        let mut m = Module::new();
+        let mut utp = Gff::new(*b"UTP ");
+        utp.root.set("Tag", Value::String(vec![b'K', 0xa3]));
+        m.set_gff(ResKey::parse("box", ResType::UTP).unwrap(), &utp).unwrap();
+
+        let tlk = mg_tlk::Tlk::new(Language::ENGLISH);
+        let rm = mg_resman::ResMan::new();
+        let mut game = GameData::new(rm, tlk);
+
+        let mut kept = Kept::default();
+        let q = Query::new(Search::Field { label: Some("Tag".into()), value: None });
+
+        let hits = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
+        assert!(kept.read > 0);
+        assert_eq!(hits[0].matched, "Tag = \"K\u{a3}\"");
+
+        let _ = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1252);
+        assert_eq!(kept.read, 0);
+
+        let hits = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1250);
+        assert!(kept.read > 0);
+        assert_eq!(hits[0].matched, "Tag = \"K\u{141}\"");
+
+        let mut custom = mg_tlk::Tlk::new(Language::ENGLISH);
+        custom.entries.push(mg_tlk::TlkEntry::text("Custom"));
+        assert!(game.update_custom_tlk(&custom));
+        let _ = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1250);
+        assert!(kept.read > 0);
+
+        game.invalidate();
+        let _ = kept.search(&m, &q, Some(&game), Codepage::WINDOWS_1250);
+        assert!(kept.read > 0);
     }
 }

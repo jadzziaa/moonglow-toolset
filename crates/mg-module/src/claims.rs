@@ -209,7 +209,9 @@ impl<'a> Standing<'a> {
     pub fn of(claims: &'a Claims, area: ResRef, code: Option<&str>) -> Standing<'a> {
         match claims.of(area) {
             Some(c) => match c.builder.as_deref() {
-                Some(b) if Some(b) == code => Standing::Mine(c),
+                Some(b) if code.is_some_and(|mine| b.eq_ignore_ascii_case(mine)) => {
+                    Standing::Mine(c)
+                }
                 Some(_) => Standing::Others(c),
                 None => Standing::Free(Some(c)),
             },
@@ -308,6 +310,7 @@ pub fn change(
     let merged = row.is_some_and(Claim::merged);
     let (builder, status) = match change {
         Change::Claim(code) => {
+            let code = code.to_ascii_lowercase();
             if let Some(other) = holder.filter(|h| *h != code && !force) {
                 return Err(format!(
                     "{area} is claimed by {other}{}: they release it first",
@@ -318,6 +321,7 @@ pub fn change(
             (Some(code), if merged { "merged" } else { "claimed" })
         }
         Change::Release(code) => {
+            let code = code.to_ascii_lowercase();
             match holder {
                 None => return Err(format!("{area} is not claimed")),
                 Some(h) if h != code && !force => {
@@ -328,6 +332,8 @@ pub fn change(
             (None, if merged { "merged" } else { "free" })
         }
         Change::Hand { from, to } => {
+            let from = from.to_ascii_lowercase();
+            let to = to.to_ascii_lowercase();
             match holder {
                 None if !force => return Err(format!("{area} is not claimed")),
                 Some(h) if h != from && !force => {
@@ -338,7 +344,7 @@ pub fn change(
             (Some(to), if merged { "merged" } else { "claimed" })
         }
     };
-    let mut set: Vec<(usize, Option<String>)> = vec![(table.builder, builder.map(String::from))];
+    let mut set: Vec<(usize, Option<String>)> = vec![(table.builder, builder)];
     set.extend(table.status.map(|c| (c, Some(status.to_string()))));
     set.extend(table.date.map(|c| (c, Some(date.to_string()))));
     match row {
@@ -1099,5 +1105,32 @@ mod tests {
         }
         let mut w = Vec::new();
         let _ = Claims::parse("claims.2da", "2DA V2.0\n\"\n\"\"\"", &mut w);
+    }
+
+    #[test]
+    fn uppercase_builder_codes_match_and_store_lowercased() {
+        let claimed =
+            change(TABLE, r("kz_mill"), Change::Claim("XY"), "2026-11-23", false).unwrap();
+        let (c, _) = read(&claimed);
+        assert!(matches!(Standing::of(&c, r("kz_mill"), Some("XY")), Standing::Mine(_)));
+        assert_eq!(c.of(r("kz_mill")).unwrap().builder.as_deref(), Some("xy"));
+
+        // Re-claiming, handing off, and releasing with uppercase codes all succeed.
+        let again =
+            change(&claimed, r("kz_mill"), Change::Claim("XY"), "2026-11-23", false).unwrap();
+        let handed = change(
+            &again,
+            r("kz_mill"),
+            Change::Hand { from: "XY", to: "CD" },
+            "2026-11-23",
+            false,
+        )
+        .unwrap();
+        let (c2, _) = read(&handed);
+        assert_eq!(c2.of(r("kz_mill")).unwrap().builder.as_deref(), Some("cd"));
+        let released =
+            change(&handed, r("kz_mill"), Change::Release("CD"), "2026-11-23", false).unwrap();
+        let (c3, _) = read(&released);
+        assert_eq!(c3.of(r("kz_mill")).unwrap().builder, None);
     }
 }

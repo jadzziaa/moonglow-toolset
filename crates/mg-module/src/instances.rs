@@ -1105,12 +1105,13 @@ pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) 
 
 /// What Update Instances keeps of a placed object besides where it
 /// stands: its visual transform (EE's list, or the older struct), an
-/// encounter's spawn points and an outline's own color (Moonglow's,
-/// [`mg_rules::placement::OUTLINE_COLOR`]: a mark of the placed object,
-/// as its spawn points are, which no blueprint has).
-const KEPT: [&str; 4] = {
+/// encounter's spawn points, its lock ([`mg_rules::placement::LOCKED`]),
+/// and an outline's own color (Moonglow's,
+/// [`mg_rules::placement::OUTLINE_COLOR`]: marks of the placed object
+/// that no blueprint has).
+const KEPT: [&str; 5] = {
     let [list, older] = crate::placement::VISUAL_TRANSFORM_FIELDS;
-    [list, older, "SpawnPointList", mg_rules::placement::OUTLINE_COLOR]
+    [list, older, "SpawnPointList", mg_rules::placement::LOCKED, mg_rules::placement::OUTLINE_COLOR]
 };
 
 /// Update Instances (Aurora's palette › Update Instances, with every area
@@ -1991,5 +1992,34 @@ mod tests {
         whole.set("Pickpocketable", Value::Byte(1));
         let worn = equipped_item(&listed_item(&whole, 0, 0, 0), 0x80);
         assert_eq!((worn.id, labels(&worn)), (0x80, labels(&whole)));
+    }
+
+    #[test]
+    fn remade_and_update_preserve_placed_object_lock() {
+        let game = game();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let resref = ResRef::from_str("chair01").unwrap();
+        let mut bp = Struct::new(0);
+        bp.set("TemplateResRef", Value::resref(resref));
+        bp.set("LocName", Value::LocString(mg_core::LocString::default()));
+        bp.set("Appearance", Value::Dword(1));
+
+        let at = Placement { position: [1.0, 2.0, 0.0], rotation: 0.0 };
+        let mut old = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        old.set(mg_rules::placement::LOCKED, Value::Byte(1));
+
+        let one = remade(&placing, ResType::UTP, &old, &bp).unwrap();
+        assert_eq!(one.integer(mg_rules::placement::LOCKED), Some(1));
+
+        let mut git = Struct::new(u32::MAX);
+        git.set("Placeable List", Value::List(vec![old]));
+        let (updated, count) =
+            update(&placing, &git, &|_, _| Some(bp.clone()), &|_, _| true).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            updated.list("Placeable List").unwrap()[0].integer(mg_rules::placement::LOCKED),
+            Some(1)
+        );
     }
 }

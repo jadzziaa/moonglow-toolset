@@ -84,6 +84,7 @@ impl Drop for Watch {
 fn signature(paths: &[PathBuf], deep: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     let mut dirs = Vec::new();
+    let mut visited = std::collections::HashSet::new();
     for path in paths {
         match std::fs::metadata(path) {
             Ok(meta) if meta.is_dir() => dirs.push(path.clone()),
@@ -92,6 +93,10 @@ fn signature(paths: &[PathBuf], deep: bool) -> u64 {
         }
     }
     while let Some(dir) = dirs.pop() {
+        let Ok(canon) = std::fs::canonicalize(&dir) else { continue };
+        if !visited.insert(canon) {
+            continue;
+        }
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         let mut seen: Vec<(std::ffi::OsString, Option<std::time::SystemTime>, u64)> = Vec::new();
         for e in entries.flatten() {
@@ -286,6 +291,9 @@ impl Watch {
                 while Instant::now() < until && !done.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(100));
                 }
+                if done.load(Ordering::Relaxed) {
+                    break;
+                }
                 let mut now = signature(&dirs, deep);
                 if now == last {
                     continue;
@@ -297,11 +305,17 @@ impl Watch {
                 let settle = (every / 6).min(Duration::from_millis(500));
                 for _ in 0..20 {
                     std::thread::sleep(settle);
+                    if done.load(Ordering::Relaxed) {
+                        break;
+                    }
                     let again = signature(&dirs, deep);
                     if again == now || done.load(Ordering::Relaxed) {
                         break;
                     }
                     now = again;
+                }
+                if done.load(Ordering::Relaxed) {
+                    break;
                 }
                 last = now;
                 say(Heard { changed: true, all: true, ..Heard::default() });
@@ -374,16 +388,25 @@ fn system_watch(
         // the first doesn't hear of.
         let (what, mode) = match path.is_dir() {
             true => (path.as_path(), mode),
-            false => (path.parent()?, RecursiveMode::NonRecursive),
+            false => {
+                let Some(parent) = path.parent().filter(|p| p.is_dir()) else { continue };
+                (parent, RecursiveMode::NonRecursive)
+            }
         };
+        if !what.exists() {
+            continue;
+        }
         if !watched.iter().any(|(w, _)| *w == what) {
             watched.push((what, mode));
         }
     }
+    let mut watched_any = false;
     for (what, mode) in watched {
-        watcher.watch(what, mode).ok()?;
+        if watcher.watch(what, mode).is_ok() {
+            watched_any = true;
+        }
     }
-    Some(watcher)
+    (watched_any || paths.is_empty()).then_some(watcher)
 }
 
 #[cfg(test)]
@@ -613,5 +636,38 @@ mod tests {
         assert!(
             heard(&watch).expect("a file in override").paths.contains(&dir.join("override/y.2da"))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signature_breaks_symlink_cycles_cleanly() {
+        let dir = mg_testkit::scratch_dir("watch-symlink-cycle");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("a.txt"), "hello").unwrap();
+        let _ = std::os::unix::fs::symlink(&dir, sub.join("loop"));
+        let sig = signature(&[dir], true);
+        assert_ne!(sig, 0);
+    }
+
+    #[test]
+    fn system_watch_skips_missing_parents_without_aborting_existing_watches() {
+        let dir = mg_testkit::scratch_dir("watch-missing-parent");
+        let existing = dir.join("existing");
+        std::fs::create_dir_all(&existing).unwrap();
+        let missing_file = dir.join("missing/sub/ghost.hak");
+        let watch = Watch::start(
+            vec![existing.clone(), missing_file],
+            false,
+            Duration::from_millis(40),
+            false,
+            None,
+        );
+        assert!(watch.told);
+        std::thread::sleep(Duration::from_millis(600));
+        let _ = watch.take();
+        std::fs::write(existing.join("live.2da"), "2DA V2.0\r\n").unwrap();
+        let h = heard(&watch).expect("existing directory stays watched");
+        assert!(h.paths.contains(&existing.join("live.2da")), "{h:?}");
     }
 }

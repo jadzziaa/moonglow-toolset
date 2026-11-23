@@ -1,7 +1,7 @@
 //! A module opened from a nasher project: its resources read from the
 //! target's source files, and saved back into them in place.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -49,48 +49,30 @@ pub struct Project {
     spellings: HashMap<ResKey, PathBuf>,
 }
 
-/// Whether a line of `nasher.cfg` begins a target.
-fn target_header(line: &str) -> bool {
-    line.trim().eq_ignore_ascii_case("[target]")
-}
-
-/// The lines of the target named `target` in `nasher.cfg`'s lines: from
-/// its `[target]` to the next one's (or the end). `None` where no target
-/// has that name.
-fn target_block<S: AsRef<str>>(lines: &[S], target: &str) -> Option<(usize, usize)> {
-    let starts: Vec<usize> =
-        (0..lines.len()).filter(|&i| target_header(lines[i].as_ref())).collect();
-    let named = |l: &str| {
-        let t = l.trim();
-        t.strip_prefix("name")
-            .map(str::trim_start)
-            .and_then(|r| r.strip_prefix('='))
-            .is_some_and(|v| v.trim().trim_matches('"') == target)
-    };
-    starts.iter().enumerate().find_map(|(n, &s)| {
-        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
-        lines[s..end].iter().any(|l| named(l.as_ref())).then_some((s, end))
-    })
-}
-
 /// Adds the line `exclude` to the sources of the target named `target` in
-/// `nasher.cfg`'s lines: in its `[target.sources]` (made at the end of its
-/// block where it has none). A target with no excludes of its own has the
-/// package's (`had`, nasher's inheritance, list by list): written in with
-/// it, so that it keeps them. `None` where no target has that name.
+/// `nasher.cfg`'s lines: in its `[target.sources]` (or `[sources]`, or made
+/// at the end of its block where it has none), using parsed [`Package::layout_bytes`].
+/// A target with no excludes of its own has the package's (`had`, nasher's
+/// inheritance, list by list) written in with it so it keeps them. `None`
+/// where `nasher.cfg` cannot be parsed or no target has that name.
 fn exclude_in_target(
     lines: &mut Vec<String>,
+    raw_bytes: &[u8],
     target: &str,
     exclude: &str,
     had: &[String],
 ) -> Option<()> {
-    let (start, end) = target_block(lines, target)?;
-    let own = lines[start..end].iter().any(|l| l.trim_start().starts_with("exclude"));
-    let mut add: Vec<String> =
-        if own { Vec::new() } else { had.iter().map(|e| format!("exclude = \"{e}\"")).collect() };
+    let layout = Package::layout_bytes(raw_bytes, &|k| std::env::var(k).ok()).ok()?;
+    let tl = layout.target(target)?;
+    let start = tl.start_line.saturating_sub(1).min(lines.len());
+    let end = tl.end_line.saturating_sub(1).min(lines.len());
+    let mut add: Vec<String> = if tl.has_own_exclude {
+        Vec::new()
+    } else {
+        had.iter().map(|e| format!("exclude = \"{e}\"")).collect()
+    };
     add.push(exclude.to_string());
-    let sources = (start..end).find(|&i| lines[i].trim().eq_ignore_ascii_case("[target.sources]"));
-    match sources {
+    match tl.sources_line.map(|l| l.saturating_sub(1)).filter(|&i| i < lines.len()) {
         Some(s) => {
             let indent: String = (lines.get(s + 1))
                 .map(|l| l.chars().take_while(|c| c.is_whitespace()).collect())
@@ -500,28 +482,16 @@ impl Project {
             .cloned()
             .ok_or_else(|| bad("no include of the target's looks in the files' folder".into()))?;
         let added = self.include_for(&left).expect("files under an include's folder");
-        // Beside that include's line, as indented: the line in the edited
-        // target's own block (another target may have the same pattern,
-        // and the first such line in the file was taken, which could be
-        // that one's); where the target has no includes of its own (they
-        // are the package's, or its parent's), the package's line, else
-        // the first there is.
+        // Beside that include's line, as indented, resolved from parsed cfg AST
+        // (supporting `:`, comments, `source =`, `[sources]`, `$var` includes,
+        // and inherited parent targets).
         let lines: Vec<&str> = text.lines().collect();
-        let include = |l: &str| l.trim_start().starts_with("include");
-        let find = |range: std::ops::Range<usize>| {
-            range
-                .into_iter()
-                .find(|&i| include(lines[i]) && lines[i].contains(&format!("\"{pattern}\"")))
-        };
-        let block = target_block(&lines, &self.target);
-        let at = match block {
-            Some((start, end)) if lines[start..end].iter().any(|l| include(l)) => find(start..end),
-            _ => {
-                let package = lines.iter().position(|l| target_header(l)).unwrap_or(lines.len());
-                find(0..package).or_else(|| find(0..lines.len()))
-            }
-        };
-        let at = at.ok_or_else(|| bad(format!("include = \"{pattern}\" is not a line of it")))?;
+        let raw_bytes = file.bytes(text);
+        let layout = Package::layout_bytes(&raw_bytes, &|k| std::env::var(k).ok()).map_err(bad)?;
+        let end_line = layout
+            .include_end_line(&self.target, &pattern, &|k| std::env::var(k).ok())
+            .ok_or_else(|| bad(format!("include = \"{pattern}\" is not a line of it")))?;
+        let at = end_line.saturating_sub(1).min(lines.len().saturating_sub(1));
         let indent: String = lines[at].chars().take_while(|c| c.is_whitespace()).collect();
         let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
         out.insert(at + 1, format!("{indent}{added}"));
@@ -620,7 +590,7 @@ impl Project {
         let exclude = format!("exclude = \"**/*.tlk.{ext}\"");
         if files.iter().any(|f| self.target().covers(&root, f)) {
             let had = self.target().excludes.clone();
-            exclude_in_target(&mut lines, &self.target, &exclude, &had)
+            exclude_in_target(&mut lines, &cfg_text.bytes(text), &self.target, &exclude, &had)
                 .ok_or_else(|| bad(format!("no [target] named {:?} in it", self.target)))?;
         }
         let taken: Vec<String> = self.package.targets.iter().map(|t| t.name.clone()).collect();
@@ -1078,6 +1048,7 @@ impl Project {
                 Step::Write(key, path, form, text) => {
                     crate::write_replacing_one_of_many(&path, &text).map_err(io(&path))?;
                     let resource = resources[&key].clone();
+                    let written_stamp = stamp(&path);
                     self.sources.insert(
                         key,
                         Source {
@@ -1085,13 +1056,14 @@ impl Project {
                             form,
                             file: Arc::from(text),
                             resource,
-                            stamp: None,
+                            stamp: written_stamp,
                         },
                     );
                     report.written.push(path);
                 }
                 Step::Adopt(key, path, form, text) => {
                     let resource = resources[&key].clone();
+                    let kept_stamp = stamp(&path);
                     self.sources.insert(
                         key,
                         Source {
@@ -1099,7 +1071,7 @@ impl Project {
                             form,
                             file: Arc::from(text),
                             resource,
-                            stamp: None,
+                            stamp: kept_stamp,
                         },
                     );
                 }
@@ -1132,7 +1104,7 @@ impl Project {
             }
             let src = self.sources.get_mut(&key).expect("looked up");
             src.path = lower.as_path().into();
-            src.stamp = None;
+            src.stamp = stamp(&lower);
             report.written.push(lower);
             report.removed.push(other);
         }
@@ -1365,6 +1337,7 @@ fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
     let mut bases: Vec<String> = target.includes.iter().filter_map(|p| source_base(p)).collect();
     bases.sort();
     bases.dedup();
+    let mut seen = HashSet::new();
     let mut out = Vec::new();
     // (Each pattern compiled once, not for every file of the walk.)
     let covers = target.covers_under(root);
@@ -1373,7 +1346,7 @@ fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
             if crate::left_writing(&path) {
                 continue;
             }
-            if out.contains(&path) || covers.covers(&path) || covers.excluded(&path) {
+            if !seen.insert(path.clone()) || covers.covers(&path) || covers.excluded(&path) {
                 continue;
             }
             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -2465,5 +2438,69 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].key, key("bread", ResType::UTI));
+    }
+
+    #[test]
+    fn cfg_layout_edits_support_colons_comments_variables_inheritance_and_save_stamps() {
+        // Test save populates stamps on written sources and colon/comment/$var/parent includes work.
+        let root = scratch("cfg-layout-parsecfg");
+        let cfg = "\
+[package]
+name: \"p\"
+  [package.variables]
+  dir: \"src\"
+[target]
+name: \"base\"
+file: \"base.mod\"
+# exclude = \"src/**\"
+; comment
+source = \"$dir/**/*.{nss,json}\"
+[target]
+name: \"child\"
+parent: \"base\"
+file: \"child.mod\"
+";
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let location = ModuleLocation::Project { root: root.clone(), target: "child".into() };
+        let mut m = module();
+        m.save_as(&location).unwrap();
+        // Saved project sources should record non-None file stamps right after write.
+        let proj = m.project.as_ref().unwrap();
+        assert!(proj.sources.values().all(|s| s.stamp.is_some()));
+
+        std::fs::write(root.join("src/win.jui"), b"{}").unwrap();
+        let (mut p, _) = Project::open(&root, Some("child")).unwrap();
+        assert_eq!(p.left_out, [root.join("src/win.jui")]);
+        assert_eq!(p.take_in_left_out().unwrap().as_deref(), Some("include = \"src/**/*.jui\""));
+        assert!(p.left_out.is_empty());
+
+        // `add_talk_table` uses parsed `[sources]` / `has_own_exclude` (ignoring commented `# exclude`).
+        let pkg_tlk_cfg = "\
+[package]
+name: \"p\"
+  [package.sources]
+  exclude: \"**/test_*.nss\"
+  [package.rules]
+  \"*\" = \"src\"
+[target]
+name: \"m\"
+file: \"m.mod\"
+# exclude = \"commented\"
+  [sources]
+  include: \"src/**/*\"
+";
+        let root2 = scratch("cfg-layout-exclude-sources");
+        std::fs::write(root2.join("nasher.cfg"), pkg_tlk_cfg).unwrap();
+        std::fs::create_dir_all(root2.join("src")).unwrap();
+        module()
+            .save_as(&ModuleLocation::Project { root: root2.clone(), target: "m".into() })
+            .unwrap();
+        let mut m2 = Module::open(&root2).unwrap();
+        let p2 = m2.project.as_mut().unwrap();
+        p2.add_talk_table("mytlk", mg_core::Language::ENGLISH, false).unwrap();
+        let re_opened = Package::read(&root2).unwrap();
+        let t = re_opened.target("m").unwrap();
+        assert_eq!(t.excludes, ["**/test_*.nss", "**/*.tlk.json"]);
     }
 }

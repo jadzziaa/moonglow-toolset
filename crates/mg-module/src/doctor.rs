@@ -3067,8 +3067,8 @@ fn described_tables(d: &mut Doctor, module: &Module) {
             layer.container.keys().filter(|k| k.restype == ResType::TWODA).collect();
         keys.sort();
         for key in keys {
-            // (The copy the game reads alone, as Verify takes a hak's.)
-            if d.rm.find(&key) != Some(i) || module.contains(&key) {
+            // (The copy the game reads alone, skipping bake's pending layer.)
+            if crate::bake::layer_read(d.rm, &key) != Some(i) || module.contains(&key) {
                 continue;
             }
             let beside = find_for(&hak.with_file_name(key.to_string()));
@@ -3089,17 +3089,14 @@ fn described_tables(d: &mut Doctor, module: &Module) {
             tables.push((layer.label.clone(), key, path, data.into_owned()));
         }
     }
-    // (The folders are walked once for the tables of one.)
-    let mut walked: Option<(std::path::PathBuf, Beside)> = None;
+    // (The folders are walked once for the tables of each directory.)
+    let mut walked: HashMap<std::path::PathBuf, Beside> = HashMap::new();
     for (source, key, path, data) in tables {
         let source = source.as_str();
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let Ok(table) = TwoDa::parse(&data, Codepage::default()) else { continue };
         let root = Beside::root_of(&path.with_extension(""));
-        if walked.as_ref().is_none_or(|(r, _)| *r != root) {
-            walked = Some((root.clone(), Beside::of(&root)));
-        }
-        let files = &walked.as_ref().expect("walked").1;
+        let files = walked.entry(root.clone()).or_insert_with(|| Beside::of(&root));
         let rm = d.rm;
         let from_game = |name: &str, t: ResType| {
             let key = ResKey::parse(name, t)?;
@@ -5534,6 +5531,23 @@ endmodelgeom fx\ndonemodel fx\n";
                 ("spawn.2da".into(), "row 1, Chance".into(), "hak:my"),
             ],
             "{f:#?}"
+        );
+
+        // Mounted pending bake rows above HAK_USER must not mask the hak's 2DAs.
+        let mut pending = MemContainer::new();
+        pending.insert(ResKey::parse("loot", ResType::TWODA).unwrap(), table.to_vec());
+        rm.add(
+            crate::bake::PENDING_PRIORITY,
+            crate::bake::PENDING_LABEL,
+            LayerClass::Directory,
+            pending,
+        );
+        let with_pending = examine(&m, &rm, TalkTables::default());
+        assert!(
+            with_pending
+                .iter()
+                .any(|f| f.check == "2da-described" && f.resource.to_string() == "loot.2da"),
+            "{with_pending:#?}"
         );
     }
 

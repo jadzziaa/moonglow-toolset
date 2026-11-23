@@ -443,3 +443,19 @@ fn labels_say_the_transform_briefly() {
         "Baked: Box at 0.33, turned 45 0 12.5, moved 0 1.5 0"
     );
 }
+
+#[test]
+fn reusing_earlier_row_with_missing_mdl_emits_model_file_once() {
+    // Prior baked PWK exists, while its MDL is missing from ResMan.
+    let rm = game(&[("mgbk_0001", ResType::PWK, BOX_PWK.as_bytes())]);
+    let mut rows = RowsFile::default();
+    rows.insert(BakedRow {
+        row: 2,
+        copy_of: 0,
+        model: "mgbk_0001".into(),
+        label: "Baked: Box".into(),
+    });
+    let req = request(0, 1.0, 0.0, 0.0);
+    let out = plan(&ready("2-5"), &rows, &rm, Codepage::default(), &[req.clone(), req]).unwrap();
+    assert_eq!(out.files.iter().filter(|(k, _)| *k == key("mgbk_0001", ResType::MDL)).count(), 1);
+}

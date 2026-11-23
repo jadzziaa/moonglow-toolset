@@ -1154,9 +1154,16 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
                 Some(value) => d.default = Some(value),
                 None => r.warn(at, "default is a number or text"),
             },
-            "constants" => script = r.text(e).map(|s| s.trim_end_matches(".nss").to_string()),
+            "constants" => {
+                script =
+                    r.text(e).map(|s| mg_core::text::strip_suffix_ascii_ci(&s, ".nss").to_string())
+            }
             "prefix" => prefix = r.text(e),
-            "table" => table = r.text(e).map(|s| s.trim_end_matches(".2da").to_ascii_lowercase()),
+            "table" => {
+                table = r
+                    .text(e)
+                    .map(|s| mg_core::text::strip_suffix_ascii_ci(&s, ".2da").to_ascii_lowercase())
+            }
             "column" => column = r.text(e),
             other => r.warn(
                 k.span().start,
@@ -2101,5 +2108,26 @@ on = ["creature", "placeable"]
         let key = ResKey::new(ResRef::from_str("shop").unwrap(), ResType::UTM);
         let owners: Vec<Owner> = variables_of(key, &utm).into_iter().map(|f| f.owner).collect();
         assert_eq!(owners, [Owner::Store, Owner::Item]);
+    }
+
+    #[test]
+    fn uppercase_constants_and_table_extensions_strip_case_insensitively() {
+        let mut v = Variables::default();
+        let mut warnings = Vec::new();
+        v.apply(
+            FILE_NAME,
+            "[k]\ntype = \"string\"\nconstants = \"NW_INC.NSS\"\n[c]\ntype = \"int\"\ntable = \"CLS_FEAT.2DA\"\n",
+            &mut warnings,
+        )
+        .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            v.describe("k").unwrap().source,
+            Some(Source::Constants { script: "NW_INC".into(), prefix: String::new() })
+        );
+        assert_eq!(
+            v.describe("c").unwrap().source,
+            Some(Source::Rows { table: "cls_feat".into(), column: None })
+        );
     }
 }

@@ -21,6 +21,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use mg_resman::{LayerClass, ResKey, ResMan};
 use rayon::prelude::*;
@@ -68,7 +69,7 @@ impl Facts {
 #[derive(Debug, Default)]
 pub(crate) struct Memo {
     dir: PathBuf,
-    layers: Vec<Option<(PathBuf, HashMap<ResKey, Facts>)>>,
+    layers: Vec<Option<(PathBuf, [String; 2], HashMap<ResKey, Facts>)>>,
 }
 
 /// What tells an archive from another of its label, and from itself
@@ -219,14 +220,24 @@ impl Memo {
     /// were (each file read in parallel).
     pub(crate) fn load(dir: &Path, resman: &ResMan, custom: impl Fn(usize) -> bool) -> Memo {
         let layers = resman.layers();
-        let kept: Vec<Option<PathBuf>> = (layers.iter().enumerate())
+        let kept: Vec<Option<(PathBuf, [String; 2])>> = (layers.iter().enumerate())
             .map(|(i, l)| {
-                (custom(i) && l.class == LayerClass::Erf && l.fingerprint != 0)
-                    .then(|| dir.join(file_name(&l.label, Print::of(l))))
+                (custom(i) && l.class == LayerClass::Erf && l.fingerprint != 0).then(|| {
+                    let print = Print::of(l);
+                    let stems =
+                        [file_stem(&l.label, print.folder), format!("{}-", label_name(&l.label))];
+                    (dir.join(file_name(&l.label, print)), stems)
+                })
             })
             .collect();
-        let layers =
-            (kept.into_par_iter()).map(|path| path.map(|p| (p.clone(), read_file(&p)))).collect();
+        let layers = (kept.into_par_iter())
+            .map(|entry| {
+                entry.map(|(p, stems)| {
+                    let known = read_file(&p);
+                    (p, stems, known)
+                })
+            })
+            .collect();
         Memo { dir: dir.to_path_buf(), layers }
     }
 
@@ -236,15 +247,15 @@ impl Memo {
     }
 
     pub(crate) fn get(&self, layer: usize, key: &ResKey) -> Option<&Facts> {
-        self.layers.get(layer)?.as_ref()?.1.get(key)
+        self.layers.get(layer)?.as_ref()?.2.get(key)
     }
 
     /// Takes what a run learned, and writes each archive's file that it
     /// changed (taking away those of the archive's earlier versions).
-    pub(crate) fn save(mut self, learned: Learned, resman: &ResMan) {
+    pub(crate) fn save(mut self, learned: Learned, _resman: &ResMan) {
         let mut changed: BTreeMap<usize, ()> = BTreeMap::new();
         for (layer, key, facts) in learned {
-            let Some(Some((_, known))) = self.layers.get_mut(layer) else { continue };
+            let Some(Some((_, _, known))) = self.layers.get_mut(layer) else { continue };
             let was = known.get(&key).cloned();
             let now = known.entry(key).or_default();
             now.merge(facts);
@@ -255,13 +266,6 @@ impl Memo {
         if changed.is_empty() || std::fs::create_dir_all(&self.dir).is_err() {
             return;
         }
-        // (Each archive's files' stem: its label's and its folder's, and the
-        // one its files had before the folder was in their names.)
-        let stems: Vec<[String; 2]> = (resman.layers().iter())
-            .map(|l| {
-                [file_stem(&l.label, Print::of(l).folder), format!("{}-", label_name(&l.label))]
-            })
-            .collect();
         // (The folder's files listed once, for the earlier versions'.)
         let there: Vec<String> = (std::fs::read_dir(&self.dir).into_iter().flatten().flatten())
             .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -269,7 +273,7 @@ impl Memo {
         // (Written in parallel: a first Verify of 145 haks writes 4 MB.)
         let changed: Vec<usize> = changed.into_keys().collect();
         changed.par_iter().for_each(|&layer| {
-            let Some(Some((path, known))) = self.layers.get(layer) else { return };
+            let Some(Some((path, stems, known))) = self.layers.get(layer) else { return };
             let mut models: Vec<(String, Value)> =
                 known.iter().map(|(k, f)| (k.to_string(), write_facts(f))).collect();
             models.sort_by(|a, b| a.0.cmp(&b.0));
@@ -278,14 +282,15 @@ impl Memo {
                 "models": models.into_iter().collect::<serde_json::Map<_, _>>(),
             });
             let Ok(bytes) = serde_json::to_vec(&file) else { return };
-            let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+            static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+            let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+            let tmp = path.with_extension(format!("tmp{}-{seq}", std::process::id()));
             if std::fs::write(&tmp, bytes).is_err() || std::fs::rename(&tmp, path).is_err() {
                 let _ = std::fs::remove_file(&tmp);
                 return;
             }
             // (The archive's earlier versions' facts are of no use now: its
             // own, not those of an archive of its name in another folder.)
-            let Some(stems) = stems.get(layer) else { return };
             let ours = path.file_name().map(|n| n.to_string_lossy().into_owned());
             for name in &there {
                 let earlier = |stem: &String| {
@@ -421,5 +426,50 @@ mod tests {
             vec![file_name(&la2.label, Print::of(la2)), file_name(&lc.label, Print::of(lc))];
         both.sort();
         assert_eq!(files(), both);
+    }
+
+    #[test]
+    fn concurrent_saves_for_same_layer_never_collide_temp_files() {
+        let dir = mg_testkit::scratch_dir("verify-cache-concurrent");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cache = dir.join("cache");
+        let hak_path = dir.join("hak.hak");
+        let mut writer = mg_erf::ErfWriter::new(*b"HAK ");
+        writer
+            .add(
+                <mg_core::ResRef as std::str::FromStr>::from_str("one").unwrap(),
+                mg_core::ResType::MDL,
+                b"a".to_vec(),
+            )
+            .unwrap();
+        std::fs::write(&hak_path, writer.to_bytes().unwrap()).unwrap();
+        let mut rm = ResMan::new();
+        rm.add(
+            mg_resman::priority::HAK,
+            "hak:test",
+            mg_resman::LayerClass::Erf,
+            mg_resman::ErfContainer::open(&hak_path).unwrap(),
+        );
+        let key = ResKey::parse("one", mg_core::ResType::MDL).unwrap();
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..5 {
+                        let memo = Memo::load(&cache, &rm, |_| true);
+                        memo.save(
+                            vec![(0, key, Facts { read: Some(None), ..Facts::default() })],
+                            &rm,
+                        );
+                    }
+                });
+            }
+        });
+        assert!(Memo::load(&cache, &rm, |_| true).get(0, &key).is_some());
+        let stray_tmp = std::fs::read_dir(&cache)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains(".tmp"));
+        assert!(!stray_tmp);
     }
 }

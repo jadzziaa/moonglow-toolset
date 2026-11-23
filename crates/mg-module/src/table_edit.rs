@@ -380,7 +380,7 @@ impl Editing {
         self.table_mut().add_row();
         let cells = (cells.iter())
             .filter_map(|(name, value)| Some((row, self.table.column(name)?, Some(value.clone()))))
-            .filter(|(_, _, v)| !v.as_ref().is_some_and(|v| v.contains('"')))
+            .filter(|(_, _, v)| v.as_deref().is_none_or(|v| mg_2da::TwoDa::holds(v).is_ok()))
             .collect();
         let changed = self.put(cells).unwrap_or_default();
         self.done(label, Change::Rows(1, changed));
@@ -531,7 +531,9 @@ impl Editing {
             put.push((row, c, value));
         }
         // (A cell another table's rules cannot hold is left as it is.)
-        put.retain(|(_, _, value)| !value.as_ref().is_some_and(|v| v.contains('"')));
+        put.retain(|(_, _, value)| {
+            value.as_deref().is_none_or(|v| mg_2da::TwoDa::holds(v).is_ok())
+        });
         let changed = self.put(put).unwrap_or_default();
         let mut taken: Vec<usize> =
             changed.iter().map(|c| c.0).filter(|r| whole.contains(r)).collect();
@@ -928,5 +930,32 @@ mod tests {
         e.remove_column(1);
         assert_eq!((e.follow((0, 1), before), e.follow((0, 2), before)), (None, Some((0, 1))));
         assert_eq!(e.follow((0, 0), e.changes() + 1), None, "a change not made yet");
+    }
+
+    #[test]
+    fn add_row_of_and_take_filter_line_breaks_without_dropping_valid_cells() {
+        let mut e = Editing::new(table("  A B C\n0 x y z\n"));
+        let row = e.add_row_of(
+            "add",
+            &[
+                ("A".into(), "ok".into()),
+                ("B".into(), "bad\nline".into()),
+                ("C".into(), "also\rbad".into()),
+            ],
+        );
+        assert_eq!(e.table().get(row, "A"), Some("ok"));
+        assert_eq!(e.table().get(row, "B"), None);
+
+        let mut other = TwoDa::new(vec!["A".into(), "B".into(), "C".into()]).unwrap();
+        other.rows.push(vec![
+            Some("valid".into()),
+            Some("cr\rlf\n".into()),
+            Some("q\"uote".into()),
+        ]);
+        let (_, changed) = e.take(&other, &[], &[(0, 0), (0, 1), (0, 2)]);
+        assert_eq!(changed, 1);
+        assert_eq!(e.table().get(0, "A"), Some("valid"));
+        assert_eq!(e.table().get(0, "B"), Some("y"));
+        assert_eq!(e.table().get(0, "C"), Some("z"));
     }
 }

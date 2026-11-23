@@ -6,7 +6,7 @@
 //! `[!...]` are character sets, `{a,b}` alternatives. Walking skips hidden
 //! entries (names starting with `.`) and doesn't follow links to folders.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use regex_lite::Regex;
 
@@ -29,7 +29,7 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
     if ignore_case {
         rx.push_str("(?i)");
     }
-    let (mut globstar, mut in_range, mut in_group) = (false, false, false);
+    let (mut in_range, mut in_group) = (false, false);
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -45,8 +45,6 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
                 rx.push(next);
                 i += 1;
             }
-            // After a `**`, the glob package drops separators.
-            '/' if globstar => {}
             '/' => rx.push('/'),
             '(' | '|' | ')' | '+' | '@' => {
                 rx.push('\\');
@@ -88,9 +86,12 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
             }
             ',' if in_group => rx.push_str(")|(?:"),
             '*' if peek(i + 1) == '*' => {
-                globstar = true;
                 rx.push_str("(?:[^/]*(?:/|$))*");
                 i += 1;
+                // Only swallow the single separator right after `**`.
+                if peek(i + 1) == '/' {
+                    i += 1;
+                }
             }
             '*' => rx.push_str("[^/]*"),
             c => {
@@ -157,13 +158,47 @@ impl Cover {
     }
 
     pub(crate) fn covers(&self, path: &Path) -> bool {
+        let Some(rel) = strip_prefix_ci(path, &self.base) else { return false };
         let Some(rest) = &self.rest else {
-            return path == self.base || path.starts_with(&self.base);
+            return rel.as_os_str().is_empty() || !has_hidden_component(&rel);
         };
-        let Ok(rel) = path.strip_prefix(&self.base) else { return false };
+        if rel.as_os_str().is_empty() || has_hidden_component(&rel) {
+            return false;
+        }
         let rel = rel.to_string_lossy().replace('\\', "/");
         rest.as_ref().is_some_and(|rx| rx.is_match(&rel))
     }
+}
+
+fn strip_prefix_ci(path: &Path, base: &Path) -> Option<PathBuf> {
+    let mut pc = path.components();
+    for bc in base.components() {
+        let p = pc.next()?;
+        let same = match (p, bc) {
+            (Component::Normal(a), Component::Normal(b)) => {
+                a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())
+            }
+            (Component::Prefix(a), Component::Prefix(b)) => a
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&b.as_os_str().to_string_lossy()),
+            (a, b) => a == b,
+        };
+        if !same {
+            return None;
+        }
+    }
+    Some(pc.as_path().to_path_buf())
+}
+
+fn has_hidden_component(rel: &Path) -> bool {
+    rel.components().any(|c| match c {
+        Component::Normal(s) => {
+            let s = s.to_string_lossy();
+            s.len() >= 2 && s.starts_with('.') && s != ".."
+        }
+        _ => false,
+    })
 }
 
 /// A pattern's leading folders without glob syntax, and the rest from
@@ -334,5 +369,30 @@ mod tests {
         assert_eq!(rel(walk(&root, "README.md").unwrap()), ["README.md"]);
         assert!(walk(&root, "nothing/*.nss").unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn globstar_preserves_later_slashes_and_cover_matches_case_and_skips_hidden() {
+        assert_eq!(to_regex("**/sub/*.nss", false).unwrap(), r"^(?:[^/]*(?:/|$))*sub/[^/]*\.nss$");
+        assert_eq!(
+            to_regex("src/**/areas/*.json", false).unwrap(),
+            r"^src/(?:[^/]*(?:/|$))*areas/[^/]*\.json$"
+        );
+        let sub_rx = Regex::new(&to_regex("**/sub/*.nss", false).unwrap()).unwrap();
+        assert!(sub_rx.is_match("sub/a.nss"));
+        assert!(sub_rx.is_match("x/y/sub/a.nss"));
+        assert!(!sub_rx.is_match("sub_extra.nss"));
+
+        // Work with a dot-prefixed ancestor root to ensure only components
+        // under `base` are treated as hidden.
+        let dot_root = mg_testkit::scratch_dir(".worktree-cover-root").join("proj");
+        let cover = Cover::new(&dot_root, "src/**/*.{nss,json}");
+        assert!(cover.covers(&dot_root.join("SRC/Areas/Foo.JSON")));
+        assert!(!cover.covers(&dot_root.join("src/.hidden/foo.nss")));
+        assert!(!cover.covers(&dot_root.join("src/.git/hooks.nss")));
+
+        let plain = Cover::new(&dot_root, "src/areas");
+        assert!(plain.covers(&dot_root.join("SRC/AREAS/c.are.json")));
+        assert!(!plain.covers(&dot_root.join("SRC/AREAS/.secret.json")));
     }
 }

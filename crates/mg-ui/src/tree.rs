@@ -421,8 +421,10 @@ impl AreaNames {
     ) -> AreaInfo {
         let key = ResKey::new(area, ResType::ARE);
         let listed = self.listed(ws, area);
-        let read =
-            |are: &Gff| mg_module::areas::info_of(area, &are.root, &|n| shown(game, n), listed);
+        let cp = game.map_or(mg_core::Codepage::WINDOWS_1252, GameData::text_codepage);
+        let read = |are: &Gff| {
+            mg_module::areas::info_of_in(area, &are.root, &|n| shown(game, n), cp, listed)
+        };
         if let Some(are) = ws.loaded(&key) {
             return read(are);
         }

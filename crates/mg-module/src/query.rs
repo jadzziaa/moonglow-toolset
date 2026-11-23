@@ -148,6 +148,7 @@ fn describe(
     restype: ResType,
     placed: Option<(ResRef, usize)>,
     named: Namer<'_>,
+    codepage: mg_core::Codepage,
 ) -> Found {
     let text = |label: &str| shown_by(s.get(label), named);
     let name = if restype == ResType::UTC {
@@ -168,7 +169,7 @@ fn describe(
     Found {
         restype,
         resref,
-        tag: s.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned()).unwrap_or_default(),
+        tag: s.string("Tag").map(|t| codepage.decode(t).into_owned()).unwrap_or_default(),
         name,
         placed,
         position: placed.and(position),
@@ -207,6 +208,16 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
 /// show them (`mg_rules::shown`: the talk table's string where a name has
 /// none of its own).
 pub fn find_named(m: &Module, q: &Query, named: Namer<'_>) -> Vec<Found> {
+    find_named_in(m, q, named, mg_core::Codepage::WINDOWS_1252)
+}
+
+/// [`find_named`] decoding non-ASCII `Tag` bytes under `codepage`.
+pub fn find_named_in(
+    m: &Module,
+    q: &Query,
+    named: Namer<'_>,
+    codepage: mg_core::Codepage,
+) -> Vec<Found> {
     let wanted = |t: ResType| q.types.is_empty() || q.types.contains(&t);
     let mut out = Vec::new();
     if q.placed != Some(true) && q.area.is_none() {
@@ -218,7 +229,7 @@ pub fn find_named(m: &Module, q: &Query, named: Namer<'_>) -> Vec<Found> {
         keys.sort();
         for k in keys {
             let Some(Ok(g)) = m.gff(&k) else { continue };
-            let mut f = describe(&g.root, k.restype, None, named);
+            let mut f = describe(&g.root, k.restype, None, named, codepage);
             f.resref = Some(k.resref);
             if matches(q, &g.root, &f) {
                 out.push(f);
@@ -237,7 +248,7 @@ pub fn find_named(m: &Module, q: &Query, named: Namer<'_>) -> Vec<Found> {
                 }
                 let Some(Value::List(items)) = git.root.get(list) else { continue };
                 for (i, s) in items.iter().enumerate() {
-                    let f = describe(s, restype, Some((area, i)), named);
+                    let f = describe(s, restype, Some((area, i)), named, codepage);
                     if matches(q, s, &f) {
                         out.push(f);
                     }
@@ -412,5 +423,24 @@ mod tests {
         };
         let found = find_named(&m, &q, &table);
         assert_eq!(found.iter().map(|f| f.tag.as_str()).collect::<Vec<_>>(), ["TALKER"]);
+    }
+
+    #[test]
+    fn find_named_in_decodes_tag_using_codepage() {
+        let mut m = Module::new();
+        let mut utp = Gff::new(*b"UTP ");
+        utp.root.set("Tag", Value::String(vec![b'K', b'i', b'n', b'g', 0xa3]));
+        m.set_gff(ResKey::parse("cp_box", ResType::UTP).unwrap(), &utp).unwrap();
+        let q_1252 = Query { tag: Some("King\u{a3}".into()), ..Default::default() };
+        let q_1250 = Query { tag: Some("King\u{141}".into()), ..Default::default() };
+        let namer =
+            |ls: &LocString| ls.shown_in(Language::ENGLISH, mg_core::Codepage::WINDOWS_1252);
+        let hits_1252 = find_named_in(&m, &q_1252, &namer, mg_core::Codepage::WINDOWS_1252);
+        assert_eq!(hits_1252.len(), 1);
+        assert_eq!(hits_1252[0].tag, "King\u{a3}");
+        assert!(find_named_in(&m, &q_1250, &namer, mg_core::Codepage::WINDOWS_1252).is_empty());
+        let hits_1250 = find_named_in(&m, &q_1250, &namer, mg_core::Codepage::WINDOWS_1250);
+        assert_eq!(hits_1250.len(), 1);
+        assert_eq!(hits_1250[0].tag, "King\u{141}");
     }
 }

@@ -376,7 +376,7 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         let locals: Vec<Option<Local>> = satisfying.iter().map(|k| only_local(k)).collect();
         let local_only =
             if !locals.is_empty() && locals.iter().all(Option::is_some) { locals[0] } else { None };
-        if candidates.is_empty() || (!satisfying.is_empty() && local_only.is_none()) {
+        if kind.types().is_empty() || (!satisfying.is_empty() && local_only.is_none()) {
             return None;
         }
         let uncompiled = local_only.is_none()
@@ -1215,5 +1215,34 @@ mod tests {
         let got: Vec<(String, Category)> =
             miss.iter().map(|m| (m.reference.target.to_string(), m.category)).collect();
         assert_eq!(got, [("gone_sword".into(), Category::Items)]);
+    }
+
+    #[test]
+    fn sixteen_char_portrait_resref_is_flagged_missing_while_movies_remain_skipped() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        let mut cr = mg_gff::Struct::new(0);
+        // 16 chars leaves no room for the 'm' medium portrait suffix.
+        cr.set("Portrait", mg_gff::Value::resref(rr("abcdefghijklmnop")));
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root = cr;
+        m.set_gff(key("guard", ResType::UTC), &utc).unwrap();
+
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("Creature List", mg_gff::Value::List(vec![utc.root.clone()]));
+        m.set_gff(key("area1", ResType::GIT), &git).unwrap();
+
+        let miss = missing(&m, &ResMan::new());
+        assert!(
+            miss.iter().any(|x| x.reference.kind == RefKind::Portrait
+                && x.reference.target.to_string() == "abcdefghijklmnop"),
+            "{miss:#?}"
+        );
+        // Movies stay skipped.
+        let mut are = Gff::new(*b"ARE ");
+        are.root.set("Mod_StartMovie", mg_gff::Value::resref(rr("intro_movie")));
+        let mut m2 = Module::new();
+        m2.set_info(&are).unwrap();
+        assert!(missing(&m2, &ResMan::new()).is_empty());
     }
 }

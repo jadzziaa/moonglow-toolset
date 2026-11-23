@@ -382,6 +382,14 @@ pub fn line_ends(bytes: &[u8]) -> usize {
     bytes.iter().filter(|&&b| b == b'\n').count()
 }
 
+/// Strips `suffix` from `s` once, matching ASCII case-insensitively.
+pub fn strip_suffix_ascii_ci<'a>(s: &'a str, suffix: &str) -> &'a str {
+    match s.len().checked_sub(suffix.len()) {
+        Some(at) if s.is_char_boundary(at) && s[at..].eq_ignore_ascii_case(suffix) => &s[..at],
+        _ => s,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,5 +522,14 @@ mod tests {
         assert!(!same_letter('æ', 'a'));
         // A capital whose small letter is two characters: compared whole.
         assert!(!same_letter('İ', 'i'));
+    }
+
+    #[test]
+    fn strip_suffix_ascii_ci_strips_once_and_ignores_case() {
+        assert_eq!(strip_suffix_ascii_ci("INC_FOO.NSS", ".nss"), "INC_FOO");
+        assert_eq!(strip_suffix_ascii_ci("Cls_Feat.2Da", ".2da"), "Cls_Feat");
+        assert_eq!(strip_suffix_ascii_ci("a.nss.nss", ".nss"), "a.nss");
+        assert_eq!(strip_suffix_ascii_ci("a\u{e9}b", "\u{e9}b"), "a");
+        assert_eq!(strip_suffix_ascii_ci("\u{e9}", "xx"), "\u{e9}");
     }
 }
