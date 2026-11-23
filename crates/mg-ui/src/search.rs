@@ -1372,7 +1372,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 });
         }
-        let commands = app.plugin_menu_commands();
+        let commands = app.plugin_menu_commands_cached();
         let on_hit = |h: &mg_module::search::Hit| {
             // (The object or resource the hit is on: a placed object's
             // path is its list item, then what is in it.)

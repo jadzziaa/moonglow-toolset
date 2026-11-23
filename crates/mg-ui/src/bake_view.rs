@@ -340,16 +340,58 @@ const BEFORE: egui::Color32 = egui::Color32::from_rgb(255, 150, 40);
 /// After: as baked.
 const AFTER: egui::Color32 = egui::Color32::from_rgb(80, 220, 110);
 
+/// Indexes placeables by their GIT list index so batch lookups stay O(N + M).
+fn placeable_indices(area: &mg_area::AreaModel) -> std::collections::HashMap<usize, usize> {
+    area.objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.kind == ObjectKind::Placeable)
+        .map(|(pos, o)| (o.index, pos))
+        .collect()
+}
+
+/// Returns a compact change stamp for the active bake preview overlay in `area`
+/// without rebuilding all transformed triangles every frame.
+pub(crate) fn after_stamp(app: &Moonglow, area: &mg_area::AreaModel, at: ResRef) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let d = app.bake.draft.as_ref().filter(|d| d.area == at)?;
+    let Ok(plan) = &d.plan else { return None };
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    d.area.hash(&mut h);
+    d.objects.hash(&mut h);
+    d.planned_at.hash(&mut h);
+    let by_idx = (d.objects.len() > 4).then(|| placeable_indices(area));
+    for (&i, b) in d.objects.iter().zip(&plan.each) {
+        let Ok(b) = b else { continue };
+        let o = match &by_idx {
+            Some(m) => m.get(&i).map(|&pos| &area.objects[pos]),
+            None => area.objects.iter().find(|o| o.kind == ObjectKind::Placeable && o.index == i),
+        };
+        let Some(o) = o else { continue };
+        i.hash(&mut h);
+        b.after.len().hash(&mut h);
+        b.after.first().map(|f| f.map(|c| c.map(f32::to_bits))).hash(&mut h);
+        for c in o.transform().to_cols_array() {
+            c.to_bits().hash(&mut h);
+        }
+    }
+    Some(h.finish())
+}
+
 /// The baked walkmeshes the panel would make in `area`, in the area's
 /// space, each with its object's place among the area's objects: drawn
 /// green over the area view's own.
 pub(crate) fn after_faces(app: &Moonglow, area: &mg_area::AreaModel, at: ResRef) -> Vec<[Vec3; 3]> {
     let Some(d) = app.bake.draft.as_ref().filter(|d| d.area == at) else { return Vec::new() };
     let Ok(plan) = &d.plan else { return Vec::new() };
+    let by_idx = (d.objects.len() > 4).then(|| placeable_indices(area));
     let mut out = Vec::new();
     for (&i, b) in d.objects.iter().zip(&plan.each) {
         let Ok(b) = b else { continue };
-        let o = area.objects.iter().find(|o| o.kind == ObjectKind::Placeable && o.index == i);
+        let o = match &by_idx {
+            Some(m) => m.get(&i).map(|&pos| &area.objects[pos]),
+            None => area.objects.iter().find(|o| o.kind == ObjectKind::Placeable && o.index == i),
+        };
         let Some(o) = o else { continue };
         let to = o.transform();
         out.extend(b.after.iter().map(|f| f.map(|c| to.transform_point3(Vec3::from(c)))));

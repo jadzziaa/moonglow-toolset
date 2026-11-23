@@ -536,8 +536,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
             h.hover_at(at);
             h.run_steps(3);
             let view = &h.state().area_views[&area];
-            let (Some(pointer), [(triangle, _)]) = (view.pointer, view.brush_cursor.as_slice())
-            else {
+            let (Some(pointer), [(triangle, _)]) = (view.pointer, &*view.brush_cursor) else {
                 continue;
             };
             if pointer.z < 4.0 {

@@ -139,6 +139,20 @@ pub struct Plugins {
     /// The open panels (API 0.6), by plugin and panel id: what each
     /// showed last, and its render under way.
     pub panels: std::collections::HashMap<(String, String), crate::plugin_kinds::PanelState>,
+    /// Bumped when installed plugins, project root, or trust changes.
+    plugins_gen: u64,
+    /// Cached enabled-plugin commands `(cache_key, all, menu)`.
+    #[allow(clippy::type_complexity)]
+    commands_cache: RefCell<Option<(u64, Arc<[PluginCommand]>, Arc<[PluginCommand]>)>>,
+    /// Cached parsed `user.toml` plugin settings `(path, len_and_mtime, values)`.
+    #[allow(clippy::type_complexity)]
+    user_settings_cache: RefCell<
+        Option<(
+            PathBuf,
+            (u64, Option<std::time::SystemTime>),
+            Arc<BTreeMap<String, BTreeMap<String, serde_json::Value>>>,
+        )>,
+    >,
 }
 
 /// A pane whose selection a plugin's command may run on.
@@ -958,6 +972,7 @@ impl Moonglow {
     /// settings then hold; where there is none yet, it is written from
     /// what Moonglow's settings kept (before 3.3.0, there alone).
     fn read_plugin_values(&mut self) {
+        *self.plugins.user_settings_cache.borrow_mut() = None;
         let Some(path) = &self.plugin_values else { return };
         match mg_plugin::settings::read_user(path) {
             Ok(values) if path.exists() => self.settings.plugin_settings = values,
@@ -973,6 +988,28 @@ impl Moonglow {
         }
     }
 
+    #[allow(clippy::type_complexity)]
+    fn cached_user_values(
+        &self,
+    ) -> Option<Arc<BTreeMap<String, BTreeMap<String, serde_json::Value>>>> {
+        let path = self.plugin_values.as_deref()?;
+        let meta = std::fs::metadata(path).ok()?;
+        let stamp = (meta.len(), meta.modified().ok());
+        {
+            let guard = self.plugins.user_settings_cache.borrow();
+            if let Some((was_path, was_stamp, values)) = guard.as_ref()
+                && was_path == path
+                && *was_stamp == stamp
+            {
+                return Some(values.clone());
+            }
+        }
+        let values = Arc::new(mg_plugin::settings::read_user(path).ok()?);
+        *self.plugins.user_settings_cache.borrow_mut() =
+            Some((path.to_path_buf(), stamp, values.clone()));
+        Some(values)
+    }
+
     /// The values a plugin's settings of scope `user` have: as the file
     /// shared with `mg` has them now (it may have kept one since), else
     /// as Moonglow's settings hold them.
@@ -980,11 +1017,8 @@ impl Moonglow {
         &self,
         id: &str,
     ) -> std::collections::BTreeMap<String, mg_plugin::SettingValue> {
-        let read = self
-            .plugin_values
-            .as_deref()
-            .and_then(|p| p.exists().then(|| mg_plugin::settings::read_user(p).ok()).flatten());
-        let all = read.as_ref().unwrap_or(&self.settings.plugin_settings);
+        let read = self.cached_user_values();
+        let all = read.as_deref().unwrap_or(&self.settings.plugin_settings);
         mg_plugin::settings::user_values(all, id)
     }
 
@@ -1047,6 +1081,7 @@ impl Moonglow {
         if wrote && let (Some(root), Some(ws)) = (&root, &mut self.ws) {
             ws.module.reread_project_file_as(ProjectFile::read(root));
         }
+        *self.plugins.user_settings_cache.borrow_mut() = None;
     }
 
     /// Runs a plugin's own tests (`tests/*.toml`) as a job, as `mg plugin
@@ -1090,14 +1125,12 @@ impl Moonglow {
     /// in the other file than its scope's), as the log says it when the
     /// project is opened.
     pub fn plugin_settings_faults(&self, p: &Plugin) -> Vec<String> {
-        let user = self.user_settings(&p.manifest.id);
+        let read = self.cached_user_values();
+        let raw = read.as_deref().unwrap_or(&self.settings.plugin_settings);
+        let user = mg_plugin::settings::user_values(raw, &p.manifest.id);
         let project = self.project_root().and(self.ws.as_ref()).map(|ws| &ws.module.project_file);
         let mut faults = mg_plugin::settings::resolve(&p.manifest, &user, project).1;
         // (Of the user's own, what no setting of scope user is.)
-        let raw = match self.plugin_values.as_deref().filter(|p| p.exists()) {
-            Some(path) => mg_plugin::settings::read_user(path).unwrap_or_default(),
-            None => self.settings.plugin_settings.clone(),
-        };
         for name in raw.get(&p.manifest.id).into_iter().flatten().map(|(k, _)| k) {
             if !p
                 .manifest
@@ -1149,6 +1182,7 @@ impl Moonglow {
                 self.log.error(format!("{}: {e}", p.manifest.name));
             }
             self.settings.plugin_settings = user;
+            *self.plugins.user_settings_cache.borrow_mut() = None;
         }
         // (The project's files as the tidy left them, done or not.)
         if let (Some(root), Some(ws)) = (&root, &mut self.ws) {
@@ -1233,6 +1267,8 @@ impl Moonglow {
     /// After the installed or enabled plugins changed: their keys, and
     /// what a crash report would name.
     pub(crate) fn plugins_changed(&mut self) {
+        self.plugins.plugins_gen = self.plugins.plugins_gen.wrapping_add(1);
+        *self.plugins.commands_cache.borrow_mut() = None;
         self.keymap_stale = true;
         let enabled = self.enabled_plugins().iter().map(|p| p.manifest.id.clone()).collect();
         if let Ok(mut now) = ENABLED.lock() {
@@ -1304,9 +1340,46 @@ impl Moonglow {
         installed.chain(project.iter().copied()).collect()
     }
 
-    /// The commands of the enabled plugins, in their plugins' order.
-    pub fn plugin_commands(&self) -> Vec<PluginCommand> {
-        self.enabled_plugins()
+    fn plugin_commands_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.plugins.plugins_gen.hash(&mut h);
+        self.plugins.installed.len().hash(&mut h);
+        for inst in &self.plugins.installed {
+            inst.project.hash(&mut h);
+            if let Ok(p) = &inst.plugin {
+                p.manifest.id.hash(&mut h);
+                p.manifest.version.hash(&mut h);
+                p.digest().hash(&mut h);
+                p.manifest.commands.len().hash(&mut h);
+            }
+        }
+        self.settings.plugins_enabled.hash(&mut h);
+        self.plugins.project_root.as_ref().map(|r| &r.1).hash(&mut h);
+        if self.project_root().is_some() {
+            for a in &self.plugins.trust_answers.answers {
+                a.project.hash(&mut h);
+                a.plugin.hash(&mut h);
+                a.allow.hash(&mut h);
+                a.version.hash(&mut h);
+                a.digest.hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
+    fn ensure_commands_cache(&self) -> (Arc<[PluginCommand]>, Arc<[PluginCommand]>) {
+        let key = self.plugin_commands_key();
+        {
+            let guard = self.plugins.commands_cache.borrow();
+            if let Some((was, all, menu)) = guard.as_ref()
+                && *was == key
+            {
+                return (all.clone(), menu.clone());
+            }
+        }
+        let all: Arc<[PluginCommand]> = self
+            .enabled_plugins()
             .into_iter()
             .flat_map(|p| {
                 p.manifest.commands.iter().map(|c| PluginCommand {
@@ -1321,14 +1394,33 @@ impl Moonglow {
                     menu: c.menu.clone(),
                 })
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .into();
+        let menu: Arc<[PluginCommand]> =
+            all.iter().filter(|c| !c.targets.is_empty()).cloned().collect::<Vec<_>>().into();
+        *self.plugins.commands_cache.borrow_mut() = Some((key, all.clone(), menu.clone()));
+        (all, menu)
+    }
+
+    /// Cached commands of the enabled plugins, in their plugins' order.
+    pub(crate) fn plugin_commands_cached(&self) -> Arc<[PluginCommand]> {
+        self.ensure_commands_cache().0
+    }
+
+    /// Cached enabled-plugin commands that appear in right-click menus.
+    pub(crate) fn plugin_menu_commands_cached(&self) -> Arc<[PluginCommand]> {
+        self.ensure_commands_cache().1
+    }
+
+    /// The commands of the enabled plugins, in their plugins' order.
+    pub fn plugin_commands(&self) -> Vec<PluginCommand> {
+        self.plugin_commands_cached().to_vec()
     }
 
     /// The enabled plugins' commands that are in right-click menus.
+    #[allow(dead_code)]
     pub(crate) fn plugin_menu_commands(&self) -> Vec<PluginCommand> {
-        let mut all = self.plugin_commands();
-        all.retain(|c| !c.targets.is_empty());
-        all
+        self.plugin_menu_commands_cached().to_vec()
     }
 
     /// What is selected in the window, for a command chosen from the

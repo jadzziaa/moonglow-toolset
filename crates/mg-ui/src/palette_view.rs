@@ -1408,18 +1408,30 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     }
     let custom_was = view.custom;
-    crate::trace::changed("palette", || {
-        format!(
-            "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
-            ui.max_rect(),
+    if crate::trace::on() {
+        let r = ui.max_rect();
+        let key = (
+            [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()],
             view.tiles,
             view.prefabs,
             view.kind,
             view.custom,
             view.area,
-            view.filter
-        )
-    });
+            view.filter.as_str(),
+        );
+        crate::trace::changed_key("palette", &key, || {
+            format!(
+                "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
+                ui.max_rect(),
+                view.tiles,
+                view.prefabs,
+                view.kind,
+                view.custom,
+                view.area,
+                view.filter
+            )
+        });
+    }
     // The header (GitHub issue 16), top down by what each row governs:
     // the type, its name and the source, the search, then the list's own
     // toolbar right over the list.
@@ -1989,7 +2001,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // (Down out of the search: to the list's first row.)
         .or(entered.then_some(egui::Key::ArrowDown));
     let gallery = app.settings.palette_gallery && pictured(kind);
-    let menu_commands = app.plugin_menu_commands();
+    let menu_commands = app.plugin_menu_commands_cached();
     // (The custom palette's blueprints the module has: the others, a
     // hak's, the override folder's or none, are looked at, not edited.)
     // (Listed once a revision of the module, not every frame.)

@@ -114,6 +114,17 @@ fn refined(tools: &Tools, grid: &Grid, brush: &TileBrush, (x, y): (u32, u32)) ->
     }
 }
 
+#[derive(Debug)]
+struct PaletteFilterCache {
+    palette: std::sync::Weak<TilesetPalette>,
+    filter: String,
+    gallery: bool,
+    shown: usize,
+    visible: std::collections::HashMap<usize, bool>,
+    folder_counts: std::collections::HashMap<usize, usize>,
+    gallery_tiles: std::collections::HashMap<usize, Vec<u32>>,
+}
+
 /// What painting an area's tiles needs from its tileset.
 #[derive(Debug)]
 pub struct Tools {
@@ -121,13 +132,149 @@ pub struct Tools {
     pub set: Arc<Tileset>,
     pub index: TileIndex,
     pub rules: Rules,
+    folded_models: Vec<String>,
+    terrain_tiles: Vec<Vec<u32>>,
+    crosser_tiles: Vec<Vec<u32>>,
+    palette_cache: std::cell::RefCell<Option<PaletteFilterCache>>,
 }
 
 impl Tools {
     pub fn new(tileset: ResRef, set: Arc<Tileset>) -> Tools {
         let index = TileIndex::new(&set);
         let rules = Rules::new(&index, &set);
-        Tools { tileset, set, index, rules }
+        let folded_models = set.tiles.iter().map(|t| mg_core::text::fold(&t.model)).collect();
+        let terrain_tiles = (0..set.terrains.len())
+            .map(|t| {
+                let terrain = mg_tiles::Terrain(t as u16);
+                index.tiles_where(|c| c.corners.iter().any(|k| k.terrain == terrain))
+            })
+            .collect();
+        let crosser_tiles = (0..set.crossers.len())
+            .map(|x| {
+                let crosser = Some(mg_tiles::Crosser(x as u16));
+                index.tiles_where(|c| c.edges.contains(&crosser))
+            })
+            .collect();
+        Tools {
+            tileset,
+            set,
+            index,
+            rules,
+            folded_models,
+            terrain_tiles,
+            crosser_tiles,
+            palette_cache: std::cell::RefCell::new(None),
+        }
+    }
+
+    fn brush_tiles_slice(&self, brush: Brush) -> &[u32] {
+        match brush {
+            Brush::Terrain(t) => self.terrain_tiles.get(t.0 as usize).map_or(&[], Vec::as_slice),
+            Brush::Crosser(x) => self.crosser_tiles.get(x.0 as usize).map_or(&[], Vec::as_slice),
+            _ => &[],
+        }
+    }
+
+    fn ensure_palette_cache(
+        &self,
+        palette: &Arc<TilesetPalette>,
+        raw_filter: &str,
+        filter: &Needle,
+        gallery: bool,
+    ) -> usize {
+        {
+            let guard = self.palette_cache.borrow();
+            if let Some(cache) = guard.as_ref()
+                && cache.palette.as_ptr() == Arc::as_ptr(palette)
+                && cache.palette.strong_count() > 0
+                && cache.filter == raw_filter
+                && cache.gallery == gallery
+            {
+                return cache.shown;
+            }
+        }
+        let cache = PaletteFilterCache::build(palette, self, raw_filter, filter, gallery);
+        let shown = cache.shown;
+        *self.palette_cache.borrow_mut() = Some(cache);
+        shown
+    }
+}
+
+impl PaletteFilterCache {
+    fn build(
+        palette: &Arc<TilesetPalette>,
+        tools: &Tools,
+        raw_filter: &str,
+        filter: &Needle,
+        gallery: bool,
+    ) -> PaletteFilterCache {
+        let mut cache = PaletteFilterCache {
+            palette: Arc::downgrade(palette),
+            filter: raw_filter.to_string(),
+            gallery,
+            shown: 0,
+            visible: std::collections::HashMap::new(),
+            folder_counts: std::collections::HashMap::new(),
+            gallery_tiles: std::collections::HashMap::new(),
+        };
+        cache.shown = cache.walk(&palette.branches, tools, filter, gallery).0;
+        cache
+    }
+
+    fn walk(
+        &mut self,
+        items: &[PaletteItem],
+        tools: &Tools,
+        filter: &Needle,
+        gallery: bool,
+    ) -> (usize, usize, bool) {
+        let mut shown = 0;
+        let mut visible_children = 0;
+        let mut any_visible = false;
+        let searching = !filter.is_empty();
+        for item in items {
+            let ptr = item as *const PaletteItem as usize;
+            let (item_shown, item_visible) = match item {
+                PaletteItem::Folder { items: children, .. } => {
+                    let (child_shown, child_vis_count, child_any) =
+                        self.walk(children, tools, filter, gallery);
+                    self.folder_counts
+                        .insert(ptr, if searching { child_vis_count } else { children.len() });
+                    (child_shown, child_any)
+                }
+                PaletteItem::Brush { label, brush: Brush::Group(g) } => {
+                    let vis = filter.finds(label) || group_found(tools, *g, filter);
+                    (usize::from(vis), vis)
+                }
+                PaletteItem::Brush { label, brush } => {
+                    let tiles = tools.brush_tiles_slice(*brush);
+                    let label_match = filter.finds(label);
+                    let need_found = (gallery && !tiles.is_empty()) || !label_match;
+                    let found = if need_found {
+                        found_tiles(tools, label, tiles, filter)
+                    } else {
+                        Vec::new()
+                    };
+                    let vis = label_match || !found.is_empty();
+                    let s = match (gallery && !tiles.is_empty(), label_match) {
+                        (true, _) => found.len(),
+                        (false, true) => 1,
+                        (false, false) => usize::from(!found.is_empty()),
+                    };
+                    if gallery && !tiles.is_empty() {
+                        self.gallery_tiles.insert(ptr, found);
+                    }
+                    (s, vis)
+                }
+            };
+            self.visible.insert(ptr, item_visible);
+            shown += item_shown;
+            if item_visible {
+                visible_children += 1;
+                any_visible = true;
+            }
+        }
+        (shown, visible_children, any_visible)
     }
 }
 
@@ -1451,7 +1598,7 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     };
     view.cursor_cache = Some((key, shapes.clone()));
     let painter = ui.painter_at(view.rect);
-    for (points, color) in &shapes {
+    for (points, color) in shapes.iter() {
         let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
         if screen.len() == points.len() {
             crate::area_view::outline(&painter, &screen, Line::new(2.0, *color));
@@ -1462,10 +1609,10 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 
 /// The brush's cursor ([`overlay`]), with Shift held or not: its outlines,
 /// on the ground, and their colours.
-fn cursor(app: &mut Moonglow, view: &AreaView, shift: bool) -> Vec<(Vec<Vec3>, Color32)> {
+fn cursor(app: &mut Moonglow, view: &AreaView, shift: bool) -> crate::area_view::CursorShapes {
     let shapes = std::cell::RefCell::new(Vec::new());
     cursor_shapes(app, view, shift, &shapes);
-    shapes.into_inner()
+    shapes.into_inner().into()
 }
 
 fn cursor_shapes(
@@ -1639,12 +1786,16 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     };
     let tileset = app.area_views.get(&area).and_then(|v| v.terrain.as_ref().map(|t| t.tileset));
-    crate::trace::changed("tile palette", || {
-        format!(
-            "area {area}, its view {}, tileset {tileset:?}",
-            if app.area_views.contains_key(&area) { "open" } else { "not open" }
-        )
-    });
+    crate::trace::changed_key(
+        "tile palette",
+        &(area, app.area_views.contains_key(&area), tileset),
+        || {
+            format!(
+                "area {area}, its view {}, tileset {tileset:?}",
+                if app.area_views.contains_key(&area) { "open" } else { "not open" }
+            )
+        },
+    );
     let Some(tileset) = tileset else {
         ui.label("The area's tileset could not be read.");
         return;
@@ -1670,7 +1821,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else {
             return;
         };
-        count(&palette.branches, tools, &filter, gallery)
+        tools.ensure_palette_cache(&palette, &app.palette.filter, &filter, gallery)
     };
     let mut fold = None;
     // (In the Gallery, as the GalleryTiles board has it: the switch, Exact
@@ -1774,6 +1925,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         open: None,
     };
     // (A scroll place of its own: not the blueprint palettes' list's.)
+    let filter_cache = tools.palette_cache.borrow();
     egui::ScrollArea::vertical().id_salt("palette-tiles-list").auto_shrink([false, false]).show(
         ui,
         |ui| {
@@ -1781,11 +1933,13 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             if at.gallery.is_none() {
                 mg_uikit::list_rows(ui);
             }
+            let cache = filter_cache.as_ref();
             for item in &palette.branches {
-                show_item(ui, item, &mut at, 0);
+                show_item(ui, item, &mut at, cache, 0);
             }
         },
     );
+    drop(filter_cache);
     let (shown, open, stepped) = (std::mem::take(&mut at.shown), at.open, at.stepped);
     app.thumbnails.show(shown);
     // A tile tool clicked with tiles selected: the tool on them (Select
@@ -1924,39 +2078,24 @@ fn fold_and_count(
     (fold, drawn)
 }
 
-fn count(items: &[PaletteItem], tools: &Tools, filter: &Needle, gallery: bool) -> usize {
-    items
-        .iter()
-        .map(|i| match i {
-            PaletteItem::Folder { items, .. } => count(items, tools, filter, gallery),
-            // (A group is one entry, in the Gallery one picture.)
-            item @ PaletteItem::Brush { brush: Brush::Group(_), .. } => {
-                usize::from(has_found(item, tools, filter))
-            }
-            PaletteItem::Brush { label, brush } => {
-                let tiles = brush_tiles(&tools.index, *brush);
-                let found = found_tiles(tools, label, &tiles, filter);
-                match (gallery && !tiles.is_empty(), filter.finds(label)) {
-                    (true, _) => found.len(),
-                    (false, true) => 1,
-                    (false, false) => usize::from(!found.is_empty()),
-                }
-            }
-        })
-        .sum()
-}
-
 /// The tiles of a brush the search finds: all of them where the brush's
 /// name has every word, else those whose model's name has the words its
 /// name has not.
 fn found_tiles(tools: &Tools, label: &str, tiles: &[u32], filter: &Needle) -> Vec<u32> {
+    if filter.is_empty() {
+        return tiles.to_vec();
+    }
     let label = mg_core::text::fold(label);
     if filter.finds_folded(&label) {
         return tiles.to_vec();
     }
-    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| mg_core::text::fold(&t.model));
-    let finds = |m: String| filter.finds_in(&[&label, &m]);
-    tiles.iter().copied().filter(|t| model(*t).is_some_and(finds)).collect()
+    tiles
+        .iter()
+        .copied()
+        .filter(|&t| {
+            tools.folded_models.get(t as usize).is_some_and(|m| filter.finds_in(&[&label, m]))
+        })
+        .collect()
 }
 
 /// Whether a palette entry has something the search finds: its name, or
@@ -1969,7 +2108,7 @@ fn has_found(item: &PaletteItem, tools: &Tools, filter: &Needle) -> bool {
         }
         PaletteItem::Brush { label, brush } => {
             filter.finds(label)
-                || !found_tiles(tools, label, &brush_tiles(&tools.index, *brush), filter).is_empty()
+                || !found_tiles(tools, label, tools.brush_tiles_slice(*brush), filter).is_empty()
         }
     }
 }
@@ -1978,11 +2117,14 @@ fn has_found(item: &PaletteItem, tools: &Tools, filter: &Needle) -> bool {
 /// tile only a group has is found by its group). Each model is searched
 /// alone, not with the group's name: "Inn 1" is not found in Inn 2 by its
 /// tiles' 1s. (The group stays one entry, one picture in the Gallery, and
-/// no heading of its tiles: [`brush_tiles`] has none for it.)
+/// no heading of its tiles: [`Tools::brush_tiles_slice`] has none for it.)
 fn group_found(tools: &Tools, g: usize, filter: &Needle) -> bool {
     let Some(group) = tools.set.groups.get(g) else { return false };
-    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| t.model.as_str());
-    group.tiles.iter().flatten().filter_map(|t| model(*t)).any(|m| filter.finds(m))
+    group
+        .tiles
+        .iter()
+        .flatten()
+        .any(|&t| tools.folded_models.get(t as usize).is_some_and(|m| filter.finds_folded(m)))
 }
 
 /// The tiles palette's Gallery: its pictures' size, and those made.
@@ -2023,22 +2165,25 @@ struct Place<'a> {
     open: Option<u32>,
 }
 
-/// The tiles a terrain or crosser brush can make: those with the terrain
-/// at a corner, or the crosser on an edge (none of a group's).
-pub(crate) fn brush_tiles(index: &TileIndex, brush: Brush) -> Vec<u32> {
-    match brush {
-        Brush::Terrain(t) => index.tiles_where(|c| c.corners.iter().any(|k| k.terrain == t)),
-        Brush::Crosser(x) => index.tiles_where(|c| c.edges.contains(&Some(x))),
-        _ => Vec::new(),
-    }
+fn item_visible(item: &PaletteItem, at: &Place, cache: Option<&PaletteFilterCache>) -> bool {
+    cache
+        .and_then(|c| c.visible.get(&(item as *const PaletteItem as usize)).copied())
+        .unwrap_or_else(|| has_found(item, at.tools, at.filter))
 }
 
-fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize) {
+fn show_item(
+    ui: &mut egui::Ui,
+    item: &PaletteItem,
+    at: &mut Place,
+    cache: Option<&PaletteFilterCache>,
+    depth: usize,
+) {
     let tileset = at.tileset;
     let searching = !at.filter.is_empty();
-    if searching && !has_found(item, at.tools, at.filter) {
+    if searching && !item_visible(item, at, cache) {
         return;
     }
+    let ptr = item as *const PaletteItem as usize;
     match item {
         PaletteItem::Folder { label, items } => {
             // (What the search finds shows, opened out as it is typed,
@@ -2048,10 +2193,13 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             // heading is open or closed as it was before.)
             // (Its count at the row's end: the tileset's own items in it,
             // or those the search finds.)
-            let count = match searching {
-                true => items.iter().filter(|i| has_found(i, at.tools, at.filter)).count(),
-                false => items.len(),
-            };
+            let count =
+                cache.and_then(|c| c.folder_counts.get(&ptr).copied()).unwrap_or_else(|| {
+                    match searching {
+                        true => items.iter().filter(|i| item_visible(i, at, cache)).count(),
+                        false => items.len(),
+                    }
+                });
             // (Its folder after the chevron, closed or open, as the
             // AreaTiles board's Features, Groups and Terrain have theirs:
             // room kept before its name, the icon painted there once it is
@@ -2109,13 +2257,13 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                             PaletteItem::Brush { label, brush: Brush::Group(g) }
                                 if at.gallery.is_some() =>
                             {
-                                if !searching || has_found(i, at.tools, at.filter) {
+                                if !searching || item_visible(i, at, cache) {
                                     groups.push((label.as_str(), *g));
                                 }
                             }
                             _ => {
                                 group_pictures(ui, &std::mem::take(&mut groups), at);
-                                show_item(ui, i, at, depth + 1);
+                                show_item(ui, i, at, cache, depth + 1);
                             }
                         }
                     }
@@ -2138,11 +2286,15 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
             row_count(ui, row, count);
         }
         PaletteItem::Brush { label, brush } => {
-            let tiles = match at.gallery {
-                Some(_) => {
-                    found_tiles(at.tools, label, &brush_tiles(&at.tools.index, *brush), at.filter)
+            let fallback: Vec<u32>;
+            let tiles: &[u32] = match (at.gallery.is_some(), cache) {
+                (false, _) => &[],
+                (true, Some(c)) => c.gallery_tiles.get(&ptr).map_or(&[], Vec::as_slice),
+                (true, None) => {
+                    fallback =
+                        found_tiles(at.tools, label, at.tools.brush_tiles_slice(*brush), at.filter);
+                    &fallback
                 }
-                None => Vec::new(),
             };
             if tiles.is_empty() {
                 brush_row(ui, label, *brush, at);
@@ -2170,7 +2322,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                 ui.spacing_mut().item_spacing = spacing;
                 brush_row(ui, label, *brush, at);
             });
-            state.show_body_indented(&header.response, ui, |ui| tile_pictures(ui, &tiles, at));
+            state.show_body_indented(&header.response, ui, |ui| tile_pictures(ui, tiles, at));
             row_count(ui, header.response.rect, tiles.len());
         }
     }

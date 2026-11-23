@@ -1304,14 +1304,15 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // The plugins' commands, after the window's own: a key both have is
     // the window's. (They too wait for a field typed in to set its text:
     // a plugin reads the module as its command begins.)
-    for c in app.plugin_commands() {
+    let plugin_commands = app.plugin_commands_cached();
+    for c in plugin_commands.iter() {
         if searching {
             break;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &c.key_id, typing));
         if pressed && app.ws.is_some() {
             app.quick_open.close(ui.ctx(), false);
-            let after = AfterText::Plugin { plugin: c.plugin, command: c.command };
+            let after = AfterText::Plugin { plugin: c.plugin.clone(), command: c.command.clone() };
             run_after_text(app, ui, after);
         }
     }
@@ -1791,7 +1792,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                 }
             }
             Item::PluginCommands => {
-                let commands = app.plugin_commands();
+                let commands = app.plugin_commands_cached();
                 let several = commands.iter().any(|c| c.plugin != commands[0].plugin);
                 let mut at = 0;
                 while at < commands.len() {
@@ -2173,11 +2174,12 @@ pub(crate) fn found(app: &Moonglow) -> Vec<Row> {
                 enabled: id.enabled(app),
             }
         });
-    let plugins = app.plugin_commands().into_iter().map(|c| Row {
+    let plugin_commands = app.plugin_commands_cached();
+    let plugins = plugin_commands.iter().map(|c| Row {
         label: c.path_title(),
-        choice: Choice::Plugin(c.plugin, c.command),
-        menu: c.plugin_name,
-        key_id: c.key_id,
+        choice: Choice::Plugin(c.plugin.clone(), c.command.clone()),
+        menu: c.plugin_name.clone(),
+        key_id: c.key_id.clone(),
         enabled: app.ws.is_some(),
     });
     // (Their exporters, importers, wizards and panels, by their menus.)

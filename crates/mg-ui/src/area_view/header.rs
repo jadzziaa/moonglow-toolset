@@ -186,7 +186,7 @@ struct Shadows {
 
 /// Draws the area's header over its view and does what was asked of it.
 pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
-    let hidden = app.settings.hidden_area_tools.clone();
+    let hidden = &app.settings.hidden_area_tools;
     let shown = |name: &str| !hidden.iter().any(|h| h == name);
     let window = ui.ctx().content_rect().width();
     let yields = mg_uikit::shell::Yields::of(window, ui.available_width());
@@ -248,13 +248,9 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     // AreaTiles board.)
     let tiling = view.tile_mode && editable && !painting;
     let mut tile_properties = !app.settings.hide_tile_properties;
-    let tile_tips = tiles_tips(app, ui.ctx());
-    let scratch_tip = crate::transfer::scratch_tip(
-        app.settings.scratch_dir.as_deref(),
-        "the area and the blueprints, scripts and conversations it uses",
-    );
+    let tile_tips = tiling.then(|| tiles_tips(app, ui.ctx()));
     let selected = view.selection.len();
-    let prefab = format!("Save {selected} as Prefab…");
+    let prefab = (selected > 1).then(|| format!("Save {selected} as Prefab…"));
     let warning = warnings(view);
 
     // The widths of the parts of the caller's, measured as the header
@@ -277,13 +273,15 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
     let mut h = EditorHeader::new(AREA_HEADER);
 
     // The left group: what is shown, and how objects are placed.
-    let kind_names = ObjectKind::ALL.map(|k| crate::icons::area_tool_kind(k.label()));
+    static KIND_NAMES: std::sync::OnceLock<[String; 9]> = std::sync::OnceLock::new();
+    let kind_names =
+        KIND_NAMES.get_or_init(|| ObjectKind::ALL.map(|k| crate::icons::area_tool_kind(k.label())));
     let mut show_in_more = None;
     if compact || painting || tiling {
         let count = show.iter().filter(|s| **s).count() + usize::from(show_start);
         let mut pop = Popover::new(SHOW).title(Some(Icon::Eye), "Show");
         let mut any = false;
-        for ((on, kind), name) in show.iter_mut().zip(ObjectKind::ALL).zip(&kind_names) {
+        for ((on, kind), name) in show.iter_mut().zip(ObjectKind::ALL).zip(kind_names.iter()) {
             if shown(name) {
                 let row = PopCheck::new(on, kind.label()).name(name.as_str());
                 pop = pop.check(row.icon(crate::icons::object(kind)));
@@ -321,7 +319,7 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         }
     } else {
         let mut parts = Vec::new();
-        for ((on, kind), name) in show.iter_mut().zip(ObjectKind::ALL).zip(&kind_names) {
+        for ((on, kind), name) in show.iter_mut().zip(ObjectKind::ALL).zip(kind_names.iter()) {
             if shown(name) {
                 parts.push(Joined::toggle(crate::icons::object(kind), name.as_str(), on));
             }
@@ -359,11 +357,11 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         let placing = (show_snap || show_turn).then_some(placing);
         h = crate::paint_mode::header_items(h, ui, &paint, placing);
     }
-    if tiling {
+    if let Some(tile_tips) = tile_tips.as_ref() {
         let has = !view.tile_selection.is_empty();
         let paste = app.tile_clip.as_ref().zip(view.terrain.as_ref());
         let paste = paste.is_some_and(|(c, t)| c.tileset == t.tileset);
-        h = tiles_items(h, has, paste, &tile_tips, &mut tile_properties);
+        h = tiles_items(h, has, paste, tile_tips, &mut tile_properties);
     }
     h = show_in_more.into_iter().fold(h, EditorHeader::left);
     h = h.left(Item::separator());
@@ -505,13 +503,19 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         lighting_rows += 1;
     }
     let scene = [
-        ("Animations", crate::icons::ANIMATIONS, &mut animated, ANIMATIONS_TIP),
-        ("Grass", crate::icons::GRASS, &mut grass, GRASS_TIP),
-        ("Tile Border", crate::icons::TILE_BORDER, &mut tile_border, TILE_BORDER_TIP),
-        ("Shaders", crate::icons::SHADERS, &mut shaders, SHADERS_TIP),
+        ("Animations", "Animations", crate::icons::ANIMATIONS, &mut animated, ANIMATIONS_TIP),
+        ("Grass", "Grass", crate::icons::GRASS, &mut grass, GRASS_TIP),
+        (
+            "Tile Border",
+            "Tile border",
+            crate::icons::TILE_BORDER,
+            &mut tile_border,
+            TILE_BORDER_TIP,
+        ),
+        ("Shaders", "Shaders", crate::icons::SHADERS, &mut shaders, SHADERS_TIP),
     ];
     let mut first = true;
-    for (name, icon, value, tip) in scene {
+    for (name, words, icon, value, tip) in scene {
         if !shown(name) {
             continue;
         }
@@ -519,8 +523,6 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             lighting = lighting.separator().folded_only();
             first = false;
         }
-        // (In sentence case in the popover, as its rows are: Tile border.)
-        let words = sentence(name);
         lighting = lighting.check(PopCheck::new(value, words).icon(icon).tip(tip));
         lighting_rows += 1;
     }
@@ -625,12 +627,16 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
         h = h.right(item);
     }
     if shown("To Scratch") {
-        let item = Item::button(crate::icons::TO_SCRATCH, "To Scratch").tip(scratch_tip.as_str());
+        let scratch_tip = crate::transfer::scratch_tip(
+            app.settings.scratch_dir.as_deref(),
+            "the area and the blueprints, scripts and conversations it uses",
+        );
+        let item = Item::button(crate::icons::TO_SCRATCH, "To Scratch").tip(scratch_tip);
         h = h.right(item.in_more());
     }
     // Several objects chosen: they can be kept as a group to place again
     // (the palette's Prefabs has them).
-    if selected > 1 {
+    if let Some(prefab) = &prefab {
         let item = Item::button(crate::icons::PREFABS, prefab.as_str())
             .tip("Keep the selected objects as a group, to place again in any module");
         h = h.right(item.in_more());
@@ -731,7 +737,9 @@ pub(super) fn header(app: &mut Moonglow, ui: &mut Ui, view: &mut AreaView) {
             scratch: true,
         });
     }
-    if out.clicked(&prefab) {
+    if let Some(prefab) = &prefab
+        && out.clicked(prefab)
+    {
         app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
     }
 }
@@ -955,13 +963,6 @@ enum PopForm {
     Compact,
     Words,
     Unfolds,
-}
-
-/// A title-case name in sentence case: "Tile Border" is "Tile border".
-fn sentence(name: &str) -> String {
-    let mut words = name.split(' ');
-    let first = words.next().unwrap_or_default().to_string();
-    std::iter::once(first).chain(words.map(str::to_lowercase)).collect::<Vec<_>>().join(" ")
 }
 
 /// The arrow after the Show toggles (the Main board's "Show all or

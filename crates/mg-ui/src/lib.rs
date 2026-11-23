@@ -2512,7 +2512,24 @@ impl Moonglow {
         // (Where the user worked, as the dock was drawn: the active editor
         // the Top Bar's Undo falls back to.)
         self.note_worked(ui.ctx());
-        trace::changed("panes", || self.panes());
+        if trace::on() {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for (path, leaf) in self.dock.iter_leaves() {
+                path.surface.0.hash(&mut h);
+                path.node.0.hash(&mut h);
+                leaf.rect.min.x.to_bits().hash(&mut h);
+                leaf.rect.min.y.to_bits().hash(&mut h);
+                leaf.rect.max.x.to_bits().hash(&mut h);
+                leaf.rect.max.y.to_bits().hash(&mut h);
+                leaf.active.0.hash(&mut h);
+                leaf.tabs.len().hash(&mut h);
+                for t in &leaf.tabs {
+                    t.hash(&mut h);
+                }
+            }
+            trace::changed_key("panes", &h.finish(), || self.panes());
+        }
         // (A window put again, where it had landed beside its place: the
         // frame that moves it asked for.)
         if self.remember_window_sizes() {
@@ -2644,45 +2661,75 @@ impl Moonglow {
         if !trace::on() {
             return;
         }
-        trace::changed("graphics", || {
-            let info = self.render_info.as_deref().unwrap_or("none");
-            match &self.graphics_choice {
-                Some(why) => format!("{info}; taken by {why}"),
-                None => info.to_string(),
-            }
-        });
-        trace::changed("settings", || {
+        if trace::on() {
+            trace::changed_key(
+                "graphics",
+                &(self.render_info.as_deref(), self.graphics_choice.as_deref()),
+                || {
+                    let info = self.render_info.as_deref().unwrap_or("none");
+                    match &self.graphics_choice {
+                        Some(why) => format!("{info}; taken by {why}"),
+                        None => info.to_string(),
+                    }
+                },
+            );
             let s = &self.settings;
-            format!(
-                "game {:?}, user folder {:?} (this run {:?}), last area {}, areas by name {}, \
-                 scale {:?}, still objects {}, unlit {}, plugins {:?}; install {:?}",
-                s.game_root,
-                s.user_dir,
-                s.user_dir_this_run,
-                !s.no_last_area,
+            let settings_key = (
+                s.game_root.as_deref(),
+                s.user_dir.as_deref(),
+                s.user_dir_this_run.as_deref(),
+                s.no_last_area,
                 s.area_names,
                 s.ui_scale,
                 s.still_objects,
                 s.unlit_areas,
-                s.plugins_enabled,
-                self.install.as_ref().map(|i| i.root.clone()),
-            )
-        });
-        trace::changed("window", || {
-            format!(
-                "{:?}, {} points per pixel, zoom {}; tree {:?} wide, panes {:?} wide; job {:?}; \
-                 module {:?}; game data {}; 3D viewport {}",
-                ui.ctx().content_rect(),
-                ui.ctx().pixels_per_point(),
-                ui.ctx().zoom_factor(),
-                self.tree_width,
-                self.dock_width,
-                self.job.as_ref().map(|j| j.title.clone()),
+                &s.plugins_enabled,
+                self.install.as_ref().map(|i| i.root.as_path()),
+            );
+            trace::changed_key("settings", &settings_key, || {
+                format!(
+                    "game {:?}, user folder {:?} (this run {:?}), last area {}, areas by name \
+                     {}, scale {:?}, still objects {}, unlit {}, plugins {:?}; install {:?}",
+                    s.game_root,
+                    s.user_dir,
+                    s.user_dir_this_run,
+                    !s.no_last_area,
+                    s.area_names,
+                    s.ui_scale,
+                    s.still_objects,
+                    s.unlit_areas,
+                    s.plugins_enabled,
+                    self.install.as_ref().map(|i| i.root.clone()),
+                )
+            });
+            let r = ui.ctx().content_rect();
+            let window_key = (
+                [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()],
+                ui.ctx().pixels_per_point().to_bits(),
+                ui.ctx().zoom_factor().to_bits(),
+                self.tree_width.map(f32::to_bits),
+                self.dock_width.map(f32::to_bits),
+                self.job.as_ref().map(|j| j.title.as_str()),
                 self.module_path(),
                 self.game.is_some(),
                 self.viewport.is_some(),
-            )
-        });
+            );
+            trace::changed_key("window", &window_key, || {
+                format!(
+                    "{:?}, {} points per pixel, zoom {}; tree {:?} wide, panes {:?} wide; job \
+                     {:?}; module {:?}; game data {}; 3D viewport {}",
+                    ui.ctx().content_rect(),
+                    ui.ctx().pixels_per_point(),
+                    ui.ctx().zoom_factor(),
+                    self.tree_width,
+                    self.dock_width,
+                    self.job.as_ref().map(|j| j.title.clone()),
+                    self.module_path(),
+                    self.game.is_some(),
+                    self.viewport.is_some(),
+                )
+            });
+        }
     }
 
     /// The panes and their tabs, for the debug log: each pane's surface
@@ -4338,7 +4385,7 @@ impl Moonglow {
             || self.project_keys_from != project_keys
         {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
-            let commands = self.plugin_commands();
+            let commands = self.plugin_commands_cached();
             plugins::register_keys(&mut self.keymap, &commands);
             project_commands::register_keys(&mut self.keymap, &project);
             self.keymap_from = self.settings.key_bindings.clone();
@@ -5506,10 +5553,10 @@ impl Moonglow {
                 // (Looked for once: it reads Steam's library files.)
                 draft.detected = GameInstall::detect();
                 // The plugins' commands take keys like the rest.
-                let commands = self.plugin_commands();
+                let commands = self.plugin_commands_cached();
                 plugins::register_keys(&mut draft.keymap, &commands);
                 draft.plugin_commands = commands
-                    .into_iter()
+                    .iter()
                     .map(|c| (c.key_id.clone(), format!("{}: {}", c.plugin_name, c.path_title())))
                     .collect();
                 // The enabled plugins' checks, for Options › Verify.

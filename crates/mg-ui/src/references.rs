@@ -102,6 +102,10 @@ impl References {
     /// its own (with `background`, as the desktop app runs; tests read
     /// here), and `None` until it is done: ask again at a later frame.
     /// What changed while it was read is read when it is asked again.
+    pub(crate) fn is_reading(&self) -> bool {
+        matches!(self.index, Index::Reading(_))
+    }
+
     pub(crate) fn index(
         &mut self,
         module: &mg_module::Module,
@@ -1059,7 +1063,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.weak("Nothing in the module names it.");
         } else {
             ui.label(format!("Used in {}:", places(usages.len())));
-            let commands = app.plugin_menu_commands();
+            let commands = app.plugin_menu_commands_cached();
             for (i, u) in usages.iter().enumerate() {
                 if out_of_sight(ui) {
                     continue;

@@ -329,17 +329,17 @@ pub(crate) fn page(
         });
     }
     ui.horizontal(|ui| {
-        let free: Vec<&Choice> =
-            materials.iter().filter(|c| !taken.contains(&(c.row as u32))).collect();
-        // The materials the area's tiles have first, the most of the
-        // ground first; the others after.
-        let mut on: Vec<(&Choice, f32)> =
-            free.iter().filter_map(|c| Some((*c, *present.get(&(c.row as u32))?))).collect();
-        on.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.row.cmp(&b.0.row)));
-        let off: Vec<&Choice> =
-            free.iter().copied().filter(|c| !present.contains_key(&(c.row as u32))).collect();
         let mut pick: Option<u32> = None;
         mg_uikit::menu_button(ui, "Add Grass to…", |ui| {
+            let free: Vec<&Choice> =
+                materials.iter().filter(|c| !taken.contains(&(c.row as u32))).collect();
+            // The materials the area's tiles have first, the most of the
+            // ground first; the others after.
+            let mut on: Vec<(&Choice, f32)> =
+                free.iter().filter_map(|c| Some((*c, *present.get(&(c.row as u32))?))).collect();
+            on.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.row.cmp(&b.0.row)));
+            let off: Vec<&Choice> =
+                free.iter().copied().filter(|c| !present.contains_key(&(c.row as u32))).collect();
             mg_uikit::menu_rows(ui);
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 mg_uikit::menu_heading(ui, "On this area's tiles");

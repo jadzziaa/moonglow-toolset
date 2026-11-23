@@ -1956,7 +1956,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut pointed_object = None;
     // The plugins' commands for right-click menus, and one chosen on a
     // resource's row.
-    let menu_commands = app.plugin_menu_commands();
+    let menu_commands = app.plugin_menu_commands_cached();
     let mut plugin_on: Option<(usize, ResKey)> = None;
     // One chosen on a row among several chosen: on them all.
     let mut plugin_several: Option<usize> = None;

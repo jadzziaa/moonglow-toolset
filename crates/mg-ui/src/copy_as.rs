@@ -281,8 +281,36 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             // copied, not stopping it.)
             let blueprint = BlueprintKind::from_restype(draft.from.restype).is_some();
             let warned = draft.tag.as_deref().filter(|_| blueprint && !stops).and_then(|tag| {
+                #[allow(clippy::type_complexity)]
+                type WarnCache = (
+                    (Option<(u64, u64, u64)>, u64, bool, ResKey, Option<String>, String),
+                    Option<String>,
+                );
+                let ws_key = app
+                    .ws
+                    .as_ref()
+                    .map(|ws| (ws.identity(), ws.revision(), ws.module.project_reads()));
+                let key = (
+                    ws_key,
+                    app.load_order,
+                    app.settings.warn_duplicate_tags,
+                    draft.from,
+                    draft.original_tag.clone(),
+                    tag.to_string(),
+                );
+                let warn_id = egui::Id::new("copy-as-tag-warning");
+                if !app.references.is_reading()
+                    && let Some((was, cached)) = ui.data(|d| d.get_temp::<WarnCache>(warn_id))
+                    && was == key
+                {
+                    return cached;
+                }
                 let original = draft.original_tag.as_deref();
-                crate::tag_clash::blueprint_copy_warning(app, draft.from, original, tag)
+                let res = crate::tag_clash::blueprint_copy_warning(app, draft.from, original, tag);
+                if !app.references.is_reading() {
+                    ui.data_mut(|d| d.insert_temp::<WarnCache>(warn_id, (key, res.clone())));
+                }
+                res
             });
             if let Some(w) = &warned {
                 ui.colored_label(ui.visuals().warn_fg_color, w);

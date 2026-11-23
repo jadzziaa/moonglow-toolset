@@ -1073,7 +1073,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let live_include = app.live_include(key).cloned();
     let mut ctrl_click = None;
     // (The plugins' commands for scripts, for its right-click menu.)
-    let commands = app.plugin_menu_commands();
+    let commands = app.plugin_menu_commands_cached();
     let script = [mg_plugin::Selected::Resource(key)];
     let script_kinds = crate::plugins::kinds_of(&script);
     let mut plugin_chosen = None;

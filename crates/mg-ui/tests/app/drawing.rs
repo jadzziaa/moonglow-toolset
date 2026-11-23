@@ -2354,3 +2354,33 @@ fn the_sky_under_a_camera_higher_than_the_game_s() {
         }
     }
 }
+
+#[test]
+fn idle_model_view_keeps_rendered_picture_across_frames() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
+    app.settings.game_shaders = Some(false);
+    app.set_render_state(rs.clone());
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
+    h.run_steps(2);
+    let source = mg_ui::model_view::Source::Resource(key);
+    let (r0, g0) = {
+        let v = &h.state().model_views[&source];
+        (v.renders(), v.gpu_renders())
+    };
+    assert!(g0 >= 1, "rendered once: {g0}");
+    h.run_steps(6);
+    let (r1, g1) = {
+        let v = &h.state().model_views[&source];
+        (v.renders(), v.gpu_renders())
+    };
+    assert!(r1 - r0 >= 6, "shown each frame: {} -> {}", r0, r1);
+    assert_eq!(g1, g0, "idle model view skipped redundant GPU renders");
+    h.state_mut().model_views.get_mut(&source).unwrap().orbit.yaw += 0.25;
+    h.run_steps(2);
+    let g2 = h.state().model_views[&source].gpu_renders();
+    assert!(g2 > g1, "camera change triggered re-render: {g1} -> {g2}");
+}

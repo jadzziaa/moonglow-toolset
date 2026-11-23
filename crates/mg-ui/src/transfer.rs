@@ -30,12 +30,21 @@ pub struct ExportDraft {
     /// and those the kind and filter then listed: made again only when
     /// one of them changes (a module's 25,000 sorted and each named for
     /// the filter, every frame).
-    pub(crate) listed: Option<Listed>,
+    pub(crate) listed: Option<ExportListed>,
 }
 
 /// [`ExportDraft::listed`]: the revision, kind and filter, the keys in
-/// order, and those listed.
-pub(crate) type Listed = (u64, Option<ResType>, String, Arc<Vec<ResKey>>, Arc<Vec<ResKey>>);
+/// order, their kind counts, filtered keys, and flattened display rows.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ExportListed {
+    revision: u64,
+    kind: Option<ResType>,
+    filter: String,
+    keys: Arc<Vec<ResKey>>,
+    kinds: Arc<Vec<(ResType, usize)>>,
+    listed: Arc<Vec<ResKey>>,
+    rows: Arc<Vec<Result<ResKey, ResType>>>,
+}
 
 /// An Export to an archive that is there, waiting on the question
 /// Aurora's Export asks of it: append to it, overwrite it, or do nothing
@@ -1182,19 +1191,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         };
         let revision = ws.revision();
-        let kept = (draft.listed.as_ref()).filter(|(r, ..)| *r == revision).map(|l| l.3.clone());
-        let keys = kept.unwrap_or_else(|| {
+        let kept = draft
+            .listed
+            .as_ref()
+            .filter(|l| l.revision == revision)
+            .map(|l| (l.keys.clone(), l.kinds.clone()));
+        let (keys, kinds) = kept.unwrap_or_else(|| {
             let mut keys: Vec<ResKey> = ws.module.keys().copied().collect();
             keys.sort_by_cached_key(|k| (rank(k.restype), k.resref));
-            Arc::new(keys)
-        });
-        let mut kinds: Vec<(ResType, usize)> = Vec::new();
-        for k in keys.iter() {
-            match kinds.last_mut() {
-                Some((t, n)) if *t == k.restype => *n += 1,
-                _ => kinds.push((k.restype, 1)),
+            let mut kinds: Vec<(ResType, usize)> = Vec::new();
+            for k in &keys {
+                match kinds.last_mut() {
+                    Some((t, n)) if *t == k.restype => *n += 1,
+                    _ => kinds.push((k.restype, 1)),
+                }
             }
-        }
+            (Arc::new(keys), Arc::new(kinds))
+        });
         if draft.kind.is_some_and(|t| kinds.iter().all(|(k, _)| *k != t)) {
             draft.kind = None;
         }
@@ -1230,11 +1243,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .response;
                 crate::widgets::autofocus(ui, &field);
             });
-            let same = |(r, kind, filter, ..): &&Listed| {
-                *r == revision && *kind == draft.kind && *filter == draft.filter
-            };
-            let listed = match draft.listed.as_ref().filter(same) {
-                Some(l) => l.4.clone(),
+            let (listed, rows) = match draft.listed.as_ref().filter(|l| {
+                l.revision == revision && l.kind == draft.kind && l.filter == draft.filter
+            }) {
+                Some(l) => (l.listed.clone(), l.rows.clone()),
                 None => {
                     let filter = mg_core::text::Needle::new(&draft.filter);
                     let listed: Vec<ResKey> = keys
@@ -1243,21 +1255,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         .filter(|k| filter.finds(&k.to_string()))
                         .copied()
                         .collect();
+                    // The rows: with every kind listed, each under its heading.
+                    let mut rows: Vec<Result<ResKey, ResType>> = Vec::with_capacity(listed.len());
+                    for k in &listed {
+                        let first = !matches!(rows.last(), Some(Ok(l)) if l.restype == k.restype);
+                        if draft.kind.is_none() && first {
+                            rows.push(Err(k.restype));
+                        }
+                        rows.push(Ok(*k));
+                    }
                     let listed = Arc::new(listed);
-                    let (kind, filter) = (draft.kind, draft.filter.clone());
-                    draft.listed = Some((revision, kind, filter, keys.clone(), listed.clone()));
-                    listed
+                    let rows = Arc::new(rows);
+                    draft.listed = Some(ExportListed {
+                        revision,
+                        kind: draft.kind,
+                        filter: draft.filter.clone(),
+                        keys: keys.clone(),
+                        kinds: kinds.clone(),
+                        listed: listed.clone(),
+                        rows: rows.clone(),
+                    });
+                    (listed, rows)
                 }
             };
-            // The rows: with every kind listed, each under its heading.
-            let mut rows: Vec<Result<ResKey, ResType>> = Vec::with_capacity(listed.len());
-            for k in listed.iter() {
-                let first = !matches!(rows.last(), Some(Ok(l)) if l.restype == k.restype);
-                if draft.kind.is_none() && first {
-                    rows.push(Err(k.restype));
-                }
-                rows.push(Ok(*k));
-            }
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 let area = egui::ScrollArea::vertical().max_height(260.0);
                 mg_uikit::show_rows(area, ui, rows.len(), |ui, range| {
@@ -1371,6 +1391,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let under_id = ui.id().with("import-under-list");
             let under_was: Option<f32> = ui.data(|d| d.get_temp(under_id));
             let mut under_from = None;
+            let unsaved_set: Option<std::collections::HashSet<ResKey>> =
+                (!draft.unsaved.is_empty() && draft.overwrites.len() > 16)
+                    .then(|| draft.unsaved.iter().copied().collect());
+            let is_unsaved = |k: &ResKey| match &unsaved_set {
+                Some(set) => set.contains(k),
+                None => draft.unsaved.contains(k),
+            };
             if !draft.overwrites.is_empty() {
                 ui.add_space(6.0);
                 ui.label("The module already has these; overwrite:");
@@ -1383,7 +1410,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     .max_height(height);
                 mg_uikit::show_rows(area, ui, draft.overwrites.len(), |ui, range| {
                     for (k, on) in &mut draft.overwrites[range] {
-                        let open = draft.unsaved.contains(k);
+                        let open = is_unsaved(k);
                         let text = match open {
                             true => format!("{k} (open, with unsaved changes)"),
                             false => k.to_string(),
@@ -1419,7 +1446,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.weak(format!("{n} of {} to overwrite", draft.overwrites.len()));
                 });
             }
-            if draft.unsaved.iter().any(|k| draft.overwrites.contains(&(*k, true))) {
+            if draft.overwrites.iter().any(|(k, on)| *on && is_unsaved(k)) {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
                     format!("Careful: one ticked is open with unsaved changes; {UNSAVED}."),

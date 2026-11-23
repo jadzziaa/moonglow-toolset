@@ -91,12 +91,15 @@ impl Shelf {
         let path = match path.file_name() {
             Some(n) => {
                 let n = n.to_string_lossy();
-                let lower = n.to_lowercase();
                 // (`.params.json`, `.json` or `.params` already there.)
                 let bare = self.suffix.strip_suffix(".json").unwrap_or(self.suffix);
                 let cut = [self.suffix, ".json", bare]
                     .iter()
-                    .find(|s| lower.ends_with(*s))
+                    .find(|s| {
+                        n.len() >= s.len()
+                            && n.is_char_boundary(n.len() - s.len())
+                            && n[n.len() - s.len()..].eq_ignore_ascii_case(s)
+                    })
                     .map_or(n.len(), |s| n.len() - s.len());
                 path.with_file_name(self.file_name(&n[..cut]))
             }

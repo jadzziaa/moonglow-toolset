@@ -517,7 +517,18 @@ impl Viewer<'_> {
 
     /// What a tab shows.
     fn body(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        crate::trace::changed(&format!("drawn {tab:?}"), || format!("in {:?}", ui.max_rect()));
+        if crate::trace::on() {
+            let r = ui.max_rect();
+            let rect_bits =
+                [r.min.x.to_bits(), r.min.y.to_bits(), r.max.x.to_bits(), r.max.y.to_bits()];
+            crate::trace::changed_for(
+                "tab",
+                tab,
+                &rect_bits,
+                || format!("drawn {tab:?}"),
+                || format!("in {:?}", ui.max_rect()),
+            );
+        }
         // (The dock's windows have no margin: `Moonglow::ui`. What a tab
         // shows has the usual one.)
         ui.spacing_mut().window_margin = ui.ctx().global_style().spacing.window_margin;
@@ -877,7 +888,7 @@ impl TabViewer for Viewer<'_> {
         // object, blueprint or area, or several edited together; another
         // editor's resource), run on it.
         let edited = crate::plugins::tab_selection(tab);
-        let commands = self.app.plugin_menu_commands();
+        let commands = self.app.plugin_menu_commands_cached();
         if !edited.is_empty() && !commands.is_empty() {
             crate::plugins::menu_on(ui, &commands, &edited, &mut self.app.actions);
         }
