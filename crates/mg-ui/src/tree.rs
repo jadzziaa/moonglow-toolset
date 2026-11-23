@@ -837,7 +837,7 @@ pub(crate) fn contents_ui(
             if shown.is_empty() && outliner {
                 // (A row with its count and its eye, without an arrow:
                 // nothing to open.)
-                let row = mg_uikit::TreeRow::new(kind.label()).icon(icon).count(&count);
+                let row = mg_uikit::TreeRow::new(kind.label()).kind_icon(icon).count(&count);
                 let row = row.label(&title).quiet(!seen).sense(egui::Sense::hover());
                 let row = row.eye(seen, eye_name, eye_tip).show_parts(ui);
                 if row.eye.is_some_and(|e| e.clicked()) {
@@ -849,7 +849,7 @@ pub(crate) fn contents_ui(
                 if !filtered && !hide_empty {
                     // (A row, quiet, as the kinds' with something in them
                     // without their arrow.)
-                    let row = mg_uikit::TreeRow::new(kind.label()).icon(icon).count(&count);
+                    let row = mg_uikit::TreeRow::new(kind.label()).kind_icon(icon).count(&count);
                     row.label(&title).dim().show(ui);
                 }
                 continue;
@@ -858,7 +858,7 @@ pub(crate) fn contents_ui(
             // (Each its own open state: the tree's and the Outliner's.)
             let salt = if outliner { "outliner-kind" } else { "area-kind" };
             let mut header = mg_uikit::TreeGroup::new((salt, area, *kind), kind.label())
-                .icon(icon)
+                .kind_icon(icon)
                 .count(&count)
                 .label(&title)
                 // (The keys' cursor on a kind shows as its row marked.)
@@ -2155,7 +2155,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         let at_group = cursor == Some(TreeAt::Group(name));
         // (The group's row: its kind's icon, its name and its count.)
         let header = mg_uikit::TreeGroup::new(name, *name)
-            .icon(group_icon(types))
+            .kind_icon(group_icon(types))
             .count(keys.len())
             .default_open(*name == "Areas")
             // (The keys' cursor on a group shows as its row marked.)

@@ -4538,6 +4538,154 @@ fn script_bottom_panels() {
     }
 }
 
+/// 5.2.0's W5 (the owner's rulings on Jasperre's report of the script
+/// editor): Help under the text, a Bottom Dock tab (`w5-help-docked`) or
+/// the floating script's window's bottom pane (`w5-help-floating`), the
+/// comment and declaration verbatim in the editor's font; the live error
+/// with all the Status Bar's room in a narrow window (`w5-error-bar`) and
+/// Compiler's "Found as you type" row (`w5-found-*`); the completion
+/// list's detail beside it (`w5-completion-*`, at the window's right edge
+/// too) at 100% and 200%, and the tip over a name under the pointer
+/// (`w5-tip-pointer`) and over the cursor moved there by the arrow keys
+/// (`w5-tip-caret`).
+#[test]
+#[ignore]
+fn w5_script_help_errors_and_completion() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens").join("w5");
+    std::fs::create_dir_all(&out).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    // (The last line's Sqr far across: the completion list at the
+    // window's right edge.)
+    let text = format!(
+        "// The door's guard.\nvoid main()\n{{\n    object oDoor = GetObjectByTag(\"door\");\n    \
+         int nOpen = GetIsOpen(oDoor) +;\n    ActionOpenDoor(oDoor);\n    Sqr\n}}\n{}Sqr\n",
+        " ".repeat(100)
+    );
+    let text = text.as_str();
+    let window = |name: &str, tabs: bool, scale: Option<u16>, size: egui::Vec2| {
+        let dir = mg_testkit::scratch_dir(&format!("screens-w5-{name}"));
+        let mut m = mg_module::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+        m.set_info(&info).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        let path = dir.join("s.mod");
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        if tabs {
+            app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        app.settings.hide_log = false;
+        app.settings.ui_scale = scale;
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        let script = mg_ui::Tab::Script(key);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+        h.run_steps(8);
+        if !tabs {
+            place(&mut h, &script, (240.0, 90.0), (1100.0, 640.0));
+            h.run_steps(8);
+        }
+        // (The error found as you type, a moment after the script opens.)
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        h.run_steps(8);
+        h
+    };
+    // Help, chosen in Reference: brought forward under the text.
+    for (tabs, name) in [(true, "docked"), (false, "floating")] {
+        let mut h = window(name, tabs, None, egui::vec2(1600.0, 900.0));
+        h.state_mut().script_tools.filter = "GetObjectByTag".into();
+        h.run_steps(4);
+        h.get_by_label("GetObjectByTag").click();
+        h.run_steps(10);
+        shoot(&mut h, &out, &format!("w5-help-{name}"));
+        if tabs {
+            shoot_in(&mut h, &out, "w5-help-docked-light", true);
+            shoot_in(&mut h, &out, "w5-help-docked-dark", false);
+        }
+        // Compiler: Found as you type over the compile's messages.
+        apart(&h, "Compile").click();
+        h.run_steps(10);
+        shoot(&mut h, &out, &format!("w5-found-{name}"));
+    }
+    // The live error in a narrow window's Status Bar: all its room.
+    let mut h = window("bar", true, None, egui::vec2(1100.0, 700.0));
+    shoot(&mut h, &out, "w5-error-bar");
+    // Completion: the detail beside the list, at 100% and 200%, docked in
+    // the middle and floating at the window's right edge.
+    // (At the editor's right edge, on the line far across, in a window
+    // 1100 wide: the detail at the list's left; at 200%, under it.)
+    for (tabs, scale, far, size, name) in [
+        (true, None, false, (1600.0, 900.0), "docked-100"),
+        (true, Some(200), false, (1600.0, 900.0), "docked-200"),
+        (false, None, false, (1600.0, 900.0), "floating-100"),
+        (true, None, true, (1100.0, 700.0), "edge-100"),
+        (true, Some(200), true, (1100.0, 700.0), "edge-200"),
+        (true, Some(300), true, (1260.0, 960.0), "edge-300"),
+    ] {
+        let size = egui::vec2(size.0, size.1);
+        let mut h = window(&format!("c-{name}"), tabs, scale, size);
+        let end = if far { text.rfind("Sqr") } else { text.find("Sqr") }.unwrap() + 3;
+        h.state_mut().script_tools.jump = Some((key, end));
+        h.run_steps(4);
+        h.key_press(egui::Key::F2);
+        h.run_steps(6);
+        shoot(&mut h, &out, &format!("w5-completion-{name}"));
+    }
+    // The tips: over the name under the pointer, and over the cursor
+    // moved onto one by the arrow keys.
+    let mut h = window("tips", true, None, egui::vec2(1600.0, 900.0));
+    let at = text.find("GetIsOpen").unwrap() + 2;
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run_steps(4);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(6);
+    shoot(&mut h, &out, "w5-tip-caret");
+    // (The pointer over ActionOpenDoor, line 6: the text's rows 18 apart
+    // under the header.)
+    let tab = h.state().tab_rect(&mg_ui::Tab::Script(key)).unwrap();
+    eprintln!("the script's tab: {tab:?}");
+    // (The text's sixth line 163 points under the tab's top, its fifth
+    // column about 90 points left of the tab, as the docked pictures
+    // have them.)
+    let over = egui::pos2(tab.left() - 40.0, tab.top() + 163.0);
+    h.hover_at(over);
+    h.run_steps(60);
+    shoot(&mut h, &out, "w5-tip-pointer");
+    // The tip and the detail where the editor's ground is the theme's
+    // opposite (review): a dark editor in the Light theme, a light one in
+    // the Dark.
+    for (light, ground, name) in
+        [(true, [30, 30, 36], "light-dark"), (false, [250, 250, 245], "dark-light")]
+    {
+        let mut h = window(&format!("contrast-{name}"), true, None, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.script_style.background = Some(ground);
+        h.state_mut().settings.light_theme = light;
+        h.run_steps(4);
+        h.state_mut().script_tools.jump = Some((key, at));
+        h.run_steps(4);
+        h.key_press(egui::Key::ArrowRight);
+        h.run_steps(6);
+        shoot_in(&mut h, &out, &format!("w5-contrast-tip-{name}"), light);
+        let end = text.find("Sqr").unwrap() + 3;
+        h.state_mut().script_tools.jump = Some((key, end));
+        h.run_steps(4);
+        h.key_press(egui::Key::F2);
+        h.run_steps(6);
+        shoot_in(&mut h, &out, &format!("w5-contrast-detail-{name}"), light);
+    }
+    eprintln!("{}", out.display());
+}
+
 /// M5 W3's fix round: the check as you type's wave at Options › Script
 /// Editor's sizes 8 and 9, where the board's 3 points under the baseline
 /// would have run into the next line (the wave kept in its row), a
@@ -9838,11 +9986,161 @@ fn script_selection_menu() {
     state.store(&h.ctx, id);
     h.ctx.memory_mut(|m| m.request_focus(id));
     h.run_steps(2);
-    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+    // (On "if", in the selection: a right click there keeps it.)
+    let text_rect = h
+        .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
         .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("void main")))
         .expect("the script's text")
-        .click_secondary();
+        .rect();
+    let at = text_rect.left_top() + egui::vec2(24.0, 63.0);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
     shoot(&mut h, &out, "script-selection-menu");
+    eprintln!("{}", out.display());
+}
+
+/// The completion list (F2) after a list of one name and then a longer
+/// one (a builder's report, 5.2: the second kept the first's width and
+/// wrapped its names), As Tabs and in a floating editor near the window's
+/// right edge (a long name cut there), at the usual Interface size and at
+/// 150% (`script-completion-*`).
+#[test]
+#[ignore]
+fn script_completion_width() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens");
+    let text = "void main()\n{\n    Sqr\n    GetIsIn\n    int nNameLongEnoughToTakeTheRoomOfTheLine = \
+                ActionCastFakeSpellAtL\n}\n";
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let script = mg_ui::Tab::Script(key);
+    for (tabs, scale) in [(true, None), (true, Some(150)), (false, None), (false, Some(150))] {
+        let name = format!(
+            "{}-{}",
+            if tabs { "tabs" } else { "floating" },
+            scale.map_or("100".to_string(), |s: u16| s.to_string())
+        );
+        let dir = mg_testkit::scratch_dir(&format!("screens-completion-{name}"));
+        let mut m = mg_module::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+        m.set_info(&info).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        let path = dir.join("s.mod");
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        if tabs {
+            app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        }
+        app.settings.ui_scale = scale;
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+        h.run_steps(8);
+        if !tabs {
+            place(&mut h, &script, (1040.0, 80.0), (520.0, 500.0));
+            h.run_steps(8);
+        }
+        let complete = |h: &mut Harness<'_, Moonglow>, word: &str| {
+            let at = text.find(word).unwrap() + word.len();
+            h.state_mut().script_tools.jump = Some((key, at));
+            h.run_steps(3);
+            h.key_press(egui::Key::F2);
+            h.run_steps(4);
+        };
+        complete(&mut h, "Sqr");
+        shoot(&mut h, &out, &format!("script-completion-{name}-one"));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        complete(&mut h, "GetIsIn");
+        shoot(&mut h, &out, &format!("script-completion-{name}-after-one"));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        complete(&mut h, "ActionCastFakeSpellAtL");
+        shoot(&mut h, &out, &format!("script-completion-{name}-long"));
+        // Many names: the list scrolls, its widest name's room kept.
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        complete(&mut h, "GetIs");
+        shoot(&mut h, &out, &format!("script-completion-{name}-many"));
+        if tabs && scale.is_none() {
+            // Near the window's right edge: the long names cut.
+            h.key_press(egui::Key::Escape);
+            h.set_size(egui::vec2(760.0, 600.0));
+            h.run_steps(6);
+            complete(&mut h, "ActionCastFakeSpellAtL");
+            shoot(&mut h, &out, &format!("script-completion-{name}-narrow"));
+        }
+    }
+    eprintln!("{}", out.display());
+}
+
+/// A text field's right-click menu (a builder's report, 5.2): Module
+/// Properties' Tag, part of it selected, at 1280 by 800
+/// (`text-field-menu`).
+#[test]
+#[ignore]
+fn text_field_menu() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-text-field-menu");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("MY_MODULE"));
+    m.set_info(&info).unwrap();
+    let path = dir.join("m.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    let field = h
+        .get_all_by_value("MY_MODULE")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+        .expect("the tag's field")
+        .rect();
+    h.get_all_by_value("MY_MODULE")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    for _ in 0..2 {
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowRight);
+    }
+    h.run_steps(2);
+    let at = field.left_center() + egui::vec2(12.0, 0.0);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    shoot(&mut h, &out, "text-field-menu");
     eprintln!("{}", out.display());
 }
 
@@ -12601,6 +12899,62 @@ fn board_main_problems() {
     }
     h.run_steps(5);
     shoot(&mut h, &board_dir(), "board_main_problems");
+}
+
+/// `board_main` with Verify Module's findings in Problems (5.2's W4): a
+/// finding's menu by a right click (Copy, Copy All), then its heading's
+/// Problems Actions menu (Copy All, Save As…, Remove from Problems).
+#[test]
+#[ignore]
+fn problems_copy_menus() {
+    use mg_module::doctor::Severity;
+    use mg_ui::problems::{Go, Problem, Source};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+    let utp = |n: &str| ResKey::parse(n, ResType::UTP).unwrap();
+    let p = |severity, n: &str, message: &str| {
+        Problem::new(severity, format!("{n}.utp"), message.into(), Some(Go::Resource(utp(n))))
+    };
+    let found = vec![
+        p(
+            Severity::Error,
+            "chest_01",
+            "Model › chest_01.utp › Appearance: names a model (plc_x99) that is in none of the \
+             module's haks nor the game, so the game draws nothing where it stands, and its \
+             walkmesh is missing too",
+        ),
+        p(Severity::Warning, "barrel_02", "Script › barrel_02.utp › OnUsed: mg_gone is missing"),
+    ];
+    let now = h.state().ws.as_ref().map(|ws| ws.revision());
+    h.state_mut().problems.replace(Source::Verify, found.clone(), now);
+    h.state_mut().settings.hide_log = false;
+    h.state_mut().settings.bottom_dock_height = Some(200);
+    h.run_steps(3);
+    if h.state().bottom_dock_shows() != Some(mg_ui::Panel::Problems) {
+        h.get_by_label("Status Bar").get_by_label("Problems").click();
+    }
+    h.run_steps(5);
+    let row = h.get_by_label(&mg_ui::problems::row_name(&found[0])).rect();
+    let at = egui::pos2(row.left() + 420.0, row.center().y);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(5);
+    assert!(h.query_by_label(mg_ui::row_copy::COPY_ALL).is_some(), "the row's menu open");
+    shoot(&mut h, &board_dir(), "problems_row_menu");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label(mg_ui::problems::MORE).click();
+    h.run_steps(5);
+    assert!(h.query_by_label(mg_ui::problems::SAVE_AS).is_some(), "the heading's menu open");
+    shoot(&mut h, &board_dir(), "problems_heading_menu");
 }
 
 /// Narrow.png at 1280 by 800: the compact header (M4's U3), but no tool
@@ -17114,5 +17468,94 @@ fn w8_seam_hover() {
         big.save(dir.join(format!("w8-seam-hover-{name}-near.png"))).unwrap();
         h.hover_at(egui::pos2(dock.left() - 300.0, dock.center().y));
         h.run_steps(2);
+    }
+}
+
+/// Colored icons (5.2.0, W7: Options › General › Colored icons): a module
+/// with a blueprint of every kind, a script and a conversation, its area
+/// open with a creature, a store and a chest placed, the Module panel, the
+/// Outliner and the Palette in sight (`colored-icons-{on,off}-{dark,light}`;
+/// the Palette on Creatures, so that Placeables is not the chosen type).
+#[test]
+#[ignore]
+fn colored_icons() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_module::palette::BlueprintKind;
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let dir = mg_testkit::output_dir("screens");
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m: Module = new_module(&game, "Colored Icons", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Camp".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let read = |name: &str, t: ResType| {
+        let data = game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap();
+        mg_gff::Gff::read(&data).unwrap().root
+    };
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let place = |name: &str, t| instance(&placing, t, &read(name, t), at, &[]).unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![place("nw_bandit001", ResType::UTC)]));
+    g.root.set("StoreList", mg_gff::Value::List(vec![place("nw_storebar01", ResType::UTM)]));
+    g.root.set("Placeable List", mg_gff::Value::List(vec![place("plc_chest1", ResType::UTP)]));
+    m.set_gff(git, &g).unwrap();
+    for (name, t, sig) in [
+        ("my_bandit", ResType::UTC, *b"UTC "),
+        ("my_door", ResType::UTD, *b"UTD "),
+        ("my_encounter", ResType::UTE, *b"UTE "),
+        ("my_item", ResType::UTI, *b"UTI "),
+        ("my_chest", ResType::UTP, *b"UTP "),
+        ("my_sound", ResType::UTS, *b"UTS "),
+        ("my_store", ResType::UTM, *b"UTM "),
+        ("my_trigger", ResType::UTT, *b"UTT "),
+        ("my_waypoint", ResType::UTW, *b"UTW "),
+        ("my_talk", ResType::DLG, *b"DLG "),
+    ] {
+        m.set(ResKey::parse(name, t).unwrap(), mg_gff::Gff::new(sig).to_bytes().unwrap());
+    }
+    m.set(ResKey::parse("my_script", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    let path = mg_testkit::scratch_dir("screens-colored-icons").join("colored.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    for on in [true, false] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.settings.colored_icons = on;
+        app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        app.settings.game_shaders = Some(false);
+        app.open_module(&path);
+        show_palette(&mut app);
+        app.palette.kind = BlueprintKind::Creature;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(30);
+        let themes: &[bool] = if on { &[false, true] } else { &[false] };
+        for &light in themes {
+            let name = format!(
+                "colored-icons-{}-{}",
+                if on { "on" } else { "off" },
+                if light { "light" } else { "dark" }
+            );
+            shoot_in(&mut h, &dir, &name, light);
+        }
     }
 }

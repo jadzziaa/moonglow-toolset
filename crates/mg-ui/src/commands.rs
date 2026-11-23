@@ -145,6 +145,12 @@ pub enum Id {
     ClearLog,
     HidePanels,
     ResetLayout,
+    /// View › Interface Size: the whole interface a size larger or
+    /// smaller ([`crate::options::UI_SCALES`]), or at 100% again
+    /// (Options › General › Interface size; Ctrl with +, - and 0).
+    ZoomIn,
+    ZoomOut,
+    ResetZoom,
 }
 
 /// What a menu holds, in order.
@@ -171,6 +177,9 @@ pub enum Item {
     PluginPanels,
     /// The commands the project names (moonglow.toml's `[commands]`).
     Project,
+    /// The interface sizes ([`crate::options::UI_SCALES`]), the one in
+    /// use ticked (View › Interface Size).
+    UiScales,
 }
 
 use Item::{Do, Separator, Sub};
@@ -240,6 +249,12 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::GoToStart),
             Separator,
             Do(Id::SplitEditor),
+            Separator,
+            // (Before the layout's two, which stay the menu's last rows.)
+            Sub(
+                "Interface Size",
+                &[Do(Id::ZoomIn), Do(Id::ZoomOut), Do(Id::ResetZoom), Separator, Item::UiScales],
+            ),
             Separator,
             Do(Id::HidePanels),
             Do(Id::ResetLayout),
@@ -380,7 +395,8 @@ impl Id {
                     | Item::PluginCommands
                     | Item::PluginWizards
                     | Item::PluginPanels
-                    | Item::Project => {}
+                    | Item::Project
+                    | Item::UiScales => {}
                 }
             }
         }
@@ -666,6 +682,11 @@ impl Id {
                 "Reset Layout",
                 "Put the tree, the palettes and the log back where they started",
             ),
+            Id::ZoomIn => ("zoom-in", "Zoom In", "Make the whole interface one size larger"),
+            Id::ZoomOut => ("zoom-out", "Zoom Out", "Make the whole interface one size smaller"),
+            Id::ResetZoom => {
+                ("reset-zoom", "Reset Zoom", "Bring the whole interface back to its usual size")
+            }
         };
         (id.into(), label.into(), hint)
     }
@@ -786,6 +807,12 @@ impl Id {
                 open || crate::shell::left_holds(app) || crate::shell::right_shown(app).is_some()
             }
             Id::ViewLog | Id::ResetLayout => true,
+            Id::ZoomIn => {
+                let up = ui_scale_step(ui_scale(app), true);
+                up != ui_scale(app) && up <= app.largest_ui_scale
+            }
+            Id::ZoomOut => ui_scale_step(ui_scale(app), false) != ui_scale(app),
+            Id::ResetZoom => ui_scale(app) != 100,
             Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
             Id::CloseReport => crate::dock_reports::in_front(app).is_some(),
             // (Whenever the Left Dock holds a panel: its Resources panel
@@ -901,6 +928,12 @@ impl Id {
             Id::ViewTree | Id::ViewPalettes => "The dock holds no panel now",
             Id::ViewProperties if open => "Switch to an area first",
             Id::NextPane | Id::PreviousPane => "No pane is open",
+            Id::ZoomIn if ui_scale(app) >= app.largest_ui_scale => {
+                "The screen has no room for a larger size"
+            }
+            Id::ZoomIn => "The interface is at its largest size",
+            Id::ZoomOut => "The interface is at its smallest size",
+            Id::ResetZoom => "The interface is at its usual size",
             _ if !open => "Open a module first",
             _ => "It cannot be used now",
         }
@@ -1110,6 +1143,10 @@ impl Id {
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
+            Id::ZoomIn | Id::ZoomOut => {
+                return set_ui_scale(app, ui_scale_step(ui_scale(app), self == Id::ZoomIn));
+            }
+            Id::ResetZoom => return set_ui_scale(app, 100),
             Id::CopyLog => return app.copy_log(ctx),
             Id::CloseReport => {
                 if let Some(p) = crate::dock_reports::in_front(app) {
@@ -1121,6 +1158,80 @@ impl Id {
             Id::ClearLog => return app.log.clear(),
         };
         app.actions.push(action);
+    }
+}
+
+/// The interface size in use, per cent (Options › General › Interface
+/// size; 100 where none was chosen).
+/// The interface size in use: the setting's, within the sizes offered (a
+/// settings file's 0 or 60000 would break the window) and no larger than
+/// the screen holds ([`largest_fitting_ui_scale`]).
+pub(crate) fn ui_scale(app: &Moonglow) -> u16 {
+    let sizes = crate::options::UI_SCALES;
+    let scale = app.settings.ui_scale.unwrap_or(100);
+    scale.clamp(sizes[0], sizes[sizes.len() - 1]).min(app.largest_ui_scale.max(sizes[0]))
+}
+
+/// Where the context keeps [`Moonglow::largest_ui_scale`] (for Options'
+/// Interface size row).
+pub(crate) fn largest_ui_scale_id() -> egui::Id {
+    egui::Id::new("largest-ui-scale")
+}
+
+/// Why an interface size is not offered (View › Interface Size, Options).
+pub(crate) const NO_ROOM_FOR_SIZE: &str = "The screen has no room for this size";
+
+/// The interface size for a zoom egui kept from a run before (egui's own
+/// Ctrl with + and - changed it without the setting): the nearest size
+/// offered, `None` for the usual size.
+pub(crate) fn ui_scale_kept_from_zoom(zoom: f32) -> Option<u16> {
+    let per_cent = zoom * 100.0;
+    let nearest = crate::options::UI_SCALES
+        .into_iter()
+        .min_by(|a, b| {
+            (f32::from(*a) - per_cent).abs().total_cmp(&(f32::from(*b) - per_cent).abs())
+        })
+        .unwrap_or(100);
+    (zoom.is_finite() && (zoom - 1.0).abs() > 0.001 && nearest != 100).then_some(nearest)
+}
+
+/// The largest size offered at which a window of `least` points fits a
+/// screen of `monitor` points (measured at the zoom `zoom`): at 300%
+/// a 1366×768 screen cannot hold the least window. Every size when the
+/// screen's size is not known; the smallest when none fits.
+pub(crate) fn largest_fitting_ui_scale(
+    monitor: Option<egui::Vec2>,
+    zoom: f32,
+    least: egui::Vec2,
+) -> u16 {
+    let sizes = crate::options::UI_SCALES;
+    let Some(monitor) = monitor.filter(|m| m.x > 0.0 && m.y > 0.0) else {
+        return sizes[sizes.len() - 1];
+    };
+    // (In pixels the screen is monitor × zoom × the system's scale, and
+    // the least window least × size × the same: the system's scale goes.)
+    let room = (monitor * zoom / least).min_elem() * 100.0;
+    sizes.into_iter().filter(|&s| f32::from(s) <= room + 0.01).max().unwrap_or(sizes[0])
+}
+
+/// The size of [`crate::options::UI_SCALES`] one step up from `now` (or
+/// down), `now` itself at the end; a size between two steps (a settings
+/// file's own) goes to the next one.
+pub(crate) fn ui_scale_step(now: u16, up: bool) -> u16 {
+    let sizes = crate::options::UI_SCALES;
+    let next = match up {
+        true => sizes.iter().copied().find(|&s| s > now),
+        false => sizes.iter().rev().copied().find(|&s| s < now),
+    };
+    next.unwrap_or(now)
+}
+
+/// The interface set to `scale` per cent (View › Interface Size and its
+/// keys): the setting, at once, and the open Options window's row with it.
+fn set_ui_scale(app: &mut Moonglow, scale: u16) {
+    app.settings.ui_scale = (scale != 100).then_some(scale);
+    if let Some(draft) = &mut app.options {
+        draft.ui_scale = scale;
     }
 }
 
@@ -1848,6 +1959,25 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     "The update and submit commands a project's moonglow.toml names ([commands])",
                 );
             }
+            Item::UiScales => {
+                let now = ui_scale(app);
+                for scale in crate::options::UI_SCALES {
+                    let name = format!("{scale}%");
+                    let fits = scale <= app.largest_ui_scale;
+                    let entry = egui::Button::new(tick_atoms(&name));
+                    let (entry, chosen) = row(app, level, &name, entry, fits);
+                    let at = app.menu_keys.at(level, app.menu_row[level] - 1);
+                    let (r, tick) = add_entry(ui, fits, entry, None, at);
+                    paint_tick(ui, &r, tick, scale == now, at, &name);
+                    let r = r.on_disabled_hover_text(NO_ROOM_FOR_SIZE);
+                    if fits && (r.clicked() || chosen) {
+                        set_ui_scale(app, scale);
+                        if chosen {
+                            egui::Popup::close_all(ui.ctx());
+                        }
+                    }
+                }
+            }
             Item::Recent => {
                 let recent = app.settings.recent.clone();
                 let enabled = !recent.is_empty();
@@ -2125,7 +2255,8 @@ fn menu_of(id: Id) -> Option<&'static str> {
             | Item::PluginCommands
             | Item::PluginWizards
             | Item::PluginPanels
-            | Item::Project => false,
+            | Item::Project
+            | Item::UiScales => false,
         })
     }
     MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)
@@ -2210,7 +2341,9 @@ pub(crate) fn found(app: &Moonglow) -> Vec<Row> {
         choice: Choice::Project(c.name),
     });
     // (The editor in front's, by its group's name: the conversation's.)
-    let editor = crate::dialog_view::palette_commands(app).into_iter().map(|(cmd, enabled)| Row {
+    // (And a read-only text's in front: its Find, v5.2's W3.)
+    let editor = crate::dialog_view::palette_commands(app).into_iter();
+    let editor = editor.chain(crate::browser::palette_commands(app)).map(|(cmd, enabled)| Row {
         choice: Choice::Editor(cmd),
         label: cmd.name().to_string(),
         menu: cmd.group().name().to_string(),
@@ -2230,7 +2363,10 @@ pub(crate) fn run_choice(app: &mut Moonglow, ctx: &egui::Context, choice: Choice
         }
         // (Saved first, asked as from File › Project.)
         Choice::Project(name) => app.actions.push(Action::ProjectCommand(name)),
-        Choice::Editor(cmd) => crate::dialog_view::run_palette_command(app, cmd),
+        Choice::Editor(cmd) => {
+            crate::dialog_view::run_palette_command(app, cmd);
+            crate::browser::run_palette_command(app, cmd);
+        }
     }
 }
 
@@ -2290,5 +2426,173 @@ mod tests {
             assert!(on_bar.insert(id), "{id:?} is on the Top Bar twice");
         }
         assert!(on_bar.contains(&Id::TestModule) && on_bar.contains(&Id::TestChoose));
+    }
+
+    /// The main window in a harness, its first frame drawn.
+    fn sized_harness(scale: Option<u16>) -> egui_kittest::Harness<'static, Moonglow> {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.settings.ui_scale = scale;
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 720.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h
+    }
+
+    /// The window's next frame as the start of a run whose egui kept the
+    /// zoom `zoom` from the last (egui's own Ctrl with + and - set it in
+    /// 5.1).
+    fn restored(h: &mut egui_kittest::Harness<'static, Moonglow>, zoom: f32) {
+        h.ctx.set_zoom_factor(zoom);
+        h.state_mut().zoom_kept_seen = false;
+        h.run();
+    }
+
+    /// A zoom egui kept from a run before becomes the setting's nearest
+    /// size, once: the menu ticks it and Zoom In goes on from it. The
+    /// usual zoom leaves the setting unset.
+    #[test]
+    fn a_zoom_egui_kept_becomes_the_interface_size() {
+        let mut h = sized_harness(None);
+        restored(&mut h, 1.5);
+        assert_eq!(h.state().settings.ui_scale, Some(150));
+        assert_eq!(ui_scale(h.state()), 150, "ticked in View › Interface Size");
+        assert!(Id::ResetZoom.enabled(h.state()));
+        let ctx = h.ctx.clone();
+        Id::ZoomIn.run(h.state_mut(), &ctx);
+        h.run();
+        assert_eq!(h.state().settings.ui_scale, Some(175));
+        assert!((h.ctx.zoom_factor() - 1.75).abs() < 0.001, "{}", h.ctx.zoom_factor());
+        // (Between two sizes: the nearest.)
+        let mut h = sized_harness(None);
+        restored(&mut h, 1.3);
+        assert_eq!(h.state().settings.ui_scale, Some(125));
+        // The usual size, or a size already set: left as they are.
+        let mut h = sized_harness(None);
+        restored(&mut h, 1.0);
+        assert_eq!(h.state().settings.ui_scale, None);
+        assert_eq!(ui_scale(h.state()), 100);
+        let mut h = sized_harness(Some(110));
+        restored(&mut h, 1.5);
+        assert_eq!(h.state().settings.ui_scale, Some(110));
+        assert!((h.ctx.zoom_factor() - 1.1).abs() < 0.001);
+        // Only once a run: Reset Zoom stays reset.
+        Id::ResetZoom.run(h.state_mut(), &ctx);
+        h.run();
+        h.run();
+        assert_eq!(h.state().settings.ui_scale, None);
+        assert!((h.ctx.zoom_factor() - 1.0).abs() < 0.001);
+    }
+
+    /// A settings file's size out of the sizes offered is used as the
+    /// nearest end of them: 0 and 5 broke egui's layout, 60000 its
+    /// painting.
+    #[test]
+    fn an_interface_size_out_of_range_is_kept_in_it() {
+        for (scale, zoom) in [(0, 0.9), (5, 0.9), (60000, 3.0)] {
+            let mut h = sized_harness(Some(scale));
+            h.run();
+            assert!((h.ctx.zoom_factor() - zoom).abs() < 0.001, "{scale}: {}", h.ctx.zoom_factor());
+            assert_eq!(ui_scale(h.state()), (zoom * 100.0).round() as u16, "{scale}");
+            // (The window's least size given for the size in use.)
+            let ppp = h.ctx.pixels_per_point();
+            assert_eq!(h.state().least_size_for, Some(ppp), "{scale}: least size");
+        }
+    }
+
+    /// No larger than the screen holds the least window at: on a 1366×768
+    /// screen 300% (a least window 960 pixels high) is used as 200%, and
+    /// the larger sizes are not offered.
+    #[test]
+    fn the_interface_size_fits_the_screen() {
+        let least = crate::LEAST_WINDOW_SIZE;
+        let small = Some(egui::vec2(1366.0, 768.0));
+        assert_eq!(largest_fitting_ui_scale(small, 1.0, least), 200);
+        // (Measured at another zoom, the same screen.)
+        assert_eq!(largest_fitting_ui_scale(small.map(|m| m / 2.0), 2.0, least), 200);
+        assert_eq!(largest_fitting_ui_scale(Some(egui::vec2(1920.0, 1080.0)), 1.0, least), 300);
+        assert_eq!(largest_fitting_ui_scale(None, 1.0, least), 300);
+        assert_eq!(largest_fitting_ui_scale(Some(egui::vec2(300.0, 200.0)), 1.0, least), 90);
+        let mut h = sized_harness(Some(300));
+        // (The screen in points at the zoom of the frame's start, as
+        // egui-winit measures it before each frame.)
+        for _ in 0..6 {
+            let points = small.map(|m| m / h.ctx.zoom_factor());
+            h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().monitor_size =
+                points;
+            h.step();
+        }
+        assert_eq!(h.state().largest_ui_scale, 200);
+        assert!((h.ctx.zoom_factor() - 2.0).abs() < 0.001, "{}", h.ctx.zoom_factor());
+        assert_eq!(ui_scale(h.state()), 200, "the size ticked is the size used");
+        assert!(!Id::ZoomIn.enabled(h.state()));
+        assert_eq!(h.state().settings.ui_scale, Some(300), "the setting kept for a larger screen");
+        assert_eq!(h.state().least_size_for, Some(h.ctx.pixels_per_point()), "least size");
+    }
+
+    /// A run's first frames on a 1366×768 screen, with `scale` saved and
+    /// egui's zoom `zoom` kept from the last run: the zoom in use and the
+    /// largest size, frame by frame, with the window's sizes sent (each
+    /// in pixels, at the frame's scale).
+    fn first_frames(scale: Option<u16>, zoom: f32) -> Vec<(f32, u16, Vec<egui::Vec2>)> {
+        let app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 720.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (The harness drew frames as it was made, at 100%: this run
+        // starts now, with egui's zoom as kept.)
+        h.ctx.set_zoom_factor(zoom);
+        h.step();
+        assert!((h.ctx.zoom_factor() - zoom).abs() < 1e-3);
+        let app = h.state_mut();
+        app.settings.ui_scale = scale;
+        app.zoom_kept_seen = false;
+        app.zoom_seen = None;
+        app.largest_ui_scale = crate::options::UI_SCALES[crate::options::UI_SCALES.len() - 1];
+        app.least_size_for = None;
+        let small = egui::vec2(1366.0, 768.0);
+        let mut out = Vec::new();
+        for _ in 0..8 {
+            // (The screen in points at the zoom of the frame's start, as
+            // egui-winit measures it before each frame.)
+            let points = small / h.ctx.zoom_factor();
+            h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().monitor_size =
+                Some(points);
+            h.step();
+            let ppp = h.ctx.pixels_per_point();
+            let sent = h.output().viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::ViewportCommand::MinInnerSize(s)
+                    | egui::ViewportCommand::InnerSize(s) => Some(*s * ppp),
+                    _ => None,
+                })
+                .collect();
+            out.push((h.ctx.zoom_factor(), h.state().largest_ui_scale, sent));
+        }
+        out
+    }
+
+    /// A saved 300% on a 1366×768 screen: the screen is measured in the
+    /// first frame, so 300% is never applied and no window size larger
+    /// than the screen is ever sent (it grew the window past the screen,
+    /// nothing shrinking it back). A zoom of 3 kept from 5.1 the same,
+    /// once its own first frame (drawn at the zoom kept) is past.
+    #[test]
+    fn a_size_too_large_for_the_screen_is_never_applied_from_the_first_frame() {
+        let small = egui::vec2(1366.0, 768.0);
+        for (scale, zoom, from) in [(Some(300), 1.0, 0), (Some(250), 1.0, 0), (None, 3.0, 1)] {
+            let frames = first_frames(scale, zoom);
+            assert!(frames.iter().all(|f| f.1 == 200), "{scale:?} {zoom}: {frames:?}");
+            assert!(frames[from..].iter().all(|f| f.0 <= 2.0 + 1e-3), "{scale:?}: {frames:?}");
+            let sent: Vec<egui::Vec2> = frames.iter().flat_map(|f| f.2.clone()).collect();
+            assert!(!sent.is_empty(), "{scale:?} {zoom}: the least size sent: {frames:?}");
+            assert!(
+                sent.iter().all(|s| s.x <= small.x + 0.5 && s.y <= small.y + 0.5),
+                "{scale:?} {zoom}: {frames:?}"
+            );
+            assert!((frames[7].0 - 2.0).abs() < 1e-3, "{scale:?} {zoom}: {frames:?}");
+        }
     }
 }

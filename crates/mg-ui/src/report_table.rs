@@ -280,9 +280,11 @@ pub(crate) fn text_has_keys(ctx: &egui::Context) -> bool {
 
 /// A table of `order`'s rows in `ui`'s room (its header row, then the rows
 /// in sight): `words(i)` a row's name and value as a screen reader says
-/// them and Ctrl + C copies them; `paint(ui, i, cells, selected)` draws a
-/// row's cells (`cells` its columns' rects; `ui` a child of the row's room
-/// for a cell's own controls, the Claims Table's buttons).
+/// them and Ctrl + C copies them (as a row's menu's Copy does, a right
+/// click or Shift+F10 on the row chosen opening it, and its Copy All every
+/// row in the order shown); `paint(ui, i, cells, selected)` draws a row's
+/// cells (`cells` its columns' rects; `ui` a child of the row's room for a
+/// cell's own controls, the Claims Table's buttons).
 ///
 /// Narrower than its columns need (the fixed ones and a least share of
 /// [`SHARED_LEAST`] for each other one: the least window), the table
@@ -334,6 +336,12 @@ fn show_in(
     let mut shown = Shown::default();
     let has = spec.may_take_keys && has_keys(&ctx, spec.keys);
     let pitch = mg_uikit::row_metrics(ui).1;
+    // A row as Ctrl+C, its menu's Copy and a line of Copy All copy it.
+    let line = |r: usize| {
+        let (name, value) = words(r);
+        if value.is_empty() { name } else { format!("{name}\t{value}") }
+    };
+    let mut keyed = false;
     // The keys: the row chosen moved, its action, its words copied.
     if has && !order.is_empty() {
         use egui::Key;
@@ -362,14 +370,14 @@ fn show_in(
             if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
                 shown.activated = Some(s);
             }
-            let copy = ui.input(|i| {
-                i.events.iter().any(|e| matches!(e, egui::Event::Copy))
-                    || (i.modifiers.command && i.key_pressed(Key::C))
-            });
-            if copy {
-                let (name, value) = words(s);
-                let text = if value.is_empty() { name } else { format!("{name}\t{value}") };
-                ctx.copy_text(text);
+            // (Ctrl+C alone: Ctrl+Alt+C is the Creature Wizard's.)
+            if crate::row_copy::copy_pressed(ui) {
+                ctx.copy_text(line(s));
+            }
+            // (Shift+F10: the chosen row's menu, brought into sight.)
+            keyed = crate::row_copy::menu_key(ui);
+            if keyed {
+                table.scrolled = None;
             }
         }
     }
@@ -465,6 +473,7 @@ fn show_in(
         let mut lines = look::Lines::default();
         let mut clicked = None;
         let mut double = None;
+        let mut copy = None;
         for &r in &order[range] {
             let (rect, resp) =
                 ui.allocate_exact_size(egui::vec2(width, pitch), egui::Sense::click());
@@ -499,7 +508,9 @@ fn show_in(
             let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("row", r)));
             row.set_clip_rect(rect.intersect(ui.clip_rect()));
             paint(&mut row, r, &cells, on);
-            if resp.clicked() {
+            // (A right click chooses the row too, so that Ctrl+C after its
+            // menu copies the row it was opened on.)
+            if resp.clicked() || resp.secondary_clicked() {
                 clicked = Some(r);
             }
             // (A third click soon after is a double click too: egui counts
@@ -507,8 +518,19 @@ fn show_in(
             if resp.double_clicked() || resp.triple_clicked() {
                 double = Some(r);
             }
+            // Its menu: Copy and Copy All (in the order shown).
+            copy = match crate::row_copy::row_menu(ui, &resp, keyed && on, |_| false) {
+                Some(crate::row_copy::Asked::Row) => Some(line(r)),
+                Some(crate::row_copy::Asked::All) => {
+                    Some(crate::row_copy::lines(order.iter().map(|r| line(*r))))
+                }
+                None => copy,
+            };
         }
         lines.paint(ui.painter(), &t);
+        if let Some(text) = copy {
+            ctx.copy_text(text);
+        }
         (clicked, double)
     });
     table.seen = seen;

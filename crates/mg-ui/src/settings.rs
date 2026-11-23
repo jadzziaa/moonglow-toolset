@@ -552,6 +552,15 @@ pub struct DockLayout {
     /// [`Settings::right_dock_width_wide`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wide_width: Option<u16>,
+    /// The width of the right pane of the kind's editor in a window of its
+    /// own, as the builder dragged its edge (none: 280), and the height of
+    /// its bottom pane (none: 140): each new window of the kind opens with
+    /// them (5.2.0, Jasperre's report of a floating script's Reference and
+    /// Help, their sizes not kept).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_width: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_bottom: Option<u16>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -1060,8 +1069,19 @@ pub struct Settings {
     /// "Show Creatures"). A builder's ask: a header of what is used.
     pub hidden_area_tools: Vec<String>,
     /// Options > General: Interface size, per cent of the usual (`None`:
-    /// 100): the whole interface, text and all, larger.
+    /// 100): the whole interface, text and all, larger. View › Interface
+    /// Size and its keys set it too.
     pub ui_scale: Option<u16>,
+    /// Options > General: Smooth scrolling unticked: a mouse wheel's notch
+    /// and a jump to a line or a row land at once, not eased over a few
+    /// frames (`mg_uikit::scrolling`). Named for the change, so that a file
+    /// without it (all before 5.2.0) scrolls smoothly, as it did.
+    pub no_smooth_scrolling: bool,
+    /// Options > General: Colored icons: each object kind's icon in a hue
+    /// of its own in the module tree, the Outliner and the palette
+    /// (`mg_uikit::hues`); off, all in one gray, as the redesign drew them
+    /// (5.2.0, a builder's ask).
+    pub colored_icons: bool,
     /// Options > General: Show areas by name: the module tree lists areas
     /// (and their tabs are titled) by their names rather than their
     /// ResRefs.
@@ -1117,6 +1137,12 @@ pub struct Settings {
     /// Options › Script Editor: Check for errors as you type, off (on by
     /// default).
     pub no_live_check: bool,
+    /// Options › Script Editor: Show declarations in tips unticked: no tip
+    /// over a function's or constant's name under the pointer or reached
+    /// by the arrow keys (5.2.0, on by default: Jasperre's ask for more
+    /// of a name's context as you write). Named for the change, so that an
+    /// older file shows them.
+    pub no_symbol_tips: bool,
     /// Options > Script Editor: Generate Debug Information When Compiling
     /// Scripts (`.ndb` next to the `.ncs`).
     pub debug_info: bool,
@@ -1837,6 +1863,43 @@ mod tests {
         assert!(back.tile_border);
     }
 
+    /// Smooth scrolling: on by default and for settings saved before it
+    /// was an option (5.2.0); off, kept, in RON and JSON. And the
+    /// interface sizes 250% and 300% (5.2.0) are kept as chosen.
+    #[test]
+    fn smooth_scrolling_is_on_by_default_and_off_is_kept() {
+        assert!(!Settings::default().no_smooth_scrolling);
+        let old: Settings = ron::from_str("(light_theme:true,ui_scale:Some(150))").unwrap();
+        assert!(!old.no_smooth_scrolling && old.light_theme, "an older file scrolls smoothly");
+        let old: Settings = serde_json::from_str(r#"{"no_grass":true}"#).unwrap();
+        assert!(!old.no_smooth_scrolling);
+        for scale in [250, 300] {
+            let s =
+                Settings { no_smooth_scrolling: true, ui_scale: Some(scale), ..Default::default() };
+            let text = s.saved_text();
+            assert_eq!(ron::from_str::<Settings>(&text).unwrap(), s, "{text}");
+            assert_eq!(Settings::read_fields(&text).unwrap(), (s.clone(), Vec::new()));
+            let json = serde_json::to_string(&s).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), s);
+        }
+    }
+
+    /// Colored icons: off by default and for settings saved before it was
+    /// an option (5.2.0); on, kept, in RON and JSON.
+    #[test]
+    fn colored_icons_are_off_by_default_and_on_is_kept() {
+        assert!(!Settings::default().colored_icons);
+        let old: Settings = ron::from_str("(light_theme:true,ui_scale:Some(150))").unwrap();
+        assert!(!old.colored_icons && old.light_theme, "an older file's icons are gray");
+        let s = Settings { colored_icons: true, light_theme: true, ..Default::default() };
+        let text = s.saved_text();
+        assert!(text.contains("colored_icons:true"), "{text}");
+        assert_eq!(ron::from_str::<Settings>(&text).unwrap(), s, "{text}");
+        assert_eq!(Settings::read_fields(&text).unwrap(), (s.clone(), Vec::new()));
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<Settings>(&json).unwrap(), s);
+    }
+
     /// The largest textures are as they are unless a limit is chosen, and
     /// a limit chosen is kept.
     #[test]
@@ -2310,6 +2373,8 @@ mod tests {
             column: Some(420),
             folded: Some("Help".into()),
             wide_width: Some(600),
+            window_width: Some(360),
+            window_bottom: Some(220),
         };
         kept.dock_layouts.insert("script".into(), script);
         // (A newer one's kind, and a panel this version has no name for.)
@@ -2700,9 +2765,10 @@ mod tests {
             let retired = ["toolbar_icons_only", "test_without_steam"];
             let kept: Vec<_> =
                 old.into_iter().filter(|(n, _)| !retired.contains(&n.as_str())).collect();
-            // (Three fields came after the file, two from develop's
-            // Builders' asks and M5's W1's: written at their defaults, the
-            // rest as it was.)
+            // (Six fields came after the file, two from develop's
+            // Builders' asks, M5's W1's, 5.2.0's W6's Smooth scrolling,
+            // W7's Colored icons and W5's Show declarations in tips:
+            // written at their defaults, the rest as it was.)
             let (added, written): (Vec<_>, Vec<_>) = fields_of(&back)
                 .expect("fields")
                 .into_iter()
@@ -2711,6 +2777,9 @@ mod tests {
                 ("tree_tags", "false"),
                 ("tree_extensions", "false"),
                 ("appearance_portrait", "false"),
+                ("no_smooth_scrolling", "false"),
+                ("colored_icons", "false"),
+                ("no_symbol_tips", "false"),
             ]
             .map(|(n, v)| (n.to_string(), v.to_string()));
             assert_eq!(added, defaults, "only the fields added since, at their defaults");

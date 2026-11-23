@@ -3,7 +3,7 @@ type: Checklist
 title: 'Where every control goes: today''s screens and their homes in the UI redesign'
 description: The checklist implementation of the UI redesign works from - every control of today's Moonglow Toolset and Moonglow Viewer screens, grouped by screen as the three "Where Things Moved" boards group them, with its home in the redesign, what is new and what the mockups do not draw.
 tags: [ui-redesign, mapping, checklist, toolset, viewer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T14:56:36Z }
 status: stable
 stale_after: 2027-06-01T00:00:00Z
 sources:
@@ -102,7 +102,7 @@ Every control of today's screens and its home in the mockups, by the names the c
 | "modified" label | The dot on the document tab ✓ M3 T9 (the dot) ✓ M4 U12 (the editor's own label gone with its header; nothing else read it) |
 | Live error line under the toolbar | Status Bar message, and a wavy underline on the line ✓ M4 U13 (the compiler's words in red in the log's last line's place while the script is the docked tab in front, a click going to the line; the underline in `error` in either host, the error in its tip; the row under the header gone) |
 | Functions, Variables, Constants, Templates and the filter | Right Dock, Reference panel ✓ M4 U12 (a segmented control over the filter; the Right Dock stays while a script's group has the focus) |
-| Help tab (bottom) | Right Dock, Help under Reference ✓ M4 U12 (one tab bar with Reference under 1400; prose with a row per parameter and a line for each other line of a list; what is laid out in columns and code examples kept as written) |
+| Help tab (bottom) | Bottom Dock, Help after Compiler, under the text and as wide as it, verbatim in the editor's font ✓ 5.2.0 (the owner's ruling on Jasperre's report, reversing M4 U12's Right Dock Help under Reference and its prose) |
 | Compiler, Bookmarks, Search Results tabs (bottom) | Bottom Dock tabs, with switches in the Status Bar ✓ M4 U13 (Compiler and Bookmarks the script's own, following the script in front; Search Results global, its switch's count the lines found; tabs Compiler, Bookmarks, Search Results, Log, switches Log, Compiler, Bookmarks, Search Results; no Close on the tab bar: the switch closes the dock, M3's rule) |
 | Key hints | Status Bar, as key caps ✓ M3 T12 (Find, Find next, Definition, References, Complete, Bookmark, Compile all, Replace, as bound, while a script's tab is the active editor; the line and column count is M4's) ✓ M4 U13 (the count "Line 17, column 12" at the bar's right) |
 
@@ -210,7 +210,7 @@ Every control of the screens mocked in the second round and its home in the mock
 | Double-click and right-click on the empty bar | Unchanged: Maximize or Restore ✓ M3 T11 |
 | Tab menu: Eject, Close, Rename…, Show in Module Tree, Close Others, Close Tabs to the Right | Unchanged, not drawn ✓ kept, checked in M4 U30 (`a_floating_editor_s_tab_menu_keeps_today_s_entries`: Rename…, Show in Module Tree, Maximize, Close, Close Others, Close Tabs to the Right and Close All, in that order; egui_dock's Eject where the tab is not alone in its window, as before; an area's adds Claim This Area or Release Claim, and the plugins' commands follow where there are any) |
 | Script header, Functions, Variables, Constants, Templates | Script board's header, and Reference as a right pane inside the window ✓ M4 U12 (the pane narrows to half the window under 560, never dropped) |
-| Help tab of the script's bottom pane | Under Reference, as on the Script board ✓ M4 U12 |
+| Help tab of the script's bottom pane | The window's bottom pane, after Compiler ✓ 5.2.0 (the owner's ruling on Jasperre's report; M4 U12 had put it under Reference, as on the Script board) |
 | Compiler, Bookmarks, Search Results | Bottom pane inside the window ✓ M4 U13 (the window's bottom pane under the text, at most a third of the window's height) |
 | Resize corner | A grip at the bottom right ✓ M3 T11 |
 | Main window behind | Area editor with Module Properties and an area as tabs; the Right Dock keeps Palette and Properties ✓ M3 (Module Properties and the area as document tabs, T9 and T10; the Right Dock's Palette, T5, with the Preview beside it, T6; its Properties panel is M4's, S2) ✓ M4 U6 (Properties under the Palette and the Preview, as the Floating board draws it) |

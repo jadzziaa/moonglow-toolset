@@ -653,3 +653,339 @@ fn read_steam_workshop_content_decides_how_a_test_starts() {
         settle(&mut h);
     }
 }
+
+/// Options › General › Appearance › Smooth scrolling (5.2.0, a builder's
+/// ask, the owner's ruling q4: one option for the wheel and the jumps):
+/// ticked by default, with its tip; unticked and set by OK, the window's
+/// scrolling is at once (`mg_uikit::scrolling`), and ticked again, smooth.
+#[test]
+fn smooth_scrolling_is_an_appearance_option_ticked_by_default() {
+    let mut h = options(Mode::Tabs, 1600.0, "General");
+    let ticked = |h: &Harness<'_, Moonglow>| {
+        let row = apart(h, "Smooth scrolling");
+        row.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+    };
+    bring_in_sight(&mut h, "Smooth scrolling");
+    assert!(ticked(&h), "ticked by default");
+    assert!(mg_uikit::scrolling::is_smooth(&h.ctx), "smooth by default");
+    // (In Appearance: under the theme, before the graphics backend.)
+    let theme = apart(&h, "Light theme").rect();
+    let row = apart(&h, "Smooth scrolling").rect();
+    assert!(row.top() >= theme.bottom() && (row.left() - theme.left()).abs() < 1.0, "{row:?}");
+    for on in [false, true] {
+        click_in_sight(&mut h, "Smooth scrolling");
+        settle(&mut h);
+        h.get_by_label("Options header").get_by_label("OK").click();
+        settle(&mut h);
+        assert_eq!(h.state().settings.no_smooth_scrolling, !on, "set by OK");
+        assert_eq!(mg_uikit::scrolling::is_smooth(&h.ctx), on);
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        page_row(&h, "General").click();
+        settle(&mut h);
+        bring_in_sight(&mut h, "Smooth scrolling");
+        assert_eq!(ticked(&h), on, "the row as set");
+    }
+}
+
+/// Options › General › Appearance › Colored icons (5.2.0, a builder's ask,
+/// the owner's ruling: off by default): unticked, under Smooth scrolling;
+/// ticked and set by OK, the window's kind icons are colored at once
+/// (`mg_uikit::hues`), and unticked again, gray.
+#[test]
+fn colored_icons_is_an_appearance_option_off_by_default() {
+    let mut h = options(Mode::Tabs, 1600.0, "General");
+    let ticked = |h: &Harness<'_, Moonglow>| {
+        let row = apart(h, "Colored icons");
+        row.accesskit_node().toggled() == Some(egui::accesskit::Toggled::True)
+    };
+    bring_in_sight(&mut h, "Colored icons");
+    assert!(!ticked(&h), "off by default");
+    assert!(!mg_uikit::hues::are_colored(&h.ctx));
+    let above = apart(&h, "Smooth scrolling").rect();
+    let row = apart(&h, "Colored icons").rect();
+    assert!(row.top() >= above.bottom() && (row.left() - above.left()).abs() < 1.0, "{row:?}");
+    for on in [true, false] {
+        click_in_sight(&mut h, "Colored icons");
+        settle(&mut h);
+        h.get_by_label("Options header").get_by_label("OK").click();
+        settle(&mut h);
+        assert_eq!(h.state().settings.colored_icons, on, "set by OK");
+        assert_eq!(mg_uikit::hues::are_colored(&h.ctx), on);
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        page_row(&h, "General").click();
+        settle(&mut h);
+        bring_in_sight(&mut h, "Colored icons");
+        assert_eq!(ticked(&h), on, "the row as set");
+    }
+}
+
+/// Smooth scrolling off: a mouse wheel's notch moves a long list (Options
+/// › Keyboard's commands) its whole step, a line's 40 points, at once (the
+/// frame after it arrives, as a scroll area shows any scroll), and no
+/// further after. On (the control), the same notch
+/// moves it part of the way in that frame and the rest after.
+#[test]
+fn smooth_scrolling_off_moves_a_list_by_a_whole_notch_at_once() {
+    use egui::accesskit::Role;
+    let step = egui::InputOptions::default().line_scroll_speed;
+    for on in [false, true] {
+        // (Frames of a 60th of a second, as on a screen.)
+        let mut app = app_in(Mode::Tabs, Vec::new());
+        app.settings.no_smooth_scrolling = !on;
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .with_step_dt(1.0 / 60.0)
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+        page_row(&h, "Keyboard").click();
+        settle(&mut h);
+        // (The list's row of a command, its name's label.)
+        let top = |h: &Harness<'_, Moonglow>| {
+            let row = h.query_all_by(|n| {
+                n.role() == Role::Label && n.value().as_deref() == Some("Open Folder")
+            });
+            row.map(|n| n.rect().top()).next().expect("Open Folder's row")
+        };
+        let before = top(&h);
+        let at = egui::pos2(300.0, before + 6.0);
+        h.hover_at(at);
+        settle(&mut h);
+        assert_eq!(top(&h), before, "the pointer alone moves nothing");
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, -1.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        // (A scroll area moves by what it was given as it ends a frame:
+        // the content shows it in the next.)
+        h.step();
+        h.step();
+        let first = before - top(&h);
+        settle(&mut h);
+        let all = before - top(&h);
+        if on {
+            assert!(first > 1.0 && first < step - 1.0, "smooth: part of the step first: {first}");
+            assert!((all - step).abs() < 0.5, "smooth: the whole step in the end: {all}");
+        } else {
+            assert!((first - step).abs() < 0.5, "at once: the whole step at once: {first}");
+            assert_eq!(all, first, "at once: nothing after");
+        }
+    }
+}
+
+/// Smooth scrolling off: a jump in code (the script editor's Go to Line,
+/// a result's or a bookmark's) lands at once: in sight in the frame after
+/// the editor asks for it (egui sets a scroll's target as a frame ends);
+/// on (the control), it is on its way for a while, and lands later.
+#[test]
+fn smooth_scrolling_off_lands_a_jump_at_once() {
+    let dir = mg_testkit::scratch_dir("ui-smooth-jump");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("long", ResType::NSS).unwrap();
+    let text: String = (0..3000).map(|n| format!("int nLine{n} = {n};\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.clone().into_bytes());
+    m.save().unwrap();
+    let in_sight = |h: &Harness<'_, Moonglow>, start: &str| {
+        let run = egui_kittest::kittest::by().role(egui::accesskit::Role::TextRun);
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        h.query_all(run)
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with(start)))
+            .is_some_and(|n| window.contains_rect(n.rect()))
+    };
+    for on in [true, false] {
+        let mut app = app_with(Vec::new());
+        app.settings.no_smooth_scrolling = !on;
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        // (Frames of a 60th of a second, as on a screen: kittest's own
+        // quarter of a second is nearly the animation's whole length.)
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(800.0, 600.0))
+            .with_step_dt(1.0 / 60.0)
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (egui's own animation, as the app has it: kittest's harness
+        // turns it off.)
+        let smooth = egui::style::ScrollAnimation::default();
+        h.ctx.all_styles_mut(|s| s.scroll_animation = smooth);
+        settle(&mut h);
+        assert!(in_sight(&h, "int nLine0 ") && !in_sight(&h, "int nLine2000 "), "at the top");
+        let line = mg_ui::script_tools::line_start(&text, 2000);
+        h.state_mut().script_tools.jump = Some((key, line));
+        let mut frames = 0;
+        while !in_sight(&h, "int nLine2000 ") && frames < 60 {
+            h.step();
+            frames += 1;
+        }
+        // (Off: the frame that takes the jump, the one whose editor asks
+        // for the scroll, and the next, where it lands. On, its animation
+        // a tenth to three tenths of a second after that.)
+        if on {
+            assert!(frames > 6, "smooth: on its way for a while: {frames} frames");
+        } else {
+            assert!(frames <= 3, "at once: in sight in three frames: {frames}");
+        }
+        settle(&mut h);
+        assert!(in_sight(&h, "int nLine2000 "), "smooth {on}: in the end");
+    }
+}
+
+/// View › Interface Size (5.2.0, a builder on a 4K screen did not find
+/// Options' row): its sizes, the one in use ticked, set the interface
+/// size at once, and Options' row shows it; its Zoom In, Zoom Out and
+/// Reset Zoom step through the sizes by their keys (Ctrl with +, = or -,
+/// and 0: egui's own zoom keys turned off), stopping at the ends, with
+/// Options open too (its row follows, and OK keeps it); 250% and 300%
+/// among them.
+#[test]
+fn view_interface_size_sets_the_size_and_options_follows() {
+    let mut h = harness(app_in(Mode::Tabs, Vec::new()), 1600.0, 900.0);
+    settle(&mut h);
+    assert!(!h.ctx.options(|o| o.zoom_with_keyboard), "egui's own zoom keys off");
+    let open_sizes = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Top Bar").get_by_label("View").click();
+        settle(h);
+        let entry = menu_row(h, "Interface Size").expect("View › Interface Size").1;
+        click_pos(h, entry.center());
+        settle(h);
+    };
+    open_sizes(&mut h);
+    for scale in mg_ui::UI_SCALES {
+        assert!(menu_row(&h, &format!("{scale}%")).is_some(), "{scale}% offered");
+    }
+    let ticks = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        h.query_all_by(|n| {
+            n.role() == egui::accesskit::Role::CheckBox
+                && n.toggled() == Some(egui::accesskit::Toggled::True)
+                && n.label().is_some_and(|l| l.ends_with('%'))
+        })
+        .map(|n| n.accesskit_node().label().unwrap_or_default())
+        .collect()
+    };
+    assert_eq!(ticks(&h), ["100%"], "the size in use ticked");
+    let rect = menu_row(&h, "250%").unwrap().1;
+    click_pos(&h, rect.center());
+    settle(&mut h);
+    assert_eq!(h.state().settings.ui_scale, Some(250));
+    assert!((h.ctx.zoom_factor() - 2.5).abs() < 0.001, "the size at once");
+    open_sizes(&mut h);
+    assert_eq!(ticks(&h), ["250%"]);
+    h.key_press(egui::Key::Escape);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    // Options' row shows it.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    page_row(&h, "General").click();
+    settle(&mut h);
+    assert_eq!(h.state().options.as_ref().unwrap().ui_scale, 250);
+    let shown = (h.get_all_by_label("Interface size"))
+        .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .map(|n| n.accesskit_node().value().unwrap_or_default());
+    assert_eq!(shown.as_deref(), Some("250%"), "Options' row");
+    // The keys, with Options open: its row follows them.
+    let ctrl = egui::Modifiers::COMMAND;
+    let keys = [
+        (ctrl, egui::Key::Minus, Some(200)),
+        (ctrl, egui::Key::Plus, Some(250)),
+        (ctrl, egui::Key::Equals, Some(300)),
+        (ctrl | egui::Modifiers::SHIFT, egui::Key::Plus, Some(300)),
+        (ctrl, egui::Key::Num0, None),
+        (ctrl, egui::Key::Minus, Some(90)),
+        (ctrl, egui::Key::Minus, Some(90)),
+        (ctrl, egui::Key::Plus, None),
+    ];
+    for (modifiers, key, want) in keys {
+        h.key_press_modifiers(modifiers, key);
+        settle(&mut h);
+        assert_eq!(h.state().settings.ui_scale, want, "{modifiers:?} {key:?}");
+        let zoom = f32::from(want.unwrap_or(100)) / 100.0;
+        assert!((h.ctx.zoom_factor() - zoom).abs() < 0.001, "{key:?}: {}", h.ctx.zoom_factor());
+        assert_eq!(h.state().options.as_ref().unwrap().ui_scale, want.unwrap_or(100), "row");
+    }
+    h.key_press_modifiers(ctrl, egui::Key::Equals);
+    settle(&mut h);
+    h.get_by_label("Options header").get_by_label("OK").click();
+    settle(&mut h);
+    assert_eq!(h.state().settings.ui_scale, Some(110), "OK keeps the keys' size");
+}
+
+/// The Command Palette has Zoom In, Zoom Out and Reset Zoom, each with
+/// its keys, and runs them.
+#[test]
+fn the_command_palette_zooms_the_interface() {
+    let mut h = harness(app_in(Mode::Tabs, Vec::new()), 1600.0, 900.0);
+    settle(&mut h);
+    for (typed, name, want) in [
+        ("zoom in", "Zoom In", Some(110)),
+        ("zoom in", "Zoom In", Some(125)),
+        ("zoom out", "Zoom Out", Some(110)),
+        ("reset zoom", "Reset Zoom", None),
+    ] {
+        command_palette(&mut h, typed);
+        let first = quick_open_rows(&h).into_iter().next().unwrap_or_default();
+        assert!(first.starts_with(name), "{typed}: {first}");
+        h.key_press(egui::Key::Enter);
+        settle(&mut h);
+        assert_eq!(h.state().settings.ui_scale, want, "{typed}");
+    }
+    assert_eq!(mg_ui::commands::name_of("zoom-in"), "Zoom In");
+    let keys = |id: &str| h.state().keymap.label_of(id, &h.ctx);
+    for id in ["zoom-in", "zoom-out", "reset-zoom"] {
+        assert!(keys(id).starts_with("Ctrl"), "{id}: {}", keys(id));
+    }
+}
+
+/// Options › General › Interface size on a screen with no room for the
+/// largest sizes (1366×768: the least window at 250% is 800 pixels high):
+/// those are shown but not offered, with the reason, as in View ›
+/// Interface Size; 200% is.
+#[test]
+fn interface_sizes_the_screen_has_no_room_for_are_not_offered() {
+    let mut h = options(Mode::Tabs, 1600.0, "General");
+    let root = h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default();
+    root.monitor_size = Some(egui::vec2(1366.0, 768.0));
+    settle(&mut h);
+    fn combo<'h>(h: &'h Harness<'_, Moonglow>) -> egui_kittest::Node<'h> {
+        (h.get_all_by_label("Interface size"))
+            .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+            .unwrap()
+    }
+    let open = |h: &mut Harness<'static, Moonglow>| {
+        combo(h).scroll_to_me();
+        at_rest(h, "Interface size", &|h| combo(h).rect());
+        combo(h).click();
+        settle(h);
+    };
+    open(&mut h);
+    let off =
+        |h: &Harness<'_, Moonglow>, size: &str| h.get_by_label(size).accesskit_node().is_disabled();
+    assert!(!off(&h, "100%") && !off(&h, "200%"), "sizes that fit");
+    assert!(off(&h, "250%") && off(&h, "300%"), "sizes that do not");
+    let at = h.get_by_label("300%").rect();
+    let tip = tip_at(&mut h, at);
+    assert_eq!(tip.as_deref(), Some("The screen has no room for this size"));
+    // (A size that fits, chosen.)
+    h.get_by_label("200%").click();
+    settle(&mut h);
+    h.get_by_label("Options header").get_by_label("OK").click();
+    settle(&mut h);
+    assert_eq!(h.state().settings.ui_scale, Some(200));
+    // A larger size saved (for a larger screen) stays as saved and
+    // offered; the others too large are not. (At 100% again: the screen
+    // given above is in points at 100%.)
+    h.state_mut().settings.ui_scale = None;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    settle(&mut h);
+    page_row(&h, "General").click();
+    settle(&mut h);
+    h.state_mut().options.as_mut().unwrap().ui_scale = 300;
+    settle(&mut h);
+    open(&mut h);
+    assert!(!off(&h, "300%") && off(&h, "250%"), "the saved size offered");
+}

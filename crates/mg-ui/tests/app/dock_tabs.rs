@@ -491,6 +491,10 @@ fn an_unused_finding_offers_mark_as_used_and_the_heading_counted_as_used() {
     built(&mut h);
     in_dock(&h, "Warning: hello.nss, Unused (source and compiled)").click_secondary();
     h.run();
+    // (Its own command first, then Copy and Copy All: 5.2's W4.)
+    let top = |name: &str| h.get_all_by_label(name).last().unwrap().rect().top();
+    let order = [mg_ui::problems::MARK_AS_USED, mg_ui::row_copy::COPY, mg_ui::row_copy::COPY_ALL];
+    assert!(order.windows(2).all(|w| top(w[0]) < top(w[1])), "the menu's order: {order:?}");
     h.get_by_label(mg_ui::problems::MARK_AS_USED).click();
     settle(&mut h);
     let toml = std::fs::read_to_string(project.join("moonglow.toml")).unwrap_or_default();
@@ -1035,6 +1039,11 @@ fn verify_s_problems_by_its_command_hold_the_keys_over_the_view() {
         !rows.is_empty() && rows.iter().all(|r| !r.contains('→') && r.contains(" › ")),
         "{rows:?}"
     );
+    // (Verify writes no file: its line in the log says where its findings
+    // are, 5.2's W4.)
+    let log = &h.state().log.entries;
+    let said = log.iter().rev().find(|(_, m)| m.starts_with("Verify: ")).map(|(_, m)| m.clone());
+    assert!(said.as_deref().is_some_and(|m| m.ends_with(mg_ui::problems::LISTED)), "{said:?}");
     holds_the_keys(&mut h, area, "Error: ", Some("Error: "), None);
 }
 
@@ -1595,8 +1604,8 @@ fn find_instance_says_how_many_it_found_on_the_form_s_line() {
 
 /// While a dock list holds the keys the Status Bar's hints are its own,
 /// each true now: Find Instance's Go to and Copy with a row chosen, the
-/// strings' Tick, Problems' Mark as used on an Unused finding; with no
-/// rows none of them.
+/// strings' Tick, Problems' Mark as used on an Unused finding, Copy where
+/// one is chosen (5.2's W4); with no rows none of them.
 #[test]
 fn each_dock_list_s_hints_are_true_of_it_now() {
     let mut h = objects("u28f-hints");
@@ -1617,6 +1626,7 @@ fn each_dock_list_s_hints_are_true_of_it_now() {
     in_dock(&h, "Error: hello.nss, bad").click();
     h.run();
     assert!(has(&h, "Enter: Go to") && !has(&h, "Right Click: Mark as used"), "{:?}", said(&h));
+    assert!(has(&h, "Ctrl, C: Copy"), "Problems: Copy (5.2's W4) in {:?}", said(&h));
     in_dock(&h, "Warning: hello.nss, Unused (source and compiled)").click();
     h.run();
     assert!(has(&h, "Right Click: Mark as used"), "{:?}", said(&h));
@@ -1630,7 +1640,7 @@ fn each_dock_list_s_hints_are_true_of_it_now() {
     let first = rows_named(&h, "camp_00000.utw › LocalizedName: ");
     in_dock(&h, &first[0]).click();
     h.run();
-    for w in [MOVE_IN_THE_LIST, "Space: Tick", "Enter: Go to"] {
+    for w in [MOVE_IN_THE_LIST, "Space: Tick", "Enter: Go to", "Ctrl, C: Copy"] {
         assert!(has(&h, w), "the strings: {w} in {:?}", said(&h));
     }
 }
@@ -1962,4 +1972,292 @@ fn a_combo_box_list_closed_by_enter_leaves_the_hits_alone() {
         in_dock(&h, "Creature GUARD").click();
         h.run();
     }
+}
+
+// ------------------------------------------------------------------ 5.2's W4
+
+/// The texts copied to the clipboard in the last pass run.
+fn copies(h: &H) -> Vec<String> {
+    (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The open menu's `item` clicked: what it copied.
+fn menu_copies(h: &mut H, item: &str) -> Vec<String> {
+    h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
+    h.step();
+    let out = copies(h);
+    h.run();
+    out
+}
+
+/// Ctrl+C (the backend's Copy) pressed alone: what it copied.
+fn ctrl_c(h: &mut H) -> Vec<String> {
+    h.event(egui::Event::Copy);
+    h.step();
+    let out = copies(h);
+    h.run();
+    out
+}
+
+/// The backend's Copy with `modifiers` held, as egui-winit sends it for
+/// Ctrl+C and for Ctrl+Alt+C and Ctrl+Shift+C alike: what it copied.
+fn copy_held(h: &mut H, modifiers: egui::Modifiers) -> Vec<String> {
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    h.event(egui::Event::Copy);
+    h.step();
+    let out = copies(h);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run();
+    out
+}
+
+/// Ctrl+Alt+C (the Creature Wizard's) and Ctrl+Shift+C copy nothing.
+fn other_keys_copy_nothing(h: &mut H) {
+    let alt = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
+    assert!(copy_held(h, alt).is_empty(), "Ctrl+Alt+C copies nothing");
+    let shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    assert!(copy_held(h, shift).is_empty(), "Ctrl+Shift+C copies nothing");
+    // (What those keys opened of their own closed.)
+    if egui::Popup::is_any_open(&h.ctx) {
+        key(h, egui::Key::Escape);
+    }
+}
+
+/// Whether the tip shown with the pointer at `at` says `words` whole (as
+/// a node of its own, apart from the row's, whose name says them too).
+fn tip_says(h: &mut H, at: egui::Pos2, words: &str) -> bool {
+    let tip = tip_at(h, egui::Rect::from_center_size(at, egui::vec2(2.0, 2.0)));
+    tip.is_some_and(|t| t.lines().any(|l| l == words))
+}
+
+/// A builder's report of Verify (5.2): a finding could not be selected,
+/// copied or right-clicked. A finding's menu has Copy (its line whole:
+/// kind, place, message, source, never the row's cut words) and Copy All
+/// (every finding listed, one a line); Ctrl+C copies the one chosen,
+/// Shift+F10 opens its menu; its message cut short is whole in its tip;
+/// a heading's Problems Actions menu has Copy These Findings and Save
+/// These Findings As… (a text file of the same lines), each of that
+/// heading's findings alone as its Remove from Problems is. A right click
+/// chooses the finding (Ctrl+C after it copies that one); Ctrl+Alt+C and
+/// Ctrl+Shift+C copy nothing.
+#[test]
+fn problems_findings_copy_and_their_heading_saves_them() {
+    use mg_module::doctor::Severity;
+    use mg_ui::problems::{COPY_THESE, MORE, REMOVE, SAVE_AS, copy_line};
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let dir = mg_testkit::scratch_dir("w4-problems-copy");
+    let saved = dir.join("found.txt");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    app.dialogs = Box::new(NoDialogs { save: vec![saved.clone()], ..Default::default() });
+    let mut h = harness(app, 1100.0, 720.0);
+    settle(&mut h);
+    let long = "Model › chest_01.utp › Appearance: names a model (plc_x99) that is in none of \
+                the module's haks nor the game, so the game draws nothing where it stands, and \
+                its walkmesh is missing too, which a builder reads to the end";
+    let p = Problem::new(Severity::Error, "chest_01.utp".into(), long.into(), None);
+    let q = Problem::new(Severity::Warning, "area_02.are".into(), "a second finding".into(), None);
+    let b = Problem::new(Severity::Error, "hello.nss".into(), "bad".into(), None);
+    let now = h.state().ws.as_ref().map(|ws| ws.revision());
+    h.state_mut().problems.replace(Source::Verify, vec![p.clone(), q], now);
+    h.state_mut().problems.replace(Source::Build, vec![b], now);
+    h.state_mut().settings.hide_log = false;
+    h.get_by_label("Status Bar").get_by_label("Problems").click();
+    settle(&mut h);
+    let line = copy_line(h.state().problems.of(&Source::Verify).unwrap(), &p);
+    assert_eq!(line, format!("Error: {long} (Verify Module)"), "the place said once");
+    let all = [
+        line.clone(),
+        "Warning: area_02.are, a second finding (Verify Module)".to_string(),
+        "Error: hello.nss, bad (Build Module)".to_string(),
+    ]
+    .join("\n");
+    let row = mg_ui::problems::row_name(&p);
+    // Its menu by a right click: Copy and Copy All.
+    in_dock(&h, &row).click_secondary();
+    h.run();
+    assert!(h.query_by_label(COPY_ALL).is_some(), "Copy All in its menu");
+    assert_eq!(menu_copies(&mut h, COPY), [line.as_str()], "Copy: the whole message");
+    in_dock(&h, &row).click_secondary();
+    h.run();
+    assert_eq!(menu_copies(&mut h, COPY_ALL), [all.as_str()], "Copy All: every finding");
+    // A right click chooses: Ctrl+C after its menu copies the one it was on.
+    let second = "Warning: area_02.are, a second finding (Verify Module)";
+    let other = (h.state().problems.of(&Source::Verify).unwrap().problems.get(1).cloned())
+        .expect("the second finding");
+    in_dock(&h, &mg_ui::problems::row_name(&other)).click_secondary();
+    h.run();
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(ctrl_c(&mut h), [second], "Ctrl+C: the finding right-clicked");
+    // Ctrl+C on the one chosen; Shift+F10 its menu, Copy taking the keys.
+    in_dock(&h, &row).click();
+    h.run();
+    assert_eq!(ctrl_c(&mut h), [line.as_str()], "Ctrl+C copies the one chosen, once");
+    assert_eq!(copy_held(&mut h, egui::Modifiers::COMMAND), [line.as_str()], "Ctrl held");
+    other_keys_copy_nothing(&mut h);
+    press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::F10);
+    h.run();
+    let copy = h.get_all_by_label(COPY).last().expect("Shift+F10 opens its menu");
+    assert!(copy.accesskit_node().is_focused(), "its first item has the keyboard");
+    key(&mut h, egui::Key::Escape);
+    assert!(h.query_by_label(COPY_ALL).is_none(), "Escape closes it");
+    // The message cut short, whole in its tip.
+    let r = in_dock(&h, &row).rect();
+    let words = egui::pos2(r.right() - 120.0, r.center().y);
+    assert!(tip_says(&mut h, words, long), "the whole message in its tip");
+    // The heading's menu: Copy These Findings, Save These Findings As…
+    // and Remove from Problems, all three of Verify's findings alone.
+    let verify = format!("{line}\n{second}");
+    // (Verify's More button: the one level with Verify's heading.)
+    let more = |h: &H| {
+        let heading = in_dock(h, "Verify Module").rect().center().y;
+        (h.get_all_by_label(MORE))
+            .min_by_key(|m| (m.rect().center().y - heading).abs() as i32)
+            .expect("Verify's Problems Actions")
+            .click();
+    };
+    more(&h);
+    h.run();
+    assert!(h.query_by_label(REMOVE).is_some(), "Remove from Problems kept");
+    assert!(h.query_by_label(COPY_ALL).is_none(), "no Copy All of every source's");
+    assert_eq!(menu_copies(&mut h, COPY_THESE), [verify.as_str()], "Verify's findings alone");
+    more(&h);
+    h.run();
+    h.get_by_label(SAVE_AS).click();
+    settle(&mut h);
+    assert_eq!(std::fs::read_to_string(&saved).unwrap(), verify, "Save As…: the same lines");
+    let said = h.state().log.entries.iter().any(|(_, m)| m.starts_with("Saved Problems to"));
+    assert!(said, "the log says where");
+}
+
+/// Search Results' lines (a script's search): a row's menu copies its line
+/// whole or every line; Ctrl+C the one the arrows are on; a line cut at
+/// the panel's edge is whole in its tip.
+#[test]
+fn search_results_lines_copy_whole_and_say_it_in_their_tips() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    use mg_ui::search_results::Hit;
+    let mut h = objects("w4-lines-copy");
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = format!("string s = \"{}\";", "a long line of words ".repeat(12));
+    let hits = vec![
+        Hit::Line { script: hello, line: 2, text: text.clone() },
+        Hit::Line { script: hello, line: 7, text: "int n;".into() },
+    ];
+    let first = hits[0].row();
+    let r = &mut h.state_mut().search_results;
+    (r.what, r.hits) = ("\"s\": 2 lines found".into(), hits);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(Panel::SearchResults));
+    h.state_mut().settings.hide_log = false;
+    settle(&mut h);
+    in_dock(&h, &first).click_secondary();
+    h.run();
+    assert_eq!(menu_copies(&mut h, COPY), [first.as_str()], "Copy: the line whole");
+    in_dock(&h, &first).click_secondary();
+    h.run();
+    let all = format!("{first}\nhello(8): int n;");
+    assert_eq!(menu_copies(&mut h, COPY_ALL), [all], "Copy All: every line");
+    // (The right click gave the list the keys and chose its row, which
+    // Ctrl+C copies, and the arrows move on from.)
+    assert_eq!(ctrl_c(&mut h), [first.as_str()], "Ctrl+C: the one right-clicked");
+    let second = h.state().search_results.hits[1].row();
+    in_dock(&h, &second).click_secondary();
+    h.run();
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(ctrl_c(&mut h), [second.as_str()], "Ctrl+C: the one right-clicked last");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(ctrl_c(&mut h), [first.as_str()], "Ctrl+C: the one the arrows are on");
+    other_keys_copy_nothing(&mut h);
+    let r = in_dock(&h, &first).rect();
+    assert!(tip_says(&mut h, r.center(), &first), "the whole line in its tip");
+}
+
+/// Find Instance's table (a report table): a row's menu copies the row as
+/// Ctrl+C does, and Copy All every row found, in the order the table is
+/// sorted; what the search left out is not copied.
+#[test]
+fn find_instance_s_rows_copy_in_the_table_s_order() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let mut h = objects("w4-find-copy");
+    find(&mut h, "mg_guard");
+    let n = h.state().find_instance.as_ref().unwrap().results.len();
+    assert!(n >= 1, "found");
+    let row = "Creature GUARD";
+    in_dock(&h, row).click_secondary();
+    h.run();
+    assert_eq!(menu_copies(&mut h, COPY), ["Creature GUARD\tin a1, from mg_guard"]);
+    in_dock(&h, "Area").click();
+    h.run();
+    in_dock(&h, "Area, sorted up").click();
+    h.run();
+    in_dock(&h, row).click_secondary();
+    h.run();
+    let all = menu_copies(&mut h, COPY_ALL);
+    let lines: Vec<&str> = all[0].lines().collect();
+    assert_eq!(lines.len(), n, "only what the search found: {lines:?}");
+    assert!(lines.iter().all(|l| l.contains("from mg_guard")), "{lines:?}");
+    let down = ["Creature GUARD\tin a2, from mg_guard", "Creature GUARD\tin a1, from mg_guard"];
+    assert_eq!(lines, down, "in the table's order, Area sorted down");
+    // (The right click chose the row it was on, which Ctrl+C copies.)
+    assert_eq!(ctrl_c(&mut h), [down[0]], "Ctrl+C: the row right-clicked");
+    other_keys_copy_nothing(&mut h);
+    let a1 = h.get_all_by_label(row).filter(|n| n.accesskit_node().bounding_box().is_some());
+    let a1 = a1.max_by_key(|n| n.rect().top() as i32).expect("its second row").rect();
+    h.hover_at(a1.center());
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: a1.center(),
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(ctrl_c(&mut h), [down[1]], "Ctrl+C: the row right-clicked last");
+    in_dock(&h, row).click();
+    h.run();
+    press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::F10);
+    h.run();
+    assert!(h.query_by_label(COPY_ALL).is_some(), "Shift+F10 opens the chosen row's menu");
+}
+
+/// Find and Replace Text's strings: a row's menu copies its place and the
+/// whole string, Copy All every string found (ticked or not), Ctrl+C the
+/// one chosen; the string is whole in its tip.
+#[test]
+fn find_and_replace_text_s_strings_copy_whole() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let mut h = camps("w4-text-copy", 3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    settle(&mut h);
+    typed(&mut h, "orc");
+    key(&mut h, egui::Key::Enter);
+    dock_high(&mut h, 420);
+    settle(&mut h);
+    let first = rows_named(&h, "camp_00000.utw › LocalizedName: ");
+    let line = |i: usize| {
+        format!("camp_{i:05}.utw › LocalizedName: Orc camp by the old road, the {i}th fire")
+    };
+    in_dock(&h, &first[0]).click_secondary();
+    h.run();
+    assert_eq!(menu_copies(&mut h, COPY), [line(0)]);
+    in_dock(&h, &first[0]).click_secondary();
+    h.run();
+    let all = (0..3).map(line).collect::<Vec<_>>().join("\n");
+    assert_eq!(menu_copies(&mut h, COPY_ALL), [all]);
+    in_dock(&h, &first[0]).click();
+    h.run();
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(ctrl_c(&mut h), [line(1)], "Ctrl+C: the one chosen");
+    let words = "Orc camp by the old road, the 2th fire";
+    let third = rows_named(&h, "camp_00002.utw › LocalizedName: ");
+    let r = in_dock(&h, &third[0]).rect();
+    let at = egui::pos2(r.left() + 60.0, r.bottom() - r.height() / 4.0);
+    assert!(tip_says(&mut h, at, words), "the string in its tip");
 }

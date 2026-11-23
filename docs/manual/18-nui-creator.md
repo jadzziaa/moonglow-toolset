@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T16:58:23Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -106,7 +106,10 @@ window or settings that don't read first of all, each with its kind, the
 control it is about (a click chooses it on the canvas, in the Outliner and
 in the source), its message (whole in its tip) and its fix (**Bind It**,
 **Turn It Off**, **Add Close Handler**); its bar says the window's count
-(`crier: 0 errors · 1 warning`). New errors bring it to the front and open
+(`crier: 0 errors · 1 warning`). A row's right click (or Shift+F10 with
+the keyboard on its control's name, reached by Tab) has
+**Copy** (its kind, control and whole message as one line) and **Copy
+All**; Ctrl+C copies the row the keyboard is on. New errors bring it to the front and open
 the Bottom Dock (warnings open nothing); a designer in a window of its own
 shows it in the window's bottom pane. The Outliner marks a control a check
 names with a warning (or error) mark at its row's right, its message as

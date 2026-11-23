@@ -1280,3 +1280,444 @@ fn a_model_open_read_only_is_drawn() {
     h.run_steps(3);
     assert_eq!(drawn(&h), was, "not drawn");
 }
+
+// v5.2's W3 (a builder's reports 9 and 10): Find in a read-only text, and
+// a game script opened by Go to Definition at its declaration's line.
+
+/// A big game script of our own (`x_big.nss`, about 700 KB: 20,000
+/// lines), two lines in it holding MARKER, and an include
+/// (`x_inc.nss`) whose functions lie far down; a module whose script
+/// `main_a` calls them. The game's data is a layer of ours: no install.
+fn w3_fixture(mode: Mode, name: &str) -> (Harness<'static, Moonglow>, ResKey) {
+    let dir = mg_testkit::scratch_dir(&mode.dir(name));
+    let path = sample_module(&dir);
+    let main = ResKey::parse("main_a", ResType::NSS).unwrap();
+    let mut m = mg_module::Module::open(&path).unwrap();
+    m.set(main, W3_MAIN.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut mem = mg_resman::MemContainer::new();
+    mem.insert(w3_key("x_big"), w3_big().into_bytes());
+    mem.insert(w3_key("x_inc"), w3_inc().into_bytes());
+    let mut rm = mg_resman::ResMan::new();
+    rm.add(mg_resman::priority::KEY, "mem", mg_resman::LayerClass::Key, mem);
+    let tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+    let mut app = app_with(Vec::new());
+    put_in(&mut app, mode);
+    app.settings.no_last_area = true;
+    app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
+    app.open_module(&path);
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    (h, main)
+}
+
+const W3_MAIN: &str = "#include \"x_inc\"\nvoid main()\n{\n    XFar();\n    XNear();\n}\n";
+
+fn w3_key(name: &str) -> ResKey {
+    ResKey::parse(name, ResType::NSS).unwrap()
+}
+
+/// `x_big.nss`: MARKER on lines 15,000 and 18,000 (from 0).
+fn w3_big() -> String {
+    let mut text = String::new();
+    for n in 0..20_000 {
+        match n {
+            15_000 => text.push_str("int MARKER_ONE = 15000; // the first\n"),
+            18_000 => text.push_str("int MARKER_TWO = 18000; // the second\n"),
+            n => text.push_str(&format!("int LINE_{n:05} = {n}; // filler text\n")),
+        }
+    }
+    text
+}
+
+/// `x_inc.nss`: XNear on line 3 and XFar on line 900 (from 0).
+fn w3_inc() -> String {
+    let mut text = String::from("// An include of the game's.\n\n// Near.\nvoid XNear() { }\n");
+    while text.lines().count() < 899 {
+        text.push_str("// filler\n");
+    }
+    text.push_str("// Far.\nvoid XFar() { }\n");
+    text
+}
+
+/// The lines of the text drawn in sight in the read-only tab of `key`
+/// (its view's rect, in a window or not) that hold `part`.
+fn lines_shown(h: &Harness<'_, Moonglow>, key: ResKey, part: &str) -> Vec<egui::Rect> {
+    let area = h.state().read_only_view_rect_for_test(key).expect("the text drawn");
+    let run = egui_kittest::kittest::by().role(egui::accesskit::Role::Label);
+    (h.query_all(run))
+        .filter(|n| n.accesskit_node().value().unwrap_or_default().contains(part))
+        .map(|n| n.rect())
+        .filter(|r| area.contains(r.center()))
+        .collect()
+}
+
+/// Ctrl+F in a read-only script opens its Find bar; what is typed is found
+/// (all 700 KB looked through, a slice a frame) and the match chosen is
+/// scrolled into sight; F3, Shift+F3, Enter and the bar's buttons go on;
+/// the count says which; Escape closes it and gives the keys back.
+#[test]
+fn ctrl_f_finds_in_a_read_only_script() {
+    for mode in MODES {
+        let (mut h, _) = w3_fixture(mode, "ui-w3-find");
+        let big = w3_key("x_big");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(big)));
+        settle(&mut h);
+        assert!(lines_shown(&h, big, "MARKER").is_empty(), "far down, out of sight");
+        assert!(h.query_by_label("Find What").is_none());
+        // (A window just opened has the keys once the pointer is over it, or
+        // it was clicked: as Floating Windows, the pointer over its text.)
+        if !mode.tabs() {
+            let view = h.state().read_only_view_rect_for_test(big).expect("drawn");
+            h.hover_at(view.center());
+            settle(&mut h);
+        }
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        settle(&mut h);
+        assert!(h.state().read_only_find_open_for_test(big, None), "Ctrl+F opens the bar");
+        let field = h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Find What");
+        assert!(field.accesskit_node().is_focused(), "its field has the keys");
+        h.event(egui::Event::Text("marker".into()));
+        settle(&mut h);
+        let state =
+            |h: &Harness<'_, Moonglow>| h.state().read_only_find_for_test(big, None).unwrap();
+        assert_eq!(state(&h), (2, true, Some(15_000), None), "both found, the first chosen");
+        assert_eq!(lines_shown(&h, big, "MARKER_ONE").len(), 1, "scrolled into sight");
+        h.get_by_label("1 of 2 matches");
+        // F3: the next; Shift+F3: the previous; round from the last.
+        h.key_press(egui::Key::F3);
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(18_000));
+        assert_eq!(lines_shown(&h, big, "MARKER_TWO").len(), 1, "the second in sight");
+        h.get_by_label("2 of 2 matches");
+        h.key_press(egui::Key::F3);
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(15_000), "round to the first");
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F3);
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(18_000), "Shift+F3: the previous");
+        // Enter in the field: the next, the field keeping the keys.
+        h.key_press(egui::Key::Enter);
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(15_000), "Enter: the next");
+        assert!(
+            h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Find What")
+                .accesskit_node()
+                .is_focused(),
+            "kept"
+        );
+        h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Enter);
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(18_000), "Shift+Enter: the previous");
+        h.get_by_label("Find Previous").click();
+        settle(&mut h);
+        assert_eq!(state(&h).2, Some(15_000), "the bar's Find Previous");
+        // Match Whole Word Only: MARKER is no word of MARKER_ONE.
+        h.get_by_label("Match Whole Word Only").click();
+        settle(&mut h);
+        assert_eq!(state(&h).0, 0);
+        h.get_by_label("No matches");
+        // Escape: closed, the keys the text's again.
+        h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Find What").click();
+        settle(&mut h);
+        h.key_press(egui::Key::Escape);
+        settle(&mut h);
+        assert!(!h.state().read_only_find_open_for_test(big, None), "Escape closes it");
+        assert!(h.query_by_label("Find What").is_none());
+        assert!(h.state().dock.find_tab(&Tab::Resource(big)).is_some(), "the tab stays");
+        // (The keys the text's: Ctrl+F opens it again.)
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        settle(&mut h);
+        assert!(h.state().read_only_find_open_for_test(big, None), "and again");
+        // Another read-only text in front, then this one again: its bar and
+        // what was typed kept (each tab's own).
+        let inc = w3_key("x_inc");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(inc)));
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(big)));
+        settle(&mut h);
+        assert!(h.state().read_only_find_open_for_test(big, None), "{mode:?}: kept");
+        assert_eq!(state(&h).0, 0, "{mode:?}: what was typed kept (whole words: none)");
+    }
+}
+
+/// Ctrl+A in a read-only text chooses all of it, which Copy copies.
+#[test]
+fn select_all_and_copy_in_a_read_only_text() {
+    let (mut h, _) = w3_fixture(Mode::Tabs, "ui-w3-copy");
+    let inc = w3_key("x_inc");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(inc)));
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    settle(&mut h);
+    h.event(egui::Event::Copy);
+    h.run_steps(1);
+    assert_eq!(copied(&h).as_deref(), Some(w3_inc().as_str()), "the whole text");
+}
+
+/// The Status Bar hints Find's keys over a read-only text; the Command
+/// Palette's Find opens its bar; lines in sight dragged over are copied
+/// by Copy.
+#[test]
+fn the_palette_s_find_the_hints_and_a_part_copied() {
+    let (mut h, _) = w3_fixture(Mode::Tabs, "ui-w3-palette");
+    let inc = w3_key("x_inc");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(inc)));
+    settle(&mut h);
+    let said = h.state().status_said();
+    assert!(said.iter().any(|s| s.ends_with(": Find")), "{said:?}");
+    assert!(said.iter().any(|s| s.ends_with(": Find next")), "{said:?}");
+    command_palette(&mut h, "find");
+    quick_open_row(&h, "Find").click();
+    settle(&mut h);
+    assert!(h.state().read_only_find_open_for_test(inc, None), "the palette's Find");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(!h.state().read_only_find_open_for_test(inc, None));
+    // Two lines dragged over, then Copy.
+    let first = lines_shown(&h, inc, "An include")[0];
+    let second = lines_shown(&h, inc, "Near.")[0];
+    drag(&mut h, first.left_center() + egui::vec2(1.0, 0.0), second.right_center());
+    h.event(egui::Event::Copy);
+    h.run_steps(1);
+    let got = copied(&h).unwrap_or_default();
+    assert!(got.contains("An include") && got.contains("Near."), "{got:?}");
+}
+
+/// Go to Definition (Ctrl+click) on a function of a game script opens the
+/// script read-only at the declaration's line, marked; again on another
+/// function of the same script, the same tab goes to its line. As Floating
+/// Windows, a tab of the window of the script it was asked from (the
+/// owner's ruling of 2026-11-23), no new window; as Tabs, a tab of the main
+/// window.
+#[test]
+fn go_to_definition_opens_a_game_script_at_the_line() {
+    for mode in MODES {
+        let (mut h, main) = w3_fixture(mode, "ui-w3-definition");
+        let inc = w3_key("x_inc");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
+        settle(&mut h);
+        let windows = |h: &Harness<'_, Moonglow>| {
+            let dock = &h.state().dock;
+            dock.iter_surfaces().filter(|s| matches!(s, egui_dock::Surface::Window(..))).count()
+        };
+        let before = windows(&h);
+        let script = h.state().dock.find_tab(&Tab::Script(main)).expect("open");
+        assert_eq!(script.surface.is_main(), mode.tabs(), "{mode:?}");
+        let go = |h: &mut Harness<'_, Moonglow>, name: &str| {
+            let at = W3_MAIN.find(name).unwrap() + 1;
+            let d = h.state_mut().declaration_at(main, at).expect("a declaration");
+            assert_eq!(d.at.file, "x_inc");
+            h.state_mut().go_to_declaration(&d);
+            settle(h);
+        };
+        go(&mut h, "XFar");
+        let path = h.state().dock.find_tab(&Tab::Resource(inc)).expect("x_inc opens");
+        assert_eq!(windows(&h), before, "{mode:?}: no window more");
+        assert_eq!(path.surface, script.surface, "{mode:?}: where the script is");
+        let state = |h: &Harness<'_, Moonglow>| h.state().read_only_find_for_test(inc, None);
+        assert_eq!(state(&h).unwrap().3, Some(900), "{mode:?}: XFar's line marked");
+        assert_eq!(lines_shown(&h, inc, "void XFar").len(), 1, "{mode:?}: in sight");
+        assert!(lines_shown(&h, inc, "void XNear").is_empty(), "{mode:?}: at the top no more");
+        // Another function of it: the same tab, at its line.
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
+        settle(&mut h);
+        go(&mut h, "XNear");
+        assert_eq!(h.state().dock.find_tab(&Tab::Resource(inc)), Some(path), "{mode:?}: reused");
+        assert_eq!(windows(&h), before);
+        assert_eq!(state(&h).unwrap().3, Some(3), "{mode:?}: XNear's line marked");
+        assert_eq!(lines_shown(&h, inc, "void XNear").len(), 1, "{mode:?}: in sight");
+    }
+}
+
+/// Go to Definition on a function of the game's own `nwscript.nss` lands
+/// on its line (needs the game).
+#[test]
+fn go_to_definition_lands_on_an_nwscript_function_s_line() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = mg_testkit::scratch_dir("ui-w3-nwscript");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main() { ActionSit(OBJECT_SELF); }\n";
+    let mut m = mg_module::Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = game_app(&root, None);
+    app.settings = Mode::Tabs.settings();
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = harness(app, 1600.0, 900.0);
+    settle(&mut h);
+    let d = h.state_mut().declaration_at(key, text.find("ActionSit").unwrap() + 2).unwrap();
+    h.state_mut().go_to_declaration(&d);
+    settle(&mut h);
+    let nwscript = ResKey::parse("nwscript", ResType::NSS).unwrap();
+    let game = h.state().game.clone().unwrap();
+    let source =
+        String::from_utf8_lossy(&game.resman.get(&nwscript).unwrap()).replace("\r\n", "\n");
+    let at = source.find("\nvoid ActionSit(").expect("declared") + 1;
+    let line = source[..at].matches('\n').count();
+    assert!(line > 1000, "far down: {line}");
+    let marked = h.state().read_only_find_for_test(nwscript, None).and_then(|s| s.3);
+    assert_eq!(marked, Some(line));
+    assert_eq!(lines_shown(&h, nwscript, "void ActionSit(").len(), 1, "in sight");
+}
+
+/// A read-only text's right-click menu: the text fields' rows, Cut and
+/// Paste grayed, Copy with lines chosen (a right click in them keeps
+/// them), Select All, then Find…; Shift+F10 opens it from the keys and
+/// Escape closes it, not the Find bar.
+#[test]
+fn a_read_only_text_s_right_click_menu() {
+    use crate::fields::{choose_text_row, right_click_at, text_menu_row, text_menu_rows};
+    let (mut h, _) = w3_fixture(Mode::Tabs, "ui-w3-menu");
+    let inc = w3_key("x_inc");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(inc)));
+    settle(&mut h);
+    let first = lines_shown(&h, inc, "An include")[0];
+    let second = lines_shown(&h, inc, "Near.")[0];
+    // Nothing chosen: Copy grayed too.
+    right_click_at(&mut h, second.center());
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(false), Some(true)]);
+    assert_eq!(text_menu_row(&h, "Find…", "Ctrl+F").map(|r| r.0), Some(true), "then Find…");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(text_menu_row(&h, "Select All", "Ctrl+A").is_none(), "Escape closes it");
+    // Two lines dragged over, a right click in them: Copy copies them.
+    drag(&mut h, first.left_center() + egui::vec2(1.0, 0.0), second.right_center());
+    right_click_at(&mut h, first.center());
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(true), Some(false), Some(true)]);
+    let (got, _) = choose_text_row(&mut h, "Copy", "Ctrl+C");
+    assert!(
+        got.iter().any(|t| t.contains("An include") && t.contains("Near.")),
+        "the lines chosen: {got:?}"
+    );
+    // Select All, then Copy: the whole text.
+    right_click_at(&mut h, second.center());
+    choose_text_row(&mut h, "Select All", "Ctrl+A");
+    right_click_at(&mut h, second.center());
+    let (got, _) = choose_text_row(&mut h, "Copy", "Ctrl+C");
+    assert_eq!(got.last().map(String::as_str), Some(w3_inc().as_str()), "the whole text");
+    // Find… opens the bar, its field with the keys.
+    right_click_at(&mut h, second.center());
+    choose_text_row(&mut h, "Find…", "Ctrl+F");
+    assert!(h.state().read_only_find_open_for_test(inc, None), "Find… opens the bar");
+    let field = h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Find What");
+    assert!(field.accesskit_node().is_focused());
+    // Shift+F10 with the keys the text's: the menu, its first row on lit;
+    // Escape closes the menu alone.
+    h.get_by_label("Match Case").click();
+    settle(&mut h);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::F10);
+    settle(&mut h);
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(false), Some(true)]);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(text_menu_row(&h, "Select All", "Ctrl+A").is_none(), "the menu closed");
+    assert!(h.state().read_only_find_open_for_test(inc, None), "the bar stays open");
+}
+
+/// As Floating Windows, two read-only texts side by side: the keys of
+/// Find are the one's last pressed in (its window the focused one), not
+/// the one the pointer rests over; Escape closes the Find bar of the
+/// window the builder is in alone.
+#[test]
+fn two_read_only_texts_side_by_side_one_takes_the_keys() {
+    let (mut h, _) = w3_fixture(Mode::Floating, "ui-w3-two-views");
+    let (big, inc) = (w3_key("x_big"), w3_key("x_inc"));
+    for key in [big, inc] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+        settle(&mut h);
+    }
+    // (Side by side, each in a window of its own; a point of each's text.)
+    own_window(&mut h, &Tab::Resource(big), egui::pos2(40.0, 120.0), egui::vec2(700.0, 600.0));
+    own_window(&mut h, &Tab::Resource(inc), egui::pos2(800.0, 120.0), egui::vec2(700.0, 600.0));
+    settle(&mut h);
+    let spot = |h: &Harness<'_, Moonglow>, key, _other| {
+        h.state().read_only_view_rect_for_test(key).expect("drawn").center()
+    };
+    let open = |h: &Harness<'_, Moonglow>, key| h.state().read_only_find_open_for_test(key, None);
+    let click = |h: &mut Harness<'_, Moonglow>, at| {
+        h.hover_at(at);
+        h.run_steps(1);
+        h.drag_at(at);
+        h.run_steps(1);
+        h.drop_at(at);
+        settle(h);
+    };
+    // Pressed in the one, the pointer resting over the other: the keys are
+    // the one's, each way round (whichever is drawn first).
+    let rest = |h: &mut Harness<'_, Moonglow>, (pressed, over), key| {
+        let at = spot(h, pressed, over);
+        click(h, at);
+        h.hover_at(spot(h, over, pressed));
+        settle(h);
+        h.key_press_modifiers(
+            if key == egui::Key::F { egui::Modifiers::COMMAND } else { egui::Modifiers::NONE },
+            key,
+        );
+        settle(h);
+    };
+    rest(&mut h, (big, inc), egui::Key::F);
+    assert!(open(&h, big), "the text pressed in");
+    assert!(!open(&h, inc), "not the one the pointer is over");
+    rest(&mut h, (inc, big), egui::Key::F);
+    assert!(open(&h, inc), "the other way round: its own Ctrl+F");
+    // Both bars open: Escape closes the bar of the window pressed in alone.
+    rest(&mut h, (inc, big), egui::Key::Escape);
+    assert!(!open(&h, inc), "Escape closes the bar of the window pressed in");
+    assert!(open(&h, big), "and not the other's");
+    rest(&mut h, (big, inc), egui::Key::Escape);
+    assert!(!open(&h, big), "the other way round");
+}
+
+/// The pictures of v5.2's W3 (dark): `nwscript.nss` opened by Go to
+/// Definition at ActionSit's line, in each mode, and its Find bar. By hand:
+/// `MOONGLOW_W3_PICTURES=<folder> cargo test -p mg-ui --test app --
+/// --ignored read_only::w3_pictures`.
+#[test]
+#[ignore]
+fn w3_pictures() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(out) = std::env::var_os("MOONGLOW_W3_PICTURES").map(std::path::PathBuf::from) else {
+        return;
+    };
+    std::fs::create_dir_all(&out).unwrap();
+    mg_testkit::gpu::hold();
+    for mode in MODES {
+        let dir = mg_testkit::scratch_dir(&mode.dir("ui-w3-pictures"));
+        let path = sample_module(&dir);
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+        let text = "void main()\n{\n    ActionSit(OBJECT_SELF);\n}\n";
+        let mut m = mg_module::Module::open(&path).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        m.save().unwrap();
+        let mut app = game_app(&root, None);
+        put_in(&mut app, mode);
+        app.settings.no_last_area = true;
+        app.settings.light_theme = false;
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        settle(&mut h);
+        let d = h.state_mut().declaration_at(key, text.find("ActionSit").unwrap() + 2).unwrap();
+        h.state_mut().go_to_declaration(&d);
+        settle(&mut h);
+        h.run_steps(3);
+        let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+            let image = h.render().expect("render");
+            image.save(out.join(format!("{name}-{}.png", mode.word()))).unwrap();
+        };
+        shot(&mut h, "w3-definition-at-the-line");
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        settle(&mut h);
+        h.event(egui::Event::Text("ActionSit".into()));
+        settle(&mut h);
+        h.run_steps(3);
+        shot(&mut h, "w3-find-bar");
+    }
+}

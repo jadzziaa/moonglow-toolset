@@ -3057,3 +3057,81 @@ fn properties_open_at_their_top_on_a_chip_s_click() {
     let content = h.get_by_label("Content").rect();
     assert!(right_dock_rect(&h).contains_rect(content), "Content in sight: {content:?}");
 }
+
+/// The NUI designer's Checks (5.2's W4): a row's menu (a right click, on
+/// its words too) has Copy (its kind, control and whole message) and Copy
+/// All (every row, in its order); the message cut short is whole in its
+/// tip.
+#[test]
+fn a_check_s_row_copies_from_its_menu_and_its_tip_says_it_whole() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let mut h = designer_of(Mode::Tabs, 1100.0, with_a_warning());
+    h.get_all_by_label("Checks").next().unwrap().click();
+    settle(&mut h);
+    let lost = "What the player enters here is lost";
+    let rows = h.get_by_label(nui_names::CHECKS_ROWS);
+    let words = rows.get_by_label_contains(lost);
+    let node = words.accesskit_node();
+    let message = node.label().filter(|l| !l.is_empty()).or(node.value()).unwrap_or_default();
+    let at = words.rect().left_center() + egui::vec2(40.0, 0.0);
+    let right = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+    };
+    let copied = |h: &mut Harness<'_, Moonglow>, item: &str| -> Vec<String> {
+        h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
+        h.step();
+        let out = (h.output().platform_output.commands.iter())
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        h.run();
+        out
+    };
+    let line = format!("Warning: Text input · Enter text, {message}");
+    right(&mut h);
+    assert_eq!(copied(&mut h, COPY), [line.as_str()], "Copy: the whole message");
+    right(&mut h);
+    assert_eq!(copied(&mut h, COPY_ALL), [line.as_str()], "Copy All: the one row");
+    let tip = tip_at(&mut h, egui::Rect::from_center_size(at, egui::vec2(2.0, 2.0)));
+    assert!(tip.is_some_and(|t| t.lines().any(|l| l == message)), "the message in its tip");
+    // The keyboard on the row's place (its Tab stop, a label here, its
+    // control found by no link): Ctrl+C copies the row, Shift+F10 opens
+    // its menu, Copy taking the keys, Escape giving them back.
+    let place = "Text input · Enter text";
+    let link = |h: &Harness<'_, Moonglow>| {
+        let rows = h.get_by_label(nui_names::CHECKS_ROWS);
+        rows.get_by_label(place).accesskit_node().is_focused()
+    };
+    h.get_by_label(nui_names::CHECKS_ROWS).get_by_label(place).focus();
+    h.run();
+    assert!(link(&h), "its place has the keyboard");
+    h.event(egui::Event::Copy);
+    h.step();
+    let out: Vec<String> = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    h.run();
+    assert_eq!(out, [line.as_str()], "Ctrl+C: the row the keyboard is on");
+    press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::F10);
+    h.run();
+    let copy = h.get_all_by_label(COPY).last().expect("Shift+F10 opens its menu");
+    assert!(copy.accesskit_node().is_focused(), "Copy has the keyboard");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label(COPY_ALL).is_none(), "Escape closes it");
+    assert!(link(&h), "Escape gives the keyboard back to its place");
+}

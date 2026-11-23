@@ -32,6 +32,7 @@ use egui::Ui;
 use mg_module::doctor::Severity;
 
 use crate::Moonglow;
+use crate::row_copy::{self, Asked as RowCopy};
 
 /// The accessible name of Problems' body (its rows, or the words saying
 /// what fills it): apart from the panel's tab and switch, which share its
@@ -190,6 +191,9 @@ pub struct Problems {
     selected: Option<(Source, usize)>,
     /// The selection moved by the keys this frame: scrolled into sight.
     scroll_to: bool,
+    /// Shift+F10 asked for the chosen finding's menu: opened as its row
+    /// is drawn (brought into sight first, where it was not).
+    menu_keyed: bool,
     /// Verify's Fix All: the first finding of each check with more than
     /// one fix to make, and how many, for the log's fixes as they were
     /// (`Log::fixes_revision`): worked out as they change, not each frame.
@@ -323,6 +327,23 @@ impl Problems {
         self.forward = Some(self.forward.unwrap_or(false) || open);
     }
 
+    /// Every finding listed, as a finding's Copy All copies them: one a
+    /// line ([`copy_line`]), in the order listed (each source's,
+    /// errors first), each saying who found it, so that a line pasted
+    /// alone still says it.
+    pub fn text(&self) -> String {
+        let all = self.sets.iter().flat_map(|s| s.problems.iter().map(move |p| copy_line(s, p)));
+        row_copy::lines(all)
+    }
+
+    /// One source's findings, as its heading's Copy These Findings copies
+    /// them and its Save These Findings As… writes them: [`Problems::text`]'s
+    /// lines of that source alone (none listed: empty).
+    pub fn text_of(&self, source: &Source) -> String {
+        let Some(s) = self.of(source) else { return String::new() };
+        row_copy::lines(s.problems.iter().map(|p| copy_line(s, p)))
+    }
+
     /// The rows as listed: each source with findings or a word of its own
     /// (a heading), then its findings.
     fn rows(&mut self) -> Arc<Vec<Row>> {
@@ -352,6 +373,38 @@ pub(crate) fn follow(app: &mut Moonglow) {
         let Some(set) = app.problems.of(&source) else { continue };
         let why = (set.checked != now).then_some(Stale::Changed);
         app.problems.set_stale(&source, why);
+    }
+}
+
+/// A finding as one line of text (its menu's Copy, Ctrl+C, and a line of
+/// Copy All, Copy These Findings and Save These Findings As…): its kind, its place, its whole message (never as
+/// the row cuts it) and who found it, "Error: chest_01.utp, The model is
+/// missing (Verify Module)"; its place said once where the message says it
+/// (Verify's say the check and the resource), and the source's findings
+/// said to be stale where they are.
+pub fn copy_line(set: &Set, p: &Problem) -> String {
+    let word = if p.severity == Severity::Error { "Error" } else { "Warning" };
+    let source = match set.stale {
+        Some(why) => format!("{}, {}", set.source.title(), why.words().to_lowercase()),
+        None => set.source.title(),
+    };
+    match p.at.is_empty() || p.message.contains(&p.at) {
+        true => format!("{word}: {} ({source})", p.message),
+        false => format!("{word}: {}, {} ({source})", p.at, p.message),
+    }
+}
+
+/// Problems' Save These Findings As… (a heading's menu): that source's
+/// findings ([`Problems::text_of`]) into a text file, where the builder
+/// says (beside the module, at first).
+pub(crate) fn save_as(app: &mut Moonglow, source: &Source) {
+    let dir = app.module_path().and_then(|p| p.parent().map(Path::to_path_buf));
+    let suggested = dir.map(|d| d.join("problems.txt"));
+    let kind = crate::dialogs::FileKind::Problems;
+    let Some(path) = app.dialogs.save_file(kind, suggested.as_deref()) else { return };
+    match mg_module::write_replacing(&path, app.problems.text_of(source).as_bytes()) {
+        Ok(()) => app.log.info(format!("Saved Problems to {}", path.display())),
+        Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
     }
 }
 
@@ -401,8 +454,8 @@ pub const FILLED_BY: &str =
 /// to its line and whole in its tip, and Verify's fix beside it; only the
 /// rows in sight laid out. A click on a finding's row chooses it, as the
 /// arrows do with the panel's keys (Enter goes to it); Build Module's Mark
-/// as Used takes the one chosen. With nothing found anywhere, the kit's
-/// empty state.
+/// as Used takes the one chosen; Ctrl+C copies it ([`copy_line`]), its
+/// menu Copy All. With nothing found anywhere, the kit's empty state.
 pub(crate) fn body(app: &mut Moonglow, ui: &mut Ui) {
     mg_uikit::name_group(ui, PROBLEM_ROWS);
     let keys = crate::palette_view::Keys::Problems;
@@ -433,6 +486,8 @@ pub(crate) fn body(app: &mut Moonglow, ui: &mut Ui) {
     let mut asked = Asked::default();
     let mut first = focus;
     let scroll_to = std::mem::take(&mut app.problems.scroll_to);
+    let menu_keyed = app.problems.menu_keyed;
+    let mut menu_drawn = false;
     let probs = &app.problems;
     let sets = &probs.sets;
     let log = &app.log;
@@ -468,8 +523,13 @@ pub(crate) fn body(app: &mut Moonglow, ui: &mut Ui) {
                             let r = ui.push_id(("heading", set), |ui| {
                                 heading(ui, &t, s, line, &look, &mut asked)
                             });
-                            if r.inner {
-                                remove = Some(s.source.clone());
+                            match r.inner {
+                                Some(HeadingAsked::Remove) => remove = Some(s.source.clone()),
+                                Some(HeadingAsked::CopyAll) => {
+                                    asked.copy_these = Some(s.source.clone());
+                                }
+                                Some(HeadingAsked::Save) => asked.save = Some(s.source.clone()),
+                                None => {}
                             }
                         }
                         Row::Problem { set, at } => {
@@ -481,10 +541,12 @@ pub(crate) fn body(app: &mut Moonglow, ui: &mut Ui) {
                             let look = Look {
                                 selected: is,
                                 ringed: is && has,
+                                keyed: is && menu_keyed,
                                 fix,
                                 all,
                                 place: place.is_some(),
                             };
+                            menu_drawn |= is;
                             let did = ui.push_id((set, at), |ui| {
                                 problem(ui, &t, p, line, &mut first, &look)
                             });
@@ -506,15 +568,40 @@ pub(crate) fn body(app: &mut Moonglow, ui: &mut Ui) {
                             {
                                 asked.mark = Some(u);
                             }
+                            match did.copy {
+                                Some(RowCopy::Row) => asked.copy = Some(copy_line(s, p)),
+                                Some(RowCopy::All) => asked.copy_all = true,
+                                None => {}
+                            }
                         }
                     }
                 }
             });
         });
     });
+    // (The keyed menu opened where its row was drawn; else asked for again
+    // next frame, the row brought into sight.)
+    if menu_keyed && (menu_drawn || app.problems.selected.is_none()) {
+        app.problems.menu_keyed = false;
+    } else if menu_keyed {
+        app.problems.scroll_to = true;
+        ui.ctx().request_repaint();
+    }
     if let Some(at) = chosen {
         app.problems.selected = Some(at);
         crate::palette_view::give_keys(ui.ctx(), keys);
+    }
+    if let Some(text) = asked.copy {
+        ui.ctx().copy_text(text);
+    }
+    if asked.copy_all {
+        ui.ctx().copy_text(app.problems.text());
+    }
+    if let Some(source) = asked.copy_these {
+        ui.ctx().copy_text(app.problems.text_of(&source));
+    }
+    if let Some(source) = asked.save {
+        save_as(app, &source);
     }
     if let Some(source) = remove {
         app.problems.remove(&source);
@@ -548,6 +635,15 @@ struct Asked {
     /// Build's heading's Counted as Used button: its popup, drawn after
     /// the rows.
     counted: Option<egui::Response>,
+    /// A finding's line copied (its menu's Copy).
+    copy: Option<String>,
+    /// Every finding copied (a finding's Copy All).
+    copy_all: bool,
+    /// A source's findings copied (its heading's Copy These Findings).
+    copy_these: Option<Source>,
+    /// A source's findings saved into a file (its heading's Save These
+    /// Findings As…).
+    save: Option<Source>,
 }
 
 /// The place of the finding chosen among the rows.
@@ -599,6 +695,19 @@ fn keyed(app: &mut Moonglow, ui: &mut Ui, rows: &[Row], has: bool, line: f32) ->
     }
     if now.is_some() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
         return app.problems.selected().and_then(|p| p.go.clone());
+    }
+    // Ctrl+C copies the finding chosen (its line made only then);
+    // Shift+F10 opens its menu.
+    if let Some((source, at)) = app.problems.selected.clone()
+        && let Some(set) = app.problems.of(&source)
+        && let Some(p) = set.problems.get(at)
+    {
+        if row_copy::copy_pressed(ui) {
+            ui.ctx().copy_text(copy_line(set, p));
+        }
+        if row_copy::menu_key(ui) {
+            app.problems.menu_keyed = true;
+        }
     }
     None
 }
@@ -700,9 +809,12 @@ struct HeadingLook {
 /// once: M4's U28 review), "No problems found" where it found none or that
 /// it runs again, and why its findings may be stale (then not counted, it
 /// says); Build's, its Counted as Used where the build was asked for its
-/// Unused results (as the tip's dialog showed it, with Unused ticked). A
-/// row of its own to focus (Tab): a right click, or Delete with it focused,
-/// offers or does Remove from Problems. Whether it was asked to go.
+/// Unused results (as the tip's dialog showed it, with Unused ticked); at
+/// its end its More button. A row of its own to focus (Tab): its menu (the
+/// More button, a right click, or Shift+F10 with it focused) offers Copy
+/// All and Save As… (every finding listed: Verify writes no file of its
+/// own) and Remove from Problems, which Delete with it focused does. What
+/// it was asked for.
 fn heading(
     ui: &mut Ui,
     t: &mg_uikit::Tokens,
@@ -710,7 +822,7 @@ fn heading(
     line: f32,
     look: &HeadingLook,
     asked: &mut Asked,
-) -> bool {
+) -> Option<HeadingAsked> {
     let words = match (look.running, set.problems.is_empty()) {
         (true, _) => Some(running_words(&set.source)),
         (false, true) => Some(NOTHING.to_string()),
@@ -718,6 +830,7 @@ fn heading(
     };
     let placed = look.placed;
     let mut button = None;
+    let mut more = None;
     // (The heading's own response first, under what is on it: Counted as
     // Used's click is the button's, not the heading's.)
     let top = ui.cursor().min;
@@ -743,6 +856,16 @@ fn heading(
             };
             button = Some(b.on_hover_text(tip));
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // (The icon alone, its name in its tip and for a screen reader:
+            // a heading's words and Counted as Used keep the room.)
+            let icon = mg_uikit::IconButton::new(mg_uikit::Icon::MoreHorizontal, MORE);
+            let b = icon.icon_only(true).small();
+            more = Some(
+                ui.add(b)
+                    .on_hover_text("Problems actions: copy or save every finding, or remove these"),
+            );
+        });
     });
     asked.counted = asked.counted.take().or(button);
     let said = match &words {
@@ -758,20 +881,81 @@ fn heading(
             egui::StrokeKind::Inside,
         );
     }
-    let mut asked =
+    let deleted =
         r.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete));
-    mg_uikit::context_menu(&r, |ui| {
-        let again = match set.source {
-            Source::Tileset(_) => "Check again brings them back",
-            Source::Build => "Build again brings them back",
-            Source::Verify => "Verify again brings them back",
-        };
-        if ui.button(REMOVE).on_hover_text(format!("Take these findings away. {again}")).clicked() {
-            asked = true;
-            ui.close();
-        }
-    });
+    let mut asked = deleted.then_some(HeadingAsked::Remove);
+    // (Its menu by a right click or Shift+F10, at the pointer or under its
+    // start; the More button's under the button.)
+    let keyed = r.has_focus() && row_copy::menu_key(ui);
+    let set_open = (r.secondary_clicked() || keyed).then_some(egui::SetOpenCommand::Bool(true));
+    let at_id = r.id.with("menu-at");
+    if set_open.is_some() {
+        let pointer = ui.ctx().pointer_interact_pos().filter(|_| !keyed);
+        ui.data_mut(|d| d.insert_temp(at_id, pointer.unwrap_or(rect.left_bottom())));
+    }
+    let at = ui.data(|d| d.get_temp::<egui::Pos2>(at_id)).unwrap_or(rect.left_bottom());
+    let menu = egui::Popup::menu(&r).open_memory(set_open).at_position(at);
+    menu.style(mg_uikit::menu_style).show(|ui| heading_menu(ui, &set.source, keyed, &mut asked));
+    if let Some(more) = &more {
+        let menu = egui::Popup::menu(more).style(mg_uikit::menu_style);
+        menu.show(|ui| heading_menu(ui, &set.source, false, &mut asked));
+    }
     asked
+}
+
+/// What closes Verify's line in the log where it found anything: where
+/// its findings are, as Verify writes no file of its own.
+pub const LISTED: &str = ". Listed in Problems, where a right click copies or saves them";
+
+/// The name of a heading's More button.
+pub const MORE: &str = "Problems Actions";
+/// The heading's menu's Copy These Findings (its source's findings, one a
+/// line).
+pub const COPY_THESE: &str = "Copy These Findings";
+/// The heading's menu's Save These Findings As… (its source's findings
+/// into a text file).
+pub const SAVE_AS: &str = "Save These Findings As…";
+
+/// What a source's heading was asked for (its menu, its keys).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadingAsked {
+    Remove,
+    CopyAll,
+    Save,
+}
+
+/// A heading's menu, each item on that heading's findings alone: Copy
+/// These Findings and Save These Findings As…, then Remove from Problems;
+/// the first item taking the keyboard where Shift+F10 opened it.
+fn heading_menu(ui: &mut Ui, source: &Source, keyed: bool, asked: &mut Option<HeadingAsked>) {
+    mg_uikit::menu_rows(ui);
+    let whose = source.title();
+    let copy = ui
+        .button(COPY_THESE)
+        .on_hover_text(format!("Copy the findings of {whose}, each on a line of its own"));
+    if keyed {
+        copy.request_focus();
+    }
+    if copy.clicked() {
+        *asked = Some(HeadingAsked::CopyAll);
+        ui.close();
+    }
+    let save =
+        ui.button(SAVE_AS).on_hover_text(format!("Save the findings of {whose} into a text file"));
+    if save.clicked() {
+        *asked = Some(HeadingAsked::Save);
+        ui.close();
+    }
+    mg_uikit::menu_separator(ui);
+    let again = match source {
+        Source::Tileset(_) => "Check again brings them back",
+        Source::Build => "Build again brings them back",
+        Source::Verify => "Verify again brings them back",
+    };
+    if ui.button(REMOVE).on_hover_text(format!("Take these findings away. {again}")).clicked() {
+        *asked = Some(HeadingAsked::Remove);
+        ui.close();
+    }
 }
 
 /// A finding's row's accessible name: its kind, its place and its message
@@ -790,6 +974,8 @@ pub fn row_name(p: &Problem) -> String {
 struct Look<'a> {
     selected: bool,
     ringed: bool,
+    /// Shift+F10 asked for its menu.
+    keyed: bool,
     fix: Option<&'a crate::OfferedFix>,
     all: Option<&'a (usize, String, usize)>,
     place: bool,
@@ -806,6 +992,8 @@ struct Did {
     fix_all: bool,
     /// Its menu's Mark as Used.
     mark: bool,
+    /// Its menu's Copy or Copy All.
+    copy: Option<RowCopy>,
 }
 
 /// The name of an Unused result's menu row and of the Build dialog's
@@ -815,8 +1003,10 @@ pub const MARK_AS_USED: &str = "Mark as Used";
 /// A finding's row: its kind's mark and word, its place (a link where it
 /// goes somewhere), its message cut to the row, whole in its tip, and
 /// Verify's fix as a button after it (Fixed, once made). A click on the row
-/// chooses it, a double click goes where it is; an Unused result of Build's
-/// offers Mark as Used in its menu.
+/// chooses it, a double click goes where it is; its menu (a right click, or
+/// Shift+F10 on the one chosen) offers Copy and Copy All, after an Unused
+/// result of Build's Mark as Used. (Its words are not selectable: a click
+/// on them is the row's, and its menu's Copy takes the whole message.)
 fn problem(
     ui: &mut Ui,
     t: &mg_uikit::Tokens,
@@ -851,21 +1041,27 @@ fn problem(
         let ring = egui::Stroke::new(1.0, t.accent);
         ui.painter().rect_stroke(room, 2.0, ring, egui::StrokeKind::Inside);
     }
-    did.chosen = row.clicked();
+    // (A right click chooses it too: Ctrl+C after its menu copies it.)
+    did.chosen = row.clicked() || row.secondary_clicked();
     did.go = (row.double_clicked() || row.triple_clicked()) && p.go.is_some();
-    if p.unused.is_some() {
-        let place = look.place;
-        mg_uikit::context_menu(&row, |ui| {
-            let r = ui.add_enabled(place, egui::Button::new(MARK_AS_USED));
-            if r.on_disabled_hover_text(crate::build_view::NO_PLACE)
-                .on_hover_text(crate::build_view::MARK_HOVER)
-                .clicked()
-            {
-                did.mark = true;
-                ui.close();
-            }
-        });
-    }
+    // Its menu: an Unused result's Mark as Used first, then Copy and Copy
+    // All.
+    let place = look.place;
+    let all = "Copy every finding listed, under every heading, each on a line of its own";
+    did.copy = row_copy::row_menu_saying(ui, &row, look.keyed, all, |ui| {
+        if p.unused.is_none() {
+            return false;
+        }
+        let r = ui.add_enabled(place, egui::Button::new(MARK_AS_USED));
+        if r.on_disabled_hover_text(crate::build_view::NO_PLACE)
+            .on_hover_text(crate::build_view::MARK_HOVER)
+            .clicked()
+        {
+            did.mark = true;
+            ui.close();
+        }
+        true
+    });
     ui.horizontal(|ui| {
         ui.set_min_height(line);
         let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());

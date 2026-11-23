@@ -207,11 +207,40 @@ impl File {
         File { text, outline, idents, locals, members, toks }
     }
 
-    /// A local's documentation: the comments above its statement.
+    /// A local's documentation: the comments above its statement, then the
+    /// one that trails the statement's `;` on its line.
     fn local_doc(&self, l: &Local) -> (String, String) {
         let Some(at) = l.statement else { return Default::default() };
         let raw = self.toks.partition_point(|t| t.span.start < at);
-        crate::outline::doc_before(&self.text, &self.toks, raw)
+        let above = crate::outline::doc_before(&self.text, &self.toks, raw);
+        // The statement's `;`: the first after the name outside brackets
+        // (a `for` header's `;` is inside its parentheses, a block's `{`
+        // ends the search).
+        let mut depth = 0i32;
+        let mut semi = None;
+        for (k, t) in self
+            .toks
+            .iter()
+            .enumerate()
+            .skip(self.toks.partition_point(|t| t.span.start < l.decl.start))
+        {
+            match &self.text[t.span.clone()] {
+                "(" | "[" => depth += 1,
+                ")" | "]" => depth -= 1,
+                "{" | "}" => break,
+                ";" if depth <= 0 => {
+                    semi = Some(k);
+                    break;
+                }
+                _ => {}
+            }
+            if depth < 0 {
+                break;
+            }
+        }
+        let trailing =
+            semi.and_then(|k| crate::outline::trailing_comment(&self.text, &self.toks, k));
+        crate::outline::doc_with_trailing(&self.text, &self.toks, above, trailing)
     }
 
     /// The member name after `.` at (or just before) a byte offset.
@@ -1043,7 +1072,7 @@ mod tests {
         let inner = member(&mut idx, &mut src, "mKept.inner", 0, 1).unwrap();
         assert_eq!(
             (inner.signature.as_str(), inner.doc.as_str()),
-            ("struct Inner inner (struct Mark)", "")
+            ("struct Inner inner (struct Mark)", "after inner")
         );
         for (needle, nth) in [("GetMark().vPos", 0), ("gMark.vPos", 0), ("mArg.vPos", 0)] {
             let pos = member(&mut idx, &mut src, needle, nth, 1).unwrap();
@@ -1219,5 +1248,19 @@ mod tests {
         for n in ["Twice", "LIMIT", "Pair", "GetSelf", "TRUE"] {
             assert!(names.contains(&n.to_string()), "{n}");
         }
+    }
+
+    /// A local's trailing comment documents it, and the next local takes
+    /// none of it.
+    #[test]
+    fn a_locals_trailing_comment_documents_it() {
+        const TEXT: &str = "void main()\n{\n    int nCount = 0; // How many.\n    int nOther;\n}\n";
+        const FILES: &[(&str, &str)] = &[("main", TEXT)];
+        let mut src = sources(FILES);
+        let mut idx = Index::new();
+        let d = idx.declaration_at("main", at(TEXT, "nCount", 0), &mut src).unwrap();
+        assert_eq!((d.kind, d.doc.as_str()), (DeclKind::Local, "How many."));
+        let d = idx.declaration_at("main", at(TEXT, "nOther", 0), &mut src).unwrap();
+        assert_eq!(d.doc, "");
     }
 }

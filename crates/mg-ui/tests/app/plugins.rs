@@ -915,7 +915,8 @@ fn a_plugin_s_checks_run_with_verify() {
     );
     assert!(
         log.iter().any(|(_, m)| m.starts_with("Verify: ")
-            && m.ends_with("; left out, not checked (Options › Verify): Plugins' checks")),
+            && verify_summary(m)
+                .ends_with("; left out, not checked (Options › Verify): Plugins' checks")),
         "{log:#?}"
     );
     // One plugin's check left out, by its id: the other plugin's runs.
@@ -930,11 +931,17 @@ fn a_plugin_s_checks_run_with_verify() {
     assert!(log.iter().any(|(_, m)| m.contains("a check only reads")), "{log:#?}");
     assert!(
         log.iter().any(|(_, m)| m.starts_with("Verify: ")
-            && m.ends_with(
+            && verify_summary(m).ends_with(
                 "; left out, not checked (Options › Verify): example.tag-conventions/tag-case"
             )),
         "{log:#?}"
     );
+}
+
+/// Verify's line in the log without what closes it where it found
+/// anything (where its findings are listed, `problems::LISTED`).
+fn verify_summary(line: &str) -> &str {
+    line.strip_suffix(mg_ui::problems::LISTED).unwrap_or(line)
 }
 
 /// A finding's fix is a button beside its line in Verify's report: made

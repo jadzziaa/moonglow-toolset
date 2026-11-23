@@ -1253,7 +1253,7 @@ fn hak(app: &mut Moonglow, ui: &mut Ui, id: u32, window: bool) {
             let words = format!(".{t}");
             let said = format!("{words}, {}", crate::problems::count(*count, "resource"));
             let r = mg_uikit::TreeRow::new(words.as_str())
-                .icon(crate::browser::kind_icon(*t))
+                .kind_icon(crate::browser::kind_icon(*t))
                 .count(*count)
                 .label(said)
                 .fit()

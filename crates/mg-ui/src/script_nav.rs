@@ -49,6 +49,10 @@ pub struct Nav {
     pub(crate) live: HashMap<ResKey, Live>,
     /// The Rename Symbol window: the declaration and the new name.
     pub rename: Option<(Declaration, String)>,
+    /// The script a declaration was last looked for in (`declaration_at`):
+    /// the one Go to Definition was asked from, whose window a game
+    /// script opens in.
+    asked_from: Option<ResKey>,
 }
 
 /// Scripts by name: editors' text, then the module's, then the game's.
@@ -133,6 +137,7 @@ impl Moonglow {
     /// What the name at character `at` of a script declares.
     pub fn declaration_at(&mut self, key: ResKey, at: usize) -> Option<Declaration> {
         self.sync_nav();
+        self.script_nav.asked_from = Some(key);
         let text = self.scripts.get(&key)?.text.clone();
         let offset = tools::byte_index(&text, at);
         let Moonglow { scripts, ws, game, script_nav, .. } = self;
@@ -156,8 +161,37 @@ impl Moonglow {
             self.script_tools.jump = Some((k, tools::char_index(&text, d.at.span.start)));
             self.actions.push(Action::OpenTab(Tab::Script(k)));
         } else {
-            self.actions.push(Action::OpenTab(Tab::Resource(k)));
+            // A game script, read-only: at the declaration's line, marked
+            // (its text as the read-only view has it, with plain newlines).
+            let text = self.script_source(&k).unwrap_or_default();
+            let start = d.at.span.start.min(text.len());
+            let line = mg_core::text::line_of(text.as_bytes(), start).saturating_sub(1);
+            self.browser.go_to_line(k, None, line);
+            self.open_definition(Tab::Resource(k));
         }
+    }
+
+    /// Where a game script's declaration opens (the owner's ruling of
+    /// 2026-11-23): already open, its tab brought to the front; else, as
+    /// Floating Windows, a tab of the window (or the group, the script
+    /// docked) of the script it was asked from (`Nav::asked_from`), not
+    /// a window of its own; as Tabs, where a read-only tab opens
+    /// (`Action::OpenTab`, the main window). The one place that decides
+    /// it.
+    fn open_definition(&mut self, tab: Tab) {
+        let floating = self.settings.open_editors == crate::settings::OpenEditors::Floating;
+        let from = self.script_nav.asked_from.map(Tab::Script);
+        let group = from.and_then(|t| self.dock.find_tab(&t));
+        if floating
+            && self.dock.find_tab(&tab).is_none()
+            && let Some(at) = group
+        {
+            let pane = egui_dock::NodePath { surface: at.surface, node: at.node };
+            self.dock.set_focused_node_and_surface(pane);
+            self.dock.push_to_focused_leaf(tab.clone());
+        }
+        // (Open now, it is brought to the front; else opened.)
+        self.actions.push(Action::OpenTab(tab));
     }
 
     /// The module's scripts (the files references are looked for in).

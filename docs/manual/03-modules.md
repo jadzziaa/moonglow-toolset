@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:12:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T16:58:23Z }
 ---
 
 # Modules
@@ -152,6 +152,10 @@ References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
   `guard_talk › NPC line 3 “Halt!” › action`. Click one to go there: the
   area with the object selected, the conversation line, the script line.
+  Right-click one (or Shift+F10 with the keyboard on it) for a plugin's
+  commands for it, then **Copy** (the place, then the resource and field
+  that name it, as one line) and **Copy All** (every place listed); Ctrl+C
+  copies the one the keyboard is on.
 - **Tags work too.** Type a tag in the tab's field to find the objects with
   it, and the transitions, locked doors and conversation lines (journal
   categories) that name it.
@@ -317,7 +321,10 @@ search) but lists much: it is off unless ticked.
 What's found is listed by place, as in Find References: `keep ›
 creature GUARD_01 › item OLD_SWORD`, `sword.uti`, `keep (area)`, with
 what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
-"Ezra"`). Click one to go there. A creature, placeable or store
+"Ezra"`). Click one to go there; right-click it for **Copy** (its place
+and what matched, as one line) and **Copy All** (every one listed, ticked
+or not), after a plugin's commands for it; with the keyboard on its
+place (Tab), Shift+F10 opens that menu and Ctrl+C copies it. A creature, placeable or store
 blueprint's inventory names its items' blueprints: an item blueprint
 found is also listed where they carry it (`chest.utp › carries
 sword.uti`), through bags in bags too (`crate.utp › carries pouch.uti

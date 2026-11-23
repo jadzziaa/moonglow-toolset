@@ -1328,3 +1328,183 @@ fn the_references_window_says_where_things_are() {
     assert_eq!(order[1], "start.git /Creature List[0]/ScriptHeartbeat");
     assert_eq!(order[2], "start.git /Creature List[10]/ScriptHeartbeat");
 }
+
+/// Advanced Search's results (5.2's W4): a row's menu (a right click on
+/// its place or its row) has Copy (its place and what matched) and Copy
+/// All (every result, ticked or not, in the list's order).
+#[test]
+fn advanced_search_s_results_copy_from_their_menus() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("w4-advanced-search-copy");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let creatures: Vec<Struct> = (0..3)
+        .map(|i| {
+            let mut c = Struct::new(4);
+            c.set("Tag", Value::String(format!("T{i:03}").into_bytes()));
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(b"nQuest".to_vec()));
+            v.set("Type", Value::Dword(1));
+            v.set("Value", Value::Int(i));
+            c.set("VarTable", Value::List(vec![v]));
+            c
+        })
+        .collect();
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = harness(app, 1280.0, 900.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Variable, name: "nQuest".into(), ..Default::default() };
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("3 found:");
+    let copied = |h: &mut Harness<'_, Moonglow>, item: &str| -> Vec<String> {
+        h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
+        h.step();
+        let out = (h.output().platform_output.commands.iter())
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        h.run();
+        out
+    };
+    let place = |h: &Harness<'_, Moonglow>, tag: &str| {
+        h.get_by_label_contains(&format!("creature {tag}")).accesskit_node().label().unwrap()
+    };
+    let first = place(&h, "T000");
+    h.get_by_label_contains("creature T000").click_secondary();
+    h.run();
+    let one = copied(&mut h, COPY);
+    assert_eq!(one.len(), 1);
+    assert!(one[0].starts_with(&format!("{first}: ")), "its place first: {one:?}");
+    // (A right click on the row past its words opens the menu too.)
+    let r = h.get_by_label_contains("creature T001").rect();
+    let at = egui::pos2(r.right() + 3.0, r.center().y);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    let all = copied(&mut h, COPY_ALL);
+    let lines: Vec<&str> = all[0].lines().collect();
+    assert_eq!(lines.len(), 3, "every result: {lines:?}");
+    assert_eq!(lines[0], one[0], "in the list's order");
+    assert!(lines[2].starts_with(&format!("{}: ", place(&h, "T002"))), "{lines:?}");
+    // The keyboard on a result's link (its row's Tab stop): Ctrl+C copies
+    // the row, Shift+F10 opens its menu.
+    h.get_by_label_contains("creature T001").focus();
+    h.run();
+    assert!(h.get_by_label_contains("creature T001").accesskit_node().is_focused());
+    assert_eq!(copy_now(&mut h), [lines[1]], "Ctrl+C: the row the keyboard is on");
+    menu_by_keys(&mut h, &|h| {
+        h.get_by_label_contains("creature T001").accesskit_node().is_focused()
+    });
+}
+
+/// Ctrl+C (the backend's Copy): what it copied to the clipboard.
+fn copy_now(h: &mut Harness<'_, Moonglow>) -> Vec<String> {
+    h.event(egui::Event::Copy);
+    h.step();
+    let out = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    h.run();
+    out
+}
+
+/// The open menu's `item` clicked: what it copied to the clipboard.
+fn menu_copies(h: &mut Harness<'_, Moonglow>, item: &str) -> Vec<String> {
+    h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
+    h.step();
+    let out = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    h.run();
+    out
+}
+
+/// Shift+F10 with the keyboard on a row: its menu open, Copy taking the
+/// keyboard; Escape closes it and gives the keyboard back (`back` says
+/// whether it has it).
+fn menu_by_keys(h: &mut Harness<'_, Moonglow>, back: &dyn Fn(&Harness<'_, Moonglow>) -> bool) {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    press_now(h, egui::Modifiers::SHIFT, egui::Key::F10);
+    h.run();
+    let copy = h.get_all_by_label(COPY).last().expect("Shift+F10 opens its menu");
+    assert!(copy.accesskit_node().is_focused(), "Copy has the keyboard");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label(COPY_ALL).is_none(), "Escape closes it");
+    assert!(back(h), "Escape gives the keyboard back to the row");
+}
+
+/// References' places ("Used in N places"): a place's menu has Copy (the
+/// place, then the resource and field that name it) and Copy All (every
+/// place, in the list's order), after the plugins' commands; with the
+/// keyboard on its link, Ctrl+C copies it and Shift+F10 opens its menu.
+#[test]
+fn references_places_copy_from_their_menus_and_keys() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let dir = mg_testkit::scratch_dir("w4-references-copy");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut git = Gff::new(*b"GIT ");
+    for tag in ["GREETER", "PORTER"] {
+        let mut c = mg_schema::git::CREATURE_LIST.new_item();
+        c.write(&mg_schema::git::creature_list::SCRIPT_SPAWN, ResRef::from_str("hello").unwrap());
+        c.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        git.root.items_mut(&mg_schema::git::CREATURE_LIST).push(c);
+    }
+    m.set_gff(ResKey::parse("start", ResType::GIT).unwrap(), &git).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+    h.run_steps(3);
+    h.get_by_label("Used in 2 places:");
+    let line = |tag: &str, i: usize| {
+        format!("start › creature {tag} › OnSpawn: start.git /Creature List[{i}]/ScriptSpawn")
+    };
+    let greeter = "start › creature GREETER › OnSpawn";
+    h.get_by_label(greeter).click_secondary();
+    h.run();
+    assert_eq!(menu_copies(&mut h, COPY), [line("GREETER", 0)], "Copy: the place and field");
+    h.get_by_label(greeter).click_secondary();
+    h.run();
+    let all = format!("{}\n{}", line("GREETER", 0), line("PORTER", 1));
+    assert_eq!(menu_copies(&mut h, COPY_ALL), [all], "Copy All: every place");
+    let porter = "start › creature PORTER › OnSpawn";
+    h.get_by_label(porter).focus();
+    h.run();
+    assert!(h.get_by_label(porter).accesskit_node().is_focused(), "its link has the keyboard");
+    assert_eq!(copy_now(&mut h), [line("PORTER", 1)], "Ctrl+C: the place the keyboard is on");
+    menu_by_keys(&mut h, &|h| h.get_by_label(porter).accesskit_node().is_focused());
+}

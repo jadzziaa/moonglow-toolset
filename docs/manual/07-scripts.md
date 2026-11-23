@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:06:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T18:35:46Z }
 ---
 
 # Scripts
@@ -40,22 +40,22 @@ While you work in a script, the Status Bar's hints show its keys (Find,
 Find next, Definition, References, Complete, Bookmark, Compile all,
 Replace, as Options › Keyboard binds them).
 
-Beside the text, a script brings Aurora's lists and their help to the
-**Right Dock**: **Reference** over **Help**, each with its header (the
-seam between them drags; under 1400 points wide they share one tab
-bar). Where the script floats in a window of its own, they stand at
-the window's right instead, and narrow to half the window in a small
-one. The Right Dock is there whenever a script's tab is the editor in
-front, in its group too: click an area's tab and the area's panels are
-back.
+Beside the text, a script brings Aurora's lists to the **Right Dock**:
+**Reference**, with its header. Where the script floats in a window of
+its own, it stands at the window's right instead, and narrows to half
+the window in a small one. The Right Dock is there whenever a script's
+tab is the editor in front, in its group too: click an area's tab and
+the area's panels are back.
 
 **Reference** lists, chosen above its filter (where the panel is too
 narrow for the four words, from a list):
 
 - **Functions**, **Variables** and **Constants**: everything
   `nwscript.nss` declares, and the script's own and its includes' (in
-  the theme's text, the game's quieter). A click shows one in Help;
-  double-click to insert it at the cursor.
+  the theme's text, the game's quieter). A click shows one in Help,
+  under the text, bringing Help to the front (and opening the Bottom
+  Dock on it where it was closed); double-click to insert it at the
+  cursor.
 - **Templates**: code templates, the game's and those in your Code
   Templates Directory (Options › Script Editor). Double-click to insert.
 
@@ -63,46 +63,55 @@ F6 to Reference puts the keyboard in its filter; F6 to Help takes it
 from the text (what you type then goes nowhere) until you click back in
 it.
 
-**Help** shows the function or constant chosen in Reference or under
-the cursor: its declaration, in the editor's font and colors, each
-parameter on a line of its own; then its documentation, the comments
-directly above the declaration (no empty line between), `//` lines and
-`/* … */` blocks alike, but not one that follows code on its line
-(`int nLast; // the last one` is about `nLast`). The comment's lines
-read as prose, without their markers, a sentence wrapped over several
-lines joined again: a line `- name: what it is` (or `name - what it
-is`) is a row for that parameter, its name beside what it says; any
-other line of a list (`- nYear should be from 0 to 32000`, `-> 0-10
-means…`, `1) Time can only…`) stands on a line of its own; and a line
-`* …` (BioWare's notes, "Returns…") is a quieter line of its own. What
-is laid out in columns (the lists in `nwscript.nss`'s comments,
-`0-10   :  Hostile.`) and code examples (`void main() { … }`) keep their
-layout, in the editor's font, so they line up as in the file.
-BioWare's includes document a function with a `/* … */` block after a
-`//::` line above its definition; where the prototype has no comment
-of its own, Help shows the definition's. A struct's members and local
-variables have theirs too, the comments above their lines. (`mg lsp`'s
-hover has the comment's text without the markers too.) A double click
-on a function's or a constant's name in a script brings its Help
-forward (in front of Reference where they share one tab bar).
+**Help** stands under the text, as wide as it, as in the Aurora
+Toolset: a tab of the Bottom Dock, or of the bottom pane of a script's
+own window. It shows the function or constant chosen in Reference or
+under the cursor as the source has it: its documentation comment as
+written (its `//` or `/* … */`, its spaces and the columns of its
+lists, so `nwscript.nss`'s tables line up as in the file), then its
+declaration, in the editor's font and colors on the editor's ground. Its
+lines are not wrapped: a long one scrolls sideways. The documentation is
+the comments directly above the declaration (no empty line between),
+`//` lines and `/* … */` blocks alike, and the comment that trails
+its `;` on the same line (`int nLast; // the last one` is about
+`nLast`, not about the next declaration; with both, the one above
+comes first). A comment with an empty line under it, a heading for a
+group of constants, belongs to none of them. BioWare's includes
+document a function with a `/* … */` block after a `//::` line above
+its definition; where the prototype has no comment of its own, Help
+shows the definition's. A struct's members and local variables have
+theirs too, the comments above and beside their lines. (`mg lsp`'s
+hover has the comment's text without the markers.) A double click on a
+function's or a constant's name in a script, or Definition, brings Help
+forward, opening the Bottom Dock where it was closed; moving the cursor
+only changes what it shows.
 
-A script brings two panels of its own to the **Bottom Dock** under the
-editor area, **Compiler** and **Bookmarks**, before **Problems**,
-**Search Results** and the **Log**, which are there whatever is in
-front; each has its switch in the Status Bar (Log, Problems, Compiler,
-Bookmarks, Search Results), which opens the dock on it or closes it.
-They follow the script in front: with two scripts side by side, the one
-whose group you work in.
+A script brings three panels of its own to the **Bottom Dock** under
+the editor area, **Compiler**, **Help** and **Bookmarks**, before
+**Problems**, **Search Results** and the **Log**, which are there
+whatever is in front; each has its switch in the Status Bar (Log,
+Problems, Compiler, Help, Bookmarks, Search Results), which opens the
+dock on it or closes it. They follow the script in front: with two
+scripts side by side, the one whose group you work in.
 A script in a window of its own has them on its window's **bottom
-pane** instead (Compiler, Bookmarks, Search Results), under its text
-beside Reference and Help; that pane takes at most a third of the
-window's height, however far its edge is dragged, so that the text
-keeps the rest in a small window.
+pane** instead (Compiler, Help, Bookmarks, Search Results), under its
+text beside Reference; that pane takes at most a third of the window's
+height, however far its edge is dragged, so that the text keeps the
+rest in a small window. The width you drag that window's Reference
+pane to and the height you drag its bottom pane to are kept: the next
+script window opens with them, after a restart too.
 
-- **Compiler**: what the script's latest compile said; click a message
+- **Compiler**: first, where checking as you type (below) found an
+  error, a **Found as you type** row with the compiler's words whole,
+  wrapped over as many lines as they take; click it to go to the line
+  (the include's own line where the error is in an include). Then what
+  the script's latest compile said; click a message
   that names a line to go there (in an include too). Each starts with
   the time it was written (`14:03:27`), so two compiles in a row are
-  easy to tell apart. When **Save** saves without compiling
+  easy to tell apart. A row's right click (or Shift+F10 with the
+  keyboard on it, reached by Tab) has **Copy** (the message without its
+  time) and **Copy All** (every row, the error found as you type first);
+  Ctrl+C copies the row the keyboard is on. When **Save** saves without compiling
   (Automatically Compile Scripts on Save is off), Compiler says so
   instead of keeping the last compile's message; so does File › Save
   (Ctrl+S with the keyboard elsewhere) for each script whose unsaved
@@ -111,12 +120,14 @@ keeps the rest in a small window.
   compile that failed opens the dock on Compiler whatever it showed.
 - **Bookmarks**: the numbered bookmarks (`[1]`) and the bookmarked
   lines, each with its line's number and text; click one to go to its
-  line. Setting or clearing a bookmark brings it to the front where the
+  line, or right-click it (or Shift+F10 with the keyboard on it) to
+  **Copy** it or **Copy All**; Ctrl+C copies the row the keyboard is on. Setting or clearing a bookmark brings it to the front where the
   dock is open on another panel than the Log.
 - **Search Results**: what the last search found (Find In Files, Find
   In Currently Open Scripts, References), what was searched over the
   lines, its switch's count the lines found; click a line (or Enter on
-  the one the arrow keys are on) to go there, in its own script. A
+  the one the arrow keys are on) to go there, in its own script, or
+  right-click it to **Copy** it whole or **Copy All**. A
   search that finds something opens the dock on it; one that finds
   nothing opens nothing (a script in a window of its own shows the
   hits on its window's bottom pane). The panel holds one search at a
@@ -161,6 +172,38 @@ have.
 | Ctrl+Shift+1 … 9 | set numbered bookmark 1 to 9 |
 | Ctrl+1 … 9 | go to numbered bookmark 1 to 9 |
 | F7 | compile all the module's scripts |
+
+**The completion list** (F2) is as wide as the longest name it
+lists, so no name is broken over two lines, and never narrower than a
+short list needs; it stops at the window's edge, where a longer name
+ends in "…" and its tip gives it whole with its signature. Its scroll
+bar shows only when the names are more than it holds. Up and Down
+choose a name, Enter or Tab puts it in, Escape closes the list.
+Beside the list, the name chosen in it shows its declaration and the
+first line of its documentation, at the list's right, at its left where
+the window's edge is near, or under (or over) it where neither side has
+room, always inside the window.
+
+**Tips over names.** Rest the pointer on the name of a function or
+constant the script knows (its own, its includes' or the game's) for a
+tip with its declaration and the first line of its documentation; move
+the cursor onto one with the arrow keys (or Home, End, Page Up, Page
+Down) and the same tip stands under it until the next key, click or
+scroll of the text; it hides while the cursor is out of sight. Over
+a line with an error, the error's own tip shows instead, and neither
+tip shows while the editor's right-click menu is open. **Options
+› Script Editor › Show declarations in tips** turns both off.
+
+**The editor's right-click menu** has **Undo** and **Redo** (the
+script's own, grayed with nothing to take back or give again), **Cut**,
+**Copy**, **Paste** and **Select All**, then **Convert Indentation to
+Tabs** and **to Spaces**, and any command a plugin adds for scripts.
+Cut and Copy are grayed with no text selected. A script of the game's
+or a hak's, open only to be read, has Cut, Copy, Paste and Select All,
+Cut and Paste grayed, then **Find…** (see [The main window](02-main-window.md)). A right click
+inside the selection keeps it, so the menu works on it; outside the
+selection the click puts the cursor there. Shift+F10 opens the menu at
+the cursor, and Up, Down and Enter choose from it.
 
 **Undo in a script.** The editor keeps its own history of the text:
 what you type stays in the editor until **Save** (or File › Save)
@@ -254,11 +297,11 @@ which a line is most often further in than the one before it (two,
 four…; the ` * ` down a `/* … */` block's side doesn't count). A script
 with no indented line goes by Options › Script Editor › Indent with.
 **Edit › Convert Indentation to Tabs** and **to Spaces** (also on the
-editor's right-click menu) make every line of the script in front so:
+editor's right-click menu, above) make every line of the script in front so:
 as far in as it was, a tab for each step (what is left of a step, a
 column lined up, stays spaces), or spaces for each tab (to the next
 multiple of Options' Indent width). With text selected in the editor
-(a right click keeps the selection; from the Edit menu, with the
+(a right click inside it keeps it; from the Edit menu, with the
 editor's keyboard as the menu opens), only the lines it touches are
 converted. It is one step for the editor's Undo (Ctrl+Z with the
 editor's keyboard), and Tab indents so from then on (after a
@@ -356,9 +399,15 @@ Moonglow knows what each name in a script stands for:
 With that:
 - **Definition** (F12, or Ctrl+click a name): opens where the name is
   declared, at the line; for a function, its body if it has one. A game
-  script or `nwscript.nss` opens read-only in a tab of its own instead
-  (not at the line), and Help shows the declaration with its comment
-  once the script is in front again.
+  script or `nwscript.nss` opens read-only instead, scrolled to the
+  declaration's line with that line marked, and Help shows the
+  declaration with its comment once the script is in front again. As
+  Floating Windows it opens as a tab of the window (or group) of the
+  script you asked from; as Tabs, as a tab of the main window. Where it is open
+  already, that tab comes to the front and goes to the line: a second
+  Definition into the same file reuses it. **Find** (Ctrl+F) works in
+  it as in any read-only text (see [The main window](02-main-window.md),
+  the resource browser).
 - **References** (Shift+F12): every use of the name in the module's
   scripts, listed in **Search Results**; click one to go there. A local's
   uses are only in its own block; a function's, only in scripts that
@@ -379,9 +428,13 @@ include and which line. While the Status Bar follows the script (it is
 the tab in front of the main window, or it is in a window of its own
 and the pointer is over that window or you last clicked in it), the
 Status Bar says the error too, in red, where the log's last line would
-be, whether the log is open or not (cut short where it is long: hover
-over it for all of it); while the log is closed, a warning or an error
-logged after it shows instead. Click it to go to the underlined line.
+be, whether the log is open or not: whole wherever the bar has room
+for it (the others give way only as far as it needs: the game's folder,
+then the hints from the last, then the switches' words, then the
+module's name is cut short, and "Line, column" goes last), with all of
+it in its tip where even so it does not fit; while the log is
+closed, a warning or an error logged after it shows instead. Compiler
+lists it too, whole (above). Click it to go to the underlined line.
 A script in a window of its own also says it at the right end of its
 window's bottom pane's tab bar, in red (its icon alone where the pane
 is narrow); click it the same way. Nothing above the text comes and

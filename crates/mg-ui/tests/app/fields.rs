@@ -2871,3 +2871,283 @@ fn a_journal_field_its_file_lacks_is_written_in_its_own_type() {
     let entry = category(&mut h).list("EntryList").unwrap()[0].clone();
     assert_eq!(entry.get("End"), Some(&Value::Word(1)));
 }
+
+/// A right click (press and release) at `at`, the window then come to
+/// rest.
+pub(crate) fn right_click_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(h);
+}
+
+/// The open text menu's row `name` (`keys` beside it, as the menus show
+/// them; "" for none): whether it is on, and where.
+pub(crate) fn text_menu_row(
+    h: &Harness<'_, Moonglow>,
+    name: &str,
+    keys: &str,
+) -> Option<(bool, egui::Rect)> {
+    let label = if keys.is_empty() { name.to_string() } else { format!("{name} {keys}") };
+    let row = h.query_all_by_role_and_label(egui::accesskit::Role::Button, &label).next()?;
+    Some((!row.accesskit_node().is_disabled(), row.rect()))
+}
+
+/// The text menu's rows this test looks for, on or off (`None`: not
+/// there): Cut, Copy, Paste and Select All.
+pub(crate) fn text_menu_rows(h: &Harness<'_, Moonglow>) -> [Option<bool>; 4] {
+    [("Cut", "Ctrl+X"), ("Copy", "Ctrl+C"), ("Paste", "Ctrl+V"), ("Select All", "Ctrl+A")]
+        .map(|(name, keys)| text_menu_row(h, name, keys).map(|(on, _)| on))
+}
+
+/// Clicks the open text menu's row `name`; the text copied as the
+/// window comes to rest after it (each frame's, until it does), and
+/// whether the clipboard was asked for.
+pub(crate) fn choose_text_row(
+    h: &mut Harness<'_, Moonglow>,
+    name: &str,
+    keys: &str,
+) -> (Vec<String>, bool) {
+    let (on, rect) = text_menu_row(h, name, keys).unwrap_or_else(|| panic!("no row {name}"));
+    assert!(on, "{name} is on");
+    // (Its events in one frame: kittest gives each queued event a frame of
+    // its own, and `output` is the last frame's, which would lose the
+    // click's own asking for the clipboard.)
+    let at = rect.center();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let input = h.input_mut();
+    input.events.extend([egui::Event::PointerMoved(at), button(true), button(false)]);
+    copied_until_rest(h)
+}
+
+/// The text copied in each frame until the window comes to rest, and
+/// whether the clipboard was asked for.
+pub(crate) fn copied_until_rest(h: &mut Harness<'_, Moonglow>) -> (Vec<String>, bool) {
+    let (mut copied, mut asked) = (Vec::new(), false);
+    let started = std::time::Instant::now();
+    // (Frame by frame, each one's output read: the click's own frame, which
+    // asks for the clipboard, and the next, where the field copies. At
+    // least the few the queued events take, kittest giving each its own.)
+    for step in 0.. {
+        h.step();
+        let out = h.output();
+        copied.extend(out.platform_output.commands.iter().filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        }));
+        asked |= (out.viewport_output.get(&egui::ViewportId::ROOT))
+            .is_some_and(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste));
+        // (At rest as kittest's `run` takes it: no frame asked for at once.)
+        let rest = (out.viewport_output.get(&egui::ViewportId::ROOT))
+            .is_none_or(|v| v.repaint_delay != std::time::Duration::ZERO);
+        if step >= 4 && rest && h.state().under_way().is_none() {
+            break;
+        }
+        assert!(started.elapsed() < SETTLE_TIME, "the window never came to rest");
+    }
+    (copied, asked)
+}
+
+/// A text field's right-click menu (a builder's report, 5.2: no text field
+/// offered Cut, Copy or Paste on a right click): the module's Tag in
+/// Module Properties has Cut, Copy, Paste and Select All, each doing what
+/// its keys do (and the field keeping the keys: a field that sets its text
+/// when they leave it sets nothing until then), Cut and Copy off with
+/// nothing selected; a right click in the selection keeps it, outside it
+/// puts the caret there; Shift+F10 opens it with the keys; the module
+/// tree's Filter (a search field) has it too.
+#[test]
+fn a_text_field_s_right_click_menu_cuts_copies_and_pastes() {
+    let dir = mg_testkit::scratch_dir("ui-text-menu");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    settle(&mut h);
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    let field = |h: &Harness<'_, Moonglow>, text: &str| {
+        h.query_all_by_value(text).find(is_input).map(|n| (n.rect(), n.accesskit_node().id()))
+    };
+    let tag = || ResKey::parse("module", ResType::IFO).unwrap();
+    let saved = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&tag()).unwrap().root.read(&ifo::MOD_TAG).as_bytes().to_vec()
+    };
+    let (rect, _) = field(&h, "SAMPLE").expect("the tag's text field");
+    // At rest, nothing: no menu.
+    assert_eq!(text_menu_rows(&h), [None; 4]);
+    // A right click on it: the menu, with nothing selected Cut and Copy
+    // off.
+    right_click_at(&mut h, rect.left_center() + egui::vec2(12.0, 0.0));
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+    let focused = h.ctx.memory(|m| m.focused()).expect("the field has the keys");
+    // Select All, then Copy: its text copied.
+    choose_text_row(&mut h, "Select All", "Ctrl+A");
+    assert_eq!(text_menu_rows(&h), [None; 4], "closed by its row");
+    right_click_at(&mut h, rect.left_center() + egui::vec2(12.0, 0.0));
+    assert_eq!(text_menu_rows(&h), [Some(true); 4], "in the selection: kept");
+    assert_eq!(choose_text_row(&mut h, "Copy", "Ctrl+C"), (vec!["SAMPLE".to_string()], false));
+    assert!(field(&h, "SAMPLE").is_some());
+    // Cut: copied and taken out, the keys still the field's, nothing set
+    // in the module until they leave it.
+    right_click_at(&mut h, rect.left_center() + egui::vec2(12.0, 0.0));
+    assert_eq!(choose_text_row(&mut h, "Cut", "Ctrl+X"), (vec!["SAMPLE".to_string()], false));
+    assert!(field(&h, "SAMPLE").is_none(), "taken out");
+    assert_eq!(h.ctx.memory(|m| m.focused()), Some(focused), "the keys kept");
+    assert_eq!(saved(&mut h), b"SAMPLE", "set when the keys leave it");
+    // Paste: the clipboard asked for, its text put in at the caret.
+    right_click_at(&mut h, rect.left_center() + egui::vec2(12.0, 0.0));
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+    assert_eq!(choose_text_row(&mut h, "Paste", "Ctrl+V"), (vec![], true));
+    h.event(egui::Event::Paste("PASTED".into()));
+    settle(&mut h);
+    assert!(field(&h, "PASTED").is_some(), "pasted");
+    h.key_press(egui::Key::Tab);
+    settle(&mut h);
+    assert_eq!(saved(&mut h), b"PASTED");
+    // A right click outside the selection: the caret goes there.
+    let (rect, id) = field(&h, "PASTED").unwrap();
+    h.get(egui_kittest::kittest::by().predicate(|n| n.id() == id)).click();
+    settle(&mut h);
+    press_now(&mut h, egui::Modifiers::NONE, egui::Key::Home);
+    for _ in 0..3 {
+        press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::ArrowRight);
+    }
+    let selection = |h: &Harness<'_, Moonglow>| {
+        let id = h.ctx.memory(|m| m.focused()).unwrap();
+        let r = egui::text_edit::TextEditState::load(&h.ctx, id)?.cursor.char_range()?;
+        Some((usize::from(r.primary.index), usize::from(r.secondary.index)))
+    };
+    assert_eq!(selection(&h), Some((3, 0)), "\"PAS\" selected");
+    right_click_at(&mut h, rect.right_center() - egui::vec2(4.0, 0.0));
+    assert_eq!(selection(&h), Some((6, 6)), "past the text: the caret at its end");
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+    // Escape closes the menu alone: the field keeps the keys.
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert_eq!(text_menu_rows(&h), [None; 4]);
+    assert!(h.ctx.memory(|m| m.focused()).is_some(), "the keys kept");
+    // Shift+F10: the menu, by the keys alone; Down and Enter choose.
+    press_now(&mut h, egui::Modifiers::COMMAND, egui::Key::A);
+    press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::F10);
+    settle(&mut h);
+    assert_eq!(text_menu_rows(&h), [Some(true); 4], "opened by Shift+F10");
+    h.key_press(egui::Key::ArrowDown);
+    h.key_press(egui::Key::Enter);
+    let (copied, _) = copied_until_rest(&mut h);
+    assert_eq!(copied, ["PASTED".to_string()], "Down to Copy, Enter");
+    assert!(field(&h, "PASTED").is_some(), "Enter was the menu's");
+    // The module tree's Filter (a search field).
+    unfold_left_dock(&mut h);
+    h.get(egui_kittest::kittest::by().predicate(tree_filter)).click();
+    settle(&mut h);
+    let filter = h.get(egui_kittest::kittest::by().predicate(tree_filter)).rect();
+    right_click_at(&mut h, filter.center());
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+    choose_text_row(&mut h, "Paste", "Ctrl+V");
+    h.event(egui::Event::Paste("hello".into()));
+    settle(&mut h);
+    assert!(h.query_all_by_value("hello").any(|n| tree_filter(&n.accesskit_node())));
+}
+
+/// A click elsewhere while a field's menu is open closes the menu and
+/// takes the keys from the field in the same click, as it would without
+/// the menu: a field that sets its text when the keys leave it (the
+/// module's Tag) sets it then. (On words that take no keys, the field's
+/// own label: a field clicked takes them whatever.)
+#[test]
+fn a_click_elsewhere_with_the_menu_open_sets_the_field_s_text() {
+    let dir = mg_testkit::scratch_dir("ui-text-menu-blur");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    settle(&mut h);
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    let tag = ResKey::parse("module", ResType::IFO).unwrap();
+    let saved = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&tag).unwrap().root.read(&ifo::MOD_TAG).as_bytes().to_vec()
+    };
+    let field = h.query_all_by_value("SAMPLE").find(is_input).expect("the tag's field");
+    let (rect, id) = (field.rect(), field.accesskit_node().id());
+    // The words "Tag" before it, to click.
+    let other = h
+        .get_all_by_label("Tag")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Label)
+        .expect("the field's label")
+        .rect();
+    h.get(egui_kittest::kittest::by().predicate(|n| n.id() == id)).click();
+    settle(&mut h);
+    press_now(&mut h, egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("FRESH".into()));
+    settle(&mut h);
+    assert_eq!(saved(&mut h), b"SAMPLE", "not set while it has the keys");
+    right_click_at(&mut h, rect.left_center() + egui::vec2(12.0, 0.0));
+    assert!(text_menu_row(&h, "Paste", "Ctrl+V").is_some(), "the menu");
+    let tag_field = h.ctx.memory(|m| m.focused()).expect("the tag has the keys");
+    let at = other.center();
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    settle(&mut h);
+    assert_eq!(text_menu_rows(&h), [None; 4], "closed by the click");
+    assert_eq!(saved(&mut h), b"FRESH", "set as the keys left it, in the same click");
+    assert_ne!(h.ctx.memory(|m| m.focused()), Some(tag_field), "the keys gone from it");
+}
+
+/// A field of a form only looked at (the game's own blueprint, opened by
+/// View: its text can't be changed, though egui's field holds a text that
+/// could): its right-click menu has Copy and Select All, and no Cut or
+/// Paste.
+#[test]
+fn a_viewed_blueprint_s_field_menu_has_no_cut_or_paste() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-viewed-text-menu");
+    let mut app = game_app(&root, None);
+    app.open_module(&sample_module(&dir));
+    let key = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+    let tag = {
+        let g = Gff::read(&data).unwrap();
+        String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    app.ws.as_mut().unwrap().view(key, Gff::read(&data).unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    let mut h = harness(app, 1000.0, 800.0);
+    settle(&mut h);
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    let field = h.get_all_by_value(&tag).find(is_input).expect("the tag's field").rect();
+    h.get_all_by_value(&tag).find(is_input).unwrap().click();
+    settle(&mut h);
+    press_now(&mut h, egui::Modifiers::COMMAND, egui::Key::A);
+    right_click_at(&mut h, field.left_center() + egui::vec2(12.0, 0.0));
+    assert_eq!(text_menu_rows(&h), [Some(false), Some(true), Some(false), Some(true)]);
+    assert_eq!(choose_text_row(&mut h, "Copy", "Ctrl+C").0, [tag]);
+}

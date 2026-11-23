@@ -251,6 +251,20 @@ pub fn paint_icon_button(
     state: ButtonState,
     on: bool,
 ) {
+    paint_hued_icon_button(painter, tokens, rect, icon, state, on, None);
+}
+
+/// [`paint_icon_button`], its icon in `hue` (a kind's, [`crate::hues`])
+/// where given, at rest and hovered alike, unless it is on.
+fn paint_hued_icon_button(
+    painter: &egui::Painter,
+    tokens: &Tokens,
+    rect: Rect,
+    icon: Icon,
+    state: ButtonState,
+    on: bool,
+    hue: Option<Color32>,
+) {
     let t = tokens;
     let radius = metrics::RADIUS;
     let (fill, color) = match (on, state) {
@@ -260,6 +274,7 @@ pub fn paint_icon_button(
         (false, ButtonState::Hovered) => (t.raised, t.text),
         (false, ButtonState::Pressed) => (t.raised_hover, t.text),
     };
+    let color = if on { color } else { hue.unwrap_or(color) };
     let ring =
         if state == ButtonState::Pressed { Stroke::new(1.0, t.accent) } else { Stroke::NONE };
     painter.rect(rect, radius, fill, ring, egui::StrokeKind::Inside);
@@ -404,6 +419,7 @@ pub struct IconButton {
     truncate: bool,
     join: Option<Join>,
     framed: bool,
+    hued: bool,
 }
 
 impl IconButton {
@@ -425,7 +441,16 @@ impl IconButton {
             truncate: false,
             join: None,
             framed: false,
+            hued: false,
         }
+    }
+
+    /// Its icon a kind's, in the kind's hue while icons are colored
+    /// ([`crate::hues`]), where it is an icon alone: at rest and hovered,
+    /// not while it is selected (`on-fill` then), nor read-only.
+    pub fn kind_hue(mut self) -> Self {
+        self.hued = true;
+        self
     }
 
     /// An icon alone framed as a word button is (the mock's `.btn` with an
@@ -756,7 +781,9 @@ impl egui::Widget for IconButton {
                         self.icon.paint(painter, square, tokens.on_fill);
                     } else {
                         let state = ButtonState::of(&response);
-                        paint_icon_button(ui.painter(), &tokens, rect, self.icon, state, on);
+                        let hue = self.hued.then(|| crate::hues::hue(ui.ctx(), self.icon));
+                        let (p, i) = (ui.painter(), self.icon);
+                        paint_hued_icon_button(p, &tokens, rect, i, state, on, hue.flatten());
                     }
                 }
                 self.described(response)

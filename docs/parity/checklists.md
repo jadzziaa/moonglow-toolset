@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T08:14:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T14:56:36Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -135,9 +135,9 @@ unless their file (under `crates/`) follows the name.
 | Syntax highlighting, line numbers | lexer highlighting (EE literals), line numbers, bookmarks marked, the cursor's line marked; no wrapping; lines 18 points apart at the 13-point text and the gutter as the Script board draws them (M5 W3) | ✅ [the_script_editor_has_the_board_s_line_pitch_and_gutter], [a_read_only_script_s_lines_are_the_editor_s_pitch_apart] |
 | Compile (F7: save and compile) | Compile button saves and compiles this script; F7 compiles all | ✅ / — (F7 keeps compiling all) |
 | Compiler pane, double-click jumps to the line | Compiler panel (the Bottom Dock's, or a floating script's window's bottom pane); clicking a message goes to its line, in an include too (opened, or read-only for game scripts) | ✅ [compile_errors_go_to_their_line] |
-| Functions / Variables / Constants lists with Filter; custom ones bold; hover shows the prototype; double-click inserts | same, from `nwscript.nss` and the script with its includes, in the Reference panel (the Right Dock, or the floating script window's right pane; M4's U12): a segmented control over the filter; custom ones in the theme's text, the game's quieter | ✅ [reference_and_help_are_one_body_in_either_host] |
+| Functions / Variables / Constants lists with Filter; custom ones bold; hover shows the prototype; double-click inserts | same, from `nwscript.nss` and the script with its includes, in the Reference panel (the Right Dock, or the floating script window's right pane; M4's U12): a segmented control over the filter; custom ones in the theme's text, the game's quieter | ✅ [reference_on_the_right_and_help_under_the_text_in_either_host] |
 | Templates list (script templates folder) | the `.txt` templates of the install's `data/scr` and the user's `scripttemplates`, Reference's fourth list | ✅ |
-| Help pane (doc comment) | the Help panel under Reference: the selected symbol, or the one under the cursor; its declaration a parameter to a line, its comment as prose with a row per parameter and a line for each other line of a list, what is in columns and code examples kept as written | ✅ [help_shows_documentation_as_prose_with_its_columns_kept] [help_reads_nwscript_s_lists_sentences_code_and_columns] |
+| Help pane (doc comment) | the Help panel under the text as Aurora has it (5.2.0: a tab of the Bottom Dock, or of a script window's bottom pane), as wide as the text: the selected symbol, or the one under the cursor; its documentation comment and declaration verbatim, as the source has them, in the editor's font, not wrapped | ✅ [help_shows_the_comment_and_the_declaration_as_written] [help_takes_a_block_comment_as_documentation] [help_comes_forward_in_the_bottom_dock] |
 | The toolbar (Compile, Save, Find…) | the script header: Save and Compile with their words, the rest as icons, To Scratch in More, the codepage, then OK and Cancel at its right end; everything in reach at every width (More) | ✅ [the_script_header_holds_every_control_from_420_to_1600] |
 | Completion (F2), Enter to pick, `(` added for functions | F2 or Ctrl+Space, arrows, Enter/Tab, Esc | ✅ [script_editor_completion_find_bookmarks] |
 | Find (Ctrl+F), Find Next (F3), Replace (Ctrl+R): match case, whole word, backward, prompt, replace all | same (no per-replacement prompt: Replace does one, Replace All all) | ✅ |

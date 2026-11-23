@@ -98,6 +98,7 @@ pub mod references;
 pub mod renderer_check;
 mod report_table;
 mod ro_gff;
+pub mod row_copy;
 pub mod saved;
 mod script_layout;
 pub mod script_nav;
@@ -132,7 +133,7 @@ pub mod updates;
 pub mod viewers;
 pub use browser::RESOURCE_HEADER;
 pub use outliner::OUTLINER;
-pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES};
+pub use script_panels::{BOOKMARKED_LINES, COMPILER_MESSAGES, FOUND_AS_YOU_TYPE};
 pub use script_reference::{SCRIPT_HELP, SCRIPT_REFERENCE};
 pub use script_view::SCRIPT_HEADER;
 pub use search_results::SEARCH_HITS;
@@ -1241,6 +1242,17 @@ pub struct Moonglow {
     pub(crate) lights_kept: std::cell::RefCell<Option<area_view::LightsKept>>,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
+    /// The zoom egui kept from the last run was looked at (once, in the
+    /// first frame: [`commands::ui_scale_kept_from_zoom`]).
+    zoom_kept_seen: bool,
+    /// The largest interface size whose least window fits the screen
+    /// ([`commands::largest_fitting_ui_scale`]): the largest offered.
+    pub(crate) largest_ui_scale: u16,
+    /// The frame of the last pass drawn and the zoom it was drawn at.
+    zoom_seen: Option<(u64, f32)>,
+    /// The zoom the screen's size of this frame was measured at: the last
+    /// pass's of the frame before ([`Moonglow::zoom_seen`]).
+    screen_zoom: Option<f32>,
     /// The scale (points to pixels) the window's least size was last
     /// given for (`shell::keep_least_size`).
     least_size_for: Option<f32>,
@@ -1837,6 +1849,10 @@ impl Moonglow {
             model_export: None,
             open_models: Vec::new(),
             scaled: false,
+            zoom_kept_seen: false,
+            zoom_seen: None,
+            screen_zoom: None,
+            largest_ui_scale: options::UI_SCALES[options::UI_SCALES.len() - 1],
             least_size_for: None,
             area_chooser: None,
             text_replace: None,
@@ -2088,6 +2104,10 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // (A text field's right-click menu: what its row asked, sent to
+        // the field as its keys send it, and its keys, before anything
+        // reads the events.)
+        widgets::text_menus_begin(ui.ctx());
         // (Tab is a 2DA grid's with its keys, before any control can take
         // it: M4's U16.)
         self.active_tab_now = table_view::front_of_focused(self);
@@ -2250,9 +2270,51 @@ impl Moonglow {
         if ui.ctx().global_style().visuals.resize_corner_size > 0.0 {
             ui.ctx().all_styles_mut(|s| s.visuals.resize_corner_size = 0.0);
         }
-        // Options › General › Interface size (when chosen; else the size is
-        // egui's own, which Ctrl with + and - change).
-        match self.settings.ui_scale {
+        // Options › General › Smooth scrolling: off, a wheel's notch and a
+        // jump in code land at once (`mg_uikit::scrolling`).
+        mg_uikit::scrolling::smooth_scrolling(ui.ctx(), !self.settings.no_smooth_scrolling);
+        // Options › General › Colored icons: each kind's icon in its hue
+        // in the module tree, the Outliner and the palette.
+        mg_uikit::hues::colored_icons(ui.ctx(), self.settings.colored_icons);
+        // Options › General › Interface size, which View › Interface Size
+        // and its keys (Ctrl with +, - and 0) set too (when chosen; else
+        // the size is egui's own, 100%). egui's own keys for its zoom are
+        // off: they would change the size without the setting.
+        if ui.ctx().options(|o| o.zoom_with_keyboard) {
+            ui.ctx().options_mut(|o| o.zoom_with_keyboard = false);
+        }
+        // (A zoom egui kept from a run before the setting drove it, made
+        // with egui's own keys: the setting's nearest size, once, so the
+        // builder keeps the size they had and the menu ticks it.)
+        if !std::mem::replace(&mut self.zoom_kept_seen, true) && self.settings.ui_scale.is_none() {
+            self.settings.ui_scale = commands::ui_scale_kept_from_zoom(ui.ctx().zoom_factor());
+        }
+        // (No larger than the screen holds the least window at, and in
+        // the sizes offered whatever a settings file says.)
+        // (egui-winit measures the screen before the frame, at the zoom
+        // the frame before ended at: a zoom set takes only as the next
+        // pass begins, perhaps within this frame, which a comparison with
+        // this pass's zoom would get wrong, and the sizes would swing. In
+        // the first frame nothing was set yet: measured at once, before a
+        // size too large is ever applied or the least size sent for it.)
+        let frame = ui.ctx().cumulative_frame_nr();
+        let zoom = ui.ctx().zoom_factor();
+        match self.zoom_seen {
+            Some((seen, last)) if seen != frame => self.screen_zoom = Some(last),
+            None => self.screen_zoom = Some(zoom),
+            Some(_) => {}
+        }
+        self.zoom_seen = Some((frame, zoom));
+        let monitor = ui.ctx().input(|i| i.viewport().monitor_size);
+        self.largest_ui_scale = commands::largest_fitting_ui_scale(
+            monitor,
+            self.screen_zoom.unwrap_or(zoom),
+            LEAST_WINDOW_SIZE,
+        );
+        // (For Options' Interface size row, which has no `Moonglow`.)
+        let largest = self.largest_ui_scale;
+        ui.ctx().data_mut(|d| d.insert_temp(commands::largest_ui_scale_id(), largest));
+        match self.settings.ui_scale.map(|_| commands::ui_scale(self)) {
             Some(scale) => {
                 let zoom = f32::from(scale) / 100.0;
                 if (ui.ctx().zoom_factor() - zoom).abs() > 0.001 {
@@ -2591,6 +2653,9 @@ impl Moonglow {
             ui.ctx().request_repaint();
         }
         self.open_tabs_frame(ui.ctx());
+        // (The right-click menu of the text field with the keys, once
+        // every field is drawn.)
+        widgets::text_menus_end(ui.ctx());
         widgets::dialogs_end(ui.ctx());
         self.focus_was = ui.ctx().memory(|m| m.focused());
     }
@@ -7420,8 +7485,11 @@ impl Moonglow {
                     0 => String::new(),
                     n => format!("; {n} object(s) placed from blueprints the module no longer has"),
                 };
+                // (Verify writes no file: where its findings are, said,
+                // 5.2's W4.)
+                let listed = if found_any { problems::LISTED } else { "" };
                 app.log.info(format!(
-                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s){gone}){}",
+                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s){gone}){}{listed}",
                     missing.len(),
                     findings.len(),
                     left_out(&left),

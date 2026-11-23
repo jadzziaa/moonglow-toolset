@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:03:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T16:58:23Z }
 ---
 
 # Build, verify and test
@@ -55,7 +55,10 @@ first. Each row has its severity, its place (a link, "Go to it" in its
 tip, that opens the resource) and its message, cut where it is long
 (the tip has the whole). Click a row to choose it; the arrow keys,
 Page Up, Page Down, Home and End move the choice; Enter or a double click
-goes to the resource. While the build runs, the heading says "Build
+goes to the resource. A right click on a row (which chooses it) or
+Shift+F10 on the one chosen offers **Copy**, the finding as one line with
+its whole message, and **Copy All**, every finding listed under every
+heading; Ctrl+C copies the one chosen. While the build runs, the heading says "Build
 Module is running". Where the build finds nothing, the heading says "No
 problems found" and the log "No errors found". With **Build module on
 save**, the results go to Problems the same way; Problems comes to the front, and the Bottom
@@ -63,8 +66,11 @@ Dock opens only where something was found.
 
 When the module changes after a build, the heading says "Changed since
 the check: not counted", and its findings are no longer counted in the
-Status Bar's Problems switch. A right click on the heading (or Delete
-with it focused) offers **Remove from Problems**. Closing the module
+Status Bar's Problems switch. A right click on the heading, or its
+**Problems Actions** button (`…`) at the right, offers **Copy These
+Findings**, **Save These Findings As…** (one a line, into a text file)
+and **Remove from Problems** (Delete with the heading focused), each on
+that heading's findings alone. Closing the module
 takes them away (Verify's too): a click on one would open another
 module's resource.
 
@@ -310,7 +316,9 @@ Problems comes to the front when anything was found. To leave
 some of it out (a hak's tileset errors you are not going to fix),
 untick its group, or one check of it, in **Options › Verify**, or name
 the hak or the tileset there; the summary line says what was left out,
-not checked. **Clear Log**, on the log's
+not checked. Verify writes no file of its own: where it found anything,
+its summary line says the findings are in Problems, where a right click
+copies or saves them (the heading's **Save These Findings As…**). **Clear Log**, on the log's
 tab bar (or View › Clear Log), empties the log before a second run.
 
 A [project](03-modules.md)'s compiled scripts are build output, so its

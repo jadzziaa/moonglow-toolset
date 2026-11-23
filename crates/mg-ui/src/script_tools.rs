@@ -46,9 +46,10 @@ pub enum SideTab {
 }
 
 /// The script's panels of the Bottom Dock (M4's U13: Compiler and
-/// Bookmarks, its own, and the global Search Results; Help is the Right
-/// Dock's own panel since U12): the one a script asked to the front last
-/// ([`ScriptTools::info`], [`ScriptTools::ask_forward`]).
+/// Bookmarks, its own, and the global Search Results; Help, its own too
+/// since 5.2.0, is asked forward by [`ScriptTools::help_forward`]): the one
+/// a script asked to the front last ([`ScriptTools::info`],
+/// [`ScriptTools::ask_forward`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InfoTab {
     #[default]
@@ -232,11 +233,11 @@ pub struct ScriptTools {
     /// is drawn before it).
     pub(crate) insert: Option<(ResKey, String)>,
     /// Help asked to the front by the script it names (a double click on
-    /// a name in its text, its Go to Definition): where that script is
-    /// docked, the Help panel brought in front of the one tab bar
-    /// Reference and Help share under 1400 once a script is the editor in
-    /// front (`shell::help_forward`); where it floats, its window's pane
-    /// shows Help already, and nothing else changes.
+    /// a name in its text, its Go to Definition, a click in its Reference's
+    /// list): where that script is docked, the Help panel brought to the
+    /// front of the Bottom Dock, opened, once a script is the editor in
+    /// front (`shell::help_forward`); where it floats, to the front of its
+    /// window's bottom pane.
     pub(crate) help_forward: Option<ResKey>,
     /// The Reference panel's filter to take the keyboard's focus as it is
     /// drawn (F6 to it).
@@ -259,7 +260,8 @@ pub struct ScriptTools {
     /// What the Help panel showed as it was last drawn: the pass and the
     /// name, drawn again where the editor chose another in that pass.
     pub(crate) help_drawn: Option<(u64, Option<String>)>,
-    /// What Help read of the name it shows, kept while it is shown.
+    /// What Help shows of the name, laid out once (in the editor's colors)
+    /// and kept while it is shown.
     pub(crate) help_read: Option<Arc<crate::script_reference::HelpRead>>,
     pub messages: Vec<Message>,
     pub search: Search,

@@ -106,7 +106,11 @@ pub(crate) fn keep_least_size(app: &mut Moonglow, ctx: &egui::Context) {
     let scale = ctx.input(|i| i.pixels_per_point);
     // (Not while the interface size is on its way: its zoom set, or set
     // this frame, and the frame's scale still the old one.)
-    let wanted = app.settings.ui_scale.map_or(ctx.zoom_factor(), |s| f32::from(s) / 100.0);
+    // (The size in use: the setting's, clamped and held to the screen.)
+    let wanted = app
+        .settings
+        .ui_scale
+        .map_or(ctx.zoom_factor(), |_| f32::from(crate::commands::ui_scale(app)) / 100.0);
     let settled = (ctx.zoom_factor() - wanted).abs() < 0.001
         && (ctx.pixels_per_point() - scale).abs() < 0.001;
     if !settled || app.least_size_for == Some(scale) {
@@ -433,7 +437,6 @@ impl Panel {
             | Panel::TileProperties
             | Panel::Properties
             | Panel::Reference
-            | Panel::Help
             | Panel::NodeData
             | Panel::NodeSearch
             | Panel::Conversation
@@ -454,8 +457,11 @@ impl Panel {
             | Panel::AreasTogether
             | Panel::LightMaker
             | Panel::Bake => Dock::Right,
+            // (A script's Help under its text, as 4.2.1 had it: 5.2.0, the
+            // owner's ruling on Jasperre's report.)
             Panel::Log
             | Panel::Compiler
+            | Panel::Help
             | Panel::Bookmarks
             | Panel::SearchResults
             | Panel::Checks
@@ -1064,19 +1070,19 @@ const AREA_TILES_FOLDED: &[Panel] = &[Panel::Palette, Panel::Preview, Panel::Til
 /// in a dragged out area's window).
 const TILES_SECTION: Section = &[Panel::TileProperties];
 const TILES_ALONE: &[Section] = &[TILES_SECTION];
-/// A script's Right Dock (M4's U12, the Script board's): Reference over
-/// Help, each a section of its own with its header; one tab bar of the
-/// two under 1400; with the script into its window where it floats
-/// (Floating.png). The board's shares, Reference 56, Help 44.
-const SCRIPT_RIGHT: &[Section] = &[&[Panel::Reference], &[Panel::Help]];
-const SCRIPT_FOLDED: &[Panel] = &[Panel::Reference, Panel::Help];
-const SCRIPT_SHARES: &[u16] = &[1120, 880];
-const SCRIPT_WINDOW_SHARES: &[u16] = &[880, 1120];
+/// A script's Right Dock (M4's U12, the Script board's): Reference, with
+/// the script into its window where it floats (Floating.png). Help, under
+/// Reference on the boards, went back under the text in 5.2.0 (the owner's
+/// ruling on Jasperre's report: a narrow box at the right was worse than
+/// 4.2.1's pane as wide as the text).
+const SCRIPT_RIGHT: &[Section] = &[&[Panel::Reference]];
+const SCRIPT_FOLDED: &[Panel] = &[Panel::Reference];
 /// A script's own Bottom Dock panels (M4's U13, the Script board's tabs
-/// before Search Results and the Log), and the global one that follows it
-/// into its window's bottom pane (Floating.png: Compiler, Bookmarks,
-/// Search Results).
-const SCRIPT_BOTTOM: &[Panel] = &[Panel::Compiler, Panel::Bookmarks];
+/// before Search Results and the Log; Help among them since 5.2.0, after
+/// Compiler as 4.2.1's pane under the text had it), and the global one that
+/// follows it into its window's bottom pane (Floating.png: Compiler,
+/// Bookmarks, Search Results).
+const SCRIPT_BOTTOM: &[Panel] = &[Panel::Compiler, Panel::Help, Panel::Bookmarks];
 const SCRIPT_WINDOW_BOTTOM: &[Panel] = &[Panel::SearchResults];
 /// A conversation's Right Dock (M4's U14, the Conversation board's): the
 /// Node section, its title before Data and Search, and the Conversation
@@ -1267,8 +1273,6 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         crate::Tab::Script(_) => Brings {
             right: SCRIPT_RIGHT,
             folded: SCRIPT_FOLDED,
-            shares: SCRIPT_SHARES,
-            window_shares: SCRIPT_WINDOW_SHARES,
             bottom: SCRIPT_BOTTOM,
             window_bottom: SCRIPT_WINDOW_BOTTOM,
             floats: true,
@@ -2341,9 +2345,13 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
             }
             false => (RIGHT_DOCK_LEAST, (room * 0.6).max(RIGHT_DOCK_LEAST)),
         };
+        // (As wide as the kind's last was dragged to, in a window of its
+        // own: 5.2.0, Jasperre's report.)
+        let kept = window_kept(app, kind, false);
+        seed_window_pane(ui, pane.with("window-right"), kept);
         let shown = egui::Panel::right(pane.with("window-right"))
             .resizable(true)
-            .default_size(RIGHT_DOCK_LEAST)
+            .default_size(kept.unwrap_or(RIGHT_DOCK_LEAST))
             .size_range(least.min(most)..=most)
             .frame(egui::Frame::new().fill(t.panel))
             .show(ui, |ui| {
@@ -2405,6 +2413,10 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         if least < most {
             let edge = RightEdge { dock: shown.response.rect, least, most };
             ui.ctx().data_mut(|d| d.insert_temp(window_edge_id(pane), edge));
+            let edges =
+                [pane.with("window-right").with("__resize"), window_edge_id(pane).with("seam")];
+            let now = shown.response.rect.width();
+            keep_window_size(app, ui, (kind, false), &edges, kept, now);
         }
         if let Some(panel) = shown.inner {
             // (A tab chosen in the window: the window's own front no more.)
@@ -2480,13 +2492,17 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
         // editor keeping two thirds, and at least its tab bar and a line:
         // in a small window the pane no longer crowds the code, M4's U13.)
         let (least, most) = window_bottom_range(ui, ui.available_height());
+        // (As high as the kind's last was dragged to: 5.2.0.)
+        let kept = window_kept(app, kind, true);
         // (Cut at the room the right pane leaves: its edge to drag is not
         // over the right pane, nor is what it holds.)
         let room = ui.available_rect_before_wrap();
         ui.set_clip_rect(ui.clip_rect().intersect(room));
-        let shown = egui::Panel::bottom(egui::Id::new(("window-bottom", &owner)))
+        let bottom_id = egui::Id::new(("window-bottom", &owner));
+        seed_window_pane(ui, bottom_id, kept);
+        let shown = egui::Panel::bottom(bottom_id)
             .resizable(true)
-            .default_size(WINDOW_BOTTOM_HIGH.clamp(least, most))
+            .default_size(kept.unwrap_or(WINDOW_BOTTOM_HIGH).clamp(least, most))
             .size_range(least..=most)
             .frame(egui::Frame::new().fill(t.panel))
             .show(ui, |ui| {
@@ -2538,6 +2554,11 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                 }
                 (bar.changed.then(|| bottom[at]), bar.inner)
             });
+        if least < most {
+            let edges = [bottom_id.with("__resize")];
+            let now = shown.response.rect.height();
+            keep_window_size(app, ui, (kind, true), &edges, kept, now);
+        }
         let (picked, to_line) = shown.inner;
         if let Some((key, line)) = to_line {
             let text = app.script_source(&key).unwrap_or_default();
@@ -2551,6 +2572,71 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                     Some(panel.name().to_string());
             }
         }
+    }
+}
+
+/// The width of a kind's window's right pane (`bottom`: the height of its
+/// bottom pane) as the builder last dragged it, in any window of the kind
+/// (`DockLayout::window_width`, `window_bottom`): a new window opens with
+/// it (5.2.0, Jasperre's report: a floating script's panes kept no size).
+/// Scripts' alone ([`KEPT_WINDOW_KINDS`]): the ruling was theirs.
+fn window_kept(app: &Moonglow, kind: Option<&str>, bottom: bool) -> Option<f32> {
+    let kind = kind.filter(|k| KEPT_WINDOW_KINDS.contains(k))?;
+    let layout = app.settings.dock_layouts.get(kind)?;
+    let kept = if bottom { layout.window_bottom } else { layout.window_width };
+    kept.map(f32::from)
+}
+
+/// The editor kinds whose floating windows keep their panes' sizes
+/// ([`window_kept`]): scripts (5.2.0, Jasperre's report).
+const KEPT_WINDOW_KINDS: &[&str] = &["script"];
+
+/// Lets the kind's kept size ([`window_kept`]) apply to a window's pane
+/// `panel` that was not drawn in the pass before (its window opened, its
+/// tab brought to the front, the first pass of a run): egui keeps a
+/// panel's size by its id, which goes by the editor's tab, so a script
+/// opened again would take the size its pane had before, from this run or
+/// (egui's memory kept) the last, not the kept one. Drawn pass after pass,
+/// the pane keeps its own size.
+fn seed_window_pane(ui: &Ui, panel: egui::Id, kept: Option<f32>) {
+    let slot = panel.with("window-drawn");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last = ui.ctx().data(|d| d.get_temp::<u64>(slot));
+    if last == Some(pass) {
+        return;
+    }
+    let anew = last != Some(pass.wrapping_sub(1));
+    ui.ctx().data_mut(|d| {
+        if anew && kept.is_some() {
+            d.remove::<egui::containers::panel::PanelState>(panel);
+        }
+        d.insert_temp(slot, pass);
+    });
+}
+
+/// Keeps a window's pane's size `now` for its kind ([`window_kept`],
+/// the bottom pane's where `bottom`) while the builder drags one of its
+/// `edges` (their ids) to another: not where the window's own size moved
+/// it (the pane held to its range), which is no choice of the builder's.
+fn keep_window_size(
+    app: &mut Moonglow,
+    ui: &Ui,
+    (kind, bottom): (Option<&str>, bool),
+    edges: &[egui::Id],
+    kept: Option<f32>,
+    now: f32,
+) {
+    let Some(kind) = kind.filter(|k| KEPT_WINDOW_KINDS.contains(k)) else { return };
+    let dragged = edges.iter().any(|id| ui.ctx().is_being_dragged(*id));
+    let now = now.round();
+    if !dragged || kept.is_some_and(|k| (k - now).abs() < 0.5) {
+        return;
+    }
+    let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
+    let size = Some(now.clamp(0.0, f32::from(u16::MAX)) as u16);
+    match bottom {
+        true => layout.window_bottom = size,
+        false => layout.window_width = size,
     }
 }
 
@@ -3411,6 +3497,10 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                     format!("Show the log, or close it{}", key_note(app, &ctx, Id::ViewLog))
                 }
                 Panel::Compiler => "Show what the script's latest compile said, or close it".into(),
+                Panel::Help => {
+                    "Show the comment and declaration of the name under the cursor, or close it"
+                        .into()
+                }
                 Panel::Bookmarks => "Show the script's bookmarks, or close them".into(),
                 Panel::SearchResults => "Show what the last search found, or close it".into(),
                 Panel::Checks => {
@@ -3457,6 +3547,16 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
     };
     let newer = (!log_on).then(|| last_line(log)).flatten().filter(|(i, _)| alarm(*i));
     let message = shown.note.clone().filter(|_| newer.is_none());
+    // (A script's live error is shown whole wherever the bar has room for
+    // it, 5.2.0: the owner's rulings on Jasperre's report and at review.
+    // No cap; the others give way only as far as its width needs: the
+    // folder, then the hints from the last, then the switches' words, then
+    // the module's name is cut short down to `ERROR_LEAVES`, then the
+    // counts (the cursor's line and column last: the builder reads it
+    // against the error's line); only then is the message cut, whole in
+    // its tip.)
+    let error_line = message.is_some();
+    let cap = if error_line { f32::INFINITY } else { cap };
     let last = match &message {
         Some(n) => Some((None, n.text.clone(), Some(t.error))),
         None => (!log_on).then(|| last_line(log)).flatten().map(|(i, line)| {
@@ -3578,13 +3678,46 @@ pub(crate) fn status_bar(app: &mut Moonglow, ui: &mut Ui) {
                 switches.into_iter().map(|s| s.icon_only(icons)).collect();
             let left = switches_width(ui, &switches) + gaps;
             let room = ui.available_width() - left;
+            // (The folder only where it fits beside the middle at its
+            // fullest, a live error's too: it gives way first, before the
+            // hints (the coordinator's ruling at W5's review: a wider
+            // window never shows fewer hints). Beside a live error the
+            // hints then give way in the middle as far as it needs, and
+            // the right-hand items have what the whole message leaves.)
+            let error_need = line_full.map_or(0.0, |l| status::SEPARATOR_WIDTH + gaps + l);
             let show_folder = yields.game_folder && full <= room;
+            let room = if error_line { room - error_need } else { room };
             // (Where a count goes, the middle has gone before it: what the
             // count leaves is no room for the line.)
             let mut middle_on = true;
-            if !show_folder {
+            if error_line && !show_folder {
+                // (The name and the others cut first, the name to
+                // `ERROR_LEAVES` at the least; then the counts go from the
+                // first, the editor's own last (the Resources panel's goes
+                // before it), a script's line and column the last of all;
+                // what is left of the room is the message's, cut where it
+                // is still wider.)
+                let least = core.min(ERROR_LEAVES + note_width + note_gap + job_width + job_gap);
+                let n = count_widths.len();
+                let mut kept = n;
+                while kept > 0 && least + count_widths[n - kept..].iter().sum::<f32>() > room {
+                    kept -= 1;
+                }
+                counts.drain(..n - kept);
+                let core_room = (room - count_widths[n - kept..].iter().sum::<f32>()).max(least);
+                if core > core_room {
+                    let others = item.width(ui) + note_width + note_gap + job_gap;
+                    job = job.map(|j| j.max_width(core_room - others));
+                    let job_width = job.as_ref().map_or(0.0, |j| j.width(ui));
+                    let rest = core_room - note_gap - job_width - job_gap;
+                    let (name_max, note_max) = share(rest, item.width(ui), note_width);
+                    item = item.max_width(name_max);
+                    note = note.map(|n| n.max_width(note_max));
+                }
+            } else if !show_folder {
                 // (The middle yields before the counts: they go only where
-                // the right-hand items alone are wider than the bar.)
+                // the right-hand items alone are wider than the bar. Not a
+                // live error, before which the counts go.)
                 let mut kept = count_widths.len();
                 while kept > 0 && core + count_widths[..kept].iter().sum::<f32>() > room {
                     kept -= 1;
@@ -3801,6 +3934,12 @@ fn last_line_tip(log: &crate::Log, i: usize) -> String {
     tip
 }
 
+/// How short a script's live error cuts the module's name on the Status
+/// Bar (5.2.0) before the counts give way and the error itself is cut:
+/// the name is given this much (its text, cut at a letter with an
+/// ellipsis, can be a few points less).
+pub(crate) const ERROR_LEAVES: f32 = 120.0;
+
 /// The least room the log's last line is shown in (a short word and its
 /// ellipsis); in less, it is not shown.
 pub(crate) const LAST_LINE_LEAST: f32 = 48.0;
@@ -3813,7 +3952,8 @@ pub(crate) const LAST_LINE_CAP_AREA: f32 = 96.0;
 /// boards: the Creature board's 160).
 pub(crate) const LAST_LINE_CAP: f32 = 160.0;
 /// The most it takes beside a script's (the Script board's `.sb-log`,
-/// 170): the live error's message there too (M4's U13).
+/// 170). Not the live error's message (M4's U13), which has no cap since
+/// 5.2.0 ([`ERROR_LEAVES`]).
 pub(crate) const LAST_LINE_CAP_SCRIPT: f32 = 170.0;
 
 /// The most of the bar the log's last line (or the Status Bar's message)
@@ -4145,7 +4285,14 @@ pub(crate) fn shown(
         // (Any other resource only looked at, M4's U23: which it is, where
         // it is read from and its size, the Resources board's; no keys, as
         // nothing in it changes.)
+        // (A text's: its Find's keys, v5.2's W3.)
         Some(Tab::Resource(key)) => Shown {
+            hints: crate::browser::shows_text(app, *key, None)
+                .then(|| [k.hint(Cmd::Find, "Find"), k.hint(Cmd::FindNext, "Find next")])
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect(),
             counts: crate::browser::resource_count(app, *key, None)
                 .map(Count::new)
                 .into_iter()
@@ -4153,6 +4300,12 @@ pub(crate) fn shown(
             ..Shown::default()
         },
         Some(Tab::ResourceCopy { key, layer }) => Shown {
+            hints: crate::browser::shows_text(app, *key, Some(layer))
+                .then(|| [k.hint(Cmd::Find, "Find"), k.hint(Cmd::FindNext, "Find next")])
+                .into_iter()
+                .flatten()
+                .flatten()
+                .collect(),
             counts: crate::browser::resource_count(app, *key, Some(layer))
                 .map(Count::new)
                 .into_iter()
@@ -4807,7 +4960,6 @@ fn fold_tip(app: &Moonglow, ctx: &egui::Context, side: Side, open: bool) -> Stri
 /// as a press in the palettes' tab did ([`plugin_pane`]).
 pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     follow_editor(app);
-    help_forward(app);
     crate::dialog_view::search_forward(app);
     // (Where it and the panels' late bodies are drawn, this frame's alone:
     // a dock that folds or goes leaves none behind.)
@@ -4946,8 +5098,11 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 if bar_panels.contains(&front) { front } else { section_front(app, bar_panels) };
             // (A form's own Preview alone, M4's U11: its header, its title
             // and the model's info line, as a stacked section of one has
-            // it. Every other bar keeps its tabs and the dock's name.)
-            let titled = matches!(bar_panels.as_slice(), [Panel::Preview])
+            // it. So does a script's Reference, alone since Help went under
+            // the text in 5.2.0: its header and "nwscript and includes", as
+            // the Script board has it. Every other bar keeps its tabs and
+            // the dock's name.)
+            let titled = matches!(bar_panels.as_slice(), [Panel::Preview] | [Panel::Reference])
                 && front.detail(app, editor.as_ref()).is_some();
             let (chosen, inner) = if titled {
                 let on = (bar_panels.as_slice(), front, editor.as_ref());
@@ -5177,23 +5332,32 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// Help asked to the front (`ScriptTools::help_forward`: a double click
-/// on a name in a script, Go to Definition): where a script is the active
-/// docked editor and its Help shares the Right Dock's one tab bar with
-/// Reference behind it (under 1400), Help is brought in front by the
-/// dock's panel alone, nothing kept in the settings ([`focus_right`]);
-/// where Reference and Help stand one over the other, or the script
-/// floats, Help is in sight already. Asked while no script is in front
-/// (Go to Definition opening one), it waits for the script's tab, unless
-/// nothing is left to bring one.
+/// on a name in a script, Go to Definition, a click in Reference's list):
+/// Help is under the script's text since 5.2.0, a tab of the Bottom Dock
+/// beside Compiler and Bookmarks (the owner's ruling on Jasperre's
+/// report). Where the script floats, its window's bottom pane brings Help
+/// to the front, for each of the window's tabs (the pane is drawn for the
+/// one in front); docked, the Bottom Dock does, opened where it was closed
+/// (a name asked for by hand is to be read), nothing kept in the settings
+/// beyond the dock opened ([`focus_bottom`]). Asked while no script is in
+/// front (Go to Definition opening one), it waits for the script's tab,
+/// unless nothing is left to bring one.
 fn help_forward(app: &mut Moonglow) {
     let Some(from) = app.script_tools.help_forward else { return };
-    // (A floating script's window shows Help in its pane already, Reference
-    // over it: the docked script's Right Dock is left as it is. A script
-    // closed since: nothing.)
-    let docked =
-        app.dock.find_tab(&crate::Tab::Script(from)).is_some_and(|at| at.surface.is_main());
-    if !docked {
+    // (A script closed since: nothing.)
+    let Some(at) = app.dock.find_tab(&crate::Tab::Script(from)) else {
         app.script_tools.help_forward = None;
+        return;
+    };
+    if !at.surface.is_main() {
+        app.script_tools.help_forward = None;
+        let tabs: Vec<crate::Tab> = (app.dock.iter_leaves())
+            .filter(|(p, _)| p.surface == at.surface)
+            .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
+            .collect();
+        for tab in tabs {
+            app.window_bottoms.insert(tab, Panel::Help);
+        }
         return;
     }
     // (Asked while another editor came to the front, Go to Definition of
@@ -5203,8 +5367,9 @@ fn help_forward(app: &mut Moonglow) {
         return;
     }
     app.script_tools.help_forward = None;
-    if panels(app, Dock::Right).contains(&Panel::Help) && right_shown(app) != Some(Panel::Help) {
-        focus_right(app, Panel::Help);
+    if panels(app, Dock::Bottom).contains(&Panel::Help) && !bottom_shows(app, Panel::Help) {
+        focus_bottom(app, Panel::Help);
+        app.settings.hide_log = false;
     }
 }
 
@@ -5231,6 +5396,8 @@ pub(crate) fn bottom_forward(app: &mut Moonglow) {
     }
     nui_forward(app);
     problems_forward(app);
+    // (A script's Help, a Bottom Dock panel since 5.2.0.)
+    help_forward(app);
     let asks = std::mem::take(&mut app.script_tools.forward);
     if asks.is_empty() {
         return;
@@ -6026,7 +6193,8 @@ pub(crate) fn panel_body(
     let margin = match panel {
         // (Compiler's inset ground fills the panel, its own margin in it:
         // the Script board's `.compiler-out`.)
-        Panel::Properties | Panel::Compiler => Margin::ZERO,
+        // (Help's ground too, the editor's, 4.2.1's.)
+        Panel::Properties | Panel::Compiler | Panel::Help => Margin::ZERO,
         // (A conversation's: their scroll's own room, its bar at the
         // panel's edge.)
         Panel::NodeData | Panel::NodeSearch | Panel::Conversation => Margin::ZERO,
@@ -6198,15 +6366,12 @@ pub(crate) fn panel_body(
                     _ => crate::nui_view::panels::bindings(app, &mut body, editor, titled),
                 }
             }
-            Panel::Reference | Panel::Help => {
+            Panel::Reference => {
                 let builder = egui::UiBuilder::new().max_rect(room);
                 let builder = LateSlot::salted(builder, host, panel.name(), pane);
                 let mut body = ui.new_child(builder);
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
-                match panel {
-                    Panel::Reference => crate::script_reference::reference(app, &mut body, editor),
-                    _ => crate::script_reference::help(app, &mut body, editor),
-                }
+                crate::script_reference::reference(app, &mut body, editor);
             }
             // (A conversation's, M4's U14.)
             Panel::NodeData | Panel::NodeSearch | Panel::Conversation => {
@@ -6240,6 +6405,7 @@ pub(crate) fn panel_body(
             }
             // (The Bottom Dock's, or a script's window's bottom pane's.)
             Panel::Compiler
+            | Panel::Help
             | Panel::Bookmarks
             | Panel::SearchResults
             | Panel::Checks
@@ -6253,6 +6419,7 @@ pub(crate) fn panel_body(
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 match panel {
                     Panel::Compiler => crate::script_panels::compiler(app, &mut body, editor),
+                    Panel::Help => crate::script_reference::help(app, &mut body, editor),
                     Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
                     Panel::Checks => crate::nui_view::checks::panel(app, &mut body, editor),
                     Panel::Problems => crate::problems::body(app, &mut body),
@@ -6815,6 +6982,8 @@ mod dock_tests {
             column: None,
             folded: None,
             wide_width: None,
+            window_width: None,
+            window_bottom: None,
         };
         app.settings.dock_layouts.insert("welcome".into(), layout);
         app.sample_brings = Some(("welcome", second_kind()));

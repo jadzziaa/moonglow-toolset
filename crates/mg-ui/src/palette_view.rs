@@ -1520,6 +1520,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         if tip.is_empty() { name.to_string() } else { format!("{name}\n{tip}") };
                     let button = mg_uikit::IconButton::new(*icon, *name)
                         .icon_only(true)
+                        .kind_hue()
                         .selectable(now == *t);
                     if ui.add(button).on_hover_text(tip).clicked() {
                         chosen = Some(*t);
@@ -1533,7 +1534,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             // (Its icon before it: what is shown, at a glance; Standard and
             // Custom after it, a blueprint type's.)
             ui.horizontal(|ui| {
-                mg_uikit::icon(ui, shown.1);
+                mg_uikit::hues::kind_icon(ui, shown.1);
                 let after = match sources {
                     true => toggles(ui) + ui.spacing().item_spacing.x,
                     false => 0.0,

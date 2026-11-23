@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:25:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T18:35:46Z }
 ---
 
 # The main window
@@ -56,7 +56,7 @@ plus) are icons on the Module panel's tab bar, beside **Expand All** and
 under the area view's compass (it and the Start filter show its circled
 arrow); the resource browser is the Left Dock's Resources tab (Tools ›
 Resource Browser), and the palettes and the Preview are the Right
-Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types.
+Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types. The icons are one gray; with **Colored icons** (Options › General, off by default) each kind's icon in the module tree, the Outliner and the palette's row of types has a color of its own.
 
 ## Menus
 
@@ -64,7 +64,7 @@ Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has o
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Change Tileset… ([Areas](04-areas.md)), Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Properties Panel (beside an area, its Properties pane alone), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Interface Size (Zoom In, Zoom Out, Reset Zoom, and the sizes from 90% to 300%, the one in use ticked: Options › General › Interface size), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint), and the enabled plugins' wizards |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
@@ -207,6 +207,7 @@ keys below; the menus show the current keys.
 | F6, Shift+F6 | The arrow keys to the next pane, left to right and then down (the Left Dock's panel shown, the Outliner under it while an area, a conversation, a 2DA, a NUI window, a tileset or the Faction Editor is in front (a conversation's bookmarks, a table's columns, a NUI window's tree, a tileset's parts, the factions; with no module open, a table's columns are the Left Dock's Outliner alone), a floating conversation's, table's or NUI window's window's Outliner at its left, the middle, the Right Dock's panel in front where the dock is drawn (and an open tool section's, each its own stop; and Properties or Tile Properties under it: Properties' page shown on its rail, and Tile Properties' first control, take the keyboard; a table's Cell its Value field and References its button; a talk table's String its Text; a NUI window's Components its Find a control field); a NUI window's Checks, in the Bottom Dock, its first row's control; Problems its first finding's place; a tileset's Textures its first Copy), a floating editor's window's right pane, the log), or the one before: to what the pane has (in the Left Dock the module tree's rows or the resource browser's list, at the row they were at, else the first; in the middle what its tab in front has: a talk table's lines, a 2DA's cells, a tileset's tile table, at its first cell if none is selected, else an area's view; a palette at its first row; the Preview's model, which Left and Right then turn about and Up and Down over or under it, as a drag does). In the log (also after a click in it) they scroll it: Up and Down a line, Page Up and Page Down a page, Home and End to its start and end; Escape hands them back. The pointer coming into an area's view, or moving or pressing in it, gives them back to the view (one resting there does not) |
 | Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the Left Dock (on whichever panel it shows, Module or Resources; with no module open too, where it shows Resources), the Right Dock (the palettes and the Preview), the log |
 | Ctrl+Alt+0 | Hide all three, or show them all |
+| Ctrl+Plus (or Ctrl+=), Ctrl+Minus, Ctrl+0 | Zoom In, Zoom Out, Reset Zoom: the whole interface a size larger, a size smaller, or back to 100% (View › Interface Size) |
 | Ctrl+P | Quick Open: go to a resource or a command |
 | Ctrl+Shift+P | Command Palette (Quick Open among the commands) |
 
@@ -225,6 +226,11 @@ conversation lines, items in an inventory, cells in the 2DA editor and
 elements of a NUI window. Shift+Delete always cuts, into the clipboard:
 where Delete alone deletes (the area viewer's selection), Shift+Delete
 does not. These keys are not in the Options either.
+
+Every text field has **Cut**, **Copy**, **Paste** and **Select All** on
+its right-click menu (Shift+F10 opens it from the keyboard): Cut and
+Copy with text selected, Cut and Paste grayed in text that is only to
+be read.
 
 **Text fields of several lines** (descriptions, comments, a
 conversation line's text, the talk table's strings, String Edit's
@@ -452,7 +458,8 @@ The Left Dock's **Module** panel lists what the module holds, by kind:
 Areas, Conversations, Scripts, NUI windows ([NUI
 Creator](18-nui-creator.md)), the blueprints (Creatures, Doors,
 Encounters, Items, Placeables, Sounds, Stores, Triggers, Waypoints) and
-Journal and factions, each group's row with its kind's icon and,
+Journal and factions, each group's row with its kind's icon (in its
+kind's color with Options › General › Colored icons) and,
 at the right, how many it holds; **Module Properties** is at the top,
 and under the groups how many other resources the module has (those no
 group lists). (The dock's other tab, **Resources**, is [the resource
@@ -1296,6 +1303,29 @@ shows the first bytes in hexadecimal (a model's text) in place of the
 viewer, and again the viewer; a kind with no viewer shows its first
 bytes alone.
 
+A text shown read-only (a script such as `nwscript.nss`, any other
+text, a model's text, the first bytes) has **Find**: **Ctrl+F** (or
+Find in the Command Palette) opens a bar over it with the script
+editor's words, **Find What**, **Match Case** and **Match Whole Word
+Only**, and its keys: **F3** or **Enter** for the next match,
+**Shift+F3** or **Shift+Enter** for the previous (the arrows beside the
+field too), round from the last to the first. Every match is
+highlighted, the one chosen brought into sight, and the bar counts
+them ("3 of 120 matches"); a long text is looked through a slice a
+frame ("40 found so far" meanwhile), so the window never stops. Escape
+(or the bar's Close) closes it and gives the keys back to the text.
+The keys are the text's while its tab is in front and no list has them
+(the module tree's Ctrl+F is its Filter's: click in the text first); as
+Floating Windows, the text last clicked in takes them, wherever the
+pointer rests (until one is clicked, a window just opened takes them
+with the pointer over its text).
+Drag over the lines in sight to choose some of them, or press
+**Ctrl+A** for the whole text, and **Ctrl+C** copies it. Its
+right-click menu (Shift+F10 from the keyboard) has the text fields'
+**Cut**, **Copy**, **Paste** and **Select All**, Cut and Paste grayed
+and Copy with lines chosen (a right click on them keeps them), then
+**Find…**; Escape closes the menu, not the Find bar.
+
 Right-click a row (or, with the row holding the keyboard, press
 Shift+F10) for its menu: **Copy Value** copies the value itself, not as
 the column shows it (a string without its quotes and with its line
@@ -1454,7 +1484,10 @@ tilesets](04-areas.md#making-tilesets)), **Build Module** and **Verify
 Module** (see [Build and test](09-build-and-test.md)); a click on a
 finding's place goes there. A row is chosen by a click, the arrow keys,
 Page Up, Page Down, Home and End move the choice, and Enter or a double
-click goes to it. A source's counts are said once, in the tab bar's
+click goes to it. A finding's right click (which chooses it) or
+Shift+F10 on the one chosen has **Copy**, the finding as one line with
+its whole message, and **Copy All**, every finding listed under every
+heading; Ctrl+C copies the one chosen. A source's counts are said once, in the tab bar's
 place, and agree with its switch's; while Build Module or Verify Module
 runs, Problems says so ("Verify Module is running"). Build Module's
 heading has **Counted as Used** (where the build was asked for its
@@ -1465,8 +1498,10 @@ check, its heading says "Changed since the check: not counted". Its
 switch counts the current findings (those of a file changed since,
 closed without saving or gone stay listed, marked, not counted), red
 where one is an error; a Check that finds anything opens the dock on
-it. A heading's right click (or Delete with it focused) offers Remove
-from Problems. With nothing in it, it says so and what fills it. It is
+it. A heading's right click, or its **Problems Actions** button (`…`), offers
+**Copy These Findings**, **Save These Findings As…** (into a text file)
+and Remove from Problems (Delete with it focused), each on that
+heading's findings alone. With nothing in it, it says so and what fills it. It is
 the main window's: a floating tileset's Check fills it too.
 
 ### Search Results
@@ -1476,7 +1511,11 @@ Files, Find In Currently Open Scripts and References); its switch shows
 how many lines, and a click on one opens it. **Edit › Find Instance…**
 and **Edit › Find and Replace Text…** (Ctrl+H) open the dock on it too,
 with their form as the panel's header: see [Areas](04-areas.md) and
-[Find and Replace Text](03-modules.md#find-and-replace-text).
+[Find and Replace Text](03-modules.md#find-and-replace-text). A row's
+right click (which chooses it) or Shift+F10 on the one chosen has **Copy**, the row whole
+as one line, and **Copy All**, every row in the order shown; Ctrl+C
+copies the one chosen, and a script's line or a string cut short is
+whole in its tip.
 
 ### Reports
 
@@ -1492,7 +1531,8 @@ head (click; again for the other way; Resources Used's does not), takes
 the arrow keys, Page Up, Page Down, Home and End after a click on a row
 (or at once, when its command opened it: the keys stay with it until
 you click elsewhere, even with the pointer over an area), and Ctrl+C
-copies the row. The Status Bar shows the keys of the list that has
+copies the row; a row's right click (which chooses it) or Shift+F10 has
+Copy and **Copy All**, every row in the order sorted. The Status Bar shows the keys of the list that has
 them. Where the Claims Table is narrow, its other columns narrow first,
 and its actions fold into one **Actions** button per row only where they
 still do not fit.
@@ -1528,13 +1568,18 @@ and the line.
 
 The row along the window's foot. At its left, the Bottom Dock's
 switches: **Log**, **Problems** with its count, the editor's own (a
-script's **Compiler** and **Bookmarks**, a NUI window's **Checks** with its
+script's **Compiler**, **Help** and **Bookmarks**, a NUI window's **Checks** with its
 count), **Search Results** with its count, and a switch for each
 [report](#reports) open; after them, while the log is closed, its last
 line (see [The log](#the-log); beside a script whose check as you type
 found an error, that error in red in its place, whether the log is open
 or not, until a warning or an error is logged after it, which shows
-instead; information lines do not). In its middle the **hints**; at its right the counts, a running job, the
+instead; information lines do not). The error is shown whole wherever the
+bar has room for it: the others give way only as far as it needs, the
+game's folder first, then the hints (from the last), then the switches'
+words, then the module's name is cut short, and the cursor's line and
+column go last; only then is the error itself cut short, with all of it
+in its tip. In its middle the **hints**; at its right the counts, a running job, the
 module's name and the game's folder.
 
 **Hints.** What the keys and the mouse do in the tab you work in (the

@@ -372,7 +372,26 @@ fn a_script_tab_shows_its_keys() {
         "F7: Compile all",
         "Ctrl, R: Replace",
     ];
-    says(&mut h, &keys, &["4 by 4 tiles"]);
+    // (All eight are said; at 1600 beside a script not all are drawn since
+    // 5.2.0: Help's switch joined the bar, and the live error, here the
+    // file not found without a game, is shown whole, the game folder
+    // giving way first, then the hints from the last. 5.1.0 drew all
+    // eight.)
+    let drawn = |h: &Harness<'_, Moonglow>, w: &str| {
+        h.get_by_label("Status Bar").query_by_label(w).is_some()
+    };
+    says(&mut h, &keys[..7], &["4 by 4 tiles"]);
+    assert!(said(&h).iter().any(|s| s == keys[7]), "all eight said");
+    let error = "Found as you type: hello.nss(1): ERROR: FILE NOT FOUND";
+    assert!(drawn(&h, error), "the error whole");
+    assert!(!drawn(&h, "No game install"), "the folder gone first");
+    assert!(!drawn(&h, keys[7]), "Replace gave way to the error");
+    // With no error: seven, F7's Compile all back; Ctrl+R's Replace gives
+    // way to Help's switch and the log's last line at its 170.
+    h.state_mut().settings.no_live_check = true;
+    settle(&mut h);
+    says(&mut h, &keys[..7], &["4 by 4 tiles"]);
+    assert!(!drawn(&h, keys[7]), "Replace gave way");
 }
 
 /// Places `resref`'s blueprint (of type `t`) in `area`'s GIT list `list`

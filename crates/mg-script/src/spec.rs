@@ -147,16 +147,21 @@ impl Spec {
                 }
                 i += 1;
             }
-            i += 1; // the `;`
+            // A comment trailing the `;` on its line documents the statement
+            // (and is not the next one's comment above).
+            let trailing = crate::outline::trailing_comment(&text, &toks, i);
+            i = trailing.unwrap_or(i) + 1; // the `;`, and that comment
             let words: Vec<&str> = stmt.iter().map(|t| s(t)).collect();
             // A comment block counts as documentation only directly above.
-            let (docs, doc_source) = if blank_lines > 0 {
+            let above = if blank_lines > 0 {
                 Default::default()
             } else {
                 let plain: Vec<String> =
                     doc.iter().map(|l| crate::outline::comment_text(l)).collect();
                 (plain.join("\n"), doc.join("\n").replace('\r', ""))
             };
+            let (docs, doc_source) =
+                crate::outline::doc_with_trailing(&text, &toks, above, trailing);
             doc.clear();
             blank_lines = 0;
             let words = match words.first() {
@@ -318,5 +323,117 @@ void Jump(vector vDest=[0.0,0.0,0.0], location lLoc=LOCATION_INVALID);
         assert_eq!(j.params[0].default.as_deref(), Some("[0.0,0.0,0.0]"));
         assert_eq!(j.params[1].ty, "location");
         assert_eq!(j.doc, "", "no comment directly above");
+    }
+
+    fn doc_of<'a>(s: &'a Spec, name: &str) -> &'a str {
+        &s.constant(name).unwrap().doc
+    }
+
+    /// A comment trailing a constant on its line documents it (the report:
+    /// `SPELL_TYPE_*`), as written too, and is not the next one's comment.
+    #[test]
+    fn a_trailing_comment_documents_the_constant() {
+        let src = "\
+const int SPELL_TYPE_INVALID        = 0;  // Invalid setting! Error!!!\r
+const int SPELL_TYPE_SPELL          = 1;  // Standard spell.\r
+const int SPELL_TYPE_CREATURE_POWER = 2;  // Or \"Spell ability\". Uses HD for resist spell.\r
+const int SPELL_TYPE_NONE           = 3;\r
+";
+        let s = Spec::parse(src.as_bytes());
+        assert_eq!(doc_of(&s, "SPELL_TYPE_INVALID"), "Invalid setting! Error!!!");
+        assert_eq!(doc_of(&s, "SPELL_TYPE_SPELL"), "Standard spell.");
+        assert_eq!(
+            doc_of(&s, "SPELL_TYPE_CREATURE_POWER"),
+            "Or \"Spell ability\". Uses HD for resist spell."
+        );
+        assert_eq!(doc_of(&s, "SPELL_TYPE_NONE"), "", "the one above's comment is not its");
+        assert_eq!(s.constant("SPELL_TYPE_SPELL").unwrap().doc_source, "// Standard spell.");
+    }
+
+    /// Above and trailing: both, the one above first. A `/* */` trails
+    /// too; one with code after it on the line is no trailing comment.
+    #[test]
+    fn above_and_trailing_comments_both_show() {
+        let src = "// Above.\nint A = 1; // Beside.\nint B = 2; /* Block. */\n\
+int C = 3; /* not trailing */ int D = 4;\n";
+        let s = Spec::parse(src.as_bytes());
+        assert_eq!(doc_of(&s, "A"), "Above.\nBeside.");
+        assert_eq!(s.constant("A").unwrap().doc_source, "// Above.\n// Beside.");
+        assert_eq!(doc_of(&s, "B"), "Block.");
+        assert_eq!(doc_of(&s, "C"), "");
+        assert_eq!(doc_of(&s, "D"), "not trailing", "directly above D, as it was");
+    }
+
+    /// An empty line ends a comment's reach on both sides: a constant after
+    /// a trailing comment and an empty line has nothing; a heading for a
+    /// group, an empty line under it, is no constant's doc (and the
+    /// trailing comments stay each constant's own).
+    #[test]
+    fn a_heading_over_a_group_is_not_each_constants_doc() {
+        let src = "// Heading for the group.\n\nint A = 1; // a\nint B = 2;\n// Own.\nint C = 3;\n\
+int D = 4; // d\n\nint E = 5;\n";
+        let s = Spec::parse(src.as_bytes());
+        assert_eq!(doc_of(&s, "A"), "a");
+        assert_eq!(doc_of(&s, "B"), "");
+        assert_eq!(doc_of(&s, "C"), "Own.");
+        assert_eq!(doc_of(&s, "D"), "d");
+        assert_eq!(doc_of(&s, "E"), "");
+        // Without the empty line the heading is the first constant's
+        // comment above, as it was: shown before its trailing comment.
+        let s = Spec::parse(b"// Group.\nint A = 1; // a\nint B = 2; // b\n");
+        assert_eq!(doc_of(&s, "A"), "Group.\na");
+        assert_eq!(doc_of(&s, "B"), "b");
+    }
+
+    /// A prototype's trailing comment documents it too.
+    #[test]
+    fn a_trailing_comment_documents_a_prototype() {
+        let s = Spec::parse(b"int Get(int n); // Gets it.\nint Other();\n");
+        assert_eq!(s.function("Get").unwrap().doc, "Gets it.");
+        assert_eq!(s.function("Other").unwrap().doc, "");
+    }
+
+    /// `nwscript.nss` of the install, if there is one: the constants with
+    /// a trailing comment all have a documentation now. (`mg-script` is
+    /// below the test kit: the install is found as it does, `NWN_ROOT` or
+    /// the Steam default, and the test skips without one.)
+    #[test]
+    fn the_games_trailing_comments_document_their_constants() {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let roots = std::env::var_os("NWN_ROOT")
+            .map(std::path::PathBuf::from)
+            .into_iter()
+            .chain(home.map(|h| h.join(".local/share/Steam/steamapps/common/Neverwinter Nights")));
+        let Some(src) = roots.filter_map(|r| std::fs::read(r.join("ovr/nwscript.nss")).ok()).next()
+        else {
+            eprintln!("skipped: no game install with an ovr/nwscript.nss");
+            return;
+        };
+        let s = Spec::parse(&src);
+        let text = String::from_utf8_lossy(&src);
+        let with_trailing: Vec<&str> = text
+            .lines()
+            .filter_map(|l| {
+                let (code, comment) = l.split_once("//")?;
+                let code = code.trim_end().strip_suffix(';')?;
+                let name = code.split('=').next()?.split_whitespace().last()?;
+                (!comment.trim().is_empty() && code.contains('=')).then_some(name)
+            })
+            .collect();
+        let documented = s.constants.iter().filter(|c| !c.doc.is_empty()).count();
+        eprintln!(
+            "{} constants, {documented} with a doc, {} with a trailing comment",
+            s.constants.len(),
+            with_trailing.len()
+        );
+        assert!(with_trailing.len() >= 18, "{}", with_trailing.len());
+        for name in &with_trailing {
+            let c = s.constant(name).unwrap();
+            assert!(!c.doc.is_empty(), "{name} has no doc");
+        }
+        assert_eq!(
+            s.constant("ABILITY_STRENGTH").unwrap().doc,
+            "should be the same as in nwseffectlist.cpp"
+        );
     }
 }

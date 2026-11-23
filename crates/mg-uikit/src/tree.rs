@@ -94,6 +94,9 @@ pub fn arrow_column(ui: &Ui) -> Rect {
 struct Line {
     name: String,
     icon: Option<Icon>,
+    /// Its icon a kind's, in the kind's hue while icons are colored
+    /// ([`crate::hues`]).
+    hued: bool,
     count: Option<String>,
     label: Option<String>,
     marked: bool,
@@ -124,6 +127,7 @@ impl Line {
         Line {
             name,
             icon,
+            hued: false,
             count,
             label,
             marked,
@@ -252,6 +256,12 @@ impl Line {
             let fill = if hovered { t.hover_row } else { Color32::TRANSPARENT };
             let arrow = if hovered { t.text } else { t.text_3 };
             let (text, icon) = if self.dim { (t.text_3, t.text_3) } else { (t.text, t.text_2) };
+            // (A kind's icon in its hue while icons are colored; dimmed,
+            // `text-3` still, and marked, `on-fill` as its words.)
+            let icon = match (self.hued, self.dim, self.icon) {
+                (true, false, Some(i)) => crate::hues::tint(ui.ctx(), i, icon),
+                _ => icon,
+            };
             (fill, text, arrow, icon, t.text_3)
         } else {
             let v = ui.visuals();
@@ -413,6 +423,14 @@ impl TreeGroup {
         self
     }
 
+    /// Its kind's icon, after the arrow, in the kind's hue while icons are
+    /// colored ([`crate::hues`]; `text-2` otherwise, as [`Self::icon`]).
+    pub fn kind_icon(mut self, icon: Icon) -> Self {
+        self.line.icon = Some(icon);
+        self.line.hued = true;
+        self
+    }
+
     /// Its count, right-aligned (`113`, `3 of 46`).
     pub fn count(mut self, count: impl ToString) -> Self {
         self.line.count = Some(count.to_string());
@@ -546,6 +564,15 @@ impl TreeRow {
     /// Its icon, after the arrow's column.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.line.icon = Some(icon);
+        self
+    }
+
+    /// A kind's icon, after the arrow's column, in the kind's hue while
+    /// icons are colored ([`crate::hues`]; `text-2` otherwise, as
+    /// [`Self::icon`]).
+    pub fn kind_icon(mut self, icon: Icon) -> Self {
+        self.line.icon = Some(icon);
+        self.line.hued = true;
         self
     }
 

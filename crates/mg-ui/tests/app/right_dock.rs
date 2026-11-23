@@ -1255,8 +1255,9 @@ fn the_right_dock_follows_the_active_editor() {
         assert!((right_dock_rect(&h).width() - width).abs() < 1.0, "as wide");
         assert_eq!(right_tabs(&h), ["Palette", "Preview"], "with both its tabs");
     }
-    // A script's tab: its own Reference over its Help, the area's palettes
-    // gone; the area's tab again, the palettes back as they were.
+    // A script's tab: its own Reference (its Help under the text since
+    // 5.2.0), the area's palettes gone; the area's tab again, the palettes
+    // back as they were.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&script));
@@ -1264,7 +1265,11 @@ fn the_right_dock_follows_the_active_editor() {
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
     assert!(!palette_shown(h.state()));
     h.get_by_label("Reference, nwscript and includes");
-    h.get_by_label("Help, Nothing chosen");
+    let on_right = h
+        .query_all_by_label("Help")
+        .filter_map(|n| n.accesskit_node().bounding_box().map(|_| n.rect()))
+        .any(|r| h.state().right_dock_rect().is_some_and(|d| d.contains_rect(r)));
+    assert!(!on_right, "Help not in the Right Dock");
     click_tab(&mut h, &Tab::Area(area));
     settle(&mut h);
     assert_eq!(right_tabs(&h), ["Palette", "Preview"], "the area's again");

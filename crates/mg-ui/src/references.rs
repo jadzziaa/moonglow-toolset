@@ -1054,6 +1054,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         } else {
             ui.label(format!("Used in {}:", places(usages.len())));
             let commands = app.plugin_menu_commands();
+            // (A row's menu's Copy or Copy All: the text made after the rows.)
+            let mut copy = None;
             for (i, u) in usages.iter().enumerate() {
                 if out_of_sight(ui) {
                     continue;
@@ -1064,15 +1066,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if r.clicked() {
                     go = Some(i);
                 }
-                // (The plugins' commands for what names it.)
-                if let (Some(path), false) = (u.path.gff(), commands.is_empty()) {
-                    let on = [crate::plugins::selected_at(u.from, path)];
-                    if commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(&on))) {
-                        mg_uikit::context_menu(&r, |ui| {
-                            crate::plugins::menu_on(ui, &commands, &on, &mut app.actions);
-                        });
-                    }
+                // Its menu: the plugins' commands for what names it, then
+                // Copy and Copy All; Shift+F10 and Ctrl+C where the
+                // keyboard is on its link.
+                let on = u.path.gff().map(|path| [crate::plugins::selected_at(u.from, path)]);
+                let on =
+                    on.filter(|on| commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(on))));
+                let (keyed, ctrl_c) = crate::row_copy::focused_keys(ui, &r);
+                if ctrl_c {
+                    copy = Some((crate::row_copy::Asked::Row, i));
                 }
+                let actions = &mut app.actions;
+                let all = "Copy all the places that use it, each on a line of its own";
+                let asked = crate::row_copy::row_menu_saying(ui, &r, keyed, all, |ui| {
+                    let Some(on) = &on else { return false };
+                    crate::plugins::menu_on(ui, &commands, on, actions);
+                    true
+                });
+                if let Some(asked) = asked {
+                    copy = Some((asked, i));
+                }
+            }
+            match copy {
+                Some((crate::row_copy::Asked::Row, i)) => {
+                    let line = usage_line(&shown(app, &usages[i]), &usages[i]);
+                    ui.ctx().copy_text(line);
+                }
+                Some((crate::row_copy::Asked::All, _)) => {
+                    let all = usages.iter().map(|u| usage_line(&shown(app, u), u));
+                    let all: Vec<String> = all.collect();
+                    ui.ctx().copy_text(crate::row_copy::lines(all));
+                }
+                None => {}
             }
         }
         app.references.usages = usages;
@@ -1490,4 +1515,12 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     } else if open && !cancel {
         app.rename = Some(draft);
     }
+}
+
+/// A place that uses what References looks up as one line of text (its
+/// menu's Copy, a line of Copy All): the place as listed (`shown`), then
+/// the resource and the field that name it, as its tip says them,
+/// "area_01 › Guard: guard.utc Conversation".
+pub fn usage_line(shown: &str, u: &Usage) -> String {
+    format!("{shown}: {} {}", u.from, u.path)
 }

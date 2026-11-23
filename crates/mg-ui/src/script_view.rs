@@ -702,6 +702,28 @@ fn step_history(buf: &mut ScriptBuffer, ctx: &egui::Context, key: ResKey, redo: 
     state.store(ctx, id);
 }
 
+/// Whether the editor's history has a step back (or, `redo`, again) that
+/// changes its text, as [`step_history`] takes one: one that only moves
+/// the cursor is passed over. (For its menu's Undo and Redo, worked out
+/// while the menu is open.)
+fn has_step(
+    undoer: &egui::util::undoer::Undoer<(egui::text::CCursorRange, String)>,
+    now: &(egui::text::CCursorRange, String),
+    redo: bool,
+) -> bool {
+    let mut undoer = undoer.clone();
+    let mut now = now.clone();
+    for _ in 0..8 {
+        let to = if redo { undoer.redo(&now) } else { undoer.undo(&now) };
+        let Some(to) = to.cloned() else { return false };
+        if to.1 != now.1 {
+            return true;
+        }
+        now = to;
+    }
+    false
+}
+
 /// Moves an editor's cursor (and selection) and focuses it.
 fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
     let id = editor_id(key);
@@ -1067,6 +1089,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The editor with line numbers.
     let style_indent = tools::Indent::of(&app.settings.script_style);
+    // (Options › Script Editor › Show declarations in tips, 5.2.0.)
+    let symbol_tips = !app.settings.no_symbol_tips;
     // (The live error: its line (none: in an include, `live_include` saying
     // which and where), and what it says for the underline's tip.)
     let live_error = app.live_error(key).cloned();
@@ -1077,6 +1101,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let script = [mg_plugin::Selected::Resource(key)];
     let script_kinds = crate::plugins::kinds_of(&script);
     let mut plugin_chosen = None;
+    // (Its right-click menu's Undo and Redo keys, Options › Keyboard's:
+    // worked out only while the menu is open or asked for.)
+    let menu_wanted = crate::widgets::text_menu_wanted(&ctx, editor_id(key));
+    let undo_keys =
+        menu_wanted.then(|| (app.keymap.label_of("undo", &ctx), app.keymap.label_of("redo", &ctx)));
     let Moonglow { scripts, laid_out, script_tools, open_tabs, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
     // Tab indents as the script is indented (Jasperre's report), else as
@@ -1274,12 +1303,6 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 &mut ui.visuals_mut().selection.bg_fill,
                 egui::Color32::TRANSPARENT,
             );
-            // (A right click keeps the text selected, for the context
-            // menu's Convert Indentation of its lines: the field takes any
-            // button's press as a click that moves the cursor.)
-            let selection = egui::text_edit::TextEditState::load(&ctx, editor_id(key))
-                .and_then(|s| s.cursor.char_range())
-                .filter(|r| r.primary != r.secondary);
             let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
                 cached.text(ui, text.as_str(), &palette)
             };
@@ -1294,12 +1317,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .frame(crate::script_layout::text_frame())
                 .layouter(&mut layouter)
                 .show(ui);
-            if let Some(range) = selection
-                && out.response.response.hovered()
-                && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
-            {
+            // (A right click in the selection keeps it, for the menu's Cut,
+            // Copy and Convert Indentation of its lines; outside it, the
+            // caret goes where it was pressed: `widgets::keep_selection`.)
+            crate::widgets::own_text_menu(&ctx, editor_id(key));
+            if let Some(range) = crate::widgets::keep_selection(&ctx, editor_id(key)) {
                 out.state.cursor.set_char_range(Some(range));
-                out.state.clone().store(&ctx, editor_id(key));
                 out.cursor_range = Some(range);
             }
             cursor_now = out.state.cursor.char_range();
@@ -1310,16 +1333,47 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             place_now = Some((found.row + 1, usize::from(found.column) + 1));
             crate::script_layout::describe_line(&out.response.response, found.row + 1, lines);
             ui.visuals_mut().selection.bg_fill = selected;
-            mg_uikit::context_menu(&out.response.response, |ui| {
-                for (tabs, label) in INDENT_CONVERSIONS {
-                    if ui.button(label).clicked() {
-                        convert = Some(tabs);
-                        ui.close();
-                    }
+            // Its right-click menu: the editor's Undo and Redo, Cut, Copy,
+            // Paste and Select All (the text fields' menu), then Convert
+            // Indentation and the plugins' commands for scripts.
+            if let Some((undo_keys, redo_keys)) = undo_keys.filter(|_| menu_wanted) {
+                // (Worked out on the frame the menu is asked for, and kept
+                // while it is open, when its keys are its own and the text
+                // does not change: not the history and the text copied
+                // each frame; kept with the text's hash, so a pair of
+                // another text is never taken.)
+                let slot = editor_id(key).with("menu-steps");
+                let kept = (crate::widgets::text_menu_open(&ctx))
+                    .then(|| ctx.data(|d| d.get_temp::<(u64, (bool, bool))>(slot)))
+                    .flatten()
+                    .filter(|(was, _)| *was == h)
+                    .map(|(_, steps)| steps);
+                let (can_undo, can_redo) = kept.unwrap_or_else(|| {
+                    let undoer = out.state.undoer();
+                    let end = egui::text::CCursor::new(buf.text.chars().count());
+                    let range = cursor_now.unwrap_or(egui::text::CCursorRange::one(end));
+                    let now = (range, buf.text.clone());
+                    let steps = (has_step(&undoer, &now, false), has_step(&undoer, &now, true));
+                    ctx.data_mut(|d| d.insert_temp(slot, (h, steps)));
+                    steps
+                });
+                let undo = crate::widgets::TextUndo { can_undo, can_redo, undo_keys, redo_keys };
+                let (step, _) =
+                    crate::widgets::text_menu(&ctx, editor_id(key), Some(undo), |ui, rows| {
+                        mg_uikit::menu_separator(ui);
+                        for (tabs, label) in INDENT_CONVERSIONS {
+                            if rows.row(ui, label, "", true) {
+                                convert = Some(tabs);
+                            }
+                        }
+                        // The plugins' commands for scripts, run on this one.
+                        plugin_chosen = crate::plugins::menu_commands(ui, &commands, &script_kinds);
+                    });
+                if let Some(step) = step {
+                    script_tools.undo = Some((key, step == crate::widgets::TextAction::Redo));
+                    ctx.request_repaint();
                 }
-                // The plugins' commands for scripts, run on this one.
-                plugin_chosen = crate::plugins::menu_commands(ui, &commands, &script_kinds);
-            });
+            }
             let field = out.response.response.rect;
             let radius = ui.style().interact(&out.response.response).corner_radius;
             // (The gutter on the text's ground: the board's `.code`.)
@@ -1371,6 +1425,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // Where its own line has no text (an error at the file's end)
             // or it is in an include, a line near it carries the underline
             // (`underlined_line`).
+            let mut error_tip = false;
             if let Some((line, said)) = &live_error {
                 let asked = egui::epaint::util::hash((line, said, &live_include));
                 let under = match &buf.error_span {
@@ -1399,6 +1454,49 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             None => format!("{said}\nFound as you type."),
                         };
                         out.response.response.clone().on_hover_text_at_pointer(tip);
+                        error_tip = true;
+                    }
+                }
+            }
+            // A name's declaration in a tip (5.2.0, Options › Script Editor
+            // › Show declarations in tips): over the name under the pointer
+            // (the live error's tip first), or over the cursor where the
+            // arrow keys put it on one; not while the completion list is
+            // open.
+            // (Neither while the editor's right-click menu is open or asked
+            // for: a tip would stand over its rows, and the menu takes the
+            // keys that would close it.)
+            let menu_up = menu_wanted || crate::widgets::text_menu_open(&ctx);
+            if symbol_tips && script_tools.completion.is_none() {
+                let origin = out.galley_pos.to_vec2();
+                let pointer = (out.response.response.hover_pos())
+                    .filter(|_| !error_tip && !menu_up)
+                    .and_then(|p| {
+                        let slot = egui::Id::new(("name-at-pointer", key));
+                        name_at(&ctx, slot, h, &symbols, &out.galley, (p - origin).to_vec2())
+                    });
+                if let Some(s) = pointer {
+                    let detail =
+                        symbol_detail(&ctx, egui::Id::new(("symbol-tip", key)), s, &palette);
+                    out.response.response.clone().on_hover_ui_at_pointer(|ui| {
+                        detail_ui(ui, &detail, TIP_MOST);
+                    });
+                } else if let Some(r) = out.cursor_range
+                    && caret_tip(&ctx, key, r.primary.index.into(), menu_up)
+                    && let caret = out.galley.pos_from_cursor(r.primary)
+                    // (Only while the cursor is in sight: not over the
+                    // menus or another panel where the text is scrolled.)
+                    && ui.clip_rect().contains_rect(caret.translate(origin))
+                {
+                    let at = caret.center_bottom() - egui::vec2(0.0, 1.0);
+                    let slot = egui::Id::new(("name-at-caret", key));
+                    if let Some(s) = name_at(&ctx, slot, h, &symbols, &out.galley, at.to_vec2()) {
+                        let slot = egui::Id::new(("symbol-tip", key));
+                        let detail = symbol_detail(&ctx, slot, s, &palette);
+                        let id = editor_id(key).with("caret-tip");
+                        let anchor = caret.translate(origin);
+                        egui::Tooltip::always_open(ctx.clone(), ui.layer_id(), id, anchor)
+                            .show(|ui| detail_ui(ui, &detail, TIP_MOST));
                     }
                 }
             }
@@ -1415,9 +1513,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     let word = tools::word_at(&buf.text, r.primary.index.into());
                     if let Some(s) = word.and_then(|w| symbols.iter().find(|s| s.name == w)) {
                         script_tools.help = Some(s.clone());
-                        // A double click on it brings its help forward
-                        // (in front of Reference, where they share one
-                        // tab bar), as in Aurora.
+                        // A double click on it brings its Help forward
+                        // (to the front of the panels under the text), as
+                        // in Aurora.
                         if out.response.response.double_clicked() {
                             script_tools.help_forward = Some(key);
                             ctx.request_repaint();
@@ -1463,25 +1561,70 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (script_tools.completion.as_mut().filter(|c| c.script == key), completion_at)
     {
         let mut pick = None;
+        // As wide as its widest name, measured when the list opens or
+        // changes ([`completion_width`]) and set every frame: egui's area
+        // keeps the size it had (a list of one short name once made the
+        // next list as narrow, its names wrapped a few letters a line).
+        let (width, height, at_x) = completion_size(&ctx, ui, key, &c.items, pos.x);
+        // The chosen name's declaration and its documentation's first line
+        // beside the list (5.2.0, the owner's ruling on Jasperre's ask).
+        if let Some(s) = c.items.get(c.selected) {
+            let frame = egui::Frame::popup(&ctx.global_style()).total_margin().sum();
+            let list = egui::Rect::from_min_size(
+                egui::pos2(at_x, pos.y),
+                egui::vec2(width + frame.x, height + frame.y),
+            );
+            let detail =
+                symbol_detail(&ctx, egui::Id::new(("completion-detail", key)), s, &palette);
+            completion_detail(&ctx, key, list, &detail);
+        }
         egui::Area::new(egui::Id::new(("completion", key)))
-            .fixed_pos(pos)
+            .fixed_pos(egui::pos2(at_x, pos.y))
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                        mg_uikit::list_rows(ui);
-                        for (i, s) in c.items.iter().enumerate() {
-                            let r = ui
-                                .selectable_label(i == c.selected, &s.name)
-                                .on_hover_text(&s.signature);
-                            if i == c.selected {
-                                r.scroll_to_me(None);
-                            }
-                            if r.clicked() {
-                                pick = Some(i);
-                            }
-                        }
-                    });
+                    mg_uikit::list_rows(ui);
+                    ui.set_width(width);
+                    ui.set_height(height);
+                    // (Its height the rows': egui's least height of a
+                    // scroll area, 64, made a list of one name as tall as
+                    // three.)
+                    egui::ScrollArea::vertical()
+                        .min_scrolled_height(height)
+                        .max_height(height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            // (Each row across the list.)
+                            let rows = egui::Layout::top_down_justified(egui::Align::LEFT);
+                            ui.with_layout(rows, |ui| {
+                                for (i, s) in c.items.iter().enumerate() {
+                                    // (One line a row: a name with no room is
+                                    // cut with an ellipsis, whole in its tip.)
+                                    let row = egui::Button::selectable(i == c.selected, &s.name)
+                                        .truncate();
+                                    let r = ui.add(row);
+                                    let r =
+                                        match (r.intrinsic_size(), s.signature.contains(&s.name)) {
+                                            (Some(size), false)
+                                                if size.x > r.rect.width() + 0.5 =>
+                                            {
+                                                r.on_hover_text(format!(
+                                                    "{}\n{}",
+                                                    s.name, s.signature
+                                                ))
+                                            }
+                                            _ if s.signature.is_empty() => r.on_hover_text(&s.name),
+                                            _ => r.on_hover_text(&s.signature),
+                                        };
+                                    if i == c.selected {
+                                        r.scroll_to_me(None);
+                                    }
+                                    if r.clicked() {
+                                        pick = Some(i);
+                                    }
+                                }
+                            });
+                        });
                 });
             });
         if let Some(i) = pick {
@@ -1515,6 +1658,338 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         save_script(app, key, how);
     }
     follow_panels(app, &ctx, key);
+}
+
+/// The completion list's height at most: its rows scroll past it.
+const COMPLETION_HEIGHT: f32 = 200.0;
+
+/// The completion list's least width (its rows' room: a short name's
+/// list is no narrower).
+const COMPLETION_LEAST: f32 = 160.0;
+
+/// The completion list's width and height (its rows' room, inside its
+/// frame) and where it stands across (`x`, the cursor's). Its height its
+/// rows', at most [`COMPLETION_HEIGHT`]; its width its widest name's, among
+/// all its names and not only those in sight (it keeps its width as it
+/// scrolls), with the scroll bar's room where it has more rows than fit;
+/// at least [`COMPLETION_LEAST`], at most the room to the window's right
+/// edge (a longer name is cut). Where even the least has no room there,
+/// it stands farther left. Measured once a list (kept with its names'
+/// hash), not each frame. Both are set every frame: egui's area would
+/// otherwise keep the size of the list before.
+fn completion_size(
+    ctx: &egui::Context,
+    ui: &Ui,
+    key: ResKey,
+    items: &[crate::script_tools::Symbol],
+    x: f32,
+) -> (f32, f32, f32) {
+    let id = egui::Id::new(("completion-width", key));
+    let style = ctx.global_style();
+    let font = egui::TextStyle::Button.resolve(&style);
+    let asked =
+        egui::epaint::util::hash((items.iter().map(|s| &s.name).collect::<Vec<_>>(), &font));
+    let (widest, height) = match ctx.data(|d| d.get_temp::<(u64, f32, f32)>(id)) {
+        Some((hash, w, h)) if hash == asked => (w, h),
+        _ => {
+            let color = ui.visuals().text_color();
+            let names = ctx.fonts_mut(|f| {
+                (items.iter())
+                    .map(|s| f.layout_no_wrap(s.name.clone(), font.clone(), color).size().x)
+                    .fold(0.0_f32, f32::max)
+            });
+            // (A row's padding at each side, and the scroll bar's room
+            // where its rows don't all fit: decided by their count, not by
+            // the bar shown last frame, which would feed back.)
+            let mut rows = ui.style().as_ref().clone();
+            mg_uikit::row_style(&mut rows);
+            let n = items.len() as f32;
+            let all = n * rows.spacing.interact_size.y + (n - 1.0) * rows.spacing.item_spacing.y;
+            let scrolls = all > COMPLETION_HEIGHT;
+            let bar = if scrolls {
+                let s = &rows.spacing.scroll;
+                s.allocated_width().max(s.bar_width + s.bar_outer_margin)
+            } else {
+                0.0
+            };
+            let w = (names + 2.0 * rows.spacing.button_padding.x + bar).ceil();
+            let h = all.min(COMPLETION_HEIGHT);
+            ctx.data_mut(|d| d.insert_temp(id, (asked, w, h)));
+            (w, h)
+        }
+    };
+    let frame = egui::Frame::popup(&style);
+    let sides = frame.total_margin().sum().x;
+    let edge = ctx.content_rect().right() - 4.0;
+    let most = (edge - x - sides).max(COMPLETION_LEAST);
+    let width = widest.clamp(COMPLETION_LEAST, most);
+    (width, height, x.min(edge - width - sides).max(ctx.content_rect().left()))
+}
+
+/// What a name's tip and the completion list's detail show (5.2.0): its
+/// declaration in the editor's colors and font, and its documentation's
+/// first line (`script_reference::first_doc_line`). Made once a name, kept
+/// in the context's data ([`symbol_detail`]).
+pub(crate) struct SymbolDetail {
+    declaration: LayoutJob,
+    first: Option<String>,
+    /// The editor's own ground, where it has one, and its comments' color:
+    /// the tip and the detail drawn on it, the first line in that color, so
+    /// the editor's colors stand on the ground they were chosen for (a dark
+    /// editor in the Light theme, review of 5.2.0).
+    ground: Option<(Color32, Color32)>,
+}
+
+/// [`SymbolDetail`] of `s` in `palette`, kept in the context's data at
+/// `slot` while it is the one asked for there: not made again each frame.
+fn symbol_detail(
+    ctx: &egui::Context,
+    slot: egui::Id,
+    s: &crate::script_tools::Symbol,
+    palette: &Palette,
+) -> std::sync::Arc<SymbolDetail> {
+    let colors = (palette.colors, palette.size.to_bits(), palette.background);
+    let asked = egui::epaint::util::hash((&s.name, &s.signature, &s.doc, colors));
+    let kept = ctx.data(|d| d.get_temp::<(u64, std::sync::Arc<SymbolDetail>)>(slot));
+    if let Some((was, detail)) = kept
+        && was == asked
+    {
+        return detail;
+    }
+    let detail = std::sync::Arc::new(SymbolDetail {
+        declaration: highlight(&s.signature, palette),
+        first: crate::script_reference::first_doc_line(&s.doc),
+        ground: palette.background.map(|g| (g, palette.colors[1])),
+    });
+    ctx.data_mut(|d| d.insert_temp(slot, (asked, detail.clone())));
+    detail
+}
+
+/// The most a name's tip is across: its declaration wraps there.
+const TIP_MOST: f32 = 480.0;
+/// The completion list's detail at most across, and at least where it
+/// stands beside the list (else under it).
+const DETAIL_MOST: f32 = 420.0;
+const DETAIL_LEAST: f32 = 200.0;
+/// The completion list's detail's name, for a screen reader (a group).
+pub(crate) const COMPLETION_DETAIL: &str = "Completion detail";
+/// The room between the completion list and its detail.
+const DETAIL_GAP: f32 = 4.0;
+
+/// `detail`'s galleys at `width`: the declaration wrapped there, the
+/// documentation's line under it in the body's font, quieter.
+fn detail_galleys(
+    ctx: &egui::Context,
+    detail: &SymbolDetail,
+    width: f32,
+) -> (std::sync::Arc<egui::Galley>, Option<std::sync::Arc<egui::Galley>>) {
+    let t = mg_uikit::tokens(ctx);
+    let mut job = detail.declaration.clone();
+    job.wrap.max_width = width;
+    let declaration = ctx.fonts_mut(|f| f.layout_job(job));
+    let first = detail.first.as_ref().map(|line| {
+        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+        let color = detail.ground.map_or(t.text_2, |(_, comment)| comment);
+        ctx.fonts_mut(|f| f.layout(line.clone(), font, color, width))
+    });
+    (declaration, first)
+}
+
+/// A name's tip ([`SymbolDetail`]), at most `most` across.
+/// On the editor's own ground where it has one, over the whole of the
+/// tip's inside.
+fn detail_ui(ui: &mut Ui, detail: &SymbolDetail, most: f32) {
+    let (declaration, first) = detail_galleys(ui.ctx(), detail, most);
+    let show = |ui: &mut Ui| {
+        ui.add(egui::Label::new(declaration));
+        if let Some(first) = first {
+            ui.add(egui::Label::new(first));
+        }
+    };
+    match detail.ground {
+        Some((ground, _)) => {
+            // (Under what it shows, the tip's own margin filled too.)
+            let under = ui.painter().add(egui::Shape::Noop);
+            show(ui);
+            let margin = ui.style().spacing.menu_margin;
+            let corner = ui.visuals().menu_corner_radius;
+            let rect = ui.min_rect() + margin;
+            ui.painter().set(under, egui::epaint::RectShape::filled(rect, corner, ground));
+        }
+        None => show(ui),
+    }
+}
+
+/// The completion list's detail ([`SymbolDetail`] of the name chosen in
+/// it), beside the list `list` (its frame's rect) at its right, else at
+/// its left, else under it (over it where there is no room under), held
+/// inside the window: from 100% to 300% interface size, the least window
+/// too. Where it stands is worked out from its own measures, not from a
+/// frame before. Drawn over the text, not taking the pointer.
+fn completion_detail(ctx: &egui::Context, key: ResKey, list: egui::Rect, detail: &SymbolDetail) {
+    let style = ctx.global_style();
+    let mut frame = egui::Frame::popup(&style);
+    if let Some((ground, _)) = detail.ground {
+        frame = frame.fill(ground);
+    }
+    let sides = frame.total_margin().sum();
+    let screen = ctx.content_rect().shrink(4.0);
+    let right = screen.right() - list.right() - DETAIL_GAP;
+    let left = list.left() - DETAIL_GAP - screen.left();
+    let (side, room) = if right >= DETAIL_LEAST {
+        (0, right)
+    } else if left >= DETAIL_LEAST {
+        (1, left)
+    } else {
+        (2, screen.width())
+    };
+    let width = (room.min(DETAIL_MOST) - sides.x).max(1.0);
+    let (declaration, first) = detail_galleys(ctx, detail, width);
+    // (As wide as its widest line, at most `width`.)
+    let inner_w = first.as_ref().map_or(0.0, |f| f.size().x).max(declaration.size().x).min(width);
+    let gap = style.spacing.item_spacing.y;
+    let inner_h = declaration.size().y + first.as_ref().map_or(0.0, |f| f.size().y + gap);
+    let size = egui::vec2(inner_w, inner_h) + sides;
+    let mut at = match side {
+        0 => egui::pos2(list.right() + DETAIL_GAP, list.top()),
+        1 => egui::pos2(list.left() - DETAIL_GAP - size.x, list.top()),
+        _ => {
+            let x = list.left().min(screen.right() - size.x).max(screen.left());
+            match list.bottom() + DETAIL_GAP + size.y <= screen.bottom() {
+                true => egui::pos2(x, list.bottom() + DETAIL_GAP),
+                false => egui::pos2(x, list.top() - DETAIL_GAP - size.y),
+            }
+        }
+    };
+    // (Held inside the window down too: a tall list leaves no room above
+    // or below it in a small one, and the detail then covers the list's
+    // end rather than leave the window.)
+    at.y = at.y.min(screen.bottom() - size.y).max(screen.top());
+    egui::Area::new(egui::Id::new(("completion-detail-area", key)))
+        .fixed_pos(at)
+        .order(egui::Order::Foreground)
+        .interactable(false)
+        .show(ctx, |ui| {
+            frame.show(ui, |ui| {
+                mg_uikit::name_group(ui, COMPLETION_DETAIL);
+                ui.set_width(inner_w);
+                ui.set_height(inner_h);
+                ui.spacing_mut().item_spacing.y = gap;
+                ui.add(egui::Label::new(declaration));
+                if let Some(first) = first {
+                    ui.add(egui::Label::new(first));
+                }
+            });
+        });
+}
+
+/// The name of the script's symbols under `at` (in the text's galley,
+/// from its top left): the identifier whose glyphs `at` is over, if one
+/// of `symbols` has its name. Found again only where `at` is over
+/// another character or the text changed (`h`), kept in the context's data
+/// meanwhile (at `slot`): the symbols are not looked through each frame.
+fn name_at<'a>(
+    ctx: &egui::Context,
+    slot: egui::Id,
+    h: u64,
+    symbols: &'a [crate::script_tools::Symbol],
+    galley: &egui::Galley,
+    at: egui::Vec2,
+) -> Option<&'a crate::script_tools::Symbol> {
+    let cursor = galley.cursor_from_pos(at);
+    let asked = (h, usize::from(cursor.index), symbols.as_ptr() as usize, symbols.len());
+    // (The symbol's index, and where the name's glyphs are across and
+    // down its row.)
+    type Found = Option<(usize, egui::Rangef, egui::Rangef)>;
+    let kept = ctx.data(|d| d.get_temp::<((u64, usize, usize, usize), Found)>(slot));
+    let found = match kept {
+        Some((was, found)) if was == asked => found,
+        _ => {
+            let found = find_name(symbols, galley, cursor);
+            ctx.data_mut(|d| d.insert_temp(slot, (asked, found)));
+            found
+        }
+    };
+    let (i, across, down) = found?;
+    (across.contains(at.x) && down.contains(at.y)).then(|| &symbols[i])
+}
+
+/// [`name_at`]'s search: the identifier at `cursor` from its row's glyphs.
+fn find_name(
+    symbols: &[crate::script_tools::Symbol],
+    galley: &egui::Galley,
+    cursor: egui::text::CCursor,
+) -> Option<(usize, egui::Rangef, egui::Rangef)> {
+    let place = galley.layout_from_cursor(cursor);
+    let row = galley.rows.get(place.row)?;
+    let glyphs = &row.row.glyphs;
+    let column = usize::from(place.column).min(glyphs.len());
+    let ident = |g: &egui::epaint::text::Glyph| g.chr.is_ascii_alphanumeric() || g.chr == '_';
+    let start = glyphs[..column].iter().rposition(|g| !ident(g)).map_or(0, |i| i + 1);
+    let end = glyphs[column..].iter().position(|g| !ident(g)).map_or(glyphs.len(), |i| column + i);
+    if start >= end || glyphs[start].chr.is_ascii_digit() {
+        return None;
+    }
+    let name: String = glyphs[start..end].iter().map(|g| g.chr).collect();
+    let i = symbols.iter().position(|s| s.name == name)?;
+    let x0 = row.pos.x + glyphs[start].pos.x;
+    let last = &glyphs[end - 1];
+    let x1 = row.pos.x + last.pos.x + last.advance_width;
+    Some((i, egui::Rangef::new(x0, x1), egui::Rangef::new(row.min_y(), row.max_y())))
+}
+
+/// Whether the cursor, at `at` (a character index), is where the arrow keys
+/// (or Home, End, Page Up and Page Down) put it, nothing typed, clicked or
+/// pressed since: the tip over the name there shows then (5.2.0), and goes
+/// at the next key, click, text or wheel scroll, or where `kept_off` (the
+/// editor's right-click menu open or asked for). Kept in the context's
+/// data.
+fn caret_tip(ctx: &egui::Context, key: ResKey, at: usize, kept_off: bool) -> bool {
+    use egui::Key;
+    let slot = egui::Id::new(("caret-tip", key));
+    let focused = ctx.memory(|m| m.has_focus(editor_id(key))) && !kept_off;
+    let (moved, other) = ctx.input(|i| {
+        let mut moved = false;
+        let mut other = i.pointer.any_pressed();
+        for e in &i.events {
+            match e {
+                egui::Event::Key { key, pressed: true, .. } => match key {
+                    Key::ArrowLeft
+                    | Key::ArrowRight
+                    | Key::ArrowUp
+                    | Key::ArrowDown
+                    | Key::Home
+                    | Key::End
+                    | Key::PageUp
+                    | Key::PageDown => moved = true,
+                    _ => other = true,
+                },
+                egui::Event::Text(_)
+                | egui::Event::Paste(_)
+                | egui::Event::Ime(_)
+                | egui::Event::MouseWheel { .. } => other = true,
+                _ => {}
+            }
+        }
+        (moved, other)
+    });
+    let kept = ctx.data(|d| d.get_temp::<usize>(slot));
+    let now = match (focused, moved && !other, other) {
+        (false, ..) | (true, false, true) => None,
+        (true, true, _) => Some(at),
+        (true, false, false) => kept.filter(|k| *k == at),
+    };
+    if now != kept {
+        ctx.data_mut(|d| match now {
+            Some(at) => {
+                d.insert_temp(slot, at);
+            }
+            None => {
+                d.remove::<usize>(slot);
+            }
+        });
+    }
+    now.is_some()
 }
 
 /// The Reference and Help panels after the script's editor (M4's U12):

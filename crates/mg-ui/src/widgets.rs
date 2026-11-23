@@ -2404,6 +2404,10 @@ pub(crate) fn leave_text(ctx: &egui::Context) -> bool {
 /// clicked (another page's tab, its window's close button) may have taken
 /// the field away, and what was typed with it.
 pub(crate) fn text_begin(ctx: &egui::Context) {
+    // (A press on a text field's menu is the field's own.)
+    if text_menu_open(ctx) {
+        return;
+    }
     let Some((id, rect)) = ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(press_leaves_id()))
     else {
         return;
@@ -3334,6 +3338,718 @@ pub(crate) fn asked_paste(ctx: &egui::Context, id: egui::Id) -> Option<String> {
     }
     ctx.data_mut(|d| d.remove::<(egui::Id, String, u64)>(came_id));
     (by == id && pass + 1 >= ctx.cumulative_pass_nr()).then_some(text)
+}
+
+/// What a text field's right-click menu ([`text_menu`]) does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextAction {
+    /// The field's own history's step back (the script editor's alone:
+    /// [`TextUndo`]).
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+/// The script editor's Undo and Redo in its menu: whether each has a step
+/// to take, and their keys (Options › Keyboard's).
+pub(crate) struct TextUndo {
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub undo_keys: String,
+    pub redo_keys: String,
+}
+
+/// A text field's menu, open.
+#[derive(Clone, Copy)]
+struct TextMenuOpen {
+    field: egui::Id,
+    /// Where it stands: the pointer's place at the right click, under the
+    /// caret for Shift+F10.
+    at: egui::Pos2,
+    /// The field's text can't be changed: Cut and Paste are off.
+    read_only: bool,
+    /// A password's field (its text shown as dots): Cut and Copy are off,
+    /// egui's field copies nothing from it.
+    password: bool,
+    /// The field's layer: the menu's popup is counted on it, so that tips
+    /// there wait while the menu is open.
+    layer: egui::LayerId,
+    /// Something is selected: Cut and Copy are on.
+    selected: bool,
+    /// The row the keys are at (Up and Down), counting every row.
+    lit: Option<usize>,
+    /// Enter (or Space) pressed: the lit row is chosen as it is drawn.
+    choose: bool,
+}
+
+/// The text fields' menus' state, kept between frames.
+#[derive(Clone, Default)]
+struct TextMenus {
+    open: Option<TextMenuOpen>,
+    /// The rows of the menu last drawn, on or off: where Up and Down go.
+    rows: Vec<bool>,
+    /// The selection of the field that had the keys as a right press
+    /// began (egui's field puts its caret where any button is pressed).
+    pressed: Option<(egui::Id, egui::text::CCursorRange)>,
+    /// What a row asked of its field, done as the next frame begins, the
+    /// field still holding the keys: the event its keys send.
+    pending: Option<(egui::Id, TextAction)>,
+    /// The fields that drew their own menu this pass (the script
+    /// editor's, with its own rows): left to it.
+    own: (u64, Vec<egui::Id>),
+    /// The fields whose text can't be changed this pass though their text
+    /// could be (a form only looked at: `blueprint::typing_kept_out`).
+    kept_out: (u64, Vec<egui::Id>),
+    /// How egui gave the keys up at a click elsewhere before the menu
+    /// opened: while the pointer is on the open menu, a click there keeps
+    /// them in the field (a plugin's row, the menu's margin). A click
+    /// elsewhere gives them up as it would without the menu.
+    surrender: Option<egui::SurrenderFocusOn>,
+    /// The menu as last drawn, and its rows (counting every row): a press
+    /// on a row is the menu's alone ([`text_menu_input`]).
+    menu_rect: Option<egui::Rect>,
+    row_rects: Vec<egui::Rect>,
+    /// The submenus open from it (a plugin's `menu`: egui's own, each its
+    /// own area, which can lie outside the menu): a press there is on the
+    /// menu too.
+    sub_rects: Vec<egui::Rect>,
+    /// A press taken by the menu, on the row it was on (an enabled one's):
+    /// its release is the menu's too, and chooses that row if it comes
+    /// over it.
+    swallow: Option<(egui::PointerButton, Option<usize>)>,
+    /// A key pressed closed the menu and its text did not come with it:
+    /// that text, if it comes first in the next frame, is not the field's
+    /// either.
+    typed_away: bool,
+}
+
+impl TextMenus {
+    /// Whether `pos` is on the open menu or one of its submenus.
+    fn on_menu(&self, pos: egui::Pos2) -> bool {
+        self.open.is_some()
+            && (self.menu_rect.is_some_and(|r| r.contains(pos))
+                || self.sub_rects.iter().any(|r| r.contains(pos)))
+    }
+}
+
+fn text_menus_id() -> egui::Id {
+    egui::Id::new("mg-text-menus")
+}
+
+/// The id of the text fields' menu (an egui popup, kept open by
+/// [`TextMenus`] and not by egui's one open popup, so that a field inside
+/// a popup, a dropdown's Filter, keeps its popup open under it).
+fn text_menu_id() -> egui::Id {
+    egui::Id::new("mg-text-menu")
+}
+
+/// The id a text menu's Paste asks the clipboard under ([`ask_paste`]).
+fn text_paste_id() -> egui::Id {
+    egui::Id::new("mg-text-menu-paste")
+}
+
+fn text_menus(ctx: &egui::Context) -> TextMenus {
+    ctx.data(|d| d.get_temp::<TextMenus>(text_menus_id())).unwrap_or_default()
+}
+
+fn keep_text_menus(ctx: &egui::Context, m: TextMenus) {
+    ctx.data_mut(|d| d.insert_temp(text_menus_id(), m));
+}
+
+/// Whether a text field's menu is open (a press on it is not a press
+/// elsewhere: [`text_begin`]).
+pub(crate) fn text_menu_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<TextMenus>(text_menus_id())).is_some_and(|m| m.open.is_some())
+}
+
+/// Says that the field `id`'s text can't be changed this frame, though it
+/// is drawn as if it could (a form only looked at): its menu has no Cut or
+/// Paste.
+pub(crate) fn text_kept_out(ctx: &egui::Context, id: egui::Id) {
+    let pass = ctx.cumulative_pass_nr();
+    let mut m = text_menus(ctx);
+    if m.kept_out.0 != pass {
+        m.kept_out = (pass, Vec::new());
+    }
+    m.kept_out.1.push(id);
+    keep_text_menus(ctx, m);
+}
+
+/// First in a frame, before anything reads its events: what a text
+/// menu's row asked last frame is sent to its field as its keys would send
+/// it (Copy, Cut, the clipboard's text as a Paste once it came, Ctrl+A),
+/// so the field does it as it does for them (its own undo, what its owner
+/// does with a change); a right press's selection is noted
+/// ([`keep_selection`]); and while the pointer is on an open menu, a click
+/// there leaves the keys in the field. (Its keys and presses are taken
+/// before egui reads them: [`text_menu_input`].)
+pub(crate) fn text_menus_begin(ctx: &egui::Context) {
+    use egui::{Event, Key, Modifiers};
+    if ctx.plugin_opt::<TextMenuInput>().is_none() {
+        ctx.add_plugin(TextMenuInput);
+    }
+    let mut m = text_menus(ctx);
+    if let Some((field, action)) = m.pending {
+        let keys = ctx.memory(|mm| mm.has_focus(field));
+        let event = match action {
+            TextAction::Copy => Some(Event::Copy),
+            TextAction::Cut => Some(Event::Cut),
+            TextAction::SelectAll => Some(Event::Key {
+                key: Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            }),
+            TextAction::Paste => {
+                let came = asked_paste(ctx, text_paste_id());
+                let waiting = (ctx.data(|d| d.get_temp::<PasteAsked>(paste_ids().0)))
+                    .is_some_and(|a| a.id == text_paste_id());
+                if came.is_none() && waiting {
+                    keep_text_menus(ctx, m.clone());
+                }
+                came.map(Event::Paste)
+            }
+            TextAction::Undo | TextAction::Redo => None,
+        };
+        // (A paste still on its way stays pending until the text comes.)
+        let still_asked = action == TextAction::Paste
+            && event.is_none()
+            && ctx.data(|d| d.get_temp::<PasteAsked>(paste_ids().0)).is_some();
+        if !still_asked {
+            m.pending = None;
+        }
+        if let Some(e) = event.filter(|_| keys) {
+            ctx.input_mut(|i| i.events.insert(0, e));
+        }
+    }
+    m.pressed = None;
+    if ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary)) {
+        m.pressed = ctx.memory(|mm| mm.focused()).and_then(|id| {
+            let range = egui::text_edit::TextEditState::load(ctx, id)?.cursor.char_range()?;
+            (range.primary != range.secondary).then_some((id, range))
+        });
+    }
+    // (Only on the menu: elsewhere a click gives the keys up as it does
+    // without it, and a field that sets its text then sets it.)
+    let on_menu = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| m.on_menu(p));
+    let surrender = ctx.options(|o| o.input_options.surrender_focus_on);
+    match (on_menu, m.surrender) {
+        (true, None) => {
+            m.surrender = Some(surrender);
+            ctx.options_mut(|o| o.input_options.surrender_focus_on = egui::SurrenderFocusOn::Never);
+        }
+        (false, Some(was)) => {
+            m.surrender = None;
+            ctx.options_mut(|o| o.input_options.surrender_focus_on = was);
+        }
+        _ => {}
+    }
+    keep_text_menus(ctx, m);
+}
+
+/// The context's plugin that gives an open text menu its input before
+/// egui reads it ([`text_menu_input`]).
+struct TextMenuInput;
+
+impl egui::Plugin for TextMenuInput {
+    fn debug_name(&self) -> &'static str {
+        "mg-ui text menu input"
+    }
+
+    fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        text_menu_input(ctx, input);
+    }
+}
+
+/// While a text field's menu is open, before egui reads the frame's input:
+/// - Up and Down move along its rows, Enter (and Space on a row) choose
+///   the row there, Escape and Tab close it. (A plugin's submenu is the
+///   pointer's alone.)
+/// - Anything else typed (a letter, a key not the menu's, Ctrl+C, an input
+///   method's text) closes it and is the menu's, not the field's, as a
+///   desktop menu takes the keys while it is open: the field is left as it
+///   was.
+/// - A press on one of its rows, and its release, are the menu's alone: no
+///   popup under it (a dropdown's list whose Filter it serves) takes them
+///   for a click outside it. The release over the row pressed chooses it;
+///   one dragged off it chooses nothing, the menu left open.
+/// - A press elsewhere on it or its submenus (a plugin's row) is theirs; a
+///   press outside them closes it and goes on to what it landed on, as it
+///   would have without the menu.
+/// - The window losing the keys closes it, and forgets a press taken
+///   whose release never comes.
+fn text_menu_input(ctx: &egui::Context, input: &mut egui::RawInput) {
+    use egui::{Event, Key};
+    let mut m = text_menus(ctx);
+    if m.open.is_none() && m.swallow.is_none() && !m.typed_away {
+        return;
+    }
+    let events = std::mem::take(&mut input.events);
+    // (The text of the key that closed the menu last frame, if it comes
+    // first now: one text, before any other key.)
+    let mut its_text = std::mem::take(&mut m.typed_away);
+    // (A key pressed that closed the menu this frame, its text not yet
+    // come.)
+    let mut awaiting_text = false;
+    let mut typed_away = false;
+    let mut space_taken = false;
+    for e in events {
+        // (A new press of a button whose taken press never had its release:
+        // that one is gone.)
+        if let Event::PointerButton { button, pressed: true, .. } = &e
+            && m.swallow.is_some_and(|(b, _)| b == *button)
+        {
+            m.swallow = None;
+        }
+        if its_text {
+            its_text = false;
+            if matches!(e, Event::Text(_)) {
+                continue;
+            }
+        }
+        let keep = match (&e, &mut m.open) {
+            (Event::WindowFocused(false) | Event::PointerGone, _) => {
+                if matches!(e, Event::WindowFocused(false)) {
+                    m.open = None;
+                }
+                m.swallow = None;
+                true
+            }
+            (Event::PointerButton { pos, button, pressed: false, .. }, open)
+                if m.swallow.is_some_and(|(b, _)| b == *button) =>
+            {
+                let pressed_on = m.swallow.take().and_then(|(_, row)| row);
+                let over = m.row_rects.iter().position(|r| r.contains(*pos));
+                if let (Some(open), Some(row)) = (open, pressed_on)
+                    && over == Some(row)
+                {
+                    open.lit = Some(row);
+                    open.choose = true;
+                }
+                false
+            }
+            (Event::PointerButton { pos, button, pressed: true, .. }, Some(_)) => {
+                let row = m
+                    .menu_rect
+                    .is_some_and(|r| r.contains(*pos))
+                    .then(|| m.row_rects.iter().position(|r| r.contains(*pos)));
+                match row {
+                    Some(Some(i)) => {
+                        let on = *button == egui::PointerButton::Primary
+                            && m.rows.get(i).copied().unwrap_or(false);
+                        m.swallow = Some((*button, on.then_some(i)));
+                        false
+                    }
+                    // (A plugin's row, a submenu's, the margin: theirs, the
+                    // keys left in the field, `text_menus_begin`.)
+                    _ if m.on_menu(*pos) => true,
+                    _ => {
+                        m.open = None;
+                        true
+                    }
+                }
+            }
+            (Event::Key { key, pressed, repeat, .. }, Some(open)) => {
+                let rows = &m.rows;
+                match key {
+                    Key::ArrowDown | Key::ArrowUp => {
+                        if *pressed && !rows.is_empty() {
+                            open.lit = next_row(rows, open.lit, *key == Key::ArrowDown);
+                        }
+                        false
+                    }
+                    Key::Enter => {
+                        open.choose |= *pressed && open.lit.is_some();
+                        false
+                    }
+                    Key::Space if open.lit.is_some() => {
+                        open.choose |= *pressed;
+                        space_taken = true;
+                        false
+                    }
+                    Key::Escape | Key::Tab => {
+                        if *pressed {
+                            m.open = None;
+                        }
+                        false
+                    }
+                    // (Its own too, doing nothing: no submenu to go to.
+                    // A key held down from before it opened, Shift+F10's,
+                    // repeats into nothing.)
+                    Key::ArrowLeft | Key::ArrowRight => false,
+                    _ if *repeat => false,
+                    _ if *pressed => {
+                        m.open = None;
+                        typed_away = true;
+                        awaiting_text = true;
+                        false
+                    }
+                    // (Let go of a key pressed before the menu opened.)
+                    _ => true,
+                }
+            }
+            (Event::Text(t), Some(_)) if space_taken && t == " " => false,
+            (Event::Text(_) | Event::Copy | Event::Cut | Event::Paste(_), Some(_)) => {
+                m.open = None;
+                typed_away = true;
+                false
+            }
+            // (An input method's text: it closes the menu and is the
+            // menu's, but none of what it sends later.)
+            (Event::Ime(_), Some(_)) => {
+                m.open = None;
+                false
+            }
+            // (The rest of a frame typed away in: not the field's either.)
+            (Event::Key { pressed: true, .. }, None) if typed_away => false,
+            (Event::Text(_), None) if typed_away => {
+                awaiting_text = false;
+                false
+            }
+            (Event::Copy | Event::Cut | Event::Paste(_), None) if typed_away => false,
+            (Event::Ime(_), None) => {
+                awaiting_text = false;
+                true
+            }
+            _ => true,
+        };
+        if keep {
+            input.events.push(e);
+        }
+    }
+    m.typed_away = awaiting_text;
+    keep_text_menus(ctx, m);
+}
+
+/// The next row on from `from` (down, or up), passing over rows that are
+/// off, round from the last to the first.
+fn next_row(rows: &[bool], from: Option<usize>, down: bool) -> Option<usize> {
+    let n = rows.len();
+    let mut at = from;
+    for _ in 0..n {
+        let i = match (at, down) {
+            (None, true) => 0,
+            (None, false) => n - 1,
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+        };
+        at = Some(i);
+        if rows[i] {
+            return Some(i);
+        }
+    }
+    from
+}
+
+/// A right click in the selection of the field `field` (just drawn)
+/// keeps it, as in editors: egui's field puts the caret where any button
+/// is pressed. Outside the selection, the caret stays where the click put
+/// it. The selection kept, if it was.
+pub(crate) fn keep_selection(
+    ctx: &egui::Context,
+    field: egui::Id,
+) -> Option<egui::text::CCursorRange> {
+    let pressed = ctx.input(|i| {
+        i.pointer.button_pressed(egui::PointerButton::Secondary)
+            || i.pointer.button_down(egui::PointerButton::Secondary)
+    });
+    if !pressed {
+        return None;
+    }
+    let (id, range) = text_menus(ctx).pressed?;
+    if id != field {
+        return None;
+    }
+    let mut state = egui::text_edit::TextEditState::load(ctx, field)?;
+    let caret = state.cursor.char_range()?.primary.index;
+    let (a, b) = (range.primary.index, range.secondary.index);
+    if caret < a.min(b) || caret > a.max(b) {
+        return None;
+    }
+    state.cursor.set_char_range(Some(range));
+    state.store(ctx, field);
+    Some(range)
+}
+
+/// The text field `field`'s right-click menu (just drawn, in the frame
+/// it was): Cut, Copy, Paste and Select All, each off where it does
+/// nothing (nothing selected, a text that can't be changed), with the
+/// keys that do the same; `undo` puts the field's own Undo and Redo
+/// before them, and `extra` adds rows after them (the script editor's).
+/// Opened by a right click on it, or by Shift+F10 while it has the keys
+/// (under its caret, its first row lit: Up and Down, Enter, Escape). A row
+/// chosen leaves the keys in the field and does what its keys would do
+/// there ([`text_menus_begin`]); Undo and Redo are given back to do.
+/// [`text_menus_end`] gives every field that draws no menu of its own this
+/// one.
+pub(crate) fn text_menu<R>(
+    ctx: &egui::Context,
+    field: egui::Id,
+    undo: Option<TextUndo>,
+    extra: impl FnOnce(&mut Ui, &mut TextMenuRows) -> R,
+) -> (Option<TextAction>, Option<R>) {
+    let mut m = text_menus(ctx);
+    let has_keys = ctx.memory(|mm| mm.has_focus(field));
+    let keyed =
+        has_keys && ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::F10));
+    let clicked = secondary_clicked_on(ctx, field);
+    if clicked || keyed {
+        let selected = egui::text_edit::TextEditState::load(ctx, field)
+            .and_then(|s| s.cursor.char_range())
+            .is_some_and(|r| r.primary != r.secondary);
+        // (A field whose text can change, with the keys, tells egui's
+        // input method where its caret is; one that can't does not.)
+        let ime = ctx.output(|o| o.ime.map(|i| (i.cursor_rect, i.purpose)));
+        let password = ime.is_some_and(|(_, p)| p == egui::IMEPurpose::Password);
+        let ime = ime.map(|(r, _)| r);
+        // (Read here alone: a right click on the field, which keeps its
+        // focus, or Shift+F10 after the field is drawn.)
+        let response = ctx.read_response(field);
+        let pass = ctx.cumulative_pass_nr();
+        let kept_out = m.kept_out.0 == pass && m.kept_out.1.contains(&field);
+        let at = match (keyed, ctx.pointer_interact_pos()) {
+            (false, Some(p)) => p,
+            _ => ime.map(|r| r.left_bottom()).unwrap_or_else(|| {
+                response.as_ref().map_or(egui::Pos2::ZERO, |r| r.rect.left_bottom())
+            }),
+        };
+        let layer = response.map_or(egui::LayerId::background(), |r| r.layer_id);
+        m.open = Some(TextMenuOpen {
+            field,
+            at,
+            read_only: ime.is_none() || kept_out,
+            password,
+            layer,
+            selected,
+            lit: None,
+            choose: false,
+        });
+        m.rows.clear();
+        m.menu_rect = None;
+        m.row_rects.clear();
+        ctx.request_repaint();
+    }
+    let Some(mut open) = m.open.filter(|o| o.field == field) else {
+        keep_text_menus(ctx, m);
+        return (None, None);
+    };
+    // (Gone with the keys: another field took them, or the field isn't
+    // drawn.)
+    // (`read_response` gives up the focus of a field a click landed
+    // outside, before it is drawn; while the menu is open no click gives
+    // up a focus, `text_menus_begin`.)
+    if !has_keys || ctx.read_response(field).is_none() {
+        m.open = None;
+        keep_text_menus(ctx, m);
+        return (None, None);
+    }
+    if keyed && open.lit.is_none() {
+        open.lit = Some(usize::from(undo.as_ref().is_some_and(|u| !u.can_undo && !u.can_redo)));
+    }
+    // (Escape and the arrows stay the menu's: egui would give the keys up
+    // at Escape, or move them at an arrow, before the frame's widgets.)
+    ctx.memory_mut(|mm| {
+        mm.set_focus_lock_filter(
+            field,
+            egui::EventFilter {
+                tab: true,
+                horizontal_arrows: true,
+                vertical_arrows: true,
+                escape: true,
+            },
+        );
+    });
+    let mut rows = TextMenuRows {
+        lit: open.lit,
+        choose: open.choose,
+        at: 0,
+        on: Vec::new(),
+        rects: Vec::new(),
+        picked: false,
+    };
+    let mut chosen = None;
+    let shown = egui::Popup::new(text_menu_id(), ctx.clone(), open.at, open.layer)
+        .kind(egui::PopupKind::Menu)
+        .style(mg_uikit::menu_style)
+        .open(true)
+        .show(|ui| {
+            mg_uikit::menu_rows(ui);
+            // (As the menus show keys: Cmd on macOS.)
+            let mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
+            let shortcut = |key| {
+                crate::keys::shown(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, key), mac)
+            };
+            if let Some(u) = &undo {
+                if rows.row(ui, "Undo", &u.undo_keys, u.can_undo) {
+                    chosen = Some(TextAction::Undo);
+                }
+                if rows.row(ui, "Redo", &u.redo_keys, u.can_redo) {
+                    chosen = Some(TextAction::Redo);
+                }
+                mg_uikit::menu_separator(ui);
+            }
+            let copy = open.selected && !open.password;
+            if rows.row(ui, "Cut", &shortcut(egui::Key::X), copy && !open.read_only) {
+                chosen = Some(TextAction::Cut);
+            }
+            if rows.row(ui, "Copy", &shortcut(egui::Key::C), copy) {
+                chosen = Some(TextAction::Copy);
+            }
+            if rows.row(ui, "Paste", &shortcut(egui::Key::V), !open.read_only) {
+                chosen = Some(TextAction::Paste);
+            }
+            mg_uikit::menu_separator(ui);
+            if rows.row(ui, "Select All", &shortcut(egui::Key::A), true) {
+                chosen = Some(TextAction::SelectAll);
+            }
+            extra(ui, &mut rows)
+        });
+    open.choose = false;
+    let picked = chosen.is_some() || rows.picked;
+    let closed = shown.as_ref().is_none_or(|s| s.response.should_close());
+    m.menu_rect = shown.as_ref().map(|s| s.response.rect);
+    // (Its submenus' areas, each as egui's menus keep which is open.)
+    m.sub_rects.clear();
+    let mut menu = text_menu_id();
+    for _ in 0..8 {
+        let open = egui::containers::menu::MenuState::from_id(ctx, menu, |s| s.open_item);
+        let Some(sub) = open else { break };
+        m.sub_rects.extend(ctx.memory(|mm| mm.area_rect(sub)));
+        menu = sub;
+    }
+    let extra = shown.map(|s| s.inner);
+    m.rows = rows.on;
+    m.row_rects = rows.rects;
+    m.open = (!picked && !closed).then_some(open);
+    match chosen {
+        Some(TextAction::Paste) => {
+            ask_paste(ctx, text_paste_id());
+            m.pending = Some((field, TextAction::Paste));
+        }
+        Some(a @ (TextAction::Cut | TextAction::Copy | TextAction::SelectAll)) => {
+            m.pending = Some((field, a));
+            ctx.request_repaint();
+        }
+        _ => {}
+    }
+    keep_text_menus(ctx, m);
+    let undone = chosen.filter(|a| matches!(a, TextAction::Undo | TextAction::Redo));
+    (undone, extra)
+}
+
+/// Whether the field `field`'s menu is open, or asked to open this frame
+/// (a right click on it, Shift+F10 while it has the keys): when a field
+/// that draws its own ([`own_text_menu`]) works out its rows.
+pub(crate) fn text_menu_wanted(ctx: &egui::Context, field: egui::Id) -> bool {
+    let open = text_menus(ctx).open.is_some_and(|o| o.field == field);
+    let clicked = secondary_clicked_on(ctx, field);
+    let keyed = ctx.memory(|mm| mm.has_focus(field))
+        && ctx.input(|i| i.key_pressed(egui::Key::F10) && i.modifiers.shift_only());
+    open || clicked || keyed
+}
+
+/// Whether the widget `id` was right-clicked (or long-touched) this frame,
+/// as its `Response::secondary_clicked` says, without `read_response`:
+/// that gives up the focus of a widget a click landed outside, so read
+/// before a text field is drawn it took the keys from the field and its
+/// selection with them (Replace then found no match selected).
+fn secondary_clicked_on(ctx: &egui::Context, id: egui::Id) -> bool {
+    let (clicked, long) =
+        ctx.interaction_snapshot(|s| (s.clicked == Some(id), s.long_touched == Some(id)));
+    long || (clicked && ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary)))
+}
+
+/// Says that the field `field` draws its own menu ([`text_menu`] with its
+/// rows) this frame: [`text_menus_end`] leaves it be.
+pub(crate) fn own_text_menu(ctx: &egui::Context, field: egui::Id) {
+    let pass = ctx.cumulative_pass_nr();
+    let mut m = text_menus(ctx);
+    if m.own.0 != pass {
+        m.own = (pass, Vec::new());
+    }
+    m.own.1.push(field);
+    keep_text_menus(ctx, m);
+}
+
+/// Last in a frame: the text field with the keys gets [`text_menu`]
+/// (every egui text field of the window, through whatever helper or none
+/// it was drawn), unless it drew its own ([`own_text_menu`]). Only where
+/// a right click, Shift+F10 or an open menu asks: a frame at rest looks
+/// at nothing. A text field is told by the state egui keeps for one.
+pub(crate) fn text_menus_end(ctx: &egui::Context) {
+    let m = text_menus(ctx);
+    let asked = m.open.is_some()
+        || ctx.input(|i| {
+            i.pointer.button_pressed(egui::PointerButton::Secondary)
+                || i.pointer.button_clicked(egui::PointerButton::Secondary)
+                || i.events.iter().any(|e| {
+                    matches!(
+                        e,
+                        egui::Event::Key { key: egui::Key::F10, pressed: true, modifiers, .. }
+                            if modifiers.shift_only()
+                    )
+                })
+        });
+    if !asked {
+        return;
+    }
+    let pass = ctx.cumulative_pass_nr();
+    let Some(field) = ctx.memory(|mm| mm.focused()) else {
+        if m.open.is_some() {
+            close_text_menu(ctx);
+        }
+        return;
+    };
+    if m.own.0 == pass && m.own.1.contains(&field) {
+        return;
+    }
+    if egui::text_edit::TextEditState::load(ctx, field).is_none() {
+        if m.open.is_some() {
+            close_text_menu(ctx);
+        }
+        return;
+    }
+    keep_selection(ctx, field);
+    text_menu(ctx, field, None, |_, _| ());
+}
+
+/// Closes the text fields' menu.
+fn close_text_menu(ctx: &egui::Context) {
+    let mut m = text_menus(ctx);
+    m.open = None;
+    keep_text_menus(ctx, m);
+}
+
+/// The rows of a text field's menu ([`text_menu`]), for the keys: each
+/// counted, lit where the keys are at it, chosen by a click or by Enter
+/// there.
+pub(crate) struct TextMenuRows {
+    lit: Option<usize>,
+    choose: bool,
+    at: usize,
+    on: Vec<bool>,
+    rects: Vec<egui::Rect>,
+    picked: bool,
+}
+
+impl TextMenuRows {
+    /// A row named `name`, `keys` at its right, off where not `enabled`:
+    /// whether it was chosen.
+    pub(crate) fn row(&mut self, ui: &mut Ui, name: &str, keys: &str, enabled: bool) -> bool {
+        let at = self.lit == Some(self.at);
+        self.at += 1;
+        self.on.push(enabled);
+        let button = egui::Button::new(name).selected(at && enabled);
+        let r = ui.add_enabled_ui(enabled, |ui| mg_uikit::menu_row_with_keys(ui, button, keys));
+        self.rects.push(r.response.rect);
+        let chosen = enabled && (r.inner.clicked() || (at && self.choose));
+        self.picked |= chosen;
+        chosen
+    }
 }
 
 /// Once a frame, before anything reads the events: text pasted (or sent
@@ -6839,5 +7555,737 @@ mod row_choice_tests {
         // (A frame of it in a debug build, with a margin: it took 93 ms
         // in a release build when every row was laid out.)
         assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod text_menu_tests {
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    /// A text field whose text can't be changed (an immutable `&str`, as
+    /// a text only looked at is shown) has Copy and Select All on its
+    /// right-click menu, and no Cut or Paste; one whose text can, all four
+    /// (with text selected).
+    #[test]
+    fn a_read_only_text_s_menu_has_no_cut_or_paste() {
+        for read_only in [true, false] {
+            let mut h = Harness::new_ui_state(
+                move |ui, text: &mut String| {
+                    super::text_menus_begin(ui.ctx());
+                    let mut fixed = text.as_str();
+                    let field = match read_only {
+                        true => egui::TextEdit::singleline(&mut fixed),
+                        false => egui::TextEdit::singleline(text),
+                    };
+                    ui.add(field.id(egui::Id::new("field")));
+                    super::text_menus_end(ui.ctx());
+                },
+                "Looked at".to_string(),
+            );
+            h.run();
+            h.get_by_role(egui::accesskit::Role::TextInput).click();
+            h.run();
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+            h.run();
+            let at = h.get_by_role(egui::accesskit::Role::TextInput).rect().center();
+            h.hover_at(at);
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+            h.run();
+            let on = |h: &Harness<'_, String>, name: &str| {
+                let row = h.query_all_by_role(egui::accesskit::Role::Button).find(|n| {
+                    n.accesskit_node().label().is_some_and(|l| l.split(' ').next() == Some(name))
+                });
+                row.map(|n| !n.accesskit_node().is_disabled())
+            };
+            let rows = ["Cut", "Copy", "Paste", "Select"].map(|r| on(&h, r));
+            let editable = Some(!read_only);
+            assert_eq!(
+                rows,
+                [editable, Some(true), editable, Some(true)],
+                "read only: {read_only}"
+            );
+        }
+    }
+
+    /// A click on a button beside a text field leaves the field's
+    /// selection for the button to work on, in the frame it is clicked,
+    /// though the field asks whether its menu is wanted before it is drawn
+    /// (as the script editor does: its Replace works on the selected
+    /// match). egui's `read_response` there gave up the field's focus
+    /// before it was drawn, and the field dropped its selection.
+    #[test]
+    fn a_click_beside_a_text_field_keeps_its_selection() {
+        let mut h = Harness::new_ui_state(
+            |ui, (text, seen): &mut (String, Option<bool>)| {
+                let id = egui::Id::new("field");
+                super::text_menus_begin(ui.ctx());
+                super::text_menu_wanted(ui.ctx(), id);
+                ui.add(egui::TextEdit::singleline(text).id(id));
+                if ui.button("Use Selection").clicked() {
+                    let range = egui::text_edit::TextEditState::load(ui.ctx(), id)
+                        .and_then(|s| s.cursor.char_range());
+                    *seen = Some(range.is_some_and(|r| r.primary != r.secondary));
+                }
+                super::text_menus_end(ui.ctx());
+            },
+            ("Selected".to_string(), None),
+        );
+        h.run();
+        h.get_by_role(egui::accesskit::Role::TextInput).click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run();
+        h.get_by_label("Use Selection").click();
+        h.run();
+        assert_eq!(h.state().1, Some(true), "the selection there as the button is clicked");
+    }
+
+    use egui::accesskit::Role;
+
+    /// A right click (press and release) at `at`.
+    fn right_click<S>(h: &mut Harness<'_, S>, at: egui::Pos2) {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+    }
+
+    /// The open text menu's row whose name begins with `name`: on or off,
+    /// and where.
+    fn row<S>(h: &Harness<'_, S>, name: &str) -> Option<(bool, egui::Rect)> {
+        let row = h.query_all_by_role(Role::Button).find(|n| {
+            n.accesskit_node().label().is_some_and(|l| l.split(' ').next() == Some(name))
+        })?;
+        Some((!row.accesskit_node().is_disabled(), row.rect()))
+    }
+
+    /// The menu's Cut, Copy, Paste and Select All, on or off (`None`: not
+    /// there).
+    fn rows<S>(h: &Harness<'_, S>) -> [Option<bool>; 4] {
+        ["Cut", "Copy", "Paste", "Select"].map(|r| row(h, r).map(|(on, _)| on))
+    }
+
+    /// A click on the menu's row `name`, its press and release in one
+    /// frame (as a quick click comes).
+    fn choose<S>(h: &mut Harness<'_, S>, name: &str) {
+        let (on, rect) = row(h, name).unwrap_or_else(|| panic!("no row {name}"));
+        assert!(on, "{name} is on");
+        let at = rect.center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.input_mut().events.extend([egui::Event::PointerMoved(at), button(true), button(false)]);
+        h.run();
+    }
+
+    /// The text field with the keys, its text all selected.
+    fn select_all<S>(h: &mut Harness<'_, S>) {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run();
+    }
+
+    /// A row is chosen by the release over it: pressed on Copy, dragged
+    /// to Paste and let go, nothing is chosen and the menu stays open (as
+    /// desktop menus do); pressed and let go on Select All, it is chosen.
+    #[test]
+    fn a_row_pressed_and_dragged_off_is_not_chosen() {
+        let mut h = Harness::new_ui_state(
+            |ui, text: &mut String| {
+                super::text_menus_begin(ui.ctx());
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                super::text_menus_end(ui.ctx());
+            },
+            "Kept".to_string(),
+        );
+        h.run();
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        select_all(&mut h);
+        let at = h.get_by_role(Role::TextInput).rect().center();
+        right_click(&mut h, at);
+        let (_, copy) = row(&h, "Copy").expect("the menu");
+        let (_, paste) = row(&h, "Paste").expect("the menu");
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.hover_at(copy.center());
+        h.event(button(copy.center(), true));
+        h.run();
+        assert!(row(&h, "Copy").is_some(), "open while pressed");
+        h.hover_at(paste.center());
+        h.event(button(paste.center(), false));
+        h.run();
+        assert_eq!(rows(&h), [Some(true); 4], "nothing chosen: still open");
+        assert!(!h.ctx.input(|i| i.pointer.primary_down()), "no button left down");
+        choose(&mut h, "Select");
+        assert_eq!(rows(&h), [None; 4], "Select All chosen by its release");
+    }
+
+    /// A password's field: Cut and Copy off on its menu, with its text
+    /// selected (egui's field copies nothing from it, and Cut would delete
+    /// what it never copied); Paste and Select All on.
+    #[test]
+    fn a_password_s_menu_has_no_cut_or_copy() {
+        let mut h = Harness::new_ui_state(
+            |ui, text: &mut String| {
+                super::text_menus_begin(ui.ctx());
+                ui.add(egui::TextEdit::singleline(text).password(true).id(egui::Id::new("pw")));
+                super::text_menus_end(ui.ctx());
+            },
+            "secret".to_string(),
+        );
+        h.run();
+        h.get_by_role(Role::PasswordInput).click();
+        h.run();
+        select_all(&mut h);
+        let at = h.get_by_role(Role::PasswordInput).rect().center();
+        right_click(&mut h, at);
+        assert_eq!(rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+    }
+
+    /// Typing while the menu is open (opened by the mouse, no row lit)
+    /// closes it, and what was typed is the menu's: the field is left as it
+    /// was, as a desktop menu takes the keys while it is open. Typed again,
+    /// the field has it: it kept the keys.
+    #[test]
+    fn typing_while_the_menu_is_open_closes_it_and_types_nothing() {
+        let mut h = Harness::new_ui_state(
+            |ui, text: &mut String| {
+                super::text_menus_begin(ui.ctx());
+                ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                super::text_menus_end(ui.ctx());
+            },
+            "Kept".to_string(),
+        );
+        h.run();
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        let at = h.get_by_role(Role::TextInput).rect().center();
+        right_click(&mut h, at);
+        assert!(row(&h, "Paste").is_some(), "the menu");
+        let key = |key, pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        // (As a key comes: its press and its text in one frame.)
+        let typed = [key(egui::Key::X, true), egui::Event::Text("x".into())];
+        h.input_mut().events.extend(typed.clone());
+        h.run();
+        assert_eq!(rows(&h), [None; 4], "closed");
+        assert_eq!(h.state(), "Kept", "typed into nothing");
+        // (Its text a frame later, as kittest gives each queued event one.)
+        h.event(key(egui::Key::Y, true));
+        h.event(egui::Event::Text("y".into()));
+        h.run();
+        assert_eq!(h.state(), "Kepty", "the field had the keys");
+        right_click(&mut h, at);
+        h.event(key(egui::Key::Z, true));
+        h.event(egui::Event::Text("z".into()));
+        h.run();
+        assert_eq!(h.state(), "Kepty", "a key's text in the next frame: the menu's too");
+    }
+
+    /// A dropdown's Filter field (a long list's: the Resources panel's
+    /// type filter, Add hak…): a right click on it keeps the list open and
+    /// shows the menu over it, and Select All and Paste work on the field
+    /// (egui keeps one popup open: the menu, one of egui's, closed the list,
+    /// and with it the field and the menu).
+    #[test]
+    fn a_dropdown_s_filter_field_keeps_its_list_open_under_the_menu() {
+        let mut h = Harness::new_ui_state(
+            |ui, chosen: &mut Option<&'static str>| {
+                super::text_menus_begin(ui.ctx());
+                super::pastes_begin(ui.ctx());
+                super::dropdown("kinds").selected_text("Kinds").filtered(true).show_menu(
+                    ui,
+                    |ui, keys| {
+                        for name in ["Alpha", "Beta", "Gamma"] {
+                            if !keys.shows(name) {
+                                continue;
+                            }
+                            let r = ui.selectable_label(false, name);
+                            if keys.row(&r) || r.clicked() {
+                                *chosen = Some(name);
+                            }
+                        }
+                    },
+                );
+                super::text_menus_end(ui.ctx());
+            },
+            None,
+        );
+        h.run();
+        h.get_by_role(Role::ComboBox).click();
+        h.run();
+        let filter = |h: &Harness<'_, Option<&'static str>>| {
+            h.query_by_role(Role::TextInput).map(|n| (n.rect(), n.accesskit_node().value()))
+        };
+        let (rect, _) = filter(&h).expect("the list's Filter");
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        h.event(egui::Event::Text("al".into()));
+        h.run();
+        assert!(h.query_by_label("Beta").is_none(), "filtered");
+        right_click(&mut h, rect.center());
+        assert!(filter(&h).is_some(), "the list still open");
+        assert_eq!(rows(&h), [Some(false), Some(false), Some(true), Some(true)]);
+        choose(&mut h, "Select");
+        assert!(filter(&h).is_some(), "still open after the row");
+        right_click(&mut h, rect.center());
+        assert_eq!(rows(&h), [Some(true); 4], "all selected: Cut and Copy on");
+        choose(&mut h, "Paste");
+        h.event(egui::Event::Paste("bet".into()));
+        h.run();
+        assert_eq!(filter(&h).map(|(_, v)| v), Some(Some("bet".to_string())), "pasted over it");
+        assert!(h.query_by_label("Beta").is_some() && h.query_by_label("Alpha").is_none());
+        // Escape closes the menu alone, the list stays.
+        right_click(&mut h, rect.center());
+        h.key_press(egui::Key::Escape);
+        h.run();
+        assert_eq!(rows(&h), [None; 4]);
+        assert!(filter(&h).is_some(), "the list kept at the menu's Escape");
+        assert_eq!(*h.state(), None, "no row of the list chosen");
+    }
+
+    /// A field in a kit popover (the Brush popover's rows): its menu opens
+    /// over the popover, which stays open, and Escape closes the menu
+    /// alone.
+    #[test]
+    fn a_popover_s_field_keeps_its_popover_open_under_the_menu() {
+        let mut h = Harness::new_ui_state(
+            |ui, text: &mut String| {
+                super::text_menus_begin(ui.ctx());
+                let button = ui.button("Brush");
+                mg_uikit::popover::Popover::new("Brush")
+                    .title(None, "Brush")
+                    .custom(|ui| {
+                        ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("size")));
+                    })
+                    .show(ui, &button);
+                super::text_menus_end(ui.ctx());
+            },
+            "12".to_string(),
+        );
+        h.run();
+        h.get_by_label("Brush").click();
+        h.run();
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        select_all(&mut h);
+        let at = h.get_by_role(Role::TextInput).rect().center();
+        right_click(&mut h, at);
+        assert_eq!(rows(&h), [Some(true); 4]);
+        choose(&mut h, "Copy");
+        assert!(h.query_by_role(Role::TextInput).is_some(), "the popover open after the row");
+        right_click(&mut h, at);
+        h.key_press(egui::Key::Escape);
+        h.run();
+        assert_eq!(rows(&h), [None; 4]);
+        assert!(h.query_by_role(Role::TextInput).is_some(), "the popover kept at the Escape");
+    }
+
+    /// A number typed into (a DragValue, clicked to type: a color's
+    /// channel in its picker, inside a popup): its menu works on the text
+    /// typed, and the number goes on being typed into after it.
+    #[test]
+    fn a_number_typed_into_has_the_menu_in_a_popup() {
+        let mut h = Harness::new_ui_state(
+            |ui, value: &mut f32| {
+                super::text_menus_begin(ui.ctx());
+                egui::ComboBox::from_id_salt("picker")
+                    .selected_text("Color")
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show_ui(ui, |ui| {
+                        ui.add(egui::DragValue::new(value));
+                    });
+                super::text_menus_end(ui.ctx());
+            },
+            40.0,
+        );
+        h.run();
+        h.get_by_role(Role::ComboBox).click();
+        h.run();
+        // (A click and no drag: the pointer's own press and release, as a
+        // mouse sends them.)
+        let at = h.get_by_role(Role::SpinButton).rect().center();
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+        // (Typed into: its text field has the keys, though it is still
+        // named a spin button.)
+        let focused = h.ctx.memory(|m| m.focused()).expect("the keys");
+        assert!(egui::text_edit::TextEditState::load(&h.ctx, focused).is_some(), "typed into");
+        let at = h.get_by_role(Role::SpinButton).rect().center();
+        select_all(&mut h);
+        right_click(&mut h, at);
+        assert_eq!(rows(&h), [Some(true); 4]);
+        choose(&mut h, "Cut");
+        h.event(egui::Event::Text("75".into()));
+        h.key_press(egui::Key::Enter);
+        h.run();
+        assert_eq!(*h.state(), 75.0, "typed in after the menu's Cut");
+    }
+
+    /// The pointer resting on the open menu shows no tip of what is under
+    /// it (a button with a tip, the menu over it), nor, resting on a button
+    /// beside the field, that button's: the tips of the field's layer wait
+    /// while the menu is open, as they do while egui's own menus are.
+    #[test]
+    fn no_tip_under_the_open_menu() {
+        let mut h = Harness::new_ui_state(
+            |ui, text: &mut String| {
+                super::text_menus_begin(ui.ctx());
+                ui.style_mut().interaction.tooltip_delay = 0.0;
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(text).id(egui::Id::new("field")));
+                    ui.button("Beside").on_hover_text("Beside the field");
+                });
+                for i in 0..6 {
+                    ui.button(format!("Button {i}")).on_hover_text("Under the menu");
+                }
+                super::text_menus_end(ui.ctx());
+            },
+            "Text".to_string(),
+        );
+        h.run();
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        let at = h.get_by_role(Role::TextInput).rect().left_bottom() + egui::vec2(4.0, -2.0);
+        right_click(&mut h, at);
+        let (_, paste) = row(&h, "Paste").expect("the menu");
+        let under = h.get_by_label("Button 2").rect();
+        assert!(paste.intersects(under) || under.contains(paste.left_center()), "over a button");
+        let rest = egui::pos2(paste.left() + 4.0, paste.center().y);
+        h.hover_at(rest);
+        h.run_steps(4);
+        assert!(row(&h, "Paste").is_some(), "the menu still open");
+        assert!(h.query_by_label("Under the menu").is_none(), "no tip of what is under it");
+        let beside = h.get_by_label("Beside").rect();
+        assert!(!beside.intersects(paste), "beside the menu, not under it");
+        h.hover_at(beside.center());
+        h.run_steps(4);
+        assert!(row(&h, "Paste").is_some(), "the menu still open");
+        assert!(h.query_by_label("Beside the field").is_none(), "no tip beside it either");
+    }
+}
+
+/// A field's menu with a plugin's rows and submenu (from the second review's tests).
+#[cfg(test)]
+mod text_menu_plugin_tests {
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[derive(Default)]
+    struct S {
+        text: String,
+        plug: bool,
+        deep: bool,
+        other: u32,
+    }
+
+    fn app(ui: &mut egui::Ui, s: &mut S) {
+        let id = egui::Id::new("field");
+        super::text_menus_begin(ui.ctx());
+        ui.add(egui::TextEdit::singleline(&mut s.text).id(id));
+        if ui.button("Other").clicked() {
+            s.other += 1;
+        }
+        super::own_text_menu(ui.ctx(), id);
+        let (_, r) = super::text_menu(ui.ctx(), id, None, |ui, _rows| {
+            let plug = ui.button("Plug").clicked();
+            let deep = mg_uikit::menu_button(ui, "Sub", |ui| ui.button("Deep").clicked());
+            (plug, deep.inner.unwrap_or(false))
+        });
+        if let Some((p, d)) = r {
+            s.plug |= p;
+            s.deep |= d;
+        }
+        super::text_menus_end(ui.ctx());
+    }
+
+    fn btn(at: egui::Pos2, b: egui::PointerButton, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos: at, button: b, pressed, modifiers: egui::Modifiers::NONE }
+    }
+
+    fn open(h: &mut Harness<'_, S>) {
+        h.run();
+        h.get_by_role(Role::TextInput).click();
+        h.run();
+        let at = h.get_by_role(Role::TextInput).rect().center();
+        h.hover_at(at);
+        h.event(btn(at, egui::PointerButton::Secondary, true));
+        h.event(btn(at, egui::PointerButton::Secondary, false));
+        h.run();
+        assert!(h.query_by_label_contains("Paste").is_some(), "menu open");
+    }
+
+    fn click_at(h: &mut Harness<'_, S>, at: egui::Pos2) {
+        h.input_mut().events.extend([
+            egui::Event::PointerMoved(at),
+            btn(at, egui::PointerButton::Primary, true),
+            btn(at, egui::PointerButton::Primary, false),
+        ]);
+        h.run();
+        h.run();
+    }
+
+    /// A row a plugin adds to a field's menu (the script editor's) is clicked as any button is.
+    #[test]
+    fn a_plugin_row_of_the_menu_is_clicked() {
+        let mut h = Harness::new_ui_state(app, S { text: "abc".into(), ..Default::default() });
+        open(&mut h);
+        let at = h.get_by_label("Plug").rect().center();
+        h.hover_at(at);
+        h.run();
+        click_at(&mut h, at);
+        assert!(h.state().plug, "top-level plugin row clicked");
+    }
+
+    /// A row in a submenu a plugin adds (an API 0.7 `menu`, egui's own submenu) is clicked.
+    #[test]
+    fn a_plugin_row_in_a_submenu_is_clicked() {
+        let mut h = Harness::new_ui_state(app, S { text: "abc".into(), ..Default::default() });
+        open(&mut h);
+        let at = h.get_by_label_contains("Sub").rect().center();
+        h.hover_at(at);
+        for _ in 0..5 {
+            h.run();
+        }
+        let deep = h.query_by_label("Deep").map(|n| n.rect().center());
+        let Some(at) = deep else { panic!("submenu never shown") };
+        h.hover_at(at);
+        h.run();
+        click_at(&mut h, at);
+        assert!(h.state().deep, "submenu plugin row clicked");
+    }
+
+    /// A press on a menu row whose release never comes (the window lost the keys mid-press): the next click elsewhere is a click, no button left down.
+    #[test]
+    fn a_press_whose_release_never_comes_is_forgotten() {
+        let mut h = Harness::new_ui_state(app, S { text: "abc".into(), ..Default::default() });
+        open(&mut h);
+        let at = h.get_by_label_contains("Select").rect().center();
+        h.hover_at(at);
+        h.event(btn(at, egui::PointerButton::Primary, true));
+        h.run();
+        // The window loses focus; no release ever comes for that press.
+        h.event(egui::Event::WindowFocused(false));
+        h.run();
+        h.event(egui::Event::WindowFocused(true));
+        h.run();
+        let other = h.get_by_label("Other").rect().center();
+        click_at(&mut h, other);
+        let down = h.ctx.input(|i| i.pointer.primary_down());
+        assert_eq!((h.state().other, down), (1, false), "next click is a click, button not stuck");
+    }
+
+    /// An input method's text closes the menu and is the menu's, but what it sends in later frames is the field's.
+    #[test]
+    fn an_input_method_s_text_after_the_menu_closed_is_typed() {
+        let mut h = Harness::new_ui_state(app, S { text: "abc".into(), ..Default::default() });
+        open(&mut h);
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("x".into())));
+        h.run();
+        assert!(h.query_by_label_contains("Paste").is_none(), "closed");
+        // The user's next IME-typed letter, a later frame, no Key event (an IME eats keys).
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("y".into())));
+        h.run();
+        h.event(egui::Event::Ime(egui::ImeEvent::Commit("z".into())));
+        h.run();
+        assert_eq!(
+            h.state().text,
+            "abcyz",
+            "the IME letters after the closing one reach the field"
+        );
+    }
+
+    /// The window losing the keys closes the menu: the first key typed when they come back is the field's.
+    #[test]
+    fn the_window_losing_the_keys_closes_the_menu() {
+        let mut h = Harness::new_ui_state(app, S { text: "abc".into(), ..Default::default() });
+        open(&mut h);
+        h.event(egui::Event::WindowFocused(false));
+        h.run();
+        let open_after = h.query_by_label_contains("Paste").is_some();
+        h.event(egui::Event::WindowFocused(true));
+        h.run();
+        h.event(egui::Event::Key {
+            key: egui::Key::Q,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.event(egui::Event::Text("q".into()));
+        h.run();
+        assert_eq!((open_after, h.state().text.as_str()), (false, "abcq"));
+    }
+}
+
+/// A field's menu whose plugin submenu lies outside it (from the second review's tests).
+#[cfg(test)]
+mod text_menu_submenu_tests {
+    use egui::accesskit::Role;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[derive(Default)]
+    struct S {
+        a: String,
+        b: String,
+        plug: bool,
+        deep: bool,
+        focus_b: bool,
+    }
+
+    fn app(ui: &mut egui::Ui, s: &mut S) {
+        let id = egui::Id::new("field");
+        let idb = egui::Id::new("fieldb");
+        super::text_menus_begin(ui.ctx());
+        let wanted = super::text_menu_wanted(ui.ctx(), id);
+        ui.add(egui::TextEdit::multiline(&mut s.a).id(id).desired_width(600.0));
+        ui.add(egui::TextEdit::singleline(&mut s.b).id(idb));
+        if std::mem::take(&mut s.focus_b) {
+            ui.memory_mut(|m| m.request_focus(idb));
+        }
+        super::own_text_menu(ui.ctx(), id);
+        if wanted {
+            let (_, r) = super::text_menu(ui.ctx(), id, None, |ui, _rows| {
+                let plug = ui.button("Plug").clicked();
+                let deep = mg_uikit::menu_button(ui, "Sub", |ui| {
+                    let a = ui.button("Deep").clicked();
+                    let b = ui.button("Deeper").clicked();
+                    a || b
+                });
+                (plug, deep.inner.unwrap_or(false))
+            });
+            if let Some((p, d)) = r {
+                s.plug |= p;
+                s.deep |= d;
+            }
+        }
+        super::text_menus_end(ui.ctx());
+    }
+
+    fn btn(at: egui::Pos2, b: egui::PointerButton, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos: at, button: b, pressed, modifiers: egui::Modifiers::NONE }
+    }
+
+    fn harness() -> Harness<'static, S> {
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .build_ui_state(app, S { a: "abc\ndef".into(), b: "bee".into(), ..Default::default() });
+        h.run();
+        let at = h.get_all_by_role(Role::MultilineTextInput).next().unwrap().rect().center();
+        h.event(egui::Event::PointerMoved(at));
+        h.event(btn(at, egui::PointerButton::Primary, true));
+        h.event(btn(at, egui::PointerButton::Primary, false));
+        h.run();
+        h.event(btn(at, egui::PointerButton::Secondary, true));
+        h.event(btn(at, egui::PointerButton::Secondary, false));
+        h.run();
+        assert!(h.query_by_label_contains("Paste").is_some(), "menu open");
+        h
+    }
+
+    /// A plugin's submenu row lying outside the menu's own rectangle (below it), pressed and released in frames of their own, is clicked: the press is on the menu, not outside it.
+    #[test]
+    fn a_submenu_row_outside_the_menu_is_clicked() {
+        let mut h = harness();
+        let paste = h.get_by_label_contains("Paste").rect();
+        let sub = h.get_by_label_contains("Sub").rect().center();
+        h.hover_at(sub);
+        for _ in 0..5 {
+            h.step();
+        }
+        let Some(at) = h.query_by_label("Deep").map(|n| n.rect().center()) else {
+            panic!("submenu never shown")
+        };
+        let outside = at.x > paste.right();
+        let at = h.get_by_label("Deeper").rect().center();
+        let mr = super::text_menus(&h.ctx).menu_rect;
+        let info = format!("deeper={at:?} menu={mr:?}");
+        h.hover_at(at);
+        h.step();
+        h.event(btn(at, egui::PointerButton::Primary, true));
+        h.run();
+        h.event(btn(at, egui::PointerButton::Primary, false));
+        h.run();
+        assert!(h.state().deep, "second submenu row clicked: {info} {outside}");
+    }
+
+    /// A plugin's row of the menu, pressed and released in frames of their own, is clicked.
+    #[test]
+    fn a_plugin_row_pressed_and_released_apart_is_clicked() {
+        let mut h = harness();
+        let at = h.get_by_label("Plug").rect().center();
+        h.hover_at(at);
+        h.step();
+        h.event(btn(at, egui::PointerButton::Primary, true));
+        h.run();
+        h.event(btn(at, egui::PointerButton::Primary, false));
+        h.run();
+        assert!(h.state().plug, "top plugin row clicked");
+    }
+
+    /// The keys moved to another field by the program close the menu: what is typed is that field's, and a click where a row was is no row's.
+    #[test]
+    fn the_keys_moved_to_another_field_close_the_menu() {
+        let mut h = harness();
+        let paste = h.get_by_label_contains("Paste").rect().center();
+        h.state_mut().focus_b = true;
+        h.run();
+        let open = h.query_by_label_contains("Paste").is_some();
+        h.event(egui::Event::Key {
+            key: egui::Key::Q,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.event(egui::Event::Text("q".into()));
+        h.run();
+        let b = h.state().b.clone();
+        // a click where the old menu row was
+        h.event(egui::Event::PointerMoved(paste));
+        h.event(btn(paste, egui::PointerButton::Primary, true));
+        h.event(btn(paste, egui::PointerButton::Primary, false));
+        h.run();
+        let m = super::text_menus(&h.ctx);
+        assert_eq!(
+            (open, b.as_str(), m.open.is_some(), m.swallow.is_some()),
+            (false, "beeq", false, false)
+        );
     }
 }

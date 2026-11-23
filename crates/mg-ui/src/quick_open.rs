@@ -1189,7 +1189,10 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::CopyLog
         | Id::CloseReport
         | Id::SaveLog
-        | Id::HidePanels => true,
+        | Id::HidePanels
+        | Id::ZoomIn
+        | Id::ZoomOut
+        | Id::ResetZoom => true,
         Id::NewModule
         | Id::OpenModule
         | Id::OpenFolder
@@ -1523,17 +1526,20 @@ fn popover(ui: &Ui, qo: &mut QuickOpen, found: &Found, anchor: Rect) -> Option<H
         .inner_margin(mg_uikit::menu::MENU_MARGIN)
         .corner_radius(mg_uikit::metrics::POPOVER_RADIUS);
     let around = frame.total_margin().sum();
-    let room = (window.width() - 2.0 * EDGE - around.x).max(0.0);
-    let width = anchor.width().max(want).min(room);
-    let outer = width + around.x;
-    let left = anchor.left().min(window.right() - EDGE - outer).max(window.left() + EDGE);
     let top = anchor.bottom() + BELOW;
     let extra = usize::from(found.more > 0)
         + usize::from(found.indexing)
         + usize::from(found.hits.is_empty() && !found.indexing);
     // (The notes under the rows, always in sight; the rows scroll.)
     let tallest = (window.bottom() - EDGE - top - around.y - extra as f32 * ROW).max(ROW);
-    let height = ((found.hits.len() as f32) * ROW).min(tallest);
+    let all = (found.hits.len() as f32) * ROW;
+    let height = all.min(tallest);
+    // (Rows that scroll have a scroll bar beside them, kept inside too.)
+    let bar = if all > height { style.spacing.scroll.allocated_width() } else { 0.0 };
+    let room = (window.width() - 2.0 * EDGE - around.x - bar).max(0.0);
+    let width = anchor.width().max(want).min(room);
+    let outer = width + around.x + bar;
+    let left = anchor.left().min(window.right() - EDGE - outer).max(window.left() + EDGE);
     qo.page = ((height / ROW).floor() as usize).max(1);
     let mut chosen = None;
     let selected = qo.selected;

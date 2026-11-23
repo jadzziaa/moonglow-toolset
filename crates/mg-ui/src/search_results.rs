@@ -29,6 +29,7 @@ use mg_uikit::Controls as _;
 use crate::Moonglow;
 use crate::palette_view::Keys;
 use crate::report_table::{self, Column};
+use crate::row_copy;
 use crate::script_tools::{self as tools, InfoTab};
 
 /// The accessible name of Search Results' body (its hits or the words
@@ -425,8 +426,10 @@ fn close_dock(app: &mut Moonglow, ui: &Ui) {
 }
 
 /// A script's search's lines: what was searched, then each a row high,
-/// cut at the panel's edge; a click opens one, as Enter does the one the
-/// arrows are on.
+/// cut at the panel's edge and whole in its tip; a click opens one, as
+/// Enter does the one the arrows are on. Its menu (a right click, or
+/// Shift+F10 on the one the arrows are on) copies it or every line, as
+/// Ctrl+C does the one the arrows are on.
 fn lines(app: &mut Moonglow, ui: &mut Ui) {
     let results = &app.search_results;
     if results.hits.is_empty() && results.what.is_empty() {
@@ -445,6 +448,15 @@ fn lines(app: &mut Moonglow, ui: &mut Ui) {
     if has && let Some(enter) = list_keys(ui, len, &mut current, page) {
         open = enter;
     }
+    let mut keyed = false;
+    if has && let Some(at) = current.filter(|at| *at < len) {
+        if row_copy::copy_pressed(ui) {
+            ui.ctx().copy_text(results.hits[at].row());
+        }
+        keyed = row_copy::menu_key(ui);
+    }
+    let mut copy = None;
+    let mut chosen = None;
     let results = &app.search_results;
     let moved = current != results.line;
     let mut area = egui::ScrollArea::vertical()
@@ -453,7 +465,10 @@ fn lines(app: &mut Moonglow, ui: &mut Ui) {
         // (No taller than its room: egui's least would lay rows out past
         // the dock's bottom.)
         .min_scrolled_height(0.0);
-    if moved && let Some(at) = current {
+    // (Shift+F10's row brought into sight, its menu opened under it.)
+    if (moved || keyed)
+        && let Some(at) = current
+    {
         area = area.vertical_scroll_offset(
             (at as f32 * mg_uikit::row_pitch(ui) - ui.available_height() / 2.0).max(0.0),
         );
@@ -464,12 +479,28 @@ fn lines(app: &mut Moonglow, ui: &mut Ui) {
             let hit = &results.hits[at];
             // (A long line cut at the panel's edge, on one row.)
             let on = current == Some(at);
-            if ui.add(egui::Button::selectable(on, hit.row()).truncate()).clicked() {
+            let words = hit.row();
+            let r = ui.add(egui::Button::selectable(on, words.as_str()).truncate());
+            if r.clicked() {
                 open = Some(at);
+            } else if r.secondary_clicked() {
+                // (Chosen, not opened: Ctrl+C after its menu copies it.)
+                chosen = Some(at);
             }
+            match row_copy::row_menu(ui, &r, keyed && on, |_| false) {
+                Some(row_copy::Asked::Row) => copy = Some(words.clone()),
+                Some(row_copy::Asked::All) => {
+                    copy = Some(row_copy::lines(results.hits.iter().map(Hit::row)));
+                }
+                None => {}
+            }
+            r.on_hover_text(words);
         }
     });
-    if let Some(at) = open {
+    if let Some(text) = copy {
+        ui.ctx().copy_text(text);
+    }
+    if let Some(at) = open.or(chosen) {
         current = Some(at);
     }
     app.search_results.line = current;
@@ -848,7 +879,11 @@ fn text(app: &mut Moonglow, ui: &mut Ui) {
 /// The strings found, as the Dialogs board's rows: each two lines high (a
 /// tick and the place as a link, the string under it, cut), a `line` under
 /// each, only those in sight laid out; the arrows move the one the keys
-/// are on, Space ticks it, Enter opens it. The one asked to be opened.
+/// are on, Space ticks it, Enter opens it, Ctrl+C copies it. A string cut
+/// short is whole in its tip; a row's menu (a right click, or Shift+F10 on
+/// the one the keys are on) copies it or every string found, ticked or not
+/// (the ticks say what is replaced, not what is chosen). The one asked to
+/// be opened.
 fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
     let has = report_table::has_keys(ui.ctx(), Keys::SearchResults);
     let line = ui.spacing().interact_size.y;
@@ -867,7 +902,15 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
             tick = Some((at, !d.hits[at].1));
         }
     }
-    let moved = current != d.current;
+    let mut keyed = false;
+    if has && let Some(at) = current.filter(|at| *at < d.hits.len()) {
+        if row_copy::copy_pressed(ui) {
+            ui.ctx().copy_text(string_line(&d.hits[at].0));
+        }
+        keyed = row_copy::menu_key(ui);
+    }
+    let mut copy = None;
+    let moved = current != d.current || keyed;
     let t = mg_uikit::tokens(ui.ctx());
     let mut rows = egui::ScrollArea::vertical()
         .id_salt("strings-found")
@@ -903,11 +946,18 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                 row.widget_info(|| {
                     egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is, &said)
                 });
-                if row.clicked() {
+                if row.clicked() || row.secondary_clicked() {
                     chosen = Some(i);
                 }
                 if row.double_clicked() || row.triple_clicked() {
                     go = Some(i);
+                }
+                match row_copy::row_menu(ui, &row, keyed && is, |_| false) {
+                    Some(row_copy::Asked::Row) => copy = Some(string_line(hit)),
+                    Some(row_copy::Asked::All) => {
+                        copy = Some(row_copy::lines(d.hits.iter().map(|h| string_line(&h.0))));
+                    }
+                    None => {}
                 }
                 if is {
                     ui.painter().rect_filled(rect, 0.0, t.accent_fill);
@@ -935,11 +985,12 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
                     }
                 });
                 let text: String = hit.text.chars().take(160).collect();
-                // (Not selectable: a click on the string chooses its row.)
+                // (Not selectable: a click on the string chooses its row.
+                // Whole in its tip, the row's words cut.)
                 inner.indent(("hit", i), |ui| {
                     let text = egui::RichText::new(text);
                     let text = if is { text.color(t.on_fill) } else { text.weak() };
-                    ui.add(egui::Label::new(text).selectable(false))
+                    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(&hit.text)
                 });
                 if is && has {
                     let ring = egui::Stroke::new(1.0, t.accent);
@@ -952,6 +1003,9 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
         })
     });
     d.strings_seen = seen;
+    if let Some(text) = copy {
+        ui.ctx().copy_text(text);
+    }
     if let Some(at) = chosen {
         current = Some(at);
         crate::palette_view::give_keys(ui.ctx(), Keys::SearchResults);
@@ -965,6 +1019,13 @@ fn strings(ui: &mut Ui, d: &mut crate::bulk::TextReplace) -> Option<usize> {
         d.tick(at, on);
     }
     go
+}
+
+/// A string found as one line of text (Copy, Ctrl+C, a line of Copy
+/// All): its place and the whole string, "keep › creature GUARD ›
+/// FirstName: Guard", its line breaks as spaces.
+pub fn string_line(hit: &mg_module::text::Hit) -> String {
+    format!("{}: {}", hit.place, hit.text.replace(['\r', '\n'], " "))
 }
 
 /// The lines of the scripts `keys` that `find` matches (as the Find

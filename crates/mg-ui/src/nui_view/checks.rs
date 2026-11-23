@@ -103,8 +103,33 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     app.nui_views.insert(key, state);
 }
 
+/// A finding as one line of text (its row's menu's Copy, a line of Copy
+/// All): its kind, the control it is about and its whole message, "Error:
+/// Window › Row › OK, The mg_close button has no Clicked handler".
+fn copy_line(error: bool, place: &str, message: &str) -> String {
+    let word = if error { "Error" } else { "Warning" };
+    match place.is_empty() {
+        true => format!("{word}: {message}"),
+        false => format!("{word}: {place}, {message}"),
+    }
+}
+
+/// Every row the panel lists, one a line, in its order (Copy All): what
+/// does not read, then the findings.
+fn all_lines(checked: &Checked, rows: &ProblemRows) -> String {
+    let unread = [("JUI", &checked.window_error), ("Settings", &checked.settings_error)];
+    let unread = unread.into_iter().filter_map(|(w, e)| Some(copy_line(true, w, e.as_ref()?)));
+    let findings = rows.rows.iter().map(|(i, (_, place))| {
+        let d = &checked.findings[*i];
+        copy_line(d.severity == Severity::Error, place, &d.message)
+    });
+    crate::row_copy::lines(unread.chain(findings))
+}
+
 /// The panel's rows: what does not read, then the findings, errors first,
-/// each with the control it is about and the fixes there are for it.
+/// each with the control it is about, its message cut short (whole in its
+/// tip) and the fixes there are for it. A row's menu (a right click)
+/// copies it or every row (no row is chosen, so no Ctrl+C).
 fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
     let Checked { window_error, settings_error, findings, errors, warnings, .. } = checked;
     let t = mg_uikit::tokens(ui.ctx());
@@ -123,13 +148,45 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
             ui.colored_label(color, word);
         });
     };
+    // (A row's menu's Copy or Copy All: its text made after the rows.)
+    let mut copy: Option<(crate::row_copy::Asked, String)> = None;
+    // (The row's own response first, under its link and fixes: a right
+    // click on it opens its menu. Not a Tab stop: its place is, a link or
+    // a label taking the keyboard.)
+    let row_at = |ui: &mut Ui, id: egui::Id| {
+        let room =
+            egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), line));
+        ui.interact(room, id, egui::Sense::CLICK)
+    };
+    // (A place that is no link: a Tab stop all the same, for the row's
+    // keys; not selectable, a right click on it the row's.)
+    let place_label = |ui: &mut Ui, words: egui::RichText| {
+        ui.add(egui::Label::new(words).selectable(false).sense(egui::Sense::click()))
+    };
+    // (Its menu, after what is in it: by a right click on it or its link,
+    // or Shift+F10 where the keyboard is on either; Ctrl+C there copies
+    // it.)
+    let row_menu =
+        |ui: &mut Ui, row: egui::Response, copy: &mut Option<_>, words: &dyn Fn() -> String| {
+            let (keyed, ctrl_c) = crate::row_copy::focused_keys(ui, &row);
+            if ctrl_c {
+                *copy = Some((crate::row_copy::Asked::Row, words()));
+            }
+            if let Some(asked) = crate::row_copy::row_menu(ui, &row, keyed, |_| false) {
+                *copy = Some((asked, words()));
+            }
+        };
     for (what, error) in [("JUI", window_error), ("Settings", settings_error)] {
         if let Some(e) = error {
             ui.horizontal(|ui| {
+                let id = ui.id().with(("unread-row", what));
+                let row = row_at(ui, id);
                 ui.set_min_height(line);
                 mark(ui, true);
-                ui.label(egui::RichText::new(what).color(t.accent));
-                ui.add(egui::Label::new(e).truncate()).on_hover_text(e);
+                let held = place_label(ui, egui::RichText::new(what).color(t.accent)) | row;
+                // (Not selectable: a right click on its words is the row's.)
+                ui.add(egui::Label::new(e).truncate().selectable(false)).on_hover_text(e);
+                row_menu(ui, held, &mut copy, &|| copy_line(true, what, e));
             });
         }
     }
@@ -173,8 +230,13 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
             let d = &findings[*i];
             ui.push_id(i, |ui| {
                 ui.horizontal(|ui| {
+                    let error = d.severity == Severity::Error;
+                    let id = ui.id().with("check-row");
+                    let as_line = || copy_line(error, place, &d.message);
+                    let row = row_at(ui, id);
+                    let held;
                     ui.set_min_height(line);
-                    mark(ui, d.severity == Severity::Error);
+                    mark(ui, error);
                     let words = egui::RichText::new(place).color(t.accent);
                     match target {
                         Some(path) => {
@@ -186,10 +248,11 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
                                 state.select_next = Some(path.clone());
                                 ui.ctx().request_repaint();
                             }
+                            // (Its menu and keys the link's too: its id
+                            // the link's, which has the keyboard.)
+                            held = link | row;
                         }
-                        None => {
-                            ui.label(words);
-                        }
+                        None => held = place_label(ui, words) | row,
                     }
                     // (The fix at the row's right, the message the room
                     // between, cut where it ends and whole in its tip.)
@@ -197,13 +260,18 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
                     let room = (ui.available_width() - fix).max(60.0);
                     ui.scope(|ui| {
                         ui.set_max_width(room);
-                        ui.add(egui::Label::new(&d.message).truncate());
+                        // (Not selectable: a right click on its words
+                        // is the row's, whose menu copies it whole. Cut
+                        // short, it is whole in egui's tip of a label cut.)
+                        let words = egui::Label::new(&d.message).truncate().selectable(false);
+                        ui.add(words);
                     });
                     if let Some(w) = &mut work {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             fixes(ui, &mut w.window, &mut w.settings, d, target.as_deref());
                         });
                     }
+                    row_menu(ui, held, &mut copy, &as_line);
                 })
             });
         }
@@ -212,5 +280,10 @@ fn rows(ui: &mut Ui, checked: &Checked, state: &mut State, focus: bool) {
         main_root(w, state, false);
     }
     state.work = work;
+    match copy {
+        Some((crate::row_copy::Asked::Row, line)) => ui.ctx().copy_text(line),
+        Some((crate::row_copy::Asked::All, _)) => ui.ctx().copy_text(all_lines(checked, &rows)),
+        None => {}
+    }
     state.problem_rows = Some(rows);
 }

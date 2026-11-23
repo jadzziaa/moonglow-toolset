@@ -103,6 +103,8 @@ pub struct OptionsDraft {
     pub hidden_area_tools: Vec<String>,
     /// Per cent.
     pub ui_scale: u16,
+    pub smooth_scrolling: bool,
+    pub colored_icons: bool,
     pub minimize_on_test: bool,
     pub auto_reload: bool,
     pub backups: bool,
@@ -116,6 +118,7 @@ pub struct OptionsDraft {
     pub standard_warning: bool,
     pub auto_compile: bool,
     pub live_check: bool,
+    pub symbol_tips: bool,
     pub debug_info: bool,
     pub scripts_external: bool,
     pub scripts_external_only: bool,
@@ -275,6 +278,8 @@ impl OptionsDraft {
             show_graphics_notices: false,
             hidden_area_tools: s.hidden_area_tools.clone(),
             ui_scale: s.ui_scale.unwrap_or(100),
+            smooth_scrolling: !s.no_smooth_scrolling,
+            colored_icons: s.colored_icons,
             minimize_on_test: s.minimize_on_test,
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
@@ -288,6 +293,7 @@ impl OptionsDraft {
             standard_warning: !s.no_standard_warning,
             auto_compile: s.auto_compile,
             live_check: !s.no_live_check,
+            symbol_tips: !s.no_symbol_tips,
             debug_info: s.debug_info,
             scripts_external: s.scripts_external,
             scripts_external_only: s.scripts_external_only,
@@ -401,6 +407,8 @@ impl OptionsDraft {
             graphics_notices_hidden,
             hidden_area_tools,
             ui_scale,
+            no_smooth_scrolling,
+            colored_icons,
             minimize_on_test,
             no_auto_reload,
             no_backups,
@@ -414,6 +422,7 @@ impl OptionsDraft {
             no_standard_warning,
             auto_compile,
             no_live_check,
+            no_symbol_tips,
             debug_info,
             scripts_external,
             scripts_external_only,
@@ -516,7 +525,10 @@ impl OptionsDraft {
                 s.graphics_notices_hidden.clone()
             },
             hidden_area_tools: self.hidden_area_tools.clone(),
-            ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
+            ui_scale: (self.ui_scale != 100)
+                .then_some(self.ui_scale.clamp(UI_SCALES[0], UI_SCALES[UI_SCALES.len() - 1])),
+            no_smooth_scrolling: !self.smooth_scrolling,
+            colored_icons: self.colored_icons,
             minimize_on_test: self.minimize_on_test,
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
@@ -531,6 +543,7 @@ impl OptionsDraft {
             no_standard_warning: !self.standard_warning,
             auto_compile: self.auto_compile,
             no_live_check: !self.live_check,
+            no_symbol_tips: !self.symbol_tips,
             debug_info: self.debug_info,
             scripts_external: self.scripts_external,
             scripts_external_only: self.scripts_external_only,
@@ -612,8 +625,11 @@ impl OptionsDraft {
     }
 }
 
-/// Options › General › Interface size: the sizes offered, per cent.
-pub const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
+/// Options › General › Interface size (and View › Interface Size): the
+/// sizes offered, per cent. 250% and 300% for a 4K screen at its usual
+/// scale (5.2.0, a builder's ask): the least window, 420 by 320 points, is
+/// 1260 by 960 pixels there.
+pub const UI_SCALES: [u16; 9] = [90, 100, 110, 125, 150, 175, 200, 250, 300];
 
 /// The Options window's size when first opened: wide enough for the
 /// General page's three columns ([`general_columns`]) beside the page
@@ -1235,6 +1251,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     .on_hover_text(
                         "Open each script as a tab of one window. Off, each in its own.",
                     );
+                ui.check_box(&mut draft.symbol_tips, "Show declarations in tips").on_hover_text(
+                    "Show a name's declaration and first comment line under the pointer or cursor",
+                );
                 ui.add_space(crate::widgets::SECTION_GAP);
                 crate::widgets::section_heading(ui, "External Editor");
                 crate::widgets::field_label(ui, "External Script Editor");
@@ -2190,16 +2209,47 @@ fn general_section(
         }
         "Appearance" => {
             labelled(ui, LABEL_W, "Interface size", |ui| {
+                // (Sizes the screen has no room for not offered, as in View ›
+                // Interface Size; a larger size saved stays as saved.)
+                let largest = ui
+                    .data(|d| d.get_temp::<u16>(crate::commands::largest_ui_scale_id()))
+                    .unwrap_or(UI_SCALES[UI_SCALES.len() - 1]);
+                let saved = draft.ui_scale;
+                let offered = |s: u16| s <= largest || s == saved;
                 let r = crate::widgets::dropdown("ui-scale")
                     .width(96.0)
                     .selected_text(format!("{}%", draft.ui_scale))
-                    .show(ui, &mut draft.ui_scale, &UI_SCALES, |s| format!("{s}%"))
+                    .show_with(
+                        ui,
+                        &mut draft.ui_scale,
+                        || UI_SCALES.into_iter().filter(|&s| offered(s)).collect(),
+                        |ui, current| {
+                            for s in UI_SCALES {
+                                let row = egui::Button::selectable(*current == s, format!("{s}%"));
+                                let r = ui.add_enabled(offered(s), row);
+                                if r.on_disabled_hover_text(crate::commands::NO_ROOM_FOR_SIZE)
+                                    .clicked()
+                                {
+                                    *current = s;
+                                }
+                            }
+                        },
+                    )
                     .on_hover_text(
                         "Make the whole interface larger or smaller (set when you choose OK)",
                     );
                 say_name(&r, "Interface size");
             });
             under_label(ui, LABEL_W, |ui| ui.check_box(&mut draft.light_theme, "Light theme"));
+            under_label(ui, LABEL_W, |ui| {
+                ui.check_box(&mut draft.smooth_scrolling, "Smooth scrolling")
+                    .on_hover_text("Ease the mouse wheel's scrolling and jumps over a moment")
+            });
+            under_label(ui, LABEL_W, |ui| {
+                ui.check_box(&mut draft.colored_icons, "Colored icons").on_hover_text(
+                    "Give each object kind its own color in the module tree, Outliner and palette.",
+                )
+            });
             graphics_backend(ui, draft, drawing_with, passes_over);
         }
         "Questions" => questions(ui, draft),
@@ -2530,8 +2580,11 @@ mod tests {
         d.nwsync_upload_input = true;
         assert!(d.live_check, "checked as you type unless asked");
         d.live_check = false;
+        assert!(d.symbol_tips, "declarations in tips unless asked");
+        d.symbol_tips = false;
         let t = d.apply(&s);
         assert!(t.no_live_check);
+        assert!(t.no_symbol_tips && !OptionsDraft::from_settings(&t).symbol_tips, "and kept");
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert!(t.categories_by_name && !s.categories_by_name, "the palette's order unless asked");

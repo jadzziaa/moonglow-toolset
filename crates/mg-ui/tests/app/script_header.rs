@@ -1,9 +1,10 @@
 //! The script editor's header and its Reference and Help panels (M4's
 //! U12; the Script and Floating boards): every control of the header
 //! reachable at every width, docked and floating, with Reference and
-//! Help in reach beside it; the two panels one body in either host (the
-//! Right Dock, the script's window's right pane); Help brought forward
-//! without anything kept; and records from before read as they were.
+//! Help in reach beside it; Reference on the right and Help under the
+//! text in either host (the docks, the script's window's panes: 5.2.0's
+//! ruling on Jasperre's report); Help brought forward without anything
+//! kept; and records from before read as they were.
 
 use crate::common::*;
 use mg_uikit::header::{self, Place};
@@ -51,8 +52,8 @@ fn script_window(
 }
 
 /// Whether the panel `name` (Reference or Help) is in reach: its header
-/// ("Reference, nwscript and includes"), its tab or its button on the
-/// folded Right Dock's strip.
+/// ("Reference, nwscript and includes"), its tab, its button on the
+/// folded Right Dock's strip or its Status Bar switch (Help's).
 fn in_reach(h: &Harness<'_, Moonglow>, name: &str) -> bool {
     let header = h.query_all_by_label_contains(&format!("{name}, ")).next().is_some();
     // (Help's own tab or strip button, apart from the Top Bar's Help menu.)
@@ -63,9 +64,10 @@ fn in_reach(h: &Harness<'_, Moonglow>, name: &str) -> bool {
 /// The script header holds every control (on its row, as an icon, or in
 /// More) at every window width from the least to 1600 points, both ways
 /// editors open, To Scratch always in More, the codepage at the row's
-/// right end; and Reference and Help stay in reach beside it (the Right
-/// Dock, its strip where the window folds it, or the window's pane,
-/// narrowed to half the window).
+/// right end; and Reference and Help stay in reach beside it (Reference
+/// in the Right Dock, its strip where the window folds it, or the
+/// window's pane, narrowed to half the window; Help's tab or its Status
+/// Bar switch, under the text).
 #[test]
 fn the_script_header_holds_every_control_from_420_to_1600() {
     let mut codepage_in_more = 0;
@@ -137,16 +139,15 @@ fn the_script_header_holds_every_control_from_420_to_1600() {
     assert!(codepage_in_more > 0, "the codepage never went into More");
 }
 
-/// Reference and Help are one body in either host: docked (As Tabs, in a
-/// window wide enough that their sections stand one over the other) in
-/// the Right Dock, floating in the script's window's right pane, not the
-/// main window's dock. A click on a function shows it in Help; a double
-/// click puts it in at the cursor.
+/// Reference stands on the right and Help under the text, in either host
+/// (5.2.0, the owner's ruling on Jasperre's report, as 4.2.1 had them):
+/// docked, Reference in the Right Dock and Help in the Bottom Dock;
+/// floating, the script's window's right and bottom panes, not the main
+/// window's docks. A click on a function shows it in Help, brought to the
+/// front under the text, as wide as it, the declaration as written; a
+/// double click puts it in at the cursor.
 #[test]
-fn reference_and_help_are_one_body_in_either_host() {
-    // (Reference's share of the two, by each host: the Script board's 56
-    // docked, the Floating board's 44 in the window.)
-    let mut shares = Vec::new();
+fn reference_on_the_right_and_help_under_the_text_in_either_host() {
     for mode in MODES {
         let text = "int Add(int nA) { return nA; }\nvoid main() { }\n";
         let (mut h, key) = script_window(mode, "ui-script-reference-hosts", text, 1600.0);
@@ -171,22 +172,31 @@ fn reference_and_help_are_one_body_in_either_host() {
                 assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
             }
         }
-        h.get_by_label("Reference, nwscript and includes");
-        h.get_by_label("Help, Nothing chosen");
-        {
-            let field = h.get_by_label(mg_ui::SCRIPT_REFERENCE);
-            let top = field.get_by_role(egui::accesskit::Role::TextInput).rect().top();
-            let help = h.get_by_label("Help's text").rect();
-            // (From Reference's filter, 26 + 6 + 22 + 6 under its top, to
-            // Help's foot; Help's header 26 over its body.)
-            let (ref_top, help_top) = (top - 60.0, help.top() - 26.0);
-            shares.push((mode, (help_top - ref_top) / (help.bottom() - ref_top)));
-        }
         reference_row(&h, "Add").click();
         settle(&mut h);
-        h.get_by_label("Help, Add");
-        let said = h.get_by_label_contains("int Add(").accesskit_node().value();
-        assert_eq!(said.unwrap_or_default(), "int Add(\n    int nA)", "{mode:?}");
+        // (Help's body, under the editor's text and across it.)
+        let help = h.get_by_label("Help's text").rect();
+        let editor = h.ctx.read_response(egui::Id::new(("script", key))).unwrap().rect;
+        assert!(help.top() >= editor.bottom() - 1.0, "{mode:?}: {help:?} under {editor:?}");
+        assert!(
+            help.left() <= editor.left() + 1.0 && help.right() >= editor.right() - 1.0,
+            "{mode:?}: {help:?} as wide as {editor:?}"
+        );
+        assert!(!help.intersects(add), "{mode:?}: not on Reference's side");
+        match floating {
+            true => {
+                let window = h.state().window_bottom_for_test(&script);
+                assert_eq!(window, Some(mg_ui::Panel::Help), "the window's bottom pane");
+                assert_ne!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help), "not the dock");
+            }
+            false => {
+                assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help));
+                let dock = h.state().bottom_dock_rect().expect("the Bottom Dock");
+                assert!(dock.expand(1.0).contains_rect(help), "{help:?} in {dock:?}");
+            }
+        }
+        // (The declaration as the script has it, on its line.)
+        h.get_by_label("int Add(int nA)");
         // A double click puts it in, at the cursor (the text's start).
         h.state_mut().script_tools.jump = Some((key, 0));
         settle(&mut h);
@@ -196,27 +206,43 @@ fn reference_and_help_are_one_body_in_either_host() {
         let now = h.state().script_text(key).unwrap();
         assert!(now.starts_with("Add(int Add("), "{mode:?}: {now:?}");
     }
-    for (mode, share) in shares {
-        let want = if mode.tabs() { 0.56 } else { 0.44 };
-        assert!((share - want).abs() < 0.03, "{mode:?}: Reference's share {share}, not {want}");
+}
+
+/// The Status Bar's switch `name` turned on, if it is off.
+fn switch_on(h: &mut Harness<'_, Moonglow>, name: &str) {
+    let switch = h.get_by_label("Status Bar").get_by_label(name);
+    if switch.accesskit_node().toggled() != Some(egui::accesskit::Toggled::True) {
+        switch.click();
+        settle(h);
     }
 }
 
-/// Where Reference and Help share one tab bar (docked, under 1400), a
-/// click on a name leaves Reference in front, and Definition (here from
-/// the header, as F12 does) brings Help forward, by the dock's panel
-/// alone: nothing kept in the settings for the script's kind.
+/// Help comes forward under the text by the dock's panel alone, nothing
+/// kept in the settings for the script's kind: a click on a name in
+/// Reference brings it to the Bottom Dock's front, opening the dock where
+/// it was closed; with another panel in front, Definition (here from the
+/// header, as F12 does) brings it forward again. Reference stays in front
+/// on the right, alone there.
 #[test]
-fn help_comes_forward_where_it_shares_a_tab_bar() {
+fn help_comes_forward_in_the_bottom_dock() {
     let text = "int Add(int nA) { return nA; }\nvoid main() { Add(1); }\n";
     let (mut h, key) = script_window(Mode::Tabs, "ui-script-help-forward", text, 1200.0);
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
-    let tabs = h.get_by_label(mg_ui::RIGHT_DOCK);
-    tabs.get_by_label("Reference");
-    tabs.get_by_label("Help");
+    // (No tab or header named Help in the Right Dock.)
+    let on_right = h
+        .query_all_by_label("Help")
+        .filter_map(|n| n.accesskit_node().bounding_box().map(|_| n.rect()))
+        .any(|r| h.state().right_dock_rect().is_some_and(|d| d.contains_rect(r)));
+    assert!(!on_right, "not on the right");
+    h.state_mut().settings.hide_log = true;
+    settle(&mut h);
+    assert!(h.state().bottom_dock_rect().is_none(), "the Bottom Dock closed");
     reference_row(&h, "Add").click();
     settle(&mut h);
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help), "opened on Help");
     assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference), "the list kept");
+    switch_on(&mut h, "Compiler");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Compiler));
     // The cursor on the call, then Definition.
     let call = text.find("Add(1)").unwrap() + 1;
     h.state_mut().script_tools.jump = Some((key, call));
@@ -224,53 +250,66 @@ fn help_comes_forward_where_it_shares_a_tab_bar() {
     script_click(&mut h, "Definition");
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&Tab::Script(key)));
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Help), "Help forward");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help), "Help forward");
     let kept = h.state().settings.dock_layouts.get("script").cloned().unwrap_or_default();
     assert_eq!(kept.folded, None, "nothing kept: {kept:?}");
 }
 
 /// What a newer or older Moonglow could have kept naming the script's old
-/// panes reads without a fault: the settings' layout for scripts naming
-/// Help as the Bottom Dock's front and a side list's tab as the folded
-/// bar's (neither is either now: passed over), an open-tabs record whose
-/// script view names its side list and Help tab (fields this version has
-/// not: passed over, the scroll and cursor kept). The script opens with
-/// Reference over Help, and the Bottom Dock on the Log.
+/// panes reads without a fault: the settings' layout for scripts (with the
+/// two sections' shares a dragged seam kept) naming
+/// Help as the Bottom Dock's front (where it is again since 5.2.0: kept)
+/// and as the Right Dock's (no longer there: passed over), and a side
+/// list's tab or Help as the folded bar's (passed over), an open-tabs record
+/// whose script view names its side list and Help tab (fields this
+/// version has not: passed over, the scroll and cursor kept). The script
+/// opens with Reference on the right, and the Bottom Dock on Help.
 #[test]
 fn records_naming_the_old_side_pane_or_help_tab_read_as_before() {
-    let dir = mg_testkit::scratch_dir("ui-script-old-records");
-    let path = sample_module(&dir);
-    let key = ResKey::parse("hello", ResType::NSS).unwrap();
-    let mut m = Module::open(&path).unwrap();
-    m.set(key, b"void main()\n{\n    int n = 1;\n}\n".to_vec());
-    m.save().unwrap();
-    let kept = dir.join("open-tabs");
-    std::fs::create_dir_all(&kept).unwrap();
-    let record = r#"{"panes":[{"place":"middle","tabs":["script:hello.nss"]}],
-        "front":"script:hello.nss",
-        "views":{"script:hello.nss":{"cursor":[20,20],"side":"Constants","info":"Help",
-        "filter":"PROPERTY_"}}}"#;
-    std::fs::write(mg_ui::open_tabs::file(&kept, &path), record).unwrap();
-    let text = r#"(dock_layouts:{"script":(fronts:["Help","Functions"],bottom:Some("Help"),folded:Some("Constants"))})"#;
-    let (settings, unread) = mg_ui::Settings::read_fields(text).expect("read");
-    assert!(unread.is_empty(), "{unread:?}");
-    let mut app = app_in(Mode::Tabs, Vec::new());
-    app.settings.dock_layouts = settings.dock_layouts;
-    app.settings.hide_log = false;
-    app.settings.no_last_area = true;
-    app.open_tabs_dir = Some(kept);
-    app.open_module(&path);
-    let mut h = harness(app, 1600.0, 800.0);
-    settle(&mut h);
-    assert_eq!(h.state().active_editor(), Some(&Tab::Script(key)));
-    let at = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))
-        .and_then(|s| s.cursor.char_range())
-        .map(|r| usize::from(r.primary.index));
-    assert_eq!(at, Some(20), "its cursor kept");
-    h.get_by_label("Reference, nwscript and includes");
-    h.get_by_label("Help, Nothing chosen");
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
-    assert!(h.state().bottom_dock_rect().is_some(), "the Bottom Dock, on the Log");
+    // (The Right Dock's two sections' shares, which a dragged seam kept, and
+    // a folded bar naming Help or a side list: Reference is alone now, at
+    // either width.)
+    for (folded, width) in [("Constants", 1600.0), ("Help", 1200.0)] {
+        let dir = mg_testkit::scratch_dir(&format!("ui-script-old-records-{width}"));
+        let path = sample_module(&dir);
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+        let mut m = Module::open(&path).unwrap();
+        m.set(key, b"void main()\n{\n    int n = 1;\n}\n".to_vec());
+        m.save().unwrap();
+        let kept = dir.join("open-tabs");
+        std::fs::create_dir_all(&kept).unwrap();
+        let record = r#"{"panes":[{"place":"middle","tabs":["script:hello.nss"]}],
+            "front":"script:hello.nss",
+            "views":{"script:hello.nss":{"cursor":[20,20],"side":"Constants","info":"Help",
+            "filter":"PROPERTY_"}}}"#;
+        std::fs::write(mg_ui::open_tabs::file(&kept, &path), record).unwrap();
+        let text = format!(
+            r#"(dock_layouts:{{"script":(fronts:["Help","Functions"],shares:[56,44],bottom:Some("Help"),folded:Some("{folded}"))}})"#
+        );
+        let (settings, unread) = mg_ui::Settings::read_fields(&text).expect("read");
+        assert!(unread.is_empty(), "{unread:?}");
+        let mut app = app_in(Mode::Tabs, Vec::new());
+        app.settings.dock_layouts = settings.dock_layouts;
+        app.settings.hide_log = false;
+        app.settings.no_last_area = true;
+        app.open_tabs_dir = Some(kept);
+        app.open_module(&path);
+        let mut h = harness(app, width, 800.0);
+        settle(&mut h);
+        assert_eq!(h.state().active_editor(), Some(&Tab::Script(key)));
+        let at = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))
+            .and_then(|s| s.cursor.char_range())
+            .map(|r| usize::from(r.primary.index));
+        assert_eq!(at, Some(20), "{folded}: its cursor kept");
+        reference_row(&h, "main");
+        assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
+        assert_eq!(
+            h.state().bottom_dock_shows(),
+            Some(mg_ui::Panel::Help),
+            "the Bottom Dock on Help"
+        );
+        h.get_by_label("Help's text");
+    }
 }
 
 /// The header has no "modified" label: an unsaved script shows the dot
@@ -371,18 +410,18 @@ fn f6_puts_the_keyboard_in_reference_s_filter() {
 
 /// The window comes to rest where Reference is not drawn (M4's U12
 /// review, A1: it asked for a frame again every frame while what it last
-/// drew differed from what the editor made): under 1400 with Help's tab
-/// in front, then typed in; with the Right Dock folded, then typed in;
-/// under 1400 with nothing chosen, then Definition (Help in front). Each
-/// `settle` fails where the window keeps drawing.
+/// drew differed from what the editor made): Help in the Bottom Dock's
+/// front, then typed in; with the Right Dock folded, then typed in; Help
+/// drawn, then behind Compiler, a name chosen; nothing chosen, then
+/// Definition (Help forward). Each `settle` fails where the window keeps
+/// drawing.
 #[test]
 fn the_window_comes_to_rest_where_reference_is_not_drawn() {
     let text = "int Add(int nA) { return nA; }\nvoid main() { Add(1); }\n";
-    // Under 1400, Help's tab in front, typed in.
+    // Help in front under the text, typed in.
     let (mut h, key) = script_window(Mode::Tabs, "ui-script-rest-help", text, 1200.0);
-    h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Help").click();
-    settle(&mut h);
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Help));
+    switch_on(&mut h, "Help");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help));
     h.state_mut().script_tools.jump = Some((key, 0));
     settle(&mut h);
     h.event(egui::Event::Text("int Sub(int n) { return n; }\n".into()));
@@ -397,14 +436,12 @@ fn the_window_comes_to_rest_where_reference_is_not_drawn() {
     settle(&mut h);
     h.event(egui::Event::Text("int Sub(int n) { return n; }\n".into()));
     settle(&mut h);
-    // Under 1400: Help drawn, then Reference's tab in front (Help not
-    // drawn), then a name chosen by the text's cursor (a double click).
+    // Help drawn, then Compiler in front (Help not drawn), then a name
+    // chosen by the text's cursor (a double click).
     let (mut h, key) = script_window(Mode::Tabs, "ui-script-rest-hidden-help", text, 1200.0);
-    h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Help").click();
-    settle(&mut h);
-    h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Reference").click();
-    settle(&mut h);
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Reference));
+    switch_on(&mut h, "Help");
+    switch_on(&mut h, "Compiler");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Compiler));
     h.state_mut().script_tools.jump = Some((key, text.find("Add(1)").unwrap() + 1));
     settle(&mut h);
     let symbol = {
@@ -414,14 +451,14 @@ fn the_window_comes_to_rest_where_reference_is_not_drawn() {
     // (As the cursor on it chooses it, with the editor drawn after.)
     h.state_mut().script_tools.help = symbol;
     settle(&mut h);
-    // Under 1400, nothing chosen, Definition.
+    // Nothing chosen, Definition.
     let (mut h, key) = script_window(Mode::Tabs, "ui-script-rest-definition", text, 1200.0);
     assert!(h.state().script_tools.help.is_none());
     h.state_mut().script_tools.jump = Some((key, text.find("Add(1)").unwrap() + 1));
     settle(&mut h);
     script_click(&mut h, "Definition");
     settle(&mut h);
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Help));
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help));
 }
 
 /// What Reference does goes to its own script, with two open (each in a
@@ -545,8 +582,8 @@ fn definition_in_a_floating_script_leaves_the_docked_one_s_dock() {
 }
 
 /// Definition of the game's function (`nwscript.nss` opens, read-only, in
-/// front), then back to the script, under 1400: Help is in front (A3:
-/// kept until a script is in front again).
+/// front), then back to the script: Help is in the Bottom Dock's front
+/// (A3: kept until a script is in front again).
 #[test]
 fn help_comes_forward_once_the_script_is_back_in_front() {
     let root = mg_testkit::corpus!();
@@ -577,15 +614,16 @@ fn help_comes_forward_once_the_script_is_back_in_front() {
     click_tab(&mut h, &Tab::Script(key));
     settle(&mut h);
     assert_eq!(h.state().active_editor(), Some(&Tab::Script(key)));
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Help), "Help in front");
+    assert_eq!(h.state().bottom_dock_shows(), Some(mg_ui::Panel::Help), "Help in front");
 }
 
-/// F6 to Help takes the keyboard from the script's text (A5): what is
-/// typed then does not go into the script.
+/// F6 to Help (under the text) takes the keyboard from the script's text
+/// (A5): what is typed then does not go into the script.
 #[test]
 fn f6_to_help_takes_the_keyboard_from_the_text() {
     let text = "void main() { }\n";
     let (mut h, key) = script_window(Mode::Tabs, "ui-script-f6-help", text, 1600.0);
+    switch_on(&mut h, "Help");
     h.state_mut().script_tools.jump = Some((key, 0));
     settle(&mut h);
     h.event(egui::Event::Text("a".into()));

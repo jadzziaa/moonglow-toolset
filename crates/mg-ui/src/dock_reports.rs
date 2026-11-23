@@ -595,6 +595,9 @@ pub(crate) fn hints(
                             hints.push(Hint::keys(["Enter"], "Go to"));
                         }
                         hints.push(Hint::keys(["Double Click"], "Go to"));
+                        if chosen {
+                            hints.push(copy());
+                        }
                     }
                     return Some(hints);
                 }
@@ -605,6 +608,9 @@ pub(crate) fn hints(
                             hints.push(Hint::keys(["Enter"], "Open"));
                         }
                         hints.push(Hint::keys(["Click"], "Open"));
+                        if r.line.is_some() {
+                            hints.push(copy());
+                        }
                     }
                     return Some(hints);
                 }
@@ -621,6 +627,9 @@ pub(crate) fn hints(
                 hints.push(Hint::keys(["Double Click"], "Go to"));
                 if chosen.is_some_and(|p| p.unused.is_some()) {
                     hints.push(Hint::keys(["Right Click"], "Mark as used"));
+                }
+                if chosen.is_some() {
+                    hints.push(copy());
                 }
             }
             return Some(hints);

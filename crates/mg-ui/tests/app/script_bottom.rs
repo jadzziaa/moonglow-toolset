@@ -305,8 +305,10 @@ fn an_error_has_a_wavy_underline_and_the_status_bar_says_it() {
                 let message = message.expect("the Status Bar's message");
                 let said = message.accesskit_node().label().unwrap_or_default();
                 assert!(said.contains("broken.nss(3): "), "{said:?}");
+                // (Whole, past the Script board's old cap of 170: the
+                // error takes the bar's room, 5.2.0.)
                 let width = message.rect().width();
-                assert!((169.0..=170.5).contains(&width), "the Script board's cap: {width}");
+                assert!(width > 200.0, "the whole error: {width}");
                 message.click();
                 settle(&mut h);
                 let line_start = text.find("    int").unwrap();
@@ -444,13 +446,14 @@ fn switch_on(h: &mut Harness<'_, Moonglow>, name: &str) {
 
 /// The window comes to rest with each panel in front and behind while
 /// typing (each new panel is drawn before the script's editor, which
-/// changes what it shows): Bookmarks drawn, then each panel in front (so
+/// changes what it shows; Help among them since 5.2.0): Bookmarks drawn,
+/// then each panel in front (so
 /// Bookmarks behind it, but where it is itself), then typed in, a
 /// bookmark set, compiled.
 #[test]
 fn the_window_comes_to_rest_with_each_panel_in_front_or_behind() {
     for mode in MODES {
-        for front in ["Compiler", "Bookmarks", "Search Results", "Log"] {
+        for front in ["Compiler", "Help", "Bookmarks", "Search Results", "Log"] {
             let (mut h, keys) =
                 scripts_window(mode, "ui-script-rest", &[("hello", "void main()\n{\n}\n")], 1200.0);
             let key = keys[0];
@@ -492,13 +495,14 @@ fn the_window_comes_to_rest_with_each_panel_in_front_or_behind() {
 
 /// Records from before the Bottom Dock held a script's panels read
 /// without a fault: a layout kept for scripts naming the old bottom
-/// pane's Help tab, a newer one's panel, or a global panel as its front;
+/// pane's Help tab (a panel of the Bottom Dock again since 5.2.0: kept),
+/// a newer one's panel, or a global panel as its front;
 /// an open-tabs view naming the old pane's tab. Each passes over what it
 /// does not know, and Compiler comes first where nothing else is kept.
 #[test]
 fn records_naming_the_old_bottom_pane_or_its_tabs_read_without_error() {
     for (kept, front) in [
-        ("Some(\"Help\")", Panel::Compiler),
+        ("Some(\"Help\")", Panel::Help),
         ("Some(\"Script Info\")", Panel::Compiler),
         ("Some(\"Bookmarks\")", Panel::Bookmarks),
         ("Some(\"Search Results\")", Panel::SearchResults),
@@ -1061,4 +1065,642 @@ fn a_warning_logged_since_takes_the_live_error_s_place() {
     assert!(!note(&h), "a warning does");
     let line = h.get_by_label("Status Bar").query_by_label_contains("Last log line: Careful now");
     assert!(line.is_some(), "the warning in its place");
+}
+
+// ------------------------------------------------------------------ 5.2's W4
+
+/// The open menu's `item` clicked: what it copied to the clipboard.
+fn menu_copies(h: &mut Harness<'_, Moonglow>, item: &str) -> Vec<String> {
+    h.get_all_by_label(item).last().unwrap_or_else(|| panic!("{item} in the menu")).click();
+    h.step();
+    let out = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    h.run();
+    out
+}
+
+/// Ctrl+C (the backend's Copy): what it copied to the clipboard.
+fn copy_now(h: &mut Harness<'_, Moonglow>) -> Vec<String> {
+    h.event(egui::Event::Copy);
+    h.step();
+    let out = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    h.run();
+    out
+}
+
+/// Shift+F10 with the keyboard on a row: its menu open, Copy taking the
+/// keyboard; Escape closes it and gives the keyboard back to the row
+/// (`row` finds it).
+fn menu_by_keys(h: &mut Harness<'_, Moonglow>, row: &dyn Fn(&Harness<'_, Moonglow>) -> bool) {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    press_now(h, egui::Modifiers::SHIFT, egui::Key::F10);
+    h.run();
+    let copy = h.get_all_by_label(COPY).last().expect("Shift+F10 opens its menu");
+    assert!(copy.accesskit_node().is_focused(), "Copy has the keyboard");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label(COPY_ALL).is_none(), "Escape closes it");
+    assert!(row(h), "Escape gives the keyboard back to the row");
+}
+
+/// Compiler's messages and Bookmarks' rows (no row chosen in either): a
+/// row's menu has Copy (the message whole, without its time; a bookmark's
+/// line and text) and Copy All (every row, in the list's order); with the
+/// keyboard on a row (Tab), Ctrl+C copies it and Shift+F10 opens its menu.
+#[test]
+fn compiler_and_bookmarks_rows_copy_from_their_menus() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    use mg_ui::script_tools::Message;
+    let own = "void main()\n{\n    int n = 1 +;\n}\n";
+    let (mut h, keys) = scripts_window(Mode::Tabs, "w4-compiler-copy", &[("uses", own)], 1600.0);
+    let key = keys[0];
+    let said = |text: &str, error| Message {
+        script: key,
+        text: text.into(),
+        location: Some(("uses".into(), 3)),
+        error,
+        at: "14:03:27".into(),
+    };
+    let first = "uses.nss(3): ERROR: PARSING VARIABLE LIST";
+    let second = "uses.nss(3): Compile failed: 1 error";
+    h.state_mut().script_tools.messages.extend([said(first, true), said(second, false)]);
+    switch_on(&mut h, "Compiler");
+    settle(&mut h);
+    let dock = h.state().bottom_dock_rect().expect("the Bottom Dock");
+    let row = |h: &Harness<'_, Moonglow>| {
+        (h.query_all_by_label_contains(first))
+            .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+            .expect("the message in Compiler")
+            .rect()
+            .center()
+    };
+    let at = row(&h);
+    let right = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+    };
+    right(&mut h, at);
+    assert_eq!(menu_copies(&mut h, COPY), [first], "Copy: the message, without its time");
+    right(&mut h, at);
+    // (The live error first, its Found as You Type row: the include the
+    // script names is not there.)
+    let live = "uses.nss(1): ERROR: FILE NOT FOUND";
+    assert_eq!(menu_copies(&mut h, COPY_ALL), [format!("{live}\n{first}\n{second}")], "Copy All");
+    // The keyboard on a message: Ctrl+C copies it, Shift+F10 its menu.
+    let message = move |h: &Harness<'_, Moonglow>| {
+        (h.query_all_by_label_contains(first))
+            .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+            .expect("the message in Compiler")
+            .accesskit_node()
+            .is_focused()
+    };
+    (h.query_all_by_label_contains(first))
+        .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+        .unwrap()
+        .focus();
+    h.run();
+    assert!(message(&h), "a message takes the keyboard");
+    assert_eq!(copy_now(&mut h), [first], "Ctrl+C: the message the keyboard is on");
+    menu_by_keys(&mut h, &message);
+    // A bookmark's row.
+    let line3 = own.find("    int").unwrap();
+    h.state_mut().scripts_mut_bookmark_for_test(key, line3);
+    h.state_mut().script_tools.jump = Some((key, 0));
+    settle(&mut h);
+    switch_on(&mut h, "Bookmarks");
+    let dock = h.state().bottom_dock_rect().expect("the Bottom Dock");
+    let at = (h.query_all_by_label_contains("3: int n"))
+        .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+        .expect("the bookmark's row")
+        .rect()
+        .center();
+    right(&mut h, at);
+    assert_eq!(menu_copies(&mut h, COPY), ["3: int n = 1 +;"], "its line and text");
+    let bookmark = move |h: &Harness<'_, Moonglow>| {
+        (h.query_all_by_label_contains("3: int n"))
+            .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+            .expect("the bookmark's row")
+            .accesskit_node()
+            .is_focused()
+    };
+    (h.query_all_by_label_contains("3: int n"))
+        .find(|n| place(n).is_some_and(|p| dock.intersects(p)))
+        .unwrap()
+        .focus();
+    h.run();
+    assert!(bookmark(&h), "a bookmark's row takes the keyboard");
+    assert_eq!(copy_now(&mut h), ["3: int n = 1 +;"], "Ctrl+C: the row the keyboard is on");
+    menu_by_keys(&mut h, &bookmark);
+}
+
+// ------------------------------------------------------------------ 5.2's W5
+
+/// A right click at `at`: its menu open.
+fn right_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+}
+
+/// Whether a node labeled `label` shows, the window settled and
+/// then stepped for up to `within` seconds (a tip's delay), the pointer and
+/// keys as they are: a tip expected is waited for up to 10, one not
+/// expected for 1.
+fn shows_soon(h: &mut Harness<'_, Moonglow>, label: &str, within: u64) -> bool {
+    settle(h);
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_secs(within) {
+        if h.query_by_label(label).is_some() {
+            return true;
+        }
+        h.step();
+    }
+    h.query_by_label(label).is_some()
+}
+
+/// The labels of the Status Bar's nodes drawn after the left edge of
+/// `from` (each with its place), the live error's apart.
+fn bar_after(h: &Harness<'_, Moonglow>, from: egui::Rect) -> Vec<(String, egui::Rect)> {
+    let bar = h.get_by_label("Status Bar");
+    (bar.query_all_by(|n| n.bounding_box().is_some()))
+        .map(|n| {
+            let a = n.accesskit_node();
+            (a.label().or(a.value()).unwrap_or_default(), n.rect())
+        })
+        .filter(|(l, r)| {
+            !l.is_empty() && !l.contains("Found as you type") && r.left() > from.left()
+        })
+        .collect()
+}
+
+/// The live error on the Status Bar (5.2.0, the owner's rulings on
+/// Jasperre's report and at review): drawn whole wherever the bar has
+/// room, as wide in a narrow window as in a wide one, past the Script
+/// board's old cap; the others give way only as far as it needs, the
+/// folder first, then the hints from the last, the cursor's line and
+/// column kept; with the check off, the folder kept.
+#[test]
+fn the_live_error_takes_the_status_bar_s_room() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let text = "void main()\n{\n    int n = 1 +;\n}\n";
+    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let folder = format!("…{}{name}", std::path::MAIN_SEPARATOR);
+    let drawn = |h: &Harness<'_, Moonglow>, said: &str| {
+        h.get_by_label("Status Bar").query_by_label_contains(said).is_some()
+    };
+    let mut widths = Vec::new();
+    for width in [2400.0, 1100.0] {
+        let scripts = [("broken", text.as_bytes())];
+        let (mut h, keys) =
+            scripts_window_with(Mode::Tabs, "ui-script-error-room", &scripts, width, Some(&root));
+        assert!(h.state().script_error_for_test(keys[0]).is_some(), "the check found it");
+        // (The script's hints, as the bar would say them: its count apart.)
+        let hints: Vec<String> = (h.state().status_said().into_iter())
+            .filter(|s| !s.starts_with("Line ") && !s.contains("broken.nss"))
+            .collect();
+        let message = h.get_by_label("Status Bar").get_by_label_contains("Found as you type:");
+        let said = message.accesskit_node().label().unwrap_or_default();
+        assert!(said.contains("broken.nss(3): "), "{said:?}");
+        let at = message.rect();
+        widths.push(at.width());
+        assert!(drawn(&h, "Line 1, column 1"), "{width}: the cursor's count kept");
+        for switch in ["Log", "Compiler", "Help"] {
+            h.get_by_label("Status Bar").get_by_label(switch);
+        }
+        // (Nothing it stands over.)
+        for (l, r) in bar_after(&h, at) {
+            assert!(!r.intersects(at.shrink(0.5)), "{width}: {at:?} over {l:?} at {r:?}");
+        }
+        let shown: Vec<&String> = hints.iter().filter(|s| drawn(&h, s)).collect();
+        if width == 2400.0 {
+            // (Room for all: nothing gave way.)
+            assert!(drawn(&h, &folder), "the folder beside it");
+            assert_eq!(shown.len(), hints.len(), "every hint beside it: {shown:?}");
+            h.state_mut().settings.no_live_check = true;
+            settle(&mut h);
+            assert!(drawn(&h, &folder), "the folder kept");
+        } else {
+            // (Some give way, from the last, the first kept.)
+            assert!(!shown.is_empty() && shown.len() < hints.len(), "{width}: {shown:?}");
+            assert_eq!(shown, hints.iter().take(shown.len()).collect::<Vec<_>>(), "from the last");
+        }
+    }
+    assert!(widths[0] > 200.0, "whole, past the old cap: {widths:?}");
+    assert!((widths[0] - widths[1]).abs() < 0.5, "as wide in a narrow window: {widths:?}");
+    // Where even so it has no room (a window 500 wide): cut inside the bar,
+    // clear of the count and the module's name, the whole of it in its tip.
+    let scripts = [("broken", text.as_bytes())];
+    let (mut h, _) =
+        scripts_window_with(Mode::Tabs, "ui-script-error-narrow", &scripts, 500.0, Some(&root));
+    let bar = h.get_by_label("Status Bar");
+    let message = bar.get_by_label_contains("Found as you type:");
+    let said = message.accesskit_node().label().unwrap_or_default();
+    let at = message.rect();
+    let room = place(&bar).expect("the bar drawn");
+    assert!(at.width() < widths[0] - 1.0, "cut: {at:?}");
+    assert!(room.expand(0.5).contains_rect(at), "{at:?} in the bar {room:?}");
+    let after = bar_after(&h, at);
+    assert!(!after.is_empty(), "the module's name after it");
+    for (l, r) in &after {
+        assert!(!r.intersects(at.shrink(0.5)), "{at:?} over {l:?} at {r:?}");
+    }
+    let tip = tip_at(&mut h, at).unwrap_or_default();
+    let whole = said.trim_start_matches("Found as you type: ");
+    assert!(tip.contains(whole), "the whole error in its tip: {tip:?}, not {whole:?}");
+}
+
+/// A long module name beside the live error (5.2.0, review): the name is
+/// cut short to `ERROR_LEAVES` before the cursor's count goes, the count
+/// kept wherever the error is shown whole, and the error, the name and
+/// the count never over each other, from a wide window to a narrow one.
+#[test]
+fn a_long_module_name_leaves_the_error_its_room() {
+    // (`shell::ERROR_LEAVES`, not exported.)
+    const ERROR_LEAVES: f32 = 120.0;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let long = "the_tdod_krezk_development_module_with_a_long_name_v52";
+    let text = "void main()\n{\n    int n = 1 +;\n}\n";
+    let key = ResKey::parse("broken", ResType::NSS).unwrap();
+    let mut full: Option<(f32, f32)> = None;
+    // (1450: from 1400 up the folder may show; here the switches' words
+    // and the folder do not both fit beside the error.)
+    for width in [2400.0, 1450.0, 1100.0, 700.0, 500.0] {
+        let dir = mg_testkit::scratch_dir(&format!("ui-script-error-long-{width}"));
+        let sample = sample_module(&dir);
+        let path = dir.join(format!("{long}.mod"));
+        std::fs::rename(&sample, &path).unwrap();
+        let mut m = Module::open(&path).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        m.save().unwrap();
+        let mut app = game_app(&root, None);
+        app.settings = Mode::Tabs.settings();
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        let mut h = harness(app, width, 800.0);
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        settle(&mut h);
+        assert!(h.state().script_error_for_test(key).is_some(), "{width}: the check found it");
+        let bar = h.get_by_label("Status Bar");
+        let error = bar.get_by_label_contains("Found as you type:").rect();
+        let after = bar_after(&h, error);
+        let name = (after.iter().find(|(l, _)| l.starts_with("the_tdod")))
+            .unwrap_or_else(|| panic!("{width}: the module's name in {after:?}"))
+            .1;
+        let count = after.iter().find(|(l, _)| l.starts_with("Line 1, column 1")).map(|c| c.1);
+        let (whole_error, whole_name) = *full.get_or_insert((error.width(), name.width()));
+        assert!(count.is_some() || width < 2400.0, "all of it at 2400: {after:?}");
+        assert!(whole_name > ERROR_LEAVES + 40.0, "the name long enough to cut: {whole_name}");
+        // (Apart.)
+        let mut drawn = vec![("error", error), ("name", name)];
+        drawn.extend(count.map(|c| ("count", c)));
+        for (i, (a, ra)) in drawn.iter().enumerate() {
+            for (b, rb) in &drawn[i + 1..] {
+                assert!(
+                    !ra.shrink(0.5).intersects(rb.shrink(0.5)),
+                    "{width}: {a} {ra:?} over {b} {rb:?}"
+                );
+            }
+        }
+        // The folder goes first: before the hints, and so before the
+        // switches' words.
+        let icons = h.get_by_label("Status Bar").get_by_label("Compiler").rect().width() < 40.0;
+        let folder = after.iter().any(|(l, _)| l.starts_with('…'));
+        let hints: Vec<String> = (h.state().status_said().into_iter())
+            .filter(|s| !s.starts_with("Line ") && !s.contains("broken.nss"))
+            .collect();
+        let hints_drawn = hints.iter().filter(|s| after.iter().any(|(l, _)| l == *s)).count();
+        assert!(!(icons && folder), "{width}: the switches' words gone before the folder");
+        assert!(
+            !folder || hints_drawn == hints.len(),
+            "{width}: the folder kept, {hints_drawn} of {} hints",
+            hints.len()
+        );
+        // The name is cut no shorter than ERROR_LEAVES (less a letter, where
+        // it is cut at one), and only once the error needs its room.
+        assert!(name.width() >= ERROR_LEAVES - 12.0, "{width}: the name {name:?}");
+        let error_whole = error.width() >= whole_error - 0.5;
+        if name.width() < whole_name - 0.5 {
+            assert!(width < 2400.0, "cut with room: {name:?}");
+        }
+        // The count goes only where the error, the name cut, still lacks
+        // room: wherever the error is whole, the count is kept.
+        if error_whole {
+            assert!(count.is_some(), "{width}: the error whole and the count gone: {after:?}");
+        } else {
+            assert!(count.is_none(), "{width}: the error cut, the count kept: {after:?}");
+            assert!(name.width() < ERROR_LEAVES + 1.0, "{width}: the error cut first: {name:?}");
+        }
+    }
+}
+
+/// With the Resources panel in use beside a script with a live error,
+/// its count comes before the script's (the board's order), and goes
+/// before it: the cursor's line and column is the last count to go
+/// (5.2.0, review), from a wide bar to a narrow one.
+#[test]
+fn the_cursor_s_count_goes_last_beside_the_resources_count() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let text = "void main()\n{\n    int n = 1 +;\n}\n";
+    let key = ResKey::parse("broken", ResType::NSS).unwrap();
+    let mut both = false;
+    let mut cursor_alone = false;
+    for width in [1600.0, 1100.0, 900.0, 800.0, 700.0, 600.0, 500.0] {
+        let dir = mg_testkit::scratch_dir(&format!("ui-script-error-counts-{width}"));
+        let path = sample_module(&dir);
+        let mut m = Module::open(&path).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        m.save().unwrap();
+        let mut app = game_app(&root, None);
+        app.settings = Mode::Tabs.settings();
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        show_resources(&mut app);
+        app.browser.filter = "nw_it_torch00".into();
+        let mut h = harness(app, width, 800.0);
+        settle(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        settle(&mut h);
+        assert!(h.state().script_error_for_test(key).is_some(), "{width}: the check found it");
+        // (The panel in use: the pointer on one of its rows.)
+        let row = h.get_by_label("nw_it_torch001.uti").rect().center();
+        h.hover_at(row);
+        h.step();
+        settle(&mut h);
+        let said = h.state().status_said().to_vec();
+        let at = said.iter().position(|s| s.starts_with("Line ")).expect("the cursor's count said");
+        assert!(at > 0, "{width}: the panel's count before it: {said:?}");
+        let panel = said[at - 1].clone();
+        let drawn = |w: &str| h.get_by_label("Status Bar").query_by_label(w).is_some();
+        let (p, c) = (drawn(&panel), drawn(&said[at]));
+        assert!(!(p && !c), "{width}: the cursor's count went before the panel's {panel:?}");
+        both |= p && c;
+        cursor_alone |= c && !p;
+    }
+    assert!(both, "both drawn in a wide bar");
+    assert!(cursor_alone, "the cursor's kept alone in a narrower one");
+}
+
+/// Compiler's Found as You Type row (5.2.0): the live error whole, over
+/// the compile's messages, in either host; a click goes to its line; its
+/// menu copies it (Copy), and every row with it first (Copy All); and it
+/// goes once the error is mended, the panel drawn again for it.
+#[test]
+fn compiler_lists_the_live_error_found_as_you_type() {
+    use mg_ui::row_copy::{COPY, COPY_ALL};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let text = "void main()\n{\n    int n = 1 +;\n}\n";
+    for mode in MODES {
+        let scripts = [("broken", text.as_bytes())];
+        let (mut h, keys) =
+            scripts_window_with(mode, "ui-script-found-row", &scripts, 1600.0, Some(&root));
+        let key = keys[0];
+        let (_, error) = h.state().script_error_for_test(key).expect("the check found it");
+        match mode {
+            Mode::Tabs => switch_on(&mut h, "Compiler"),
+            Mode::Floating => {
+                window_bottom(&h, key).get_by_label("Compiler").click();
+                settle(&mut h);
+            }
+        }
+        let host = match mode {
+            Mode::Tabs => h.state().bottom_dock_rect().expect("the Bottom Dock"),
+            Mode::Floating => window_pane(&h, key),
+        };
+        // (Under the pane's tab bar, which says the error too where the
+        // script floats.)
+        let row = |h: &Harness<'_, Moonglow>| {
+            (h.query_all_by_label_contains(&format!("{}: ", mg_ui::FOUND_AS_YOU_TYPE)))
+                .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+                .filter(|n| place(n).is_some_and(|p| host.contains_rect(p)))
+                .map(|n| (n.accesskit_node().label().unwrap_or_default(), n.rect()))
+                .max_by(|a, b| a.1.top().total_cmp(&b.1.top()))
+        };
+        let (said, at) = row(&h).expect("the row in Compiler");
+        assert_eq!(said, format!("{}: {error}", mg_ui::FOUND_AS_YOU_TYPE), "{mode:?}: whole");
+        // Its menu.
+        right_click(&mut h, at.center());
+        assert_eq!(menu_copies(&mut h, COPY), std::slice::from_ref(&error), "{mode:?}: Copy");
+        right_click(&mut h, at.center());
+        let all = menu_copies(&mut h, COPY_ALL);
+        assert!(all.len() == 1 && all[0].starts_with(&error), "{mode:?}: Copy All {all:?}");
+        // A click: to its line, the third.
+        h.state_mut().script_tools.jump = Some((key, 0));
+        settle(&mut h);
+        click_pos(&h, at.center());
+        settle(&mut h);
+        let (c, _) = cursor_of(&h, key).expect("its cursor");
+        assert_eq!(text[..c].matches('\n').count(), 2, "{mode:?}: at its line, {c}");
+        // Mended: the row goes.
+        h.state_mut().script_tools.jump = Some((key, text.find("+;").unwrap() + 1));
+        settle(&mut h);
+        h.event(egui::Event::Text(" 2".into()));
+        settle(&mut h);
+        let now = h.state().script_text(key).unwrap();
+        assert!(now.contains("1 + 2;"), "{mode:?}: {now:?}");
+        // (Checked a moment after the typing stops: by a deadline.)
+        let started = std::time::Instant::now();
+        while h.state().script_error_for_test(key).is_some() && started.elapsed().as_secs() < 10 {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            h.step();
+        }
+        // (The frame the check's result came in: the row drawn before the
+        // editor still had the error, so another frame is asked for, or the
+        // row would stay until something else drew the window.)
+        assert!(
+            row(&h).is_none() || h.ctx.has_requested_repaint(),
+            "{mode:?}: the row stale with no frame asked for"
+        );
+        settle(&mut h);
+        assert!(h.state().script_error_for_test(key).is_none(), "{mode:?}: mended");
+        assert!(row(&h).is_none(), "{mode:?}: the row gone");
+    }
+}
+
+/// The tips over a name (5.2.0, Options › Script Editor: Show declarations
+/// in tips, on by default): under the pointer, a function's declaration
+/// and its documentation's first line; where the arrow keys put the
+/// cursor, the same, gone at the next key; the error's own tip wins over
+/// its line; with the option off, neither.
+#[test]
+fn a_name_s_declaration_shows_in_a_tip() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let text = "// Adds one.\n// More words.\nint Add(int nA) { return nA + 1; }\n\
+                void main()\n{\n    int n = Add(1) +;\n}\n";
+    let scripts = [("tips", text.as_bytes())];
+    let (mut h, keys) =
+        scripts_window_with(Mode::Tabs, "ui-script-name-tips", &scripts, 1600.0, Some(&root));
+    let key = keys[0];
+    assert!(!h.state().settings.no_symbol_tips, "on by default");
+    let t = mg_uikit::tokens(&h.ctx);
+    let wave = waves(&h, t.error).pop().expect("the error's wave");
+    // (Over Add on the error's line: where the wave says its characters
+    // are, in its row over the wave.)
+    let line = "int n = Add(1) +;";
+    let char_w = (wave.last().unwrap().x - wave[0].x) / line.len() as f32;
+    let over = egui::pos2(wave[0].x + 9.5 * char_w, wave[0].y - 6.0);
+    let declaration = "int Add(int nA)";
+    // The error's tip wins.
+    h.hover_at(over);
+    // (The error's own tip there: its words, then "Found as you type.")
+    let started = std::time::Instant::now();
+    while h.query_by_label_contains("\nFound as you type.").is_none() {
+        assert!(started.elapsed().as_secs() < 10, "the error's own tip there");
+        h.step();
+    }
+    assert!(!shows_soon(&mut h, declaration, 1), "the error's line: not the name's tip");
+    // The check off: the name's.
+    h.state_mut().settings.no_live_check = true;
+    h.hover_at(egui::pos2(1.0, 1.0));
+    settle(&mut h);
+    h.hover_at(over);
+    assert!(shows_soon(&mut h, declaration, 10), "the pointer's tip");
+    h.get_by_label("Adds one.");
+    // The cursor moved onto it by an arrow key, the pointer away.
+    h.hover_at(egui::pos2(1.0, 1.0));
+    let at = text.rfind("Add(1)").unwrap() + 1;
+    h.state_mut().script_tools.jump = Some((key, at));
+    settle(&mut h);
+    assert!(!shows_soon(&mut h, declaration, 1), "not where the cursor was put");
+    h.key_press(egui::Key::ArrowRight);
+    assert!(shows_soon(&mut h, declaration, 10), "the cursor's tip");
+    // Shift+F10: the editor's menu, and no tip over it, its keys too.
+    press_now(&mut h, egui::Modifiers::SHIFT, egui::Key::F10);
+    let menu = |h: &mut Harness<'_, Moonglow>| {
+        settle(h);
+        crate::fields::text_menu_rows(h)[3].is_some()
+    };
+    assert!(menu(&mut h), "the editor's menu");
+    assert!(!shows_soon(&mut h, declaration, 1), "no cursor's tip over the menu");
+    h.key_press(egui::Key::ArrowDown);
+    assert!(!shows_soon(&mut h, declaration, 1), "nor at the menu's keys");
+    // (Nor the pointer's, over Add where it is declared, three lines up,
+    // clear of the menu at the cursor.)
+    let declared = egui::pos2(wave[0].x + 1.5 * char_w, wave[0].y - 6.0 - 3.0 * 18.0);
+    h.hover_at(declared);
+    assert!(!shows_soon(&mut h, declaration, 1), "no pointer's tip while the menu is open");
+    assert!(menu(&mut h), "the menu still open");
+    h.key_press(egui::Key::Escape);
+    assert!(!menu(&mut h), "the menu closed");
+    assert!(shows_soon(&mut h, declaration, 10), "the pointer's tip there, the menu closed");
+    h.hover_at(egui::pos2(1.0, 1.0));
+    // The cursor's tip again, then the wheel: gone.
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press(egui::Key::ArrowRight);
+    assert!(shows_soon(&mut h, declaration, 10), "the cursor's tip again");
+    h.hover_at(over);
+    h.hover_at(over + egui::vec2(0.0, -40.0));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -40.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.hover_at(egui::pos2(1.0, 1.0));
+    assert!(!shows_soon(&mut h, declaration, 1), "gone at the wheel");
+    // A right click on the name: its menu, no pointer's tip over it.
+    right_click(&mut h, over);
+    assert!(menu(&mut h), "the menu at the right click");
+    assert!(!shows_soon(&mut h, declaration, 1), "no pointer's tip over the menu");
+    h.key_press(egui::Key::Escape);
+    h.hover_at(egui::pos2(1.0, 1.0));
+    settle(&mut h);
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press(egui::Key::ArrowRight);
+    assert!(shows_soon(&mut h, declaration, 10), "the cursor's tip once more");
+    // The window made so short that the cursor's line is out of the
+    // text's sight: no tip, not over what stands there; back in sight, it
+    // is back (nothing pressed meanwhile).
+    h.set_size(egui::vec2(1600.0, 200.0));
+    assert!(!shows_soon(&mut h, declaration, 1), "the cursor out of sight: no tip");
+    h.set_size(egui::vec2(1600.0, 800.0));
+    assert!(shows_soon(&mut h, declaration, 10), "back in sight");
+    h.event(egui::Event::Text("x".into()));
+    assert!(!shows_soon(&mut h, declaration, 1), "gone at a key typed");
+    // The option off: neither.
+    h.state_mut().settings.no_symbol_tips = true;
+    h.key_press(egui::Key::ArrowLeft);
+    assert!(!shows_soon(&mut h, declaration, 1), "off: no cursor's tip");
+    h.hover_at(over);
+    assert!(!shows_soon(&mut h, declaration, 1), "off: no pointer's tip");
+}
+
+/// A floating script's window keeps the side and bottom panes' sizes
+/// they were dragged to (5.2.0, Jasperre's report): kept in the settings
+/// for scripts, a script opened in a window of its own after it has them.
+#[test]
+fn a_script_window_s_pane_sizes_are_kept_for_the_next() {
+    let (mut h, keys) = scripts_window(
+        Mode::Floating,
+        "ui-script-pane-sizes",
+        &[("aaa", "void main()\n{\n}\n"), ("bbb", "void main()\n{\n}\n")],
+        1600.0,
+    );
+    let leaf = |h: &Harness<'_, Moonglow>, key: ResKey| {
+        let at = h.state().dock.find_tab(&Tab::Script(key)).unwrap();
+        h.state().dock.iter_leaves().find(|(p, _)| p.surface == at.surface).unwrap().1.rect
+    };
+    // (Reference's body's left, 8 points after the pane's edge.)
+    let side = |h: &Harness<'_, Moonglow>, key: ResKey| {
+        let window = leaf(h, key);
+        let left = (h.get_all_by_label(mg_ui::SCRIPT_REFERENCE))
+            .map(|g| g.get_by_role(egui::accesskit::Role::TextInput).rect().left() - 8.0)
+            .find(|l| window.x_range().contains(*l))
+            .expect("its Reference");
+        window.right() - left
+    };
+    let bottom =
+        |h: &Harness<'_, Moonglow>, key: ResKey| leaf(h, key).bottom() - window_pane(h, key).top();
+    own_window(&mut h, &Tab::Script(keys[0]), egui::pos2(60.0, 60.0), egui::vec2(1000.0, 700.0));
+    settle(&mut h);
+    let (wide, high) = (side(&h, keys[0]), bottom(&h, keys[0]));
+    // The side pane's edge 80 left, the bottom pane's 40 up.
+    let edge = leaf(&h, keys[0]).right() - wide;
+    let y = leaf(&h, keys[0]).center().y;
+    drag(&mut h, egui::pos2(edge, y), egui::pos2(edge - 80.0, y));
+    settle(&mut h);
+    let top = window_pane(&h, keys[0]).top();
+    let x = leaf(&h, keys[0]).left() + 200.0;
+    drag(&mut h, egui::pos2(x, top), egui::pos2(x, top - 40.0));
+    settle(&mut h);
+    let (wide2, high2) = (side(&h, keys[0]), bottom(&h, keys[0]));
+    assert!((wide2 - wide - 80.0).abs() < 4.0, "dragged: {wide} to {wide2}");
+    assert!((high2 - high - 40.0).abs() < 4.0, "dragged: {high} to {high2}");
+    let kept = h.state().settings.dock_layouts.get("script").cloned().unwrap_or_default();
+    assert!(kept.window_width.is_some() && kept.window_bottom.is_some(), "kept: {kept:?}");
+    // The next window: at those sizes (bbb closed and opened again, its
+    // pane's own size from before forgotten).
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Script(keys[1])));
+    settle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(keys[1])));
+    settle(&mut h);
+    own_window(&mut h, &Tab::Script(keys[1]), egui::pos2(500.0, 100.0), egui::vec2(1000.0, 700.0));
+    settle(&mut h);
+    let (wide3, high3) = (side(&h, keys[1]), bottom(&h, keys[1]));
+    assert!((wide3 - wide2).abs() < 2.0, "the next window's side pane: {wide3}, not {wide2}");
+    assert!((high3 - high2).abs() < 2.0, "the next window's bottom pane: {high3}, not {high2}");
 }

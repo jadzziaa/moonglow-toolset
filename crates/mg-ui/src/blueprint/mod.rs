@@ -3427,6 +3427,8 @@ pub(crate) fn typing_kept_out(ui: &Ui, within: egui::Rect) {
     {
         return;
     }
+    // (Its right-click menu has no Cut or Paste.)
+    crate::widgets::text_kept_out(ctx, r.id);
     ctx.input_mut(|i| {
         i.events.retain(|e| match e {
             egui::Event::Text(_)

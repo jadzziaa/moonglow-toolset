@@ -20,6 +20,7 @@ use mg_module::search::{
 use mg_resman::ResKey;
 use mg_rules::{Choice, ChoiceColumns, GameData, ObjectKind};
 
+use crate::row_copy;
 use crate::{Action, Moonglow, Tab};
 
 /// What the window looks for.
@@ -1250,6 +1251,17 @@ fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize, game: Option<&GameData>
     go
 }
 
+/// A result as one line of text (its menu's Copy, a line of Copy All):
+/// its place as listed, the layer it is read from where it is not the
+/// module's, and what matched, "area_01 › Chest: Gold 50".
+pub fn hit_line(app: &mut Moonglow, h: &mg_module::search::Hit) -> String {
+    let place = place_shown(app, h);
+    match &h.layer {
+        Some(layer) => format!("{place} ({layer}): {}", h.matched),
+        None => format!("{place}: {}", h.matched),
+    }
+}
+
 /// A hit's place as its row shows it, with areas named as the rest of
 /// the window names them (Options › General: Show areas by name).
 fn place_shown(app: &mut Moonglow, h: &mg_module::search::Hit) -> String {
@@ -1295,6 +1307,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut open = Vec::new();
     let mut choose_areas = None;
+    // (A result's menu's Copy or Copy All: its text made after the rows.)
+    let mut copy = None;
     if draft.searched.is_some() {
         ui.separator();
         draft.ticked.resize(draft.hits.len(), true);
@@ -1405,6 +1419,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.allocate_ui_with_layout(size, layout, |ui| {
                     ui.set_min_height(size.y);
                     ui.set_max_height(size.y);
+                    // (The row's own response first, under its tick and
+                    // link: a right click on it opens its menu too. Not a
+                    // Tab stop: its link is.)
+                    let room = egui::Rect::from_min_size(ui.cursor().min, size);
+                    let whole = ui.interact(room, ui.id().with(("hit-row", i)), egui::Sense::CLICK);
                     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                     let h = &draft.hits[i];
                     let mine = h.layer.is_none();
@@ -1427,14 +1446,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if let Some(layer) = &h.layer {
                         ui.label(egui::RichText::new(format!("({layer})")).italics());
                     }
-                    ui.weak(&h.matched);
-                    // The plugins' commands for it, or (one of those
-                    // ticked) for each ticked.
+                    // (Cut at the row's end, whole in its tip; not
+                    // selectable, a right click on it the row's.)
+                    let matched = egui::RichText::new(&h.matched).weak();
+                    ui.add(egui::Label::new(matched).selectable(false)).on_hover_text(&h.matched);
+                    // Its menu: the plugins' commands for it, or (one of
+                    // those ticked) for each ticked; then Copy and Copy
+                    // All (every result, ticked or not: the ticks say
+                    // what a change takes, not what is chosen).
+                    let mut fits_on: Option<&[mg_plugin::Selected]> = None;
+                    let alone;
                     if !commands.is_empty() {
                         let fits = |on: &[mg_plugin::Selected]| {
                             commands.iter().any(|c| c.fits(&crate::plugins::kinds_of(on)))
                         };
-                        let alone;
                         let (on, fits): (&[mg_plugin::Selected], bool) = if draft.ticked[i] {
                             let (on, fits) = ticked.get_or_insert_with(|| {
                                 let mut on: Vec<mg_plugin::Selected> =
@@ -1452,14 +1477,39 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             (&alone, fits(&alone))
                         };
                         if fits {
-                            mg_uikit::context_menu(&r, |ui| {
-                                crate::plugins::menu_on(ui, &commands, on, &mut app.actions);
-                            });
+                            fits_on = Some(on);
                         }
+                    }
+                    // (Shift+F10 and Ctrl+C where the keyboard is on its
+                    // link, the row's menu's and its focus's id.)
+                    let row = r | whole;
+                    let (keyed, ctrl_c) = row_copy::focused_keys(ui, &row);
+                    if ctrl_c {
+                        copy = Some((row_copy::Asked::Row, i));
+                    }
+                    let actions = &mut app.actions;
+                    let asked = row_copy::row_menu(ui, &row, keyed, |ui| {
+                        let Some(on) = fits_on else { return false };
+                        crate::plugins::menu_on(ui, &commands, on, actions);
+                        true
+                    });
+                    if asked.is_some() {
+                        copy = asked.map(|a| (a, i));
                     }
                 });
             }
         });
+    }
+    match copy {
+        Some((row_copy::Asked::Row, i)) => {
+            let line = hit_line(app, &draft.hits[i]);
+            ui.ctx().copy_text(line);
+        }
+        Some((row_copy::Asked::All, _)) => {
+            let all: Vec<String> = draft.hits.iter().map(|h| hit_line(app, h)).collect();
+            ui.ctx().copy_text(row_copy::lines(all));
+        }
+        None => {}
     }
     if find && draft.query().is_ok() {
         draft.act.said = None;

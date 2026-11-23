@@ -159,6 +159,11 @@ pub enum Cmd {
     TogglePalettes,
     ToggleLog,
     HidePanels,
+    /// View › Interface Size's Zoom In, Zoom Out and Reset Zoom (egui's
+    /// own keys for its zoom, which Moonglow turns off, given the setting).
+    ZoomIn,
+    ZoomOut,
+    ResetZoom,
     NuiDelete,
     NuiDuplicate,
     NuiMoveUp,
@@ -174,7 +179,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 86] = [
+    pub const ALL: [Cmd; 89] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -253,6 +258,9 @@ impl Cmd {
         Cmd::TogglePalettes,
         Cmd::ToggleLog,
         Cmd::HidePanels,
+        Cmd::ZoomIn,
+        Cmd::ZoomOut,
+        Cmd::ResetZoom,
         Cmd::NuiDelete,
         Cmd::NuiDuplicate,
         Cmd::NuiMoveUp,
@@ -353,6 +361,9 @@ impl Cmd {
             Cmd::TogglePalettes => ("view-palettes", None, General),
             Cmd::ToggleLog => ("view-log", None, General),
             Cmd::HidePanels => ("hide-panels", None, General),
+            Cmd::ZoomIn => ("zoom-in", None, General),
+            Cmd::ZoomOut => ("zoom-out", None, General),
+            Cmd::ResetZoom => ("reset-zoom", None, General),
             Cmd::NuiDelete => ("nui-delete", Some("Delete Element"), Nui),
             Cmd::NuiDuplicate => ("nui-duplicate", Some("Duplicate Element"), Nui),
             Cmd::NuiMoveUp => ("nui-move-up", Some("Move Element Up"), Nui),
@@ -477,13 +488,21 @@ impl Cmd {
             Cmd::NextPane => vec![k(NONE, Key::F6)],
             Cmd::PreviousPane => vec![k(SHIFT, Key::F6)],
             // (Right and Left open and close a row; with Ctrl+Shift,
-            // every one. Ctrl and + or -, egui's zoom, are the window's.)
+            // every one. Ctrl and + or -, the interface size, are the
+            // window's.)
             Cmd::ExpandAll => vec![k(CTRL | SHIFT, Key::ArrowRight)],
             Cmd::CollapseAll => vec![k(CTRL | SHIFT, Key::ArrowLeft)],
             Cmd::ToggleTree => vec![k(CTRL | Modifiers::ALT, Key::Num1)],
             Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
             Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],
             Cmd::HidePanels => vec![k(CTRL | Modifiers::ALT, Key::Num0)],
+            // egui's and a browser's: + with Shift (US keyboards) or
+            // without (a keypad's, many others' keyboards), or the = key.
+            Cmd::ZoomIn => {
+                vec![k(CTRL, Key::Plus), k(CTRL, Key::Equals), k(CTRL | SHIFT, Key::Plus)]
+            }
+            Cmd::ZoomOut => vec![k(CTRL, Key::Minus)],
+            Cmd::ResetZoom => vec![k(CTRL, Key::Num0)],
             Cmd::NuiDelete => vec![k(NONE, Key::Delete)],
             Cmd::NuiDuplicate => vec![k(CTRL, Key::D)],
             Cmd::NuiMoveUp => vec![k(Modifiers::ALT, Key::ArrowUp)],

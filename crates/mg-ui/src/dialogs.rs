@@ -45,6 +45,8 @@ pub enum FileKind {
     NuiWindows,
     /// The log, as text: `.txt`.
     Log,
+    /// Problems' findings, as text: `.txt`.
+    Problems,
     /// A 2DA table: `.2da`.
     Table,
     /// A talk table: `.tlk`.
@@ -88,6 +90,7 @@ impl FileKind {
             (FileKind::Plugin, _) => "Install Plugin from File",
             (FileKind::NuiWindows, _) => "Import NUI Windows",
             (FileKind::Log, _) => "Save Log",
+            (FileKind::Problems, _) => "Save Problems As",
             (FileKind::Table, false) => "Open 2DA",
             (FileKind::Table, true) => "Save 2DA As",
             (FileKind::TalkTable, false) => "Open Talk Table",
@@ -129,6 +132,7 @@ impl FileKind {
                 &["jui", "erf", "hak", "mod", "nwm", "zip"],
             )),
             (FileKind::Log, _) => Some(("Text", &["txt", "log"])),
+            (FileKind::Problems, _) => Some(("Text", &["txt"])),
             (FileKind::Table, _) => Some(("2DA tables", &["2da"])),
             (FileKind::TalkTable, _) => Some(("Talk tables", &["tlk"])),
             (FileKind::TalkLines { json: false }, _) => Some(("CSV", &["csv"])),
