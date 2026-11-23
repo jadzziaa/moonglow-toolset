@@ -2740,3 +2740,159 @@ fn u29_pictures_project_plugins_asked() {
         }
     }
 }
+
+#[test]
+fn invalid_plugin_settings_stay_open_disable_save_and_log_error() {
+    let dir = mg_testkit::scratch_dir("ui-plugin-settings-invalid");
+    let plug_dir = dir.join("plugins/color-check");
+    std::fs::create_dir_all(&plug_dir).unwrap();
+    std::fs::write(
+        plug_dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.color-check\"\nname = \"Color Check\"\nversion = \"1.0.0\"\n\
+         api = \"0.5\"\nlicense = \"MIT\"\n\n\
+         [setting]\nid = \"tint\"\nlabel = \"Tint\"\ntype = \"color\"\ndefault = \"#336699\"\n",
+    )
+    .unwrap();
+    std::fs::write(plug_dir.join("main.luau"), "-- settings only\n").unwrap();
+
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(dir.join("plugins"));
+    app.plugin_values = Some(dir.join("values.json"));
+    app.load_plugins();
+    assert!(
+        app.plugins
+            .installed
+            .iter()
+            .any(|i| i.plugin.as_ref().is_ok_and(|p| p.manifest.id == "test.color-check")),
+        "{:#?}",
+        app.log.entries
+    );
+    app.enable_plugin("test.color-check", true);
+    app.open_plugin_settings("test.color-check");
+    let mut h = harness(app, 1200.0, 900.0);
+    settle(&mut h);
+    assert!(h.state().plugins.settings_form.is_some());
+
+    // Enter invalid color on SettingKind::Color ("tint").
+    h.state_mut()
+        .plugins
+        .settings_form
+        .as_mut()
+        .unwrap()
+        .values
+        .insert("tint".into(), mg_plugin::SettingValue::Text("notacolor".into()));
+    h.run();
+    assert!(
+        apart(&h, "Save").accesskit_node().is_disabled(),
+        "Save must be disabled when settings are invalid"
+    );
+    h.get_by_label_contains("#rrggbb");
+
+    // Calling save_plugin_settings directly keeps form open and logs an Error.
+    h.state_mut().save_plugin_settings();
+    assert!(
+        h.state().plugins.settings_form.is_some(),
+        "invalid values must leave settings_form open"
+    );
+    assert!(
+        h.state().log.entries.iter().any(|(l, _)| *l == mg_ui::Level::Error),
+        "expected Error log entry for invalid settings: {:#?}",
+        h.state().log.entries
+    );
+
+    // Restoring valid hex color enables Save and closes cleanly.
+    h.state_mut()
+        .plugins
+        .settings_form
+        .as_mut()
+        .unwrap()
+        .values
+        .insert("tint".into(), mg_plugin::SettingValue::Text("#336699".into()));
+    h.run();
+    assert!(!apart(&h, "Save").accesskit_node().is_disabled());
+    apart(&h, "Save").click();
+    settle(&mut h);
+    assert!(h.state().plugins.settings_form.is_none());
+}
+
+#[test]
+fn plugin_protected_area_cancel_rolls_back_hak_and_confirm_tracks_undo() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = project_folder(
+        "ui-plugin-protected-hak",
+        &[("moonglow.toml", "[claims]\nprotected = [\"start\"]\n")],
+    );
+    let export = dir.join("export");
+    std::fs::create_dir_all(&export).unwrap();
+    std::fs::write(export.join("note.txt"), "from the plugin").unwrap();
+    let user = user_folder(&dir, &[]);
+    let hak = user.join("hak/made.hak");
+
+    let dialogs = NoDialogs { folders: vec![export.clone(), export], ..Default::default() };
+    let mut app = game_app_with(&root, Some(user), dialogs);
+    app.open_module(&dir);
+    app.palette_dock = false;
+    app.background_jobs = true;
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run();
+
+    let wait_for = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "missing {label}");
+        }
+        h.run_steps(2);
+    };
+    let wait_idle = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().busy() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "job hung");
+        }
+        h.run_steps(2);
+    };
+    let start_tag = |h: &mut Harness<'_, Moonglow>| -> String {
+        let are = module_gff(h, "start", ResType::ARE).unwrap();
+        String::from_utf8_lossy(are.root.string("Tag").unwrap_or_default()).into_owned()
+    };
+
+    h.state_mut().plugins.console = r#"
+        local folder = ctx.ui:open_folder({ title = "The folder to take" })
+        folder:to_hak("made", "note.txt")
+        ctx.edit:set("start.are", "Tag", "BY_PLUGIN")
+    "#
+    .into();
+
+    // First run: cancel on Protected Area rolls back the written hak and keeps start.are unchanged.
+    h.state_mut().run_console();
+    wait_for(&mut h, "Choose Folder…");
+    h.get_by_label("Choose Folder…").click();
+    wait_for(&mut h, "Yes");
+    h.get_by_label("Yes").click();
+    wait_for(&mut h, "Protected Area");
+    assert!(hak.is_file(), "hak was staged on disk while awaiting confirmation");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    wait_idle(&mut h);
+    assert!(!hak.exists(), "Cancel on Protected Area must roll back written hak");
+    assert_ne!(start_tag(&mut h), "BY_PLUGIN");
+
+    // Second run: confirming applies edit and records hak write with Undo step.
+    h.state_mut().run_console();
+    wait_for(&mut h, "Choose Folder…");
+    h.get_by_label("Choose Folder…").click();
+    wait_for(&mut h, "Yes");
+    h.get_by_label("Yes").click();
+    wait_for(&mut h, "Protected Area");
+    h.get_by_label("Change It Anyway").click();
+    wait_idle(&mut h);
+    assert!(hak.is_file(), "confirmed plugin apply keeps written hak");
+    assert_eq!(start_tag(&mut h), "BY_PLUGIN");
+
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_ne!(start_tag(&mut h), "BY_PLUGIN", "Undo reverts area tag");
+    assert!(!hak.exists(), "Undo removes hak recorded via FinishPluginApply");
+}

@@ -729,7 +729,7 @@ fn value_choice(
     offered: &Offered,
     value: &mut String,
     width: f32,
-) {
+) -> bool {
     let at = offered.at.get(value.as_str()).copied();
     let current = at.map(|a| a as i64);
     let chosen = |picked: Option<i64>, value: &mut String| {
@@ -739,20 +739,23 @@ fn value_choice(
         }
     };
     if other {
-        ui.horizontal(|ui| {
-            ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
-            // (Its values to choose from, the arrow keys stepping through
-            // them as every dropdown's do.)
-            let picked =
-                row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
-                    .shown("")
-                    .width(24.0)
-                    .ordered()
-                    .hover_text("Its values (variables.toml)")
-                    .show(ui);
-            chosen(picked, value);
-        });
-        return;
+        let focused = ui
+            .horizontal(|ui| {
+                let r = ui.add(mg_uikit::text_field(value).desired_width(width - 28.0));
+                // (Its values to choose from, the arrow keys stepping through
+                // them as every dropdown's do.)
+                let picked =
+                    row_choice(egui::Id::new(("var-value-offer", row)), &offered.rows, current)
+                        .shown("")
+                        .width(24.0)
+                        .ordered()
+                        .hover_text("Its values (variables.toml)")
+                        .show(ui);
+                chosen(picked, value);
+                r.has_focus()
+            })
+            .inner;
+        return focused;
     }
     let text = match at {
         Some(a) => egui::RichText::new(&offered.rows[a].text),
@@ -766,6 +769,7 @@ fn value_choice(
         .ordered()
         .show(ui);
     chosen(picked, value);
+    false
 }
 
 /// A variable's type as the window names it.
@@ -1377,7 +1381,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .min_size([520.0, 220.0])
             .show_foot(&ctx, |ui| {
                 ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
-                let problem = var_body(app, ui, &mut edit, &mut help, (described, false));
+                let (problem, _) = var_body(app, ui, &mut edit, &mut help, (described, false));
                 // (A color being picked: the area views draw it, as the
                 // page has them; OK sets it, Cancel leaves it as it was.)
                 let picked = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
@@ -1573,7 +1577,7 @@ fn var_body(
     edit: &mut VarTableEdit,
     help: &mut VarHelp,
     (described, fit): (bool, bool),
-) -> Option<String> {
+) -> (Option<String>, bool) {
     // What the project's descriptions say is wrong (not of the
     // name being typed), a line each under the list.
     let notes: Vec<String> = if described {
@@ -1614,6 +1618,7 @@ fn var_body(
         let part = (room / (VAR_NAME_WIDTH + VAR_VALUE_WIDTH)).max(0.4);
         (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
     };
+    let mut editing = false;
     egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, in_panel_scroll]).show(
         ui,
         |ui| {
@@ -1642,6 +1647,7 @@ fn var_body(
                     let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
                     let field = wide(&mut edit.rows[i].name, name_width);
                     let name = ui.add(field.hint_text("Name"));
+                    editing |= name.has_focus();
                     let r = &edit.rows[i];
                     let desc = help.variables.describe(r.name.trim());
                     let name = match desc {
@@ -1714,19 +1720,22 @@ fn var_body(
                         desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
                     match (desc, choices) {
                         (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
-                            value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
+                            editing |=
+                                value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
                         }
                         _ if edits && colored(r) => {
                             // A color's swatch beside its text.
                             ui.horizontal(|ui| {
                                 let swatch =
                                     ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
-                                ui.add(wide(&mut r.value, value_width - swatch));
+                                let vr = ui.add(wide(&mut r.value, value_width - swatch));
+                                editing |= vr.has_focus();
                                 color_swatch(ui, &mut r.value);
                             });
                         }
                         _ => {
-                            ui.add_enabled(edits, wide(&mut r.value, value_width));
+                            let vr = ui.add_enabled(edits, wide(&mut r.value, value_width));
+                            editing |= vr.has_focus();
                         }
                     }
                     if ui.small_button("Delete").clicked() {
@@ -1889,7 +1898,7 @@ fn var_body(
     if let Some(t) = together {
         ui.weak(t);
     }
-    problem
+    (problem, editing)
 }
 
 /// The note under a Variables list edited for several at once.
@@ -1910,8 +1919,10 @@ fn together_note(edit: &VarTableEdit) -> Option<String> {
 pub struct VarPage {
     edit: VarTableEdit,
     read: Vec<Struct>,
-    /// The pass it was last drawn in: one not drawn since is forgotten.
+    /// The frame it was last drawn in: one not drawn since is forgotten.
     drawn: u64,
+    /// Whether one of this page's own variable fields currently holds keyboard focus.
+    editing: bool,
 }
 
 /// A Properties window's Variables page (Carcerian's ask: variables are
@@ -1930,23 +1941,23 @@ pub(crate) fn variables_page(
     locked: Option<String>,
 ) {
     let id = (target.key, target.path.clone());
-    // (Read anew where the list changed, but not under the fields typed in.)
-    let typing = ui.ctx().memory(|m| m.focused().is_some());
-    // (A page not drawn in the pass before is another showing of it: a
+    // (A page not drawn in the frame before is another showing of it: a
     // row added and not yet named, or a value that is no number, kept past
     // its window's Cancel, came back when the window was next opened, and
-    // was set then.)
-    let pass = ui.ctx().cumulative_pass_nr();
-    app.var_pages.retain(|_, p| p.drawn + 1 >= pass);
+    // was set then. Pruned by frame rather than pass so multi-pass
+    // layout discards keep the active page.)
+    let frame = ui.ctx().cumulative_frame_nr();
+    app.var_pages.retain(|_, p| p.drawn + 1 >= frame);
     let mut page = match app.var_pages.remove(&id) {
-        Some(p) if p.edit.target == target && (p.read == list || typing) => p,
+        Some(p) if p.edit.target == target && (p.read == list || p.editing) => p,
         _ => VarPage {
             edit: VarTableEdit::new(target.clone(), list),
             read: list.to_vec(),
-            drawn: pass,
+            drawn: frame,
+            editing: false,
         },
     };
-    page.drawn = pass;
+    page.drawn = frame;
     let edit = &mut page.edit;
     if edit.described.is_none() {
         edit.described = Some(VarHelp::of(app, &edit.target));
@@ -1958,7 +1969,7 @@ pub(crate) fn variables_page(
         ui.colored_label(ui.visuals().warn_fg_color, format!("{why}: read-only here"));
     }
     ui.ctx().data_mut(|d| d.remove::<bool>(picking()));
-    let problem = ui
+    let (problem, editing) = ui
         .add_enabled_ui(locked.is_none(), |ui| {
             ui.push_id(("variables-page", target.key, &target.path), |ui| {
                 var_body(app, ui, edit, &mut help, (described, true))
@@ -1966,16 +1977,15 @@ pub(crate) fn variables_page(
             .inner
         })
         .inner;
+    page.editing = editing;
     edit.described = Some(help);
     let dir = app.var_set_dir.clone();
     let ctx = ui.ctx().clone();
     sets_window(app, &ctx, &mut edit.sets, &VARIABLE_SETS, dir);
-    // Set, once nothing is being typed and it can be: read anew after.
-    // While a color is being picked, not yet: the area views show the
-    // object with it (`var_preview`), and it is set, one command, as the
-    // picker closes. (Dragged across the picker, a command a frame: as
-    // many steps of Undo, and the object read again at each, a builder's
-    // report.)
+    // Set, once none of this page's fields is being typed in and it can be:
+    // read anew after. While a color is being picked, not yet: the area views
+    // show the object with it (`var_preview`), and it is set, one command, as
+    // the picker closes.
     let as_read = VarTableEdit::new(target, list).list();
     let picking = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
     if picking && locked.is_none() && problem.is_none() && edit.list() != as_read {
@@ -1984,7 +1994,7 @@ pub(crate) fn variables_page(
         app.var_pages.insert(id, page);
         return;
     }
-    if locked.is_none() && !typing && problem.is_none() && edit.list() != as_read {
+    if locked.is_none() && !editing && problem.is_none() && edit.list() != as_read {
         let action = if edit.target.also.is_empty() {
             edit.target.command("Edit variables", Value::List(edit.list()))
         } else {
@@ -2464,15 +2474,17 @@ pub(crate) fn spin_draft<T: egui::emath::Numeric>(
 const SPIN_DELAY: f64 = 0.4;
 const SPIN_RATE: f64 = 0.05;
 
-/// A run of steps not yet made a change: the number reached, the arrow
-/// held (1 up, -1 down, 0 none: keys), since when, and how many steps it
-/// has made.
+/// A run of steps not yet made a change: the baseline value it started
+/// from, the number reached, the arrow held (1 up, -1 down, 0 none: keys),
+/// since when, how many steps it has made, and the last frame it was drawn.
 #[derive(Clone, Copy)]
 struct SpinRun {
+    base: f64,
     value: f64,
     arrow: i8,
     since: f64,
     done: u32,
+    frame: u64,
 }
 
 /// `v` one step `by` on, within `lo` to `hi`. A step from a number outside
@@ -2550,9 +2562,13 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         // (The field's own id: the next widget is the field.)
         let field = ui.next_auto_id();
         let run_id = field.with("spin-run");
-        let mut run: Option<SpinRun> = ui.data(|d| d.get_temp(run_id));
+        let frame = ui.ctx().cumulative_frame_nr();
+        let base = current.to_f64();
+        let mut run: Option<SpinRun> = ui
+            .data(|d| d.get_temp::<SpinRun>(run_id))
+            .filter(|r| r.base == base && r.frame + 1 >= frame);
         let now = ui.input(|i| i.time);
-        let shown = run.map_or(current.to_f64(), |r| r.value);
+        let shown = run.map_or(base, |r| r.value);
         // Up and Down in the field (before it takes them as it would).
         let keys = [egui::Key::ArrowUp, egui::Key::ArrowDown];
         let focused = ui.memory(|m| m.has_focus(field));
@@ -2564,12 +2580,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
             if n != 0 {
                 let value = stepped(shown, n as f64 * step);
                 run = Some(match run {
-                    Some(r) => SpinRun { value, ..r },
-                    None => SpinRun { value, arrow: 0, since: now, done: 0 },
+                    Some(r) => SpinRun { value, frame, ..r },
+                    None => SpinRun { base, value, arrow: 0, since: now, done: 0, frame },
                 });
             }
         }
-        let shown = run.map_or(current.to_f64(), |r| r.value);
+        let shown = run.map_or(base, |r| r.value);
         let (typed, _, _) =
             drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
         // (A number typed is set as it is, the arrows still drawn.)
@@ -2613,10 +2629,17 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
                             r.value = stepped(r.value, by);
                         }
                         r.done = r.done.max(due);
+                        r.frame = frame;
                     }
                     _ => {
-                        run =
-                            Some(SpinRun { value: stepped(shown, by), arrow, since: now, done: 1 });
+                        run = Some(SpinRun {
+                            base,
+                            value: stepped(shown, by),
+                            arrow,
+                            since: now,
+                            done: 1,
+                            frame,
+                        });
                     }
                 }
                 ui.ctx().request_repaint();
@@ -2624,18 +2647,22 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         });
         if let Some(v) = typed {
             ui.data_mut(|d| d.remove::<SpinRun>(run_id));
-            return (v.to_f64() != current.to_f64()).then_some(v);
+            return (v.to_f64() != base).then_some(v);
         }
         match run {
             Some(r) if !held => {
                 ui.data_mut(|d| d.remove::<SpinRun>(run_id));
-                (r.value != current.to_f64()).then(|| T::from_f64(r.value))
+                (r.value != base).then(|| T::from_f64(r.value))
             }
-            Some(r) => {
+            Some(mut r) => {
+                r.frame = frame;
                 ui.data_mut(|d| d.insert_temp(run_id, r));
                 None
             }
-            None => None,
+            None => {
+                ui.data_mut(|d| d.remove::<SpinRun>(run_id));
+                None
+            }
         }
     })
     .inner
@@ -6450,6 +6477,180 @@ mod tests {
         let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
+    }
+
+    #[test]
+    fn variables_page_commits_when_unrelated_field_has_focus_and_survives_multi_pass() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        let key = ResKey::parse("inn", ResType::GIT).unwrap();
+        let target = FieldTarget::new(key, GffPath::root(), "VarTable");
+        let mut m = mg_module::Module::new();
+        let mut git = mg_gff::Gff::new(*b"GIT ");
+        git.root.set("VarTable", Value::List(Vec::new()));
+        m.set(key, git.to_bytes().unwrap());
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(m));
+
+        struct State {
+            app: Moonglow,
+            target: FieldTarget,
+            other: String,
+            discard_once: bool,
+        }
+
+        let id = (key, GffPath::root());
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                ui.text_edit_singleline(&mut s.other);
+                let actions = std::mem::take(&mut s.app.actions);
+                for action in actions {
+                    if let crate::Action::Apply(cmd) = action {
+                        let _ = s.app.apply(cmd);
+                    }
+                }
+                let list = s
+                    .app
+                    .ws
+                    .as_mut()
+                    .and_then(|w| w.doc(&s.target.key).ok())
+                    .and_then(|g| g.root.list("VarTable"))
+                    .map(<[Struct]>::to_vec)
+                    .unwrap_or_default();
+                super::variables_page(&mut s.app, ui, s.target.clone(), &list, None);
+                if s.discard_once {
+                    s.discard_once = false;
+                    ui.ctx().request_discard("multi-pass test");
+                }
+            },
+            State { app, target, other: String::from("external"), discard_once: false },
+        );
+        h.run();
+
+        // Add an incomplete draft row (empty name -> does not commit yet).
+        h.get_by_label("Add").click();
+        h.run();
+        assert_eq!(h.state().app.var_pages.get(&id).map(|p| p.edit.rows.len()), Some(1));
+
+        // Simulate a multi-pass layout discard within the same frame: page must remain.
+        h.state_mut().discard_once = true;
+        h.run();
+        assert_eq!(
+            h.state().app.var_pages.get(&id).map(|p| p.edit.rows.len()),
+            Some(1),
+            "multi-pass discard must not prune active VarPage"
+        );
+
+        // Give the row a valid name while focus lives in the unrelated TextEdit.
+        h.state_mut().app.var_pages.get_mut(&id).unwrap().edit.rows[0].name = "nFlag".into();
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+        h.run();
+
+        let committed = h
+            .state_mut()
+            .app
+            .ws
+            .as_mut()
+            .unwrap()
+            .doc(&key)
+            .unwrap()
+            .root
+            .list("VarTable")
+            .map(<[Struct]>::to_vec)
+            .unwrap_or_default();
+        assert_eq!(
+            committed.len(),
+            1,
+            "expected VarTable commit while unrelated TextEdit had focus"
+        );
+        assert_eq!(committed[0].string("Name"), Some(&b"nFlag"[..]));
+    }
+
+    #[test]
+    fn spin_with_cancels_stale_run_on_external_value_change_or_frame_gap() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        struct State {
+            value: i32,
+            show_spin: bool,
+        }
+
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 200.0)).build_ui_state(
+            |ui, s: &mut State| {
+                if s.show_spin
+                    && let Some(next) = super::spin_with(ui, s.value, 0..=100, 1.0, |d| d)
+                {
+                    s.value = next;
+                }
+            },
+            State { value: 10, show_spin: true },
+        );
+        h.run();
+
+        let up_pos = h.get_by_label("One More").rect().center();
+        let hold_up = |h: &mut Harness<'_, State>, start: f64| {
+            h.hover_at(up_pos);
+            h.input_mut().time = Some(start);
+            h.event(egui::Event::PointerButton {
+                pos: up_pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+            h.input_mut().time = Some(start + 0.5);
+            h.step();
+            h.input_mut().time = Some(start + 0.6);
+            h.step();
+        };
+        let release_up = |h: &mut Harness<'_, State>, at: f64| {
+            h.input_mut().time = Some(at);
+            h.event(egui::Event::PointerButton {
+                pos: up_pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+        };
+
+        // Normal hold across SPIN_DELAY commits >= 12 upon release.
+        hold_up(&mut h, 1.0);
+        assert_eq!(h.state().value, 10, "value commits on release, not mid-hold");
+        release_up(&mut h, 1.7);
+        assert!(
+            h.state().value >= 12,
+            "expected normal spin hold to commit >= 12, got {}",
+            h.state().value
+        );
+
+        // External update while held must cancel stale run rather than overwriting 50 on release.
+        h.state_mut().value = 10;
+        h.step();
+        hold_up(&mut h, 2.0);
+        h.state_mut().value = 50;
+        release_up(&mut h, 2.7);
+        assert_eq!(
+            h.state().value,
+            50,
+            "external value change must cancel stale SpinRun rather than overwriting on release"
+        );
+
+        // Frame gap while spin is hidden must also cancel SpinRun so re-showing doesn't resume.
+        hold_up(&mut h, 3.0);
+        h.state_mut().value = 80;
+        h.state_mut().show_spin = false;
+        h.input_mut().time = Some(3.7);
+        h.step();
+        h.step();
+        h.state_mut().show_spin = true;
+        release_up(&mut h, 3.8);
+        assert_eq!(h.state().value, 80, "frame gap must cancel stale SpinRun");
+
+        h.input_mut().time = None;
+        h.step();
     }
 }
 

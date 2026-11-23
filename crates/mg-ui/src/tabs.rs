@@ -1632,7 +1632,7 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
         .and_then(|ws| ws.doc(&git).ok())
         .and_then(|g| path.get(&g.root))
         .and_then(|s| s.string("Tag"))
-        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .map(crate::text::decode)
         .unwrap_or_default();
     format!("{tag} ({area})")
 }

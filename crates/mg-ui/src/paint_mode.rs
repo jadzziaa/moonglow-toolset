@@ -127,6 +127,14 @@ impl PaintState {
         self.painting = false;
         self.row_from = None;
     }
+
+    /// Clears cached blueprint objects, bounds, and next-dab previews after
+    /// resources are reloaded.
+    pub(crate) fn clear_caches(&mut self) {
+        self.templates.clear();
+        self.bounds.clear();
+        self.next = None;
+    }
 }
 
 /// The circle's color, a dab's green.

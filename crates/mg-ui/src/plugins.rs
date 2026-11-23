@@ -118,6 +118,9 @@ pub struct Plugins {
     pub settings_form: Option<SettingsForm>,
     /// What the job that just ended set, until it is kept.
     last_set: Option<Vec<mg_plugin::SettingWrite>>,
+    /// A finished plugin's command held for a Protected Area answer, with
+    /// the haks and settings waiting on its outcome.
+    pending_apply: Option<PendingPluginApply>,
     /// What the user answered about projects' own plugins, as kept in
     /// Moonglow's own folder ([`Moonglow::plugin_answers`]).
     pub trust_answers: mg_plugin::project::Answers,
@@ -543,6 +546,48 @@ impl Ask {
 /// closed, or called off): [`Moonglow::ask_for_tests`].
 #[doc(hidden)]
 pub type Answered = Arc<Mutex<Option<Option<Answer>>>>;
+
+/// A plugin run's finished edits waiting for the builder's answer on a
+/// protected area (`claims::protected_window`).
+struct PendingPluginApply {
+    plugin: Option<Plugin>,
+    name: String,
+    title: String,
+    console: bool,
+    cmd: Command,
+    resources: usize,
+    written: Vec<mg_plugin::HakWritten>,
+    settings: Option<Vec<mg_plugin::SettingWrite>>,
+}
+
+impl std::fmt::Debug for PendingPluginApply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingPluginApply")
+            .field("name", &self.name)
+            .field("title", &self.title)
+            .field("resources", &self.resources)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Validation errors for every usable setting in `values`.
+fn settings_errors(
+    p: &Plugin,
+    values: &std::collections::BTreeMap<String, mg_plugin::SettingValue>,
+    has_project: bool,
+) -> Vec<(String, String)> {
+    let mut errors = Vec::new();
+    for d in &p.manifest.settings {
+        if d.scope.in_project() && !has_project {
+            continue;
+        }
+        let v = tidy(values.get(&d.id).unwrap_or(&d.default));
+        if let Err(why) = d.check(&v) {
+            errors.push((d.shown().to_string(), why));
+        }
+    }
+    errors
+}
 
 impl Moonglow {
     /// A plugin's question asked in the job's window, as a running
@@ -1139,13 +1184,25 @@ impl Moonglow {
 
     /// Keeps what the settings' form holds: each value that is not what
     /// the setting has now (one back at its default is taken out).
+    /// Invalid values leave the form open so edits are not dropped.
     pub fn save_plugin_settings(&mut self) {
-        let Some(form) = self.plugins.settings_form.take() else { return };
+        let Some(form) = &self.plugins.settings_form else { return };
         let found = (self.plugins.installed.iter())
             .filter_map(|i| i.plugin.as_ref().ok())
             .find(|p| p.manifest.id == form.plugin)
             .cloned();
-        let Some(p) = found else { return };
+        let Some(p) = found else {
+            self.plugins.settings_form = None;
+            return;
+        };
+        let errors = settings_errors(&p, &form.values, self.project_root().is_some());
+        if !errors.is_empty() {
+            for (field, why) in errors {
+                self.log.error(format!("{}: {field}: {why}", p.manifest.name));
+            }
+            return;
+        }
+        let form = self.plugins.settings_form.take().expect("checked");
         let now = self.plugin_settings(&p).values;
         let set: Vec<mg_plugin::SettingWrite> = (p.manifest.settings.iter())
             .filter_map(|d| {
@@ -1160,6 +1217,17 @@ impl Moonglow {
             return;
         }
         self.keep_plugin_settings(&p, &set);
+    }
+
+    /// Clears module-scoped plugin state when the open module is closed.
+    pub(crate) fn clear_module_plugin_state(&mut self) {
+        self.plugins.saved = None;
+        self.plugins.save = Default::default();
+        self.plugins.events.clear();
+        self.plugins.hak_steps.clear();
+        self.plugins.put_off.clear();
+        self.plugins.last_set = None;
+        self.plugins.pending_apply = None;
     }
 
     /// After the installed or enabled plugins changed: their keys, and
@@ -1711,7 +1779,18 @@ impl Moonglow {
                 run(input, host)
             },
             move |app, result| {
-                app.plugin_finished(&job_name, &title, console, quiet, result, &log);
+                let held = app.plugin_finished(
+                    plugin.as_ref(),
+                    &job_name,
+                    &title,
+                    console,
+                    quiet,
+                    result,
+                    &log,
+                );
+                if held {
+                    return;
+                }
                 // (Its panels show what it did.)
                 if let Some(p) = &plugin {
                     app.plugins.stale_panels(&p.manifest.id);
@@ -1733,16 +1812,19 @@ impl Moonglow {
     }
 
     /// A plugin's job is over: what it logged goes to the log, its edits
-    /// in as one command.
+    /// in as one command. Returns `true` when the edits are held for the
+    /// Protected Area prompt and deferred to [`Self::finish_plugin_apply`].
+    #[allow(clippy::too_many_arguments)]
     fn plugin_finished(
         &mut self,
+        plugin: Option<&Plugin>,
         name: &str,
         title: &str,
         console: bool,
         quiet: bool,
         result: Result<Outcome, PluginError>,
         log: &Logged,
-    ) {
+    ) -> bool {
         self.plugins.ask = None;
         self.plugins.form = None;
         let logged = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
@@ -1852,8 +1934,9 @@ impl Moonglow {
                     }
                 }
                 let n = resources.len();
-                match self.apply(Command::new(outcome.label, outcome.edits)) {
-                    Ok(()) => {
+                let cmd = Command::new(outcome.label, outcome.edits);
+                match self.apply_or_ask(cmd.clone(), Some(crate::Action::FinishPluginApply)) {
+                    Ok(true) => {
                         // (Its haks go with its step of Undo.)
                         if !written.is_empty()
                             && let Some(step) = self.ws.as_ref().and_then(|w| w.last_step())
@@ -1869,10 +1952,20 @@ impl Moonglow {
                             ),
                         )
                     }
-                    // (Held for the builder's answer, it may still go in:
-                    // its haks stay.)
-                    Err(e) if self.claims.held => {
-                        say(self, Level::Error, format!("{name}: {title}: {e}"))
+                    Ok(false) => {
+                        // Held for the Protected Area prompt: keep haks and
+                        // settings until confirmed or rolled back.
+                        self.plugins.pending_apply = Some(PendingPluginApply {
+                            plugin: plugin.cloned(),
+                            name: name.to_string(),
+                            title: title.to_string(),
+                            console,
+                            cmd,
+                            resources: n,
+                            written,
+                            settings: self.plugins.last_set.take(),
+                        });
+                        return true;
                     }
                     Err(e) => {
                         say(self, Level::Error, format!("{name}: {title}: {e}"));
@@ -1893,6 +1986,80 @@ impl Moonglow {
                 say(self, Level::Info, format!("{name}: {title} canceled"))
             }
             Err(e) => say(self, Level::Error, e.to_string()),
+        }
+        false
+    }
+
+    /// Finishes applying a plugin run's edits after the builder confirms a
+    /// Protected Area prompt.
+    pub(crate) fn finish_plugin_apply(&mut self) {
+        let Some(mut pending) = self.plugins.pending_apply.take() else { return };
+        let console = pending.console;
+        let say = |app: &mut Moonglow, l: Level, text: String| {
+            if console {
+                app.plugins.console_output.push((l, text.clone()));
+            }
+            app.log.said(l, text);
+        };
+        match self.apply_or_ask(pending.cmd.clone(), Some(crate::Action::FinishPluginApply)) {
+            Ok(true) => {
+                if !pending.written.is_empty()
+                    && let Some(step) = self.ws.as_ref().and_then(|w| w.last_step())
+                {
+                    self.plugins.hak_steps.push((step, std::mem::take(&mut pending.written)));
+                }
+                let n = pending.resources;
+                say(
+                    self,
+                    Level::Info,
+                    format!(
+                        "{}: {} changed {n} resource{} (Edit › Undo takes it back)",
+                        pending.name,
+                        pending.title,
+                        if n == 1 { "" } else { "s" }
+                    ),
+                );
+                if let Some(p) = &pending.plugin {
+                    self.plugins.stale_panels(&p.manifest.id);
+                    if let Some(set) = pending.settings {
+                        self.keep_plugin_settings(p, &set);
+                    }
+                }
+            }
+            Ok(false) => {
+                self.plugins.pending_apply = Some(pending);
+            }
+            Err(e) => {
+                say(self, Level::Error, format!("{}: {}: {e}", pending.name, pending.title));
+                if self.take_haks_back(&mut pending.written, &pending.name, &pending.title, console)
+                {
+                    self.reload_resources(false);
+                }
+                if pending.settings.is_some() {
+                    say(
+                        self,
+                        Level::Info,
+                        format!("{}: {}: what it set is not kept", pending.name, pending.title),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Rolls back any pending plugin hak writes held for a Protected Area
+    /// prompt when cancelled or when the module is closed.
+    pub(crate) fn cancel_pending_plugin_apply(&mut self) {
+        let Some(mut pending) = self.plugins.pending_apply.take() else { return };
+        let console = pending.console;
+        if self.take_haks_back(&mut pending.written, &pending.name, &pending.title, console) {
+            self.reload_resources(false);
+        }
+        if pending.settings.is_some() {
+            let text = format!("{}: {}: what it set is not kept", pending.name, pending.title);
+            if console {
+                self.plugins.console_output.push((Level::Info, text.clone()));
+            }
+            self.log.info(text);
         }
     }
 }
@@ -2943,9 +3110,15 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
                         .clicked();
                 });
             }
+            let errors = settings_errors(&p, &form.values, project.is_some());
+            let can_save = errors.is_empty();
+            let save_tip = match errors.first() {
+                Some((field, why)) => format!("{field}: {why}"),
+                None => "Keep these values".to_string(),
+            };
             let foot = crate::widgets::Foot::new()
-                .main("Save", true)
-                .tip("Keep these values")
+                .main("Save", can_save)
+                .tip(save_tip)
                 .button("Defaults", true)
                 .tip("Put each back to the plugin's own value (Save keeps it)")
                 .cancel();
@@ -3040,12 +3213,17 @@ fn setting_field(
             }
         }
         (SettingKind::Color, SettingValue::Text(hex)) => {
-            ui.horizontal(|ui| {
-                let mut rgb = rgb_of(hex).unwrap_or_default();
-                if ui.color_edit_button_srgb(&mut rgb).changed() {
-                    *hex = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    let mut rgb = rgb_of(hex).unwrap_or_default();
+                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                        *hex = format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]);
+                    }
+                    ui.add(mg_uikit::text_field(hex).desired_width(70.0));
+                });
+                if let Err(why) = d.check(&SettingValue::Text(hex.clone())) {
+                    ui.colored_label(ui.visuals().warn_fg_color, why);
                 }
-                ui.add(mg_uikit::text_field(hex).desired_width(70.0));
             });
         }
         (SettingKind::Pattern(_), SettingValue::Text(text)) => {

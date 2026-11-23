@@ -1164,7 +1164,7 @@ fn tag_of(app: &mut Moonglow, key: ResKey) -> Option<String> {
 /// A blueprint's Tag: the module's as it is now (edits not yet saved in
 /// it), else the game's (the load order's).
 fn blueprint_tag(app: &mut Moonglow, key: ResKey) -> Option<String> {
-    let tag = |g: &Gff| g.root.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
+    let tag = |g: &Gff| g.root.string("Tag").map(crate::text::decode);
     if let Some(ws) = app.ws.as_mut()
         && ws.module.contains(&key)
     {

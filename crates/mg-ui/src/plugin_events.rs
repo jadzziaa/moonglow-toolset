@@ -424,14 +424,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some(i) = fixed {
         let fix = held.heard[i].fix.clone().expect("a fix was clicked");
         app.plugins.save.held = None;
-        match app.apply(fix.command()) {
-            Ok(()) => {
-                app.log.info(format!("{}: fixed: {}", held.heard[i].plugin, fix.label));
-                // (Asked again: the plugins read the module as it now is.)
-                app.actions.push(held.then);
-            }
-            Err(e) => app.log.error(format!("{}: {}: {e}", held.heard[i].plugin, fix.label)),
-        }
+        apply_save_fix(
+            app,
+            held.heard[i].plugin.clone(),
+            fix.label.clone(),
+            fix.command(),
+            held.then,
+        );
     } else if anyway {
         app.plugins.save.held = None;
         app.plugins.save.cleared = true;
@@ -459,5 +458,31 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 format!("{}: {at}{}", h.plugin, h.text),
             );
         }
+    }
+}
+
+/// Applies a quick-fix offered by a save warning, holding for the Protected
+/// Area prompt when needed so `claims.held` is never left unconsumed.
+pub(crate) fn apply_save_fix(
+    app: &mut Moonglow,
+    plugin: String,
+    label: String,
+    cmd: mg_edit::Command,
+    then: Action,
+) {
+    let retry = Action::ApplySaveFix {
+        plugin: plugin.clone(),
+        label: label.clone(),
+        cmd: cmd.clone(),
+        then: Box::new(then.clone()),
+    };
+    match app.apply_or_ask(cmd, Some(retry)) {
+        Ok(true) => {
+            app.log.info(format!("{plugin}: fixed: {label}"));
+            // (Asked again: the plugins read the module as it now is.)
+            app.actions.push(then);
+        }
+        Ok(false) => {}
+        Err(e) => app.log.error(format!("{plugin}: {label}: {e}")),
     }
 }

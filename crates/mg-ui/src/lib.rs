@@ -293,6 +293,17 @@ pub enum Action {
     /// Puts a popped-out placed-object Properties tab or window back into
     /// the docked Properties panel without cancelling edits.
     PopInProperties(Tab),
+    /// A pending plugin command held for a Protected Area answer.
+    FinishPluginApply,
+    /// A pending import held for a Protected Area answer.
+    FinishImport,
+    /// A save-warning quick-fix held for a Protected Area answer.
+    ApplySaveFix {
+        plugin: String,
+        label: String,
+        cmd: mg_edit::Command,
+        then: Box<Action>,
+    },
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -1469,6 +1480,7 @@ pub struct Moonglow {
     /// once the rows are laid out.
     pub(crate) tree_to_match: bool,
     pub import: Option<ImportDraft>,
+    pub(crate) pending_import: Option<transfer::PendingImport>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
     /// Why the module could not be saved when that question's Save was
@@ -1957,6 +1969,7 @@ impl Moonglow {
             tree_fold: None,
             tree_to_match: false,
             import: None,
+            pending_import: None,
             confirm_discard: None,
             module_failed: None,
             discard_asked: None,
@@ -4654,12 +4667,21 @@ impl Moonglow {
         self.load_order += 1;
         self.nui_assets.invalidate();
         self.browser.stale = true;
+        self.browser.table_views.clear();
+        self.browser.pictures.clear();
         self.viewed.clear();
         // (A hak's being edited, the load order its models are drawn
         // from: made again from the new one.)
         for doc in &mut self.haks {
             doc.resources = None;
         }
+    }
+
+    /// Cancels any pending plugin or import command held for a Protected
+    /// Area prompt, rolling back written haks cleanly.
+    pub(crate) fn cancel_pending_protected(&mut self) {
+        self.cancel_pending_plugin_apply();
+        self.pending_import = None;
     }
 
     /// Reads the module's custom talk table again (after it was saved).
@@ -4893,6 +4915,7 @@ impl Moonglow {
     /// [`Moonglow::close`], the side editors' tabs `side` kept open with
     /// their documents (another module is being opened).
     fn close_keeping(&mut self, side: &[Tab]) {
+        self.cancel_pending_protected();
         // Its tabs, for the next time it is opened.
         self.keep_open_tabs();
         self.open_tabs = Default::default();
@@ -4911,6 +4934,7 @@ impl Moonglow {
         self.area_holds.clear();
         // (The project's plugins were its own.)
         self.plugins.settings_form = None;
+        self.clear_module_plugin_state();
         self.load_project_plugins();
         // (Another module's blueprints of these names look different.)
         self.thumbnails.forget(self.viewport.as_ref());
@@ -4924,6 +4948,11 @@ impl Moonglow {
         self.script_tools.symbols.clear();
         self.script_tools.seen.clear();
         self.buffers.clear();
+        self.held_text = None;
+        self.closed_tabs.clear();
+        self.tabs_recent.clear();
+        self.tab_cycle = None;
+        self.panes_dropped.clear();
         self.properties_changed.clear();
         self.closing_cancels.clear();
         self.props_popped_out.clear();
@@ -4940,18 +4969,37 @@ impl Moonglow {
         self.nui_views.clear();
         self.nui_build_error = None;
         self.new_nui = None;
+        self.nui_import = None;
+        self.nui_checks_forward.clear();
+        self.nui_widened.clear();
         self.laid_out.clear();
         self.tile_props = None;
         self.tile_mode_areas.clear();
         self.tile_props_aside.clear();
         self.area_stats = None;
+        self.used_rows = None;
         self.hak_report = None;
-        self.claims.table = None;
+        self.claims = Default::default();
         self.resize_area = None;
         self.rotate_area = None;
         self.change_tileset = None;
         self.adjust = None;
+        self.light_draft = None;
         self.find_instance = None;
+        self.outside = Default::default();
+        self.bake = Default::default();
+        self.copy_as = None;
+        self.rename = None;
+        self.builder_code = None;
+        self.new_dialog = None;
+        self.new_script = None;
+        self.script_save_as = None;
+        self.update_draft = None;
+        self.area_chooser = None;
+        self.publish = None;
+        self.attach = None;
+        self.build = None;
+        self.project_commands.ask = None;
         if let Some(d) = &mut self.text_replace {
             d.forget_hits();
         }
@@ -4962,9 +5010,12 @@ impl Moonglow {
         self.area_focus = None;
         self.start_focus = None;
         self.heard = None;
+        self.tree_reveal = None;
         self.tree_area = None;
         self.tree_marked = None;
+        self.tree_front = Default::default();
         self.tree_object = None;
+        self.tree_object_pending = false;
         self.tree_selected.clear();
         self.tree_anchor = None;
         self.tree_went = None;
@@ -4972,12 +5023,27 @@ impl Moonglow {
         self.tree_objects = None;
         self.tree_objects_anchor = None;
         self.tree_seen_selection = None;
+        self.tree_cursor = None;
+        self.tree_cursor_moved = false;
+        self.tree_fold = None;
+        self.tree_to_match = false;
         self.area_select = None;
         self.area_adjust = None;
+        self.confirm_delete = None;
         // (Windows that hold a place in the module, or a command made of
         // it: left open, their OK was applied to the next module, where
         // it has a resource of that name.)
         self.var_edit = None;
+        self.var_preview.clear();
+        self.var_preview_next.clear();
+        self.blueprint_pages = Default::default();
+        self.window_ids.clear();
+        self.faction_view = Default::default();
+        self.references = Default::default();
+        self.search_results = Default::default();
+        self.journal_view = Default::default();
+        self.welcome.clear_module();
+        self.browser.bytes_shown.clear();
         self.loc_edit = None;
         self.var_pages.clear();
         self.picker = None;
@@ -5421,6 +5487,11 @@ impl Moonglow {
             Action::ExportConversations { keys, format } => self.export_conversations(keys, format),
             Action::ExportAreaFiles(area) => model_view::export_area_files(self, area),
             Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
+            Action::FinishPluginApply => self.finish_plugin_apply(),
+            Action::FinishImport => self.finish_import(),
+            Action::ApplySaveFix { plugin, label, cmd, then } => {
+                plugin_events::apply_save_fix(self, plugin, label, cmd, *then);
+            }
             Action::ImportDialog => self.open_import(),
             Action::ImportFilesDialog => self.open_import_files(false),
             Action::ImportFolderDialog => self.open_import_files(true),
@@ -7997,5 +8068,72 @@ mod tests {
         m.set(key("roof", ResType::DDS), b"new".to_vec());
         assert!(drawn_with_changed(&was, &m));
         assert!(!drawn_with_changed(&m.container(), &m));
+    }
+
+    #[test]
+    fn close_keeping_and_load_order_changed_clear_module_and_browser_caches() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+
+        app.closed_tabs.push(Tab::ModuleProperties);
+        app.confirm_delete = Some(vec![key]);
+        app.claims.held = true;
+        app.browser.bytes_shown.insert((key, None));
+        app.browser.pictures.insert((key, None), 1.0);
+        app.log.info("existing entry");
+
+        app.load_order_changed();
+        assert!(app.browser.pictures.is_empty());
+        assert!(!app.browser.bytes_shown.is_empty());
+
+        app.close_keeping(&[]);
+        assert!(app.closed_tabs.is_empty());
+        assert!(app.confirm_delete.is_none());
+        assert!(!app.claims.held);
+        assert!(app.browser.bytes_shown.is_empty());
+    }
+
+    #[test]
+    fn faction_view_and_references_distinguish_swapped_workspaces() {
+        let script_key = ResKey::parse("target_sc", ResType::NSS).unwrap();
+        let fac_key = ResKey::parse("repute", ResType::FAC).unwrap();
+        let make_ws = |faction_name: &str, referer: &str| {
+            let mut m = mg_module::Module::new();
+            let mut fac = mg_module::factions::Factions::of_module(&m).to_gff();
+            if let Some(mg_gff::Value::List(list)) = fac.root.get_mut("FactionList") {
+                let mut row = list[0].clone();
+                row.set("FactionName", mg_gff::Value::String(faction_name.as_bytes().to_vec()));
+                list.push(row);
+            }
+            m.set(fac_key, fac.to_bytes().unwrap());
+            m.set(script_key, b"void main() {}".to_vec());
+            m.set(
+                ResKey::parse(referer, ResType::NSS).unwrap(),
+                b"#include \"target_sc\"\nvoid main() {}".to_vec(),
+            );
+            mg_edit::Workspace::new(m)
+        };
+
+        let ws_a = make_ws("AlphaGuild", "caller_a");
+        let ws_b = make_ws("BetaGuild", "caller_b");
+        assert_ne!(ws_a.identity(), ws_b.identity());
+
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(ws_a);
+        let (names_a, _) = crate::faction_view::outline(&mut app).expect("factions A");
+        assert!(names_a.iter().any(|n| n == "AlphaGuild"), "{names_a:?}");
+        assert!(app.names_of(&[script_key]));
+        let named_a = app.references.named.clone().expect("named A");
+        assert!(named_a.usages.iter().any(|u| u.from.resref.as_str() == Some("caller_a")));
+
+        // Replace workspace with another fresh workspace at revision == 0 without close_keeping.
+        app.ws = Some(ws_b);
+        let (names_b, _) = crate::faction_view::outline(&mut app).expect("factions B");
+        assert!(names_b.iter().any(|n| n == "BetaGuild"), "{names_b:?}");
+        assert!(!names_b.iter().any(|n| n == "AlphaGuild"), "{names_b:?}");
+        assert!(app.names_of(&[script_key]));
+        let named_b = app.references.named.clone().expect("named B");
+        assert!(named_b.usages.iter().any(|u| u.from.resref.as_str() == Some("caller_b")));
+        assert!(!named_b.usages.iter().any(|u| u.from.resref.as_str() == Some("caller_a")));
     }
 }

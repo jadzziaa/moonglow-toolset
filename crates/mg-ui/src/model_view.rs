@@ -272,21 +272,47 @@ pub(crate) fn a_tab_may_show(app: &Moonglow, source: &Source) -> bool {
 
 /// What a model's view was read for: the load order
 /// ([`Moonglow::load_order`]: a file of the module's folder read again, a
-/// hak or the override changed) and the module's own bytes of the model
-/// (held, and told by `Arc::ptr_eq`: an Import, an Undo of one).
-type ModelRead = (u64, Option<Arc<[u8]>>);
+/// hak or the override changed), the module's own bytes of the model (held,
+/// and told by `Arc::ptr_eq`: an Import, an Undo of one), and the revision of
+/// any open hak editor it comes from.
+type ModelRead = (u64, Option<Arc<[u8]>>, Option<u64>);
+
+fn same_arc_bytes(a: &Option<Arc<[u8]>>, b: &Option<Arc<[u8]>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
 
 fn model_read(app: &Moonglow, source: &Source) -> ModelRead {
     let own = source.key().zip(app.ws.as_ref()).and_then(|(k, ws)| ws.module.shared(&k).cloned());
-    (app.load_order, own)
+    let hak_rev = match source {
+        Source::Hak { hak, .. } => app.haks.iter().find(|d| d.id == *hak).map(|d| d.revision()),
+        _ => None,
+    };
+    (app.load_order, own, hak_rev)
 }
 
 fn same_read(a: &ModelRead, b: &ModelRead) -> bool {
-    a.0 == b.0
-        && match (&a.1, &b.1) {
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            (a, b) => a.is_none() && b.is_none(),
-        }
+    a.0 == b.0 && a.2 == b.2 && same_arc_bytes(&a.1, &b.1)
+}
+
+fn preview_models_own(app: &Moonglow, preview: &Preview) -> Vec<(String, Option<Arc<[u8]>>)> {
+    let shared_mdl = |name: &str| {
+        let key = ResKey::parse(name, ResType::MDL)?;
+        app.ws.as_ref()?.module.shared(&key).cloned()
+    };
+    let mut out = Vec::with_capacity(1 + preview.parts.len());
+    out.push((preview.base.model.clone(), shared_mdl(&preview.base.model)));
+    for part in &preview.parts {
+        out.push((part.model.clone(), shared_mdl(&part.model)));
+    }
+    out
+}
+
+fn same_composed_own(a: &[(String, Option<Arc<[u8]>>)], b: &[(String, Option<Arc<[u8]>>)]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|((na, ba), (nb, bb))| na == nb && same_arc_bytes(ba, bb))
 }
 
 impl ModelView {
@@ -342,6 +368,8 @@ pub struct ModelView {
     female: bool,
     /// What a model's view was read for.
     read: ModelRead,
+    /// The module's own `.mdl` bytes for `preview`'s base and parts when composed.
+    composed_own: Vec<(String, Option<Arc<[u8]>>)>,
     /// The box around what it shows at rest, as it is stood: where the
     /// ground that takes its shadow lies ([`ground`]); made when first
     /// drawn with the Shadow switch on.
@@ -925,9 +953,10 @@ impl ModelView {
         // others, exported again from Blender into the module's folder or
         // the override. It never looked at them again.)
         let read = model_read(app, source);
+        let load_changed = read.0 != self.read.0 || read.2 != self.read.2;
         let unchanged = match model {
             true => same_read(&read, &self.read),
-            false => revision == self.revision && female == self.female,
+            false => revision == self.revision && female == self.female && !load_changed,
         };
         if unchanged {
             return;
@@ -944,13 +973,17 @@ impl ModelView {
             Err(e) => {
                 self.model = Err(e);
                 (self.composed, self.preview) = (None, None);
+                self.composed_own.clear();
                 (self.particles, self.dangly) = (None, None);
                 self.part_particles.clear();
                 return;
             }
         };
+        let own_models = if model { Vec::new() } else { preview_models_own(app, &preview) };
+        let same_models = same_composed_own(&own_models, &self.composed_own);
+        let same_preview = self.preview.as_ref() == Some(&preview);
         // (A model's preview is its name, the same whatever its bytes.)
-        if !model && self.preview.as_ref() == Some(&preview) {
+        if !model && !load_changed && same_models && same_preview {
             return;
         }
         let composed = compose(app, source, &preview);
@@ -963,6 +996,7 @@ impl ModelView {
         self.composed = composed;
         self.rest_box = None;
         self.preview = Some(preview);
+        self.composed_own = own_models;
         self.supermodels = RefCell::new(HashMap::new());
         (self.particles, self.dangly) = (None, None);
         self.part_particles.clear();
@@ -972,7 +1006,7 @@ impl ModelView {
         // the sides of a tall Preview. Moved by hand, it stays; a model's
         // file read again keeps its camera, and a picture of another shape
         // is framed by its points as they are now, not by the fit kept.)
-        if self.framed && !model {
+        if self.framed && !model && !same_preview {
             self.frame();
         }
         if model {
@@ -982,6 +1016,11 @@ impl ModelView {
 
     fn open(app: &Moonglow, source: &Source) -> ModelView {
         let preview = preview_of(app, source);
+        let composed_own = if source.is_model() {
+            Vec::new()
+        } else {
+            preview.as_ref().ok().map(|p| preview_models_own(app, p)).unwrap_or_default()
+        };
         let composed = preview.clone().and_then(|p| compose(app, source, &p));
         let model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
         let animation = composed
@@ -1027,6 +1066,7 @@ impl ModelView {
             revision: app.ws.as_ref().map(Workspace::revision),
             female: app.settings.armor_on_woman,
             read: model_read(app, source),
+            composed_own,
             rest_box: None,
             aspect: 1.0,
             framed: false,

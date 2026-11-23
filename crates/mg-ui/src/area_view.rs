@@ -1116,6 +1116,11 @@ impl AreaView {
         self.walkable = None;
         self.object_walks = Default::default();
         self.object_faces = None;
+        self.map = None;
+        self.cursor_cache = None;
+        self.preview_cache = None;
+        self.ghost = None;
+        self.paint.clear_caches();
         self.overlay_generation += 1;
         self.drawn = None;
     }

@@ -1036,8 +1036,10 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         app.actions.push(ask.then);
     } else if copy {
         app.claims.protected_ask = None;
+        app.cancel_pending_protected();
         app.actions.push(Action::CopyDialog(ResKey::new(ask.changes[0].0, ResType::ARE)));
     } else if cancel || !open {
         app.claims.protected_ask = None;
+        app.cancel_pending_protected();
     }
 }

@@ -94,6 +94,7 @@ pub struct ImportDraft {
 }
 
 /// What [`Moonglow::compile_imported`] did.
+#[derive(Debug, Clone)]
 enum Compiling {
     /// Nothing to compile, or nothing can be.
     Not,
@@ -102,6 +103,19 @@ enum Compiling {
     Done { compiled: Vec<String>, failed: Vec<String>, made: Vec<(ResKey, Vec<u8>)> },
     /// Too many for the window's thread: a job, after the import.
     Later(Vec<ResKey>),
+}
+
+/// A module import held for the Protected Area prompt (`claims::protected_window`).
+#[derive(Debug, Clone)]
+pub(crate) struct PendingImport {
+    name: String,
+    cmd: mg_edit::Command,
+    added: usize,
+    replaced: usize,
+    skipped: usize,
+    refused: Vec<String>,
+    unsaved: Vec<String>,
+    compiling: Compiling,
 }
 
 /// What the import window says of a resource it would replace whose
@@ -446,33 +460,57 @@ impl Moonglow {
         let cmd = mg_edit::Command::new(format!("Import {name}"), edits);
         let made = crate::plugin_events::Made::new_in(ws, &cmd, "import");
         let cmd = crate::plugin_events::with_plugins(self, cmd, &made);
-        if !cmd.edits.is_empty()
-            && let Err(e) = self.apply(cmd)
-        {
-            self.log.error(e.to_string());
-            return;
-        }
-        self.log.info(format!(
-            "Imported {name}: {} added, {} replaced, {} kept",
-            summary.added.len(),
-            summary.replaced.len(),
-            summary.skipped.len()
-        ));
-        if !draft.refused.is_empty() {
-            self.log.warn(format!("Not imported: {}", listed(&draft.refused)));
-        }
         let unsaved: Vec<String> = (summary.replaced.iter())
             .filter(|k| draft.unsaved.contains(k))
             .map(ToString::to_string)
             .collect();
-        if !unsaved.is_empty() {
+        let pending = PendingImport {
+            name,
+            cmd,
+            added: summary.added.len(),
+            replaced: summary.replaced.len(),
+            skipped: summary.skipped.len(),
+            refused: draft.refused,
+            unsaved,
+            compiling,
+        };
+        if pending.cmd.edits.is_empty() {
+            self.finish_import_post(pending);
+            return;
+        }
+        match self.apply_or_ask(pending.cmd.clone(), Some(Action::FinishImport)) {
+            Ok(true) => self.finish_import_post(pending),
+            Ok(false) => self.pending_import = Some(pending),
+            Err(e) => self.log.error(e.to_string()),
+        }
+    }
+
+    /// Completes a held import once the builder confirms a Protected Area prompt.
+    pub(crate) fn finish_import(&mut self) {
+        let Some(pending) = self.pending_import.take() else { return };
+        match self.apply_or_ask(pending.cmd.clone(), Some(Action::FinishImport)) {
+            Ok(true) => self.finish_import_post(pending),
+            Ok(false) => self.pending_import = Some(pending),
+            Err(e) => self.log.error(e.to_string()),
+        }
+    }
+
+    fn finish_import_post(&mut self, pending: PendingImport) {
+        self.log.info(format!(
+            "Imported {}: {} added, {} replaced, {} kept",
+            pending.name, pending.added, pending.replaced, pending.skipped
+        ));
+        if !pending.refused.is_empty() {
+            self.log.warn(format!("Not imported: {}", listed(&pending.refused)));
+        }
+        if !pending.unsaved.is_empty() {
             self.log.warn(format!(
                 "Replaced while open with unsaved changes (its editor keeps them; saving it \
                  writes over what was imported): {}",
-                listed(&unsaved)
+                listed(&pending.unsaved)
             ));
         }
-        match compiling {
+        match pending.compiling {
             Compiling::Done { compiled, failed, made } => {
                 self.note_compiled(&made);
                 if !compiled.is_empty() {
@@ -860,8 +898,20 @@ impl Moonglow {
     ) {
         let Some(ws) = &self.ws else { return };
         // Appended: what the archive holds stays, but for resources of the
-        // same names.
-        let existing = if append { std::fs::read(path).ok() } else { None };
+        // same names. Fail loudly if the target cannot be read rather than
+        // replacing the archive with a fresh export.
+        let existing = if append {
+            match std::fs::read(path) {
+                Ok(bytes) => Some(bytes),
+                Err(e) => {
+                    self.log
+                        .error(format!("Export failed: could not read {}: {e}", path.display()));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         // What it was made from follows the description (Import reads it).
         let stamp = mg_module::stamp::Stamp::of(&ws.module);
         let comments = mg_module::stamp::describe(&draft.comments, &stamp);
@@ -1498,5 +1548,108 @@ mod tests {
             keys
         };
         assert_eq!(keys(&job), keys(&at_once));
+    }
+
+    #[test]
+    fn write_export_append_read_error_logs_and_preserves_target() {
+        let dir = mg_testkit::scratch_dir("ui-transfer-append-err");
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+        let mut m = mg_module::Module::new();
+        m.set(key, b"void main() {}".to_vec());
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(m));
+
+        let missing = dir.join("missing.erf");
+        app.write_export(&ExportDraft::default(), &[key], &dir, true);
+        app.write_export(&ExportDraft::default(), &[key], &missing, true);
+
+        let errors: Vec<_> = app
+            .log
+            .entries
+            .iter()
+            .filter(|(l, msg)| {
+                *l == crate::Level::Error && msg.starts_with("Export failed: could not read ")
+            })
+            .collect();
+        assert_eq!(errors.len(), 2, "{:#?}", app.log.entries);
+        assert!(!missing.exists(), "append failure must not create a fresh archive");
+    }
+
+    #[test]
+    fn run_import_protected_area_holds_and_finishes_or_cancels() {
+        let dir = mg_testkit::scratch_dir("ui-transfer-protected-import");
+        let mod_dir = dir.join("mod");
+
+        let area_key = ResKey::parse("start", ResType::ARE).unwrap();
+        let make_are = |tag: &[u8]| {
+            let mut g = mg_gff::Gff::new(*b"ARE ");
+            g.root.set("Tag", mg_gff::Value::String(tag.to_vec()));
+            g.to_bytes().unwrap()
+        };
+
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        m.set(area_key, make_are(b"ORIG"));
+        m.save_as(&mg_module::ModuleLocation::Folder(mod_dir.clone())).unwrap();
+        std::fs::write(mod_dir.join("moonglow.toml"), "[claims]\nprotected = [\"start\"]\n")
+            .unwrap();
+
+        let in_dir = dir.join("in");
+        std::fs::create_dir_all(&in_dir).unwrap();
+        let incoming_file = in_dir.join("start.are");
+        std::fs::write(&incoming_file, make_are(b"NEW_TAG")).unwrap();
+
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&mod_dir);
+        assert!(app.ws.is_some());
+        let incoming = Incoming::files(&[incoming_file]);
+        app.plan_import("start.are".into(), None, incoming);
+        let mut draft = app.import.take().expect("import draft");
+        for (_, on) in &mut draft.overwrites {
+            *on = true;
+        }
+
+        // First run holds on Protected Area without leaking claims.held.
+        app.run_import(draft.clone());
+        assert!(app.claims.protected_ask.is_some());
+        assert!(!app.claims.held);
+        assert!(app.pending_import.is_some());
+        let tag_now = |app: &mut Moonglow| {
+            String::from_utf8_lossy(
+                app.ws.as_mut().unwrap().doc(&area_key).unwrap().root.string("Tag").unwrap(),
+            )
+            .into_owned()
+        };
+        assert_eq!(tag_now(&mut app), "ORIG");
+
+        // Cancelling clears pending_import and preserves original module resource.
+        app.claims.protected_ask = None;
+        app.cancel_pending_protected();
+        assert!(app.pending_import.is_none());
+        assert_eq!(tag_now(&mut app), "ORIG");
+
+        // Second run: confirming in Protected Area window triggers FinishImport.
+        app.run_import(draft);
+        let mut h =
+            egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+                |ui, app: &mut Moonglow| {
+                    let ctx = ui.ctx().clone();
+                    crate::claims::windows(app, &ctx);
+                    while !app.actions.is_empty() {
+                        let action = app.actions.remove(0);
+                        if let crate::Action::FinishImport = action {
+                            app.finish_import();
+                        }
+                    }
+                },
+                app,
+            );
+        use egui_kittest::kittest::Queryable;
+        h.run();
+        h.get_by_label("Change It Anyway").click();
+        h.run();
+        let app = h.state_mut();
+        assert!(app.pending_import.is_none(), "pending_import should clear after finish_import");
+        assert_eq!(tag_now(app), "NEW_TAG");
     }
 }

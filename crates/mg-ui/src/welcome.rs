@@ -105,12 +105,24 @@ pub(crate) struct Kept {
     /// Whether the Welcome page's update line was in sight, and the pass it
     /// was drawn in: only the last pass's counts ([`in_sight`]).
     told: Option<(u64, bool)>,
-    /// Whether the module has areas, by the workspace's revision (No area
-    /// open's Go to Start).
-    areas: Option<(u64, bool)>,
+    /// Height of `update-notice` panel when drawn in this pass (`0.0` when hidden).
+    pub(crate) bar_height: f32,
+    /// Frame number when the Welcome page discarded to reveal the notice bar
+    /// under a floating window, preventing intra-frame ping-pong back to `true`.
+    discarded_to_bar: Option<u64>,
+    /// Whether the module has areas, by the workspace's identity and
+    /// revision (No area open's Go to Start).
+    areas: Option<((u64, u64), bool)>,
     /// What the files dragged over the window become, by their paths and
     /// whether a module is open (`transfer::drop_ui`, once per drag).
     pub(crate) drag: Option<(Vec<PathBuf>, bool, crate::transfer::Dropped)>,
+}
+
+impl Kept {
+    /// Clears module-scoped Welcome/No-Area state when a module is closed.
+    pub(crate) fn clear_module(&mut self) {
+        self.areas = None;
+    }
 }
 
 /// What the pages count: every walk of the module, scan of the manual,
@@ -692,12 +704,21 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
     let page = plan(app, ui, room.width(), line.as_ref());
     // (In the middle of its room where it fits, else from its top, the
     // tab scrolling it.)
-    let fits = room.height().is_finite() && page.high + 2.0 * PAGE_Y <= room.height();
-    let top = match fits {
-        true => room.top() + ((room.height() - page.high) / 2.0).round(),
-        false => room.top() + PAGE_Y,
+    let top_for = |r: Rect| {
+        let fits = r.height().is_finite() && page.high + 2.0 * PAGE_Y <= r.height();
+        match fits {
+            true => r.top() + ((r.height() - page.high) / 2.0).round(),
+            false => r.top() + PAGE_Y,
+        }
     };
+    let fits = room.height().is_finite() && page.high + 2.0 * PAGE_Y <= room.height();
+    let top = top_for(room);
     let origin = pos2(room.left(), top).to_vec2();
+    let bar = if assumed { 0.0 } else { app.welcome.bar_height };
+    let room_no_bar = Rect::from_min_max(pos2(room.min.x, room.min.y - bar), room.max);
+    let origin_no_bar = pos2(room_no_bar.left(), top_for(room_no_bar)).to_vec2();
+    let clip = ui.clip_rect();
+    let frame = ctx.cumulative_frame_nr();
     let t = ui.tokens();
     let mut click = None;
     for part in page.parts {
@@ -707,13 +728,26 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
                 ui.put(r, egui::Label::new(g).selectable(false));
             }
             Part::Told(g, r) => {
-                let r = r.translate(origin);
+                let draw_r = r.translate(origin);
                 // (Out of sight, wholly or in part, or under a window, the
                 // strip under the Top Bar tells it, and the line and its
-                // buttons are not drawn: it is told once.)
-                told = ui.clip_rect().contains_rect(r) && !under_a_window(ui, r);
-                if told {
-                    ui.put(r, egui::Label::new(g).selectable(false));
+                // buttons are not drawn: it is told once. When the notice
+                // strip is already visible (`!assumed`), check both the shifted
+                // clip position and the un-shifted upper position against
+                // floating windows so showing the strip does not uncover it and
+                // trigger a discard loop.)
+                let visible = clip.contains_rect(draw_r);
+                told = if assumed {
+                    visible && !under_a_window(ui, draw_r)
+                } else {
+                    let check_r = r.translate(origin_no_bar);
+                    app.welcome.discarded_to_bar != Some(frame)
+                        && visible
+                        && !under_a_window(ui, draw_r)
+                        && !under_a_window(ui, check_r)
+                };
+                if told && assumed {
+                    ui.put(draw_r, egui::Label::new(g).selectable(false));
                 }
             }
             Part::Section(g, r) => {
@@ -756,7 +790,7 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
             }
             Part::Button(button, r) => {
                 let r = r.translate(origin);
-                if matches!(button, Button::Offer(_)) && !told {
+                if matches!(button, Button::Offer(_)) && !(told && assumed) {
                     continue;
                 }
                 let salt = match button {
@@ -815,6 +849,9 @@ pub(crate) fn welcome(app: &mut Moonglow, ui: &mut Ui) {
     let told = line.is_some() && told;
     app.welcome.told = Some((ctx.cumulative_pass_nr(), told));
     if line.is_some() && told != assumed {
+        if assumed && !told {
+            app.welcome.discarded_to_bar = Some(frame);
+        }
         count(Counted::Discard);
         ctx.request_discard("the Welcome page's update line came into or out of sight");
     }
@@ -967,14 +1004,14 @@ fn link_row(app: &Moonglow, ui: &mut Ui, link: Link, r: Rect) -> Option<Click> {
 pub(crate) fn no_area(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     // (Walked once for each change of the module, not each frame.)
-    let revision = app.ws.as_ref().map(|ws| ws.revision());
-    let areas = match (revision, app.welcome.areas) {
-        (Some(r), Some((kept, areas))) if kept == r => areas,
-        (Some(r), _) => {
+    let stamp = app.ws.as_ref().map(|ws| (ws.identity(), ws.revision()));
+    let areas = match (stamp, app.welcome.areas) {
+        (Some(s), Some((kept, areas))) if kept == s => areas,
+        (Some(s), _) => {
             count(Counted::AreaWalk);
             let ws = app.ws.as_ref().expect("a module");
             let areas = !mg_module::areas::every(&ws.module).is_empty();
-            app.welcome.areas = Some((r, areas));
+            app.welcome.areas = Some((s, areas));
             areas
         }
         (None, _) => false,

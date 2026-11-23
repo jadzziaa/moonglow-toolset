@@ -976,6 +976,8 @@ impl Index {
 #[derive(Debug, Default)]
 struct Narrowed {
     text: String,
+    query_text: String,
+    restype: Option<ResType>,
     module_for: Option<ModuleStamp>,
     named: usize,
     game_for: Option<(u32, Option<(ModuleStamp, u32)>)>,
@@ -1912,6 +1914,8 @@ fn narrow(app: &mut Moonglow, typed: &str, q: &Query, commands_only: bool) {
     let n = &mut qo.narrowed;
     if commands_only {
         n.text.clear();
+        n.query_text.clear();
+        n.restype = None;
         n.own.clear();
         n.own_best.clear();
         n.game_best.clear();
@@ -1929,10 +1933,13 @@ fn narrow(app: &mut Moonglow, typed: &str, q: &Query, commands_only: bool) {
     if n.text == typed && same_index && same_game {
         return;
     }
-    // (Typing on narrows: the words typed before are each part of one
-    // typed now, a type's word part of the file's name. A name taken
-    // since may match where it did not.)
-    let grew = !n.text.is_empty() && typed.starts_with(n.text.as_str());
+    // (Typing on narrows when both the type filter and the stripped base
+    // words stay a monotonic superset: switching from `.ut` as text to
+    // `.utc` as a type removes words from `q.text` and cannot reuse the old
+    // slice.)
+    let grew = !n.text.is_empty()
+        && (n.restype.is_none() || n.restype == q.restype)
+        && q.text.starts_with(n.query_text.as_str());
     let module_within = (grew && same_index).then_some(n.own.as_slice());
     let own = matches(&index.own, module_within, q);
     // (The load order's searched anew: [`Part::find`].)
@@ -1942,6 +1949,8 @@ fn narrow(app: &mut Moonglow, typed: &str, q: &Query, commands_only: bool) {
     n.own_best = rank(&index.own, &own, q, MOST);
     n.own = own;
     n.text = typed.to_string();
+    n.query_text = q.text.clone();
+    n.restype = q.restype;
     n.module_for = index.module_for;
     n.named = index.named;
     n.game_for = game_now;
@@ -2831,5 +2840,39 @@ mod tests {
         let rm = mg_resman::ResMan::new();
         let never = AtomicBool::new(false);
         assert!(game_entries(&rm, &never).unwrap().entries.is_empty());
+    }
+
+    #[test]
+    fn narrow_does_not_reuse_across_type_token_suffix_changes() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let mut m = mg_module::Module::new();
+        for k in [
+            key("foo", ResType::UTC),
+            key("foo", ResType::UTP),
+            key("foo", ResType::NSS),
+            key("foo_nss2", ResType::NSS),
+        ] {
+            m.set(k, b"x".to_vec());
+        }
+        app.ws = Some(mg_edit::Workspace::new(m));
+        Index::module_part(&mut app);
+
+        let files = |app: &Moonglow| -> Vec<String> {
+            (app.quick_open.narrowed.own.iter())
+                .map(|&i| app.quick_open.index.own.file(i as usize).to_string())
+                .collect()
+        };
+
+        narrow(&mut app, "foo .ut", &Query::new("foo .ut"), false);
+        assert!(files(&app).contains(&"foo.utc".to_string()));
+        narrow(&mut app, "foo .utc", &Query::new("foo .utc"), false);
+        let after_utc = files(&app);
+        assert!(after_utc.contains(&"foo.utc".to_string()), "{after_utc:?}");
+        assert!(!after_utc.contains(&"foo.utp".to_string()), "{after_utc:?}");
+
+        narrow(&mut app, "foo nss", &Query::new("foo nss"), false);
+        narrow(&mut app, "foo nss2", &Query::new("foo nss2"), false);
+        let after_nss2 = files(&app);
+        assert!(after_nss2.contains(&"foo_nss2.nss".to_string()), "{after_nss2:?}");
     }
 }

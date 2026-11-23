@@ -48,6 +48,7 @@ impl Default for Index {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Named {
     keys: Vec<ResKey>,
+    identity: u64,
     revision: u64,
     /// The places that name one of them, outside what is deleted with
     /// them.
@@ -71,8 +72,8 @@ pub struct References {
     /// Of a resource, the project file's `[used]` glob that counts it as
     /// used.
     pub marked: Option<String>,
-    /// The workspace revision the results are for.
-    revision: Option<u64>,
+    /// The workspace identity and revision the results are for.
+    revision: Option<(u64, u64)>,
     /// The codepage the scripts' lines were read in (Options › Language).
     codepage: Option<mg_core::Codepage>,
     /// The Find field.
@@ -732,9 +733,10 @@ impl Moonglow {
     /// they are read.
     pub(crate) fn names_of(&mut self, keys: &[ResKey]) -> bool {
         let Some(ws) = self.ws.as_mut() else { return false };
-        let revision = ws.revision();
+        let (identity, revision) = (ws.identity(), ws.revision());
         if let Some(named) = &self.references.named
             && named.keys == keys
+            && named.identity == identity
             && named.revision == revision
         {
             return true;
@@ -778,7 +780,8 @@ impl Moonglow {
         usages.sort_by_cached_key(|u| (u.from, u.path.to_string()));
         usages.dedup();
         mentions.dedup();
-        self.references.named = Some(Named { keys: keys.to_vec(), revision, usages, mentions });
+        self.references.named =
+            Some(Named { keys: keys.to_vec(), identity, revision, usages, mentions });
         true
     }
 
@@ -932,8 +935,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     };
     // (The scripts' lines read again in another language's codepage.)
     let codepage = crate::text::script_codepage();
+    let ws_stamp = (ws.identity(), ws.revision());
     let mut reading = false;
-    if app.references.revision != Some(ws.revision()) || app.references.codepage != Some(codepage) {
+    if app.references.revision != Some(ws_stamp) || app.references.codepage != Some(codepage) {
         if ws.flush().is_err() {
             return;
         }
@@ -971,7 +975,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         return;
     }
-    if app.references.revision != Some(ws.revision()) || app.references.codepage != Some(codepage) {
+    if app.references.revision != Some(ws_stamp) || app.references.codepage != Some(codepage) {
         // (The tables are the game data's, kept read: a scan of their
         // script columns.)
         app.references.run = match (&query, app.game.as_deref()) {
@@ -994,7 +998,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             _ => None,
         };
-        app.references.revision = Some(ws.revision());
+        app.references.revision = Some(ws_stamp);
         app.references.codepage = Some(codepage);
     }
     ui.separator();

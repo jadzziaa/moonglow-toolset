@@ -854,6 +854,7 @@ pub(crate) fn act(app: &mut Moonglow, ctx: &egui::Context, line: &Line, offer: O
 /// while the Welcome page tells it in sight (M4's U24: once is enough), nor
 /// while the Check for Updates window does.
 pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
+    app.welcome.bar_height = 0.0;
     let Some(release) = app.updates.notice.clone() else { return };
     if crate::welcome::in_sight(app, ui.ctx()) {
         return;
@@ -861,7 +862,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(line) = line(app) else { return };
     let mut close = false;
     let mut offered = None;
-    egui::Panel::top("update-notice").show(ui, |ui| {
+    let panel = egui::Panel::top("update-notice").show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let side = egui::Vec2::splat(mg_uikit::metrics::ICON);
             let (mark, _) = ui.allocate_exact_size(side, egui::Sense::hover());
@@ -899,6 +900,7 @@ pub(crate) fn notice_bar(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
         });
     });
+    app.welcome.bar_height = panel.response.rect.height();
     if let Some(offer) = offered {
         act(app, ui.ctx(), &line, offer);
     } else if close {

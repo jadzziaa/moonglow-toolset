@@ -571,8 +571,8 @@ fn placed(list: &str, index: usize, s: &mg_gff::Struct) -> Option<Placed> {
     let kind = mg_area::ObjectKind::from_list(list)?;
     let at = mg_area::AreaObject::placed(kind, index, s).position;
     Some(Placed {
-        tag: String::from_utf8_lossy(s.string("Tag").unwrap_or_default()).into_owned(),
-        resref: s.resref("TemplateResRef").map(|r| r.to_string()).unwrap_or_default(),
+        tag: crate::text::decode(s.string("Tag").unwrap_or_default()),
+        resref: s.resref(kind.resref_field()).map(|r| r.to_string()).unwrap_or_default(),
         at: at.to_array(),
     })
 }
@@ -1164,14 +1164,17 @@ impl Moonglow {
         // (Whole or not at all: written beside it, then put in its place.)
         let written = mg_module::write_replacing_one_of_many(&path, text.as_bytes());
         match written {
-            Ok(()) => trace::note(format!("open tabs written: {}", path.display())),
+            Ok(()) => {
+                trace::note(format!("open tabs written: {}", path.display()));
+                self.open_tabs.told = false;
+                self.open_tabs.written = Some(text);
+            }
             Err(e) if !std::mem::replace(&mut self.open_tabs.told, true) => self.log.warn(format!(
                 "The open tabs could not be kept for the next time: {}: {e}",
                 path.display()
             )),
             Err(_) => {}
         }
-        self.open_tabs.written = Some(text);
     }
 
     /// At the end of each frame: the kept tabs opened, at the module's
@@ -1648,5 +1651,39 @@ mod tests {
         let r: Record = serde_json::from_str(old).unwrap();
         assert_eq!(r.panes[0].tabs, ["script:a.nss"]);
         assert!(r.views.is_empty() && r.objects.is_empty() && r.panes[0].split.is_none());
+    }
+
+    #[test]
+    fn placed_store_reads_resref_and_decodes_tag() {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("ResRef", mg_gff::Value::ResRef(b"shop_01".to_vec()));
+        s.set("Tag", mg_gff::Value::String(b"Caf\xe9".to_vec()));
+        s.set("XPosition", mg_gff::Value::Float(1.0));
+        s.set("YPosition", mg_gff::Value::Float(2.0));
+        s.set("ZPosition", mg_gff::Value::Float(3.0));
+        let p = placed("StoreList", 0, &s).expect("store placed");
+        assert_eq!(p.resref, "shop_01");
+        assert_eq!(p.tag, crate::text::decode(b"Caf\xe9"));
+        assert!(!p.tag.contains('\u{fffd}'), "{:?}", p.tag);
+    }
+
+    #[test]
+    fn keep_open_tabs_write_failure_does_not_cache_written() {
+        let dir = mg_testkit::scratch_dir("ui-open-tabs-write-fail");
+        let blocker = dir.join("not_a_dir");
+        std::fs::write(&blocker, b"x").unwrap();
+        let mut m = mg_module::Module::new();
+        let m_path = dir.join("m.mod");
+        m.save_as(&mg_module::ModuleLocation::Archive(m_path.clone())).unwrap();
+
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.open_module(&m_path);
+        app.open_tabs_dir = Some(blocker);
+        app.open_tabs.written = None;
+        app.open_tabs.told = false;
+        app.keep_open_tabs();
+
+        assert!(app.open_tabs.written.is_none());
+        assert!(app.open_tabs.told);
     }
 }

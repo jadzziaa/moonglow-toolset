@@ -879,10 +879,21 @@ pub(crate) fn preview(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&cra
         return;
     };
     let source = crate::model_view::Source::Appearance { restype: kind.restype(), row: row as u32 };
-    // (Its views of the rows chosen before go: clicked through, each was
-    // kept with its models on the GPU.)
-    app.model_views
-        .retain(|s, _| !matches!(s, crate::model_view::Source::Appearance { .. }) || *s == source);
+    // (Its views of the rows chosen before go: release their GPU targets
+    // first so free_texture and renderer caches do not leak while browsing.)
+    let drop_keys: Vec<_> = app
+        .model_views
+        .keys()
+        .filter(|s| matches!(s, crate::model_view::Source::Appearance { .. }) && **s != source)
+        .cloned()
+        .collect();
+    for k in drop_keys {
+        if let Some(mut view) = app.model_views.remove(&k)
+            && let Some(vp) = app.viewport.as_mut()
+        {
+            view.let_go_of_targets(vp);
+        }
+    }
     let shown =
         crate::model_view::Shown { info: false, pop_out: false, restore: false, paused: true };
     crate::model_view::panel(app, ui, source, shown);

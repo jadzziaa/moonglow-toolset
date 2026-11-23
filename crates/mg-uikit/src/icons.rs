@@ -693,8 +693,8 @@ impl egui::Widget for IconButton {
                     let t = ui.tokens();
                     let state = ButtonState::of(&response);
                     let open = self.expanded == Some(true);
-                    let fill = match (state, open) {
-                        (ButtonState::Rest, false) => t.raised,
+                    let fill = match (enabled, state, open) {
+                        (false, _, _) | (true, ButtonState::Rest, false) => t.raised,
                         _ => t.raised_hover,
                     };
                     let color = if !enabled {
@@ -710,12 +710,13 @@ impl egui::Widget for IconButton {
                     } else {
                         Stroke::NONE
                     };
-                    // (Beyond its place as a word button's frame is.)
+                    // (Beyond its place as a word button's frame is; use box_painter
+                    // when disabled so `t.text_off` is not faded a second time.)
                     let frame = rect.expand(ui.style().interact(&response).expansion);
-                    let painter = ui.painter();
+                    let painter = crate::controls::box_painter(ui, enabled);
                     painter.rect(frame, corners, fill, ring, egui::StrokeKind::Inside);
                     let square = Rect::from_center_size(rect.center(), Vec2::splat(metrics::ICON));
-                    self.icon.paint(painter, square, color);
+                    self.icon.paint(&painter, square, color);
                 }
                 self.described(response)
             }

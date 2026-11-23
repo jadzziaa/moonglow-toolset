@@ -96,6 +96,7 @@ enum Hovered {
 /// can't be edited.
 #[derive(Debug)]
 struct Seen {
+    identity: u64,
     revision: u64,
     factions: Result<Factions, String>,
     /// Their names, for the Outliner (made once a revision, as the file is
@@ -274,9 +275,11 @@ impl Moonglow {
 /// without a module.
 fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
     let ws = app.ws.as_mut()?;
-    let revision = ws.revision();
+    let (identity, revision) = (ws.identity(), ws.revision());
     let view = &mut app.faction_view;
-    if let Some(seen) = view.seen.as_ref().filter(|s| s.revision == revision) {
+    if let Some(seen) =
+        view.seen.as_ref().filter(|s| s.identity == identity && s.revision == revision)
+    {
         return Some(seen.clone());
     }
     view.walks += 1;
@@ -299,7 +302,7 @@ fn begin(app: &mut Moonglow) -> Option<Arc<Seen>> {
         Ok(f) => f.factions.iter().map(|x| x.name.clone()).collect(),
         Err(_) => Arc::from([]),
     };
-    let seen = Arc::new(Seen { revision, factions, names });
+    let seen = Arc::new(Seen { identity, revision, factions, names });
     if let Ok(f) = &seen.factions {
         let n = f.factions.len() as u32;
         let find = |name: &str| f.factions.iter().position(|x| x.name == name).map(|i| i as u32);
@@ -564,9 +567,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) -> Option<crate::blueprint::Pressed> 
     // (Noted from the factions as they are now: where a change was stored
     // this frame, the numbers the view set with it are the chosen cell's,
     // and the names it read before it would choose another.)
-    let now = app.ws.as_ref().map(|w| w.revision());
+    let now = app.ws.as_ref().map(|w| (w.identity(), w.revision()));
     match app.faction_view.seen.clone() {
-        Some(s) if Some(s.revision) == now => {
+        Some(s) if Some((s.identity, s.revision)) == now => {
             if let Ok(f) = &s.factions {
                 note_chosen(&mut app.faction_view, f);
             }

@@ -1068,29 +1068,58 @@ fn shapes_where(
 }
 
 fn focused_field_border(ctx: &egui::Context, t: &Tokens, style: &Style) {
-    // (Only while a text field has the keys. Its rectangle is not asked
-    // of egui: `Context::read_response` counts as the widget asking for
-    // the keys, and kept them on a field no longer drawn.)
     let Some(id) = ctx.memory(|m| m.focused()) else { return };
     if egui::text_edit::TextEditState::load(ctx, id).is_none() {
         return;
     }
-    // A frame drawn as egui draws a focused field's: its fill the fields'
-    // and its border the selection's stroke. (A field with a frame of its
-    // own, `TextEdit::frame`, has egui draw neither: a code editor's,
-    // [`code_frame`].)
-    // (A field's own fill, or a read-only form's: the panel's. In a
-    // table's rows, [`row_style`], the selection's stroke is no wider than
-    // their fields' borders, none: given the field's 1 px.)
     let selection = style.visuals.selection.stroke.color;
     let fills = [style.visuals.text_edit_bg_color(), style.visuals.panel_fill];
+    // Path 1 (no pointer press/click/release this pass): `read_response`
+    // has zero side effects on focus or `used_ids` in egui 0.36 and yields
+    // the exact layer and outer rect of the focused TextEdit (including empty
+    // fields and first-frame AccessKit/Tab focus).
+    let pointer_acted =
+        ctx.input(|i| i.pointer.any_pressed() || i.pointer.any_click() || i.pointer.any_released());
+    if !pointer_acted {
+        let Some(response) = ctx.read_response(id) else { return };
+        let target = response.rect;
+        shapes_where(
+            ctx,
+            response.layer_id,
+            |r| {
+                r.stroke.color == selection
+                    && fills.contains(&r.fill)
+                    && (r.rect.min - target.min).abs().max_elem() <= 2.5
+                    && (r.rect.max - target.max).abs().max_elem() <= 2.5
+            },
+            |r| {
+                r.stroke = Stroke::new(1.0, t.accent);
+            },
+        );
+        return;
+    }
+    // Path 2 (pointer press/click/release pass): do not call `read_response`
+    // because its `get_response` would surrender focus requested by a click
+    // elsewhere. Use `output.ime`'s inner rect (whose width is the galley's
+    // width and may be 0 for an empty field, while its height matches the
+    // field's inner height).
+    let Some(ime) = ctx.output(|o| o.ime) else { return };
+    if !ime.rect.is_finite() || ime.rect.height() <= 0.0 {
+        return;
+    }
     let mut layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().collect());
     layers.push(egui::LayerId::background());
     for layer in layers {
+        let local_ime = ctx.layer_transform_from_global(layer).unwrap_or_default() * ime.rect;
         shapes_where(
             ctx,
             layer,
-            |r| r.stroke.color == selection && fills.contains(&r.fill),
+            |r| {
+                r.stroke.color == selection
+                    && fills.contains(&r.fill)
+                    && r.rect.expand(2.0).contains_rect(local_ime)
+                    && (r.rect.height() - local_ime.height()) <= 24.0
+            },
             |r| {
                 r.stroke = Stroke::new(1.0, t.accent);
             },

@@ -883,7 +883,7 @@ impl Keymap {
     /// Whether `e` presses a key some command was given (a plugin's or a
     /// project's too): Alt and a letter is a menu's only where none was.
     pub fn bound(&self, e: &Event) -> bool {
-        self.keys.values().chain(self.defaults.values()).flatten().any(|s| is(e, s))
+        self.keys.values().flatten().any(|s| is(e, s))
     }
 
     /// Whether `e` presses a key of a command of `group`: a list's own key
@@ -1229,5 +1229,24 @@ mod tests {
         let mut map = map;
         map.set(Cmd::Manual, vec![KeyboardShortcut::new(CTRL, Key::T)]);
         assert_eq!(map.conflicts().len(), 1);
+    }
+
+    #[test]
+    fn clearing_a_plugin_default_unbounds_its_shortcut() {
+        let mut map = Keymap::default();
+        let mods = Modifiers::ALT | Modifiers::SHIFT;
+        let sc = KeyboardShortcut::new(mods, Key::F11);
+        let press = egui::Event::Key {
+            key: Key::F11,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: mods,
+        };
+        assert!(!map.bound(&press), "shortcut must start unbound");
+        map.set_default("plugin.foo", vec![sc]);
+        assert!(map.bound(&press));
+        map.set_of("plugin.foo", Vec::new());
+        assert!(!map.bound(&press), "cleared plugin command shortcut must not remain bound");
     }
 }

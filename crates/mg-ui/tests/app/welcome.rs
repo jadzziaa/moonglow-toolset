@@ -1023,3 +1023,60 @@ fn the_page_s_headings_are_headings() {
         assert_eq!(h.query_all(by).count(), 1, "{name}");
     }
 }
+
+/// Covering only the upper (un-shifted) position of Welcome's update line with
+/// a floating window reveals the notice strip without uncovering the rect in
+/// the next pass and oscillating `request_discard`.
+#[test]
+fn a_window_covering_only_the_upper_update_line_does_not_oscillate() {
+    let (release, told) = release_99();
+    let mut app = app_with(Vec::new());
+    app.settings.hide_log = true;
+    app.settings.open_editors = mg_ui::OpenEditors::Floating;
+    app.updates.notice = Some(release);
+    let mut h = harness(app, 1400.0, 800.0);
+    settle(&mut h);
+    assert!(h.query_by_label("Close Update Notice").is_none(), "the page tells it");
+    let line = h.get_by_label(&told).rect();
+    let surface = {
+        let dock = &mut h.state_mut().dock;
+        let surface = dock.add_window(vec![Tab::Manual]);
+        let state = dock.get_window_state_mut(surface).unwrap();
+        state
+            .set_position(egui::pos2(line.left() - 20.0, 100.0))
+            .set_size(egui::vec2((line.width() + 40.0).max(400.0), 220.0));
+        surface
+    };
+    settle(&mut h);
+    let middle_rects = |h: &Harness<'_, Moonglow>| -> Vec<egui::Rect> {
+        h.ctx.memory(|m| {
+            m.layer_ids()
+                .filter(|l| l.order == egui::Order::Middle && m.areas().is_visible(l))
+                .filter_map(|l| m.area_rect(l.id))
+                .collect()
+        })
+    };
+    let actual = *middle_rects(&h).first().expect("manual floating window layer rect");
+    let target_y = (line.top() + 5.0 - actual.height()).max(40.0);
+    if let Some(state) = h.state_mut().dock.get_window_state_mut(surface) {
+        state.set_position(egui::pos2(line.left() - 20.0, target_y));
+    }
+    settle(&mut h);
+    let rects = middle_rects(&h);
+    assert!(
+        rects.iter().any(|r| r.intersects(line) && r.bottom() <= line.top() + 10.0),
+        "expected manual window {rects:?} bottom near {} to cover only upper line {line:?}",
+        line.top() + 5.0
+    );
+    h.run_steps(2);
+    h.get_by_label("Close Update Notice");
+    let discards = h.state().welcome_counts()[4];
+    h.run_steps(10);
+    assert_eq!(
+        h.state().welcome_counts()[4],
+        discards,
+        "floating window covering upper position must not oscillate request_discard"
+    );
+    h.get_by_label("Close Update Notice");
+    assert_eq!(h.get_all_by_label(&told).count(), 1, "strip alone tells the update");
+}

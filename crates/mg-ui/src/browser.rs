@@ -1974,4 +1974,23 @@ mod tests {
         // (An empty text is one empty line.)
         assert_eq!(LongText::from(String::new()).lines().0.len(), 1);
     }
+
+    #[test]
+    fn load_order_changed_clears_browser_table_views_and_pictures() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let key = ResKey::parse("classes", ResType::TWODA).unwrap();
+        let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
+            .unwrap();
+        let doc = crate::table_view::TableDoc::read_only(u32::MAX, key, table);
+        app.browser
+            .table_views
+            .insert((key, None), TableView { of: 0, rows_from: None, doc, tab: None });
+        app.browser.pictures.insert((key, None), 1.0);
+        app.browser.bytes_shown.insert((key, None));
+
+        app.load_order_changed();
+        assert!(app.browser.table_views.is_empty());
+        assert!(app.browser.pictures.is_empty());
+        assert!(!app.browser.bytes_shown.is_empty());
+    }
 }
