@@ -411,6 +411,7 @@ mod tests {
             spawn_points: Vec::new(),
             spawn_facings: Vec::new(),
             locked: false,
+            outline_color: None,
             state: 0,
         }
     }

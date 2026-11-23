@@ -18,6 +18,23 @@ use crate::ObjectKind;
 /// saves). A nasher project keeps it out of its files (`mg_module::locks`).
 pub const LOCKED: &str = "MG_Locked";
 
+/// The field Moonglow keeps a placed encounter's own outline color in
+/// (Properties › Basic › Outline color): a DWORD 0x00BBGGRR, as an area's
+/// lighting colors are stored, which the game and Aurora don't read
+/// (Aurora drops it when it saves). Without it the outline is drawn in
+/// its kind's color. Unlike [`LOCKED`], a nasher project keeps it in its
+/// files: a team shares the colors. A blueprint made of the object (Add to
+/// Palette) leaves it out; Update Instances keeps it.
+pub const OUTLINE_COLOR: &str = "MG_OutlineColor";
+
+/// The color `s` (a placed object) is outlined in by [`OUTLINE_COLOR`],
+/// as red, green and blue; `None` without the field.
+pub fn outline_color(s: &Struct) -> Option<[u8; 3]> {
+    let v = s.integer(OUTLINE_COLOR)?;
+    let v = u32::try_from(v & 0xFF_FFFF).ok()?;
+    Some([v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF].map(|c| c as u8))
+}
+
 /// Where an instance stands: a position in metres and its model's turn
 /// around Z in radians (its facing less 90°: 0 faces north, as Aurora
 /// places everything).
@@ -310,6 +327,18 @@ mod tests {
             s.set(label, Value::Float(*v));
         }
         s
+    }
+
+    /// An outline color reads as 0x00BBGGRR is stored (red the low byte),
+    /// and an object without the field has none.
+    #[test]
+    fn an_outline_color_reads_red_from_the_low_byte() {
+        let mut s = Struct::new(0);
+        assert_eq!(outline_color(&s), None);
+        s.set(OUTLINE_COLOR, Value::Dword(0x0030_80F0));
+        assert_eq!(outline_color(&s), Some([0xF0, 0x80, 0x30]));
+        s.set(OUTLINE_COLOR, Value::Dword(0xFF00_0000));
+        assert_eq!(outline_color(&s), Some([0, 0, 0]), "the top byte is not a color's");
     }
 
     /// What is written reads back as it was, for every kind: its position,

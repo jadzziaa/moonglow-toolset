@@ -400,6 +400,43 @@ mod tests {
         assert!(!read().contains(LOCKED));
     }
 
+    /// An encounter's own outline color is not kept apart as a lock is: a
+    /// project's area JSON has it (a team shares the colors), with the
+    /// locks taken out beside it, and it reads back as it was.
+    #[test]
+    fn a_project_keeps_an_outline_color_in_its_files() {
+        use crate::{Module, ModuleLocation};
+        use mg_rules::placement::OUTLINE_COLOR;
+        use mg_schema::ifo;
+        let root = mg_testkit::scratch_dir("outline-color-project");
+        let key = ResKey::new(ResRef::from_str("a1").unwrap(), ResType::GIT);
+        let mut m = Module::new();
+        let mut info = Gff::new(*b"IFO ");
+        let mut item = ifo::MOD_AREA_LIST.new_item();
+        item.write(&ifo::mod_area_list::AREA_NAME, ResRef::from_str("a1").unwrap());
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(item);
+        m.set_info(&info).unwrap();
+        m.set_gff(ResKey::new(key.resref, ResType::ARE), &Gff::new(*b"ARE ")).unwrap();
+        // (A lock beside it: the GIT is then rewritten without the locks.)
+        let mut g = area(&[("tree", 1.0, true)]);
+        let mut encounter = Struct::new(7);
+        encounter.set("Tag", Value::String(b"GOBLINS".to_vec()));
+        encounter.set(OUTLINE_COLOR, Value::Dword(0x0040_A0F0));
+        encounter.set(LOCKED, Value::Byte(1));
+        g.root.set("Encounter List", Value::List(vec![encounter]));
+        m.set_gff(key, &g).unwrap();
+        let location = ModuleLocation::Project { root: root.clone(), target: "default".into() };
+        m.save_as(&location).unwrap();
+        let json = std::fs::read_to_string(root.join("src/a1.git.json")).unwrap();
+        assert!(json.contains(OUTLINE_COLOR), "{json}");
+        assert!(!json.contains(LOCKED), "{json}");
+        let back = Module::open(&root).unwrap();
+        let git = back.gff(&key).unwrap().unwrap();
+        let back = &git.root.list("Encounter List").unwrap()[0];
+        assert_eq!(back.get(OUTLINE_COLOR), Some(&Value::Dword(0x0040_A0F0)));
+        assert_eq!(back.get(LOCKED), None);
+    }
+
     #[test]
     fn locks_are_kept_in_a_file() {
         let dir = mg_testkit::scratch_dir("locks-file");

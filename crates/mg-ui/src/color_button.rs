@@ -100,6 +100,17 @@ fn take_paste(ui: &Ui) -> Option<Color32> {
 /// so a caller that watches the picker open sees it as before. The
 /// response is changed when the color is.
 pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
+    edit_srgba_with(ui, srgba, alpha, &[])
+}
+
+/// [`edit_srgba`] whose picker has a row of `swatches` over it, each a
+/// named color a click picks (an encounter's Outline color).
+fn edit_srgba_with(
+    ui: &mut Ui,
+    srgba: &mut Color32,
+    alpha: Alpha,
+    swatches: &[(&str, Color32)],
+) -> Response {
     let popup_id = ui.auto_id_with("popup");
     let hsva_id = popup_id.with("hsva");
     let open = Popup::is_id_open(ui.ctx(), popup_id);
@@ -144,6 +155,21 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
         // (A picker, not a menu's rows: its parts keep their gaps.)
         mg_uikit::menu_form(ui, |ui| {
             ui.spacing_mut().slider_width = COLOR_SLIDER_WIDTH;
+            if !swatches.is_empty() {
+                ui.horizontal(|ui| {
+                    for &(name, color) in swatches {
+                        let chosen = Color32::from(hsva) == color;
+                        let swatch = show_color_button(ui, color, chosen);
+                        swatch.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+                        });
+                        if swatch.on_hover_text(name).clicked() {
+                            hsva = Hsva::from(color);
+                            button.mark_changed();
+                        }
+                    }
+                });
+            }
             if color_picker_hsva_2d(ui, &mut hsva, alpha) {
                 button.mark_changed();
             }
@@ -213,6 +239,17 @@ pub fn edit_srgba(ui: &mut Ui, srgba: &mut Color32, alpha: Alpha) -> Response {
 pub fn edit_srgb(ui: &mut Ui, srgb: &mut [u8; 3]) -> Response {
     let mut c = Color32::from_rgb(srgb[0], srgb[1], srgb[2]);
     let r = edit_srgba(ui, &mut c, Alpha::Opaque);
+    *srgb = [c.r(), c.g(), c.b()];
+    r
+}
+
+/// [`edit_srgb`] whose picker has a row of named `swatches` over it, a
+/// click on one picking it.
+pub fn edit_srgb_with(ui: &mut Ui, srgb: &mut [u8; 3], swatches: &[(&str, [u8; 3])]) -> Response {
+    let swatches: Vec<(&str, Color32)> =
+        swatches.iter().map(|&(n, [r, g, b])| (n, Color32::from_rgb(r, g, b))).collect();
+    let mut c = Color32::from_rgb(srgb[0], srgb[1], srgb[2]);
+    let r = edit_srgba_with(ui, &mut c, Alpha::Opaque, &swatches);
     *srgb = [c.r(), c.g(), c.b()];
     r
 }

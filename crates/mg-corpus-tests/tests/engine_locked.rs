@@ -1,6 +1,7 @@
 //! Locked objects (Moonglow's `MG_Locked` byte on a placed object) are the
 //! same objects to the engine: modules with every placed object locked
-//! present the same world as the originals.
+//! present the same world as the originals. So are objects with an
+//! outline color of their own (`MG_OutlineColor`), set on every one too.
 
 use std::time::Duration;
 
@@ -41,6 +42,8 @@ fn locked_objects_are_the_same_in_the_engine() {
                 if let Value::List(items) = &mut f.value {
                     for item in items {
                         item.set(mg_area::LOCKED, Value::Byte(1));
+                        // (And an outline's own color, Moonglow's too.)
+                        item.set(mg_area::OUTLINE_COLOR, Value::Dword(0x00E6_DC28));
                         locked_objects += 1;
                     }
                 }

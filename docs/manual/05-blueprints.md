@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:25:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T04:50:05Z }
 ---
 
 # Blueprints
@@ -447,7 +447,8 @@ to another, and a held item's own Properties, are for one at a time.
 
 Update Instances remakes each object placed from a blueprint, as Aurora's
 does. It keeps where the object stands, which way it faces, a trigger's
-or encounter's outline and a visual transform. Everything else comes from
+or encounter's outline (and an encounter's own outline color) and a
+visual transform. Everything else comes from
 the blueprint, including the object's tag, name, scripts, local variables
 and a door's transition. A window lists the objects it would change:
 - **Every area**, or **Only** the area shown (named).
@@ -1284,7 +1285,9 @@ has none).
 Triggers: Basic (generic, area transition or trap), Area Transition, Trap,
 Scripts, Advanced, Variables, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
 the fewest and most creatures it spawns, 1 to 8: a minimum typed above the
-maximum raises the maximum to it, as Aurora's does; respawns), **Creature List** (from the creature palette, with unique
+maximum raises the maximum to it, as Aurora's does; respawns; on a
+placed encounter, its **Outline color** in the area view, Moonglow's own:
+see [Areas](04-areas.md)), **Creature List** (from the creature palette, with unique
 creatures marked; right-click a palette row and choose **Properties** to
 open the creature's blueprint), Scripts, Advanced, Variables, Comments.
 

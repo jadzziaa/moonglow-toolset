@@ -1104,11 +1104,13 @@ pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) 
 }
 
 /// What Update Instances keeps of a placed object besides where it
-/// stands: its visual transform (EE's list, or the older struct) and an
-/// encounter's spawn points.
-const KEPT: [&str; 3] = {
+/// stands: its visual transform (EE's list, or the older struct), an
+/// encounter's spawn points and an outline's own color (Moonglow's,
+/// [`mg_rules::placement::OUTLINE_COLOR`]: a mark of the placed object,
+/// as its spawn points are, which no blueprint has).
+const KEPT: [&str; 4] = {
     let [list, older] = crate::placement::VISUAL_TRANSFORM_FIELDS;
-    [list, older, "SpawnPointList"]
+    [list, older, "SpawnPointList", mg_rules::placement::OUTLINE_COLOR]
 };
 
 /// Update Instances (Aurora's palette › Update Instances, with every area
@@ -1697,9 +1699,15 @@ mod tests {
         let mut point = Struct::new(0);
         point.set("X", Value::Float(6.0));
         encounter.set("SpawnPointList", Value::List(vec![point]));
+        let own = mg_rules::placement::OUTLINE_COLOR;
+        encounter.set(own, Value::Dword(0x0020_C0F0));
         let new = replaced(&p, ResType::UTE, &encounter, &blueprint("NEW")).unwrap();
         assert_eq!(new.list("SpawnPointList"), encounter.list("SpawnPointList"));
         assert_eq!(new.list("Geometry"), encounter.list("Geometry"));
+        assert_eq!(new.get(own), Some(&Value::Dword(0x0020_C0F0)), "its outline color");
+        encounter.remove(own);
+        let new = replaced(&p, ResType::UTE, &encounter, &blueprint("NEW")).unwrap();
+        assert!(new.get(own).is_none(), "none where it had none");
 
         let mut chest = instance(&p, ResType::UTP, &old_bp, at, &[]).unwrap();
         let mut scale = Struct::new(6);

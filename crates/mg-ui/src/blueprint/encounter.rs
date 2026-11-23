@@ -76,6 +76,12 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Encounter);
         ui.end_row();
+        // (Placed encounters only: Moonglow's own, which no blueprint has.)
+        if f.is_instance() {
+            crate::widgets::field_label(ui, super::OUTLINE_COLOR_LABEL);
+            f.outline_color(ui, super::ENCOUNTER_OUTLINE, &super::OUTLINE_SWATCHES);
+            ui.end_row();
+        }
     });
 }
 

@@ -1854,6 +1854,16 @@ pub(crate) fn read_only_area_harness_with(
     name: &str,
     rows: &str,
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    read_only_area_harness_prepared(name, rows, &|_, _, _| {})
+}
+
+/// [`read_only_area_harness_with`] with the module changed by `prepare`
+/// (given the game and the area) after its chest is placed.
+pub(crate) fn read_only_area_harness_prepared(
+    name: &str,
+    rows: &str,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let chest = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
         use mg_module::instances::{Placement, Placing, instance};
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -1866,6 +1876,7 @@ pub(crate) fn read_only_area_harness_with(
         let mut git = m.gff(&git_key).unwrap().unwrap();
         git.root.set("Placeable List", mg_gff::Value::List(vec![item]));
         m.set_gff(git_key, &git).unwrap();
+        prepare(m, game, area);
     };
     let (mut app, rs, area) = area_app(name, "ttr01", None, 4, None, &chest)?;
     // The same module as a project folder that names a claims table.

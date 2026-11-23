@@ -283,6 +283,9 @@ pub struct AreaObject {
     pub spawn_facings: Vec<f32>,
     /// Locked in the area editor ([`LOCKED`]): not picked by clicks or boxes.
     pub locked: bool,
+    /// Its outline's own color, red, green and blue ([`OUTLINE_COLOR`],
+    /// an encounter's); `None`, its kind's.
+    pub outline_color: Option<[u8; 3]>,
     /// A door's or placeable's `AnimationState` (a door: 0 closed, 1 and 2
     /// open one way or the other).
     pub state: u8,
@@ -295,6 +298,10 @@ pub struct AreaObject {
 /// Aurora don't read (Aurora drops it when it saves). A nasher project
 /// keeps it out of its files (`mg_module::locks`).
 pub use mg_rules::placement::LOCKED;
+
+/// The field Moonglow keeps a placed encounter's own outline color in
+/// (a DWORD 0x00BBGGRR the game and Aurora don't read).
+pub use mg_rules::placement::OUTLINE_COLOR;
 
 impl AreaObject {
     /// Reads the object `index` of the GIT list of `kind`: its values
@@ -327,6 +334,7 @@ impl AreaObject {
             spawn_points,
             spawn_facings,
             locked: o.locked,
+            outline_color: o.outline_color,
             state: o.state,
             laid: o.laid,
         }
@@ -607,7 +615,8 @@ impl Lighting {
 
 /// The fields of a placed object that change nothing of what it looks
 /// like (what the game draws it with): where it stands and how it turns,
-/// its tag and the area editor's lock. [`AreaModel::touched_objects`]
+/// its tag, the area editor's lock and an outline's own color (drawn over
+/// the scene, not in it). [`AreaModel::touched_objects`]
 /// tells edits of these alone.
 pub const PLACED_ONLY: &[&str] = &[
     "XPosition",
@@ -619,6 +628,7 @@ pub const PLACED_ONLY: &[&str] = &[
     "Bearing",
     "Tag",
     LOCKED,
+    OUTLINE_COLOR,
 ];
 
 /// An area as the editor shows it.
@@ -945,6 +955,33 @@ impl AreaModel {
 mod tests {
     use super::*;
     use mg_gff::Value;
+
+    /// An encounter's outline color is read into its object (none without
+    /// the field), and an edit of it alone is one of where an object
+    /// stands and how it is marked: its look kept, not read again.
+    #[cfg(feature = "edit")]
+    #[test]
+    fn an_outline_color_is_read_and_its_edit_keeps_the_look() {
+        use mg_core::{ResRef, ResType};
+        let mut s = Struct::new(7);
+        let o = AreaObject::placed(ObjectKind::Encounter, 0, &s);
+        assert_eq!(o.outline_color, None);
+        s.set(OUTLINE_COLOR, Value::Dword(0x0030_80F0));
+        let o = AreaObject::placed(ObjectKind::Encounter, 0, &s);
+        assert_eq!(o.outline_color, Some([0xF0, 0x80, 0x30]));
+        let area = ResRef::from_str("a1").unwrap();
+        let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+        let touched = |label: &str| mg_edit::Touched {
+            key: git,
+            path: mg_edit::GffPath::root().item(ObjectKind::Encounter.list(), 1),
+            label: label.into(),
+            whole: false,
+        };
+        let changed = AreaModel::touched_objects(&[touched(OUTLINE_COLOR)], &are, &git);
+        assert_eq!(changed, Some(vec![((ObjectKind::Encounter, 1), true)]));
+        let changed = AreaModel::touched_objects(&[touched("Faction")], &are, &git);
+        assert_eq!(changed, Some(vec![((ObjectKind::Encounter, 1), false)]), "another field");
+    }
 
     /// A tile model with main light 1, source light 2's place (named in
     /// another case) and animation loop 2; a light named ml2 of another

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:53:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T05:54:29Z }
 ---
 
 # Areas
@@ -737,6 +737,20 @@ is). A right-click where overlapping encounters or triggers alone are
 under the pointer keeps the one already selected, so **Add Spawn
 Point** adds to the selected encounter.
 
+**An encounter's outline color**: encounters are outlined in orange, and
+so are their spawn points. To tell overlapping encounters apart, give
+one a color of its own: **Outline color** on a placed encounter's
+Properties › Basic (a swatch, or any color from the picker; it is stored
+when the picker closes, one Undo step). Selected, an encounter of its
+own color keeps it, drawn wider over a dark edge; one without turns the
+selection's color, as before. **Default** takes the color off. Moonglow
+keeps the color in a field of its own on the placed encounter
+(`MG_OutlineColor`), which the game ignores. Aurora drops it when it
+saves, and the outline is orange again. Unlike a lock, a nasher
+project's files keep it, so a team shares the colors. Copy and paste,
+Update Instances and Replace Selected keep it; Add to Palette and
+Export as Blueprint… leave it out of the new blueprint.
+
 What you are dragging stays in hand while another button turns the
 camera (hold the middle button too and swing the view, or move it with
 **Middle drag moves the view**), until you let go
@@ -923,7 +937,8 @@ Properties last, as in Aurora):
   unlocking the object. A nasher project's files don't carry it: Moonglow
   keeps the project's locks in its own folder (see
   [nasher projects](03-modules.md#nasher-projects-version-control)), so
-  locking never shows in a diff.
+  locking never shows in a diff. A blueprint made of a locked object
+  (**Add to Palette**, **Export as Blueprint…**) is not locked.
 - Doors: **Reverse Door**, **Initial State** (open or closed, locked).
   Placeables: **Initial State** (open, active…). Sounds: **Mute** or
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:

@@ -147,12 +147,14 @@ pub fn copy_resref_named(
 }
 
 /// The fields a placed object has and its blueprint does not: where it
-/// stands ([`crate::placement::fields_of`]), and a sound's
+/// stands ([`crate::placement::fields_of`]), Moonglow's own marks of
+/// the placed object (its lock and an outline's own color), and a sound's
 /// `GeneratedType`, an encounter's spawn points and the others' visual
 /// transform.
 fn placement_fields(t: ResType) -> Vec<&'static str> {
     let Some(kind) = ObjectKind::from_restype(t) else { return Vec::new() };
     let mut out = crate::placement::fields_of(kind);
+    out.extend([mg_rules::placement::LOCKED, mg_rules::placement::OUTLINE_COLOR]);
     out.push(match kind {
         ObjectKind::Sound => "GeneratedType",
         ObjectKind::Encounter => "SpawnPointList",
@@ -417,6 +419,37 @@ mod tests {
         assert!(hand.get("Pickpocketable").is_none(), "only what it had");
         let held = &bp.list("ItemList").unwrap()[0];
         assert_eq!(held.get("Pickpocketable"), Some(&Value::Byte(1)));
+    }
+
+    /// Moonglow's own marks of a placed object (an encounter's outline
+    /// color, the area editor's lock) stay on the object: its new
+    /// blueprint has neither, so what is placed from it is not born with
+    /// them.
+    #[test]
+    fn a_blueprint_made_of_an_object_leaves_its_outline_color_and_lock_out() {
+        use mg_rules::placement::{LOCKED, OUTLINE_COLOR};
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut encounter = Struct::new(7);
+        encounter.set("TemplateResRef", Value::resref(ResRef::from_str("goblins").unwrap()));
+        encounter.set("Tag", Value::String(b"GOBLINS".to_vec()));
+        encounter.set(OUTLINE_COLOR, Value::Dword(0x00FF_8020));
+        encounter.set(LOCKED, Value::Byte(1));
+        let added = add_to_palette(
+            &game,
+            ResType::UTE,
+            &encounter,
+            &|_| None,
+            &|_| false,
+            &Naming::default(),
+        )
+        .unwrap();
+        let bp = &added.blueprints[0].1.root;
+        assert!(bp.get(OUTLINE_COLOR).is_none(), "{bp:?}");
+        assert!(bp.get(LOCKED).is_none(), "{bp:?}");
+        assert_eq!(bp.string("Tag"), Some(&b"GOBLINS"[..]), "the rest kept");
+        assert_eq!(added.instance.get(OUTLINE_COLOR), Some(&Value::Dword(0x00FF_8020)));
+        assert_eq!(added.instance.get(LOCKED), Some(&Value::Byte(1)));
     }
 
     #[test]

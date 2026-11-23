@@ -275,6 +275,9 @@ pub struct Object {
     pub spawn_points: Vec<(Vec3, f32)>,
     /// Locked in the area editor ([`LOCKED`]).
     pub locked: bool,
+    /// Its outline's own color, red, green and blue (an encounter's:
+    /// [`mg_rules::placement::OUTLINE_COLOR`]); `None`, its kind's.
+    pub outline_color: Option<[u8; 3]>,
     /// A door's or placeable's `AnimationState` (a door: 0 closed, 1 and 2
     /// open one way or the other).
     pub state: u8,
@@ -300,6 +303,7 @@ impl Object {
             conversation: None,
             spawn_points: Vec::new(),
             locked: false,
+            outline_color: None,
             state: 0,
         }
     }
@@ -355,6 +359,7 @@ impl Object {
             conversation: s.resref("Conversation").filter(|r| !r.is_empty()),
             spawn_points: points,
             locked: s.integer(LOCKED).is_some_and(|v| v != 0),
+            outline_color: mg_rules::placement::outline_color(s),
             state: s.integer("AnimationState").and_then(|v| u8::try_from(v).ok()).unwrap_or(0),
         }
     }

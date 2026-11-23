@@ -49,6 +49,7 @@ mod nui_panels;
 mod open_editors;
 mod options_and_keys;
 mod options_window;
+mod outline_color;
 mod outliner;
 mod palettes;
 mod part_emitters;

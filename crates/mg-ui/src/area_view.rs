@@ -4670,6 +4670,11 @@ struct Marks {
     press_start: Option<(Vec3, f32)>,
 }
 
+/// The width of a selected outline drawn in its own color (an
+/// encounter's Outline color), over the dark edge: a point wider than an
+/// outline unselected, so the selection shows by width and edge alone.
+const OWN_SELECTED_WIDTH: f32 = 2.5;
+
 /// Markers for objects without models, outlines, the grid, the start
 /// location and the selection, drawn over the view.
 fn overlays(
@@ -4735,14 +4740,27 @@ fn overlays(
         let highlight = Stroke::new(1.5, colors.turn.0);
         if o.kind.has_outline() {
             // Encounters orange; triggers green, area transitions blue,
-            // traps red.
-            let color = match (o.kind, o.trigger_type) {
-                (ObjectKind::Encounter, _) => Color32::from_rgb(230, 120, 40),
-                (_, 1) => Color32::from_rgb(80, 150, 255),
-                (_, 2) => Color32::from_rgb(230, 60, 60),
+            // traps red; or the outline's own color (an encounter's
+            // Outline color, `MG_OutlineColor`).
+            let own = o.outline_color.map(|[r, g, b]| Color32::from_rgb(r, g, b));
+            let color = match (own, o.kind, o.trigger_type) {
+                (Some(c), _, _) => c,
+                (_, ObjectKind::Encounter, _) => {
+                    let [r, g, b] = crate::blueprint::ENCOUNTER_OUTLINE;
+                    Color32::from_rgb(r, g, b)
+                }
+                (_, _, 1) => Color32::from_rgb(80, 150, 255),
+                (_, _, 2) => Color32::from_rgb(230, 60, 60),
                 _ => Color32::from_rgb(80, 200, 120),
             };
-            let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
+            // (Selected, one of its own color keeps it, wider over the
+            // dark edge: in the selection's color, it was lost exactly
+            // while its Properties were open.)
+            let stroke = match (selected, own) {
+                (true, Some(c)) => Stroke::new(OWN_SELECTED_WIDTH, c),
+                (true, None) => highlight,
+                (false, _) => Stroke::new(1.5, color),
+            };
             // (Selected, over the handles' edge.)
             let draw = |canvas: &mut handles::Canvas, a: Vec3, b: Vec3| {
                 if !selected {

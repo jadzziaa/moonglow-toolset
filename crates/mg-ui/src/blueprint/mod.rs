@@ -1879,6 +1879,70 @@ impl Form<'_> {
         }
     }
 
+    /// A placed outline's own color (Moonglow's `MG_OutlineColor`, a
+    /// DWORD 0x00BBGGRR the game and Aurora don't read), with the picker
+    /// and its `swatches`, shown as `default` (its kind's) where it has
+    /// none; what is picked is stored when the picker closes (one
+    /// command). Default takes the field off (of each object edited
+    /// together), enabled where any of them has it.
+    pub(crate) fn outline_color(
+        &mut self,
+        ui: &mut Ui,
+        default: [u8; 3],
+        swatches: &[(&str, [u8; 3])],
+    ) {
+        let label = mg_area::OUTLINE_COLOR;
+        self.mark_mixed(ui, label);
+        let current = mg_rules::placement::outline_color(&self.root);
+        let differs = self.differs(label);
+        let pending_id = self.id(label).with("pending");
+        let pending: Option<[u8; 3]> = ui.data(|d| d.get_temp(pending_id));
+        let mut rgb = pending.or(current).unwrap_or(default);
+        let mut reset = false;
+        let id = self.id(label);
+        let open = row(ui, |ui| {
+            let (changed, open) = ui
+                .push_id(id, |ui| {
+                    let popup = ui.auto_id_with("popup");
+                    let button = crate::color_button::edit_srgb_with(ui, &mut rgb, swatches);
+                    button.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::ColorButton,
+                            true,
+                            OUTLINE_COLOR_LABEL,
+                        )
+                    });
+                    let changed = button.on_hover_text(OUTLINE_COLOR_TIP).changed();
+                    (changed, egui::Popup::is_id_open(ui.ctx(), popup))
+                })
+                .inner;
+            if changed {
+                ui.data_mut(|d| d.insert_temp(pending_id, rgb));
+            }
+            // (Past MIXED_LIMIT the others aren't looked at: maybe set.)
+            let set = current.is_some() || differs || self.also.len() > MIXED_LIMIT;
+            let button = egui::Button::new(OUTLINE_COLOR_DEFAULT).small();
+            reset = ui
+                .add_enabled(set, button)
+                .on_hover_text("Draws the outline in its usual color again")
+                .clicked();
+            open
+        })
+        .inner;
+        if reset {
+            ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
+            self.set_opt(OUTLINE_COLOR_LABEL, label, None);
+            return;
+        }
+        if !open && let Some(v) = ui.data(|d| d.get_temp::<[u8; 3]>(pending_id)) {
+            ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
+            if current != Some(v) || self.several() {
+                let [r, g, b] = v.map(u32::from);
+                self.set(OUTLINE_COLOR_LABEL, label, Value::Dword(r | g << 8 | b << 16));
+            }
+        }
+    }
+
     /// A checkbox for a flag (BYTE 0 or 1); the value.
     pub(crate) fn check(&mut self, ui: &mut Ui, text: &str, label: &str) -> bool {
         self.check_if(ui, true, text, label)
@@ -2937,6 +3001,35 @@ pub(crate) fn tab_of(key: ResKey, path: &GffPath, also: &[(ResKey, GffPath)]) ->
 /// The name of a blueprint's or placed object's Properties window (or
 /// tab), as a group around its pages and fields.
 pub const WINDOW_GROUP: &str = "Properties window";
+
+/// The placed encounter's Outline color row: its label (the color
+/// button's name, and its undo step's).
+pub const OUTLINE_COLOR_LABEL: &str = "Outline color";
+
+/// The Outline color button's tip.
+pub const OUTLINE_COLOR_TIP: &str =
+    "Moonglow's own color for this outline, which Aurora drops when it saves";
+
+/// The Outline color row's button that takes the color off.
+pub const OUTLINE_COLOR_DEFAULT: &str = "Default";
+
+/// An encounter's outline in the area view, without a color of its own
+/// (red, green, blue).
+pub const ENCOUNTER_OUTLINE: [u8; 3] = [230, 120, 40];
+
+/// The Outline color picker's swatches: colors that stand out from the
+/// ground and the grid in both themes, and from the encounters' orange
+/// and the triggers' green, blue and red. (No black or dark color: lost
+/// on a night area's ground.)
+pub const OUTLINE_SWATCHES: [(&str, [u8; 3]); 7] = [
+    ("Yellow", [250, 220, 50]),
+    ("Lime", [170, 240, 50]),
+    ("Cyan", [40, 220, 230]),
+    ("Violet", [160, 110, 255]),
+    ("Magenta", [240, 70, 200]),
+    ("Rose", [255, 140, 160]),
+    ("White", [245, 245, 245]),
+];
 
 /// The object at `path` of the document `key` as it is now, or `None`
 /// with what is wrong said in `ui` (no module, the object gone, the

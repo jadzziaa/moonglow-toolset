@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:07:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T04:50:05Z }
 ---
 
 # Differences from Aurora
@@ -104,6 +104,9 @@ it differs, it is on purpose:
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the
   game ignores and Aurora drops when it saves; in a nasher project the
   locks are kept in Moonglow's data folder instead.
+- **An encounter's own outline color** is a field of Moonglow's
+  (`MG_OutlineColor`), which the game ignores and Aurora drops when it
+  saves; a nasher project's files keep it.
 - **An exported archive says what it was made from** (the module's git
   commit, Moonglow's version, the module's name) after its description,
   and Import warns when the module is at another commit.
