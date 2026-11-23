@@ -382,18 +382,7 @@ const ZOOMS: [(f32, &str, &str); 2] =
 
 /// The zoom's width, as the kit lays out its choices.
 fn zoom_width(ui: &Ui) -> f32 {
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
-    let words: f32 = ZOOMS
-        .iter()
-        .map(|(_, w, _)| {
-            ui.fonts_mut(|f| f.layout_no_wrap((*w).to_string(), font.clone(), Color32::WHITE))
-                .size()
-                .x
-                + pad
-        })
-        .sum();
-    words.ceil() + 1.0
+    form::segmented_width(ui, egui::Id::new("nui-zoom-switch-w"), &[ZOOMS[0].1, ZOOMS[1].1])
 }
 
 /// One frame of the canvas: the window as it is shown, and what drawing it

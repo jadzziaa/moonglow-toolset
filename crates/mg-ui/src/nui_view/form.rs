@@ -13,12 +13,76 @@ pub(super) const FIELD_LEAST: f32 = 120.0;
 /// The room between two rows (the board's `row-gap`).
 pub(super) const ROW_GAP: f32 = 6.0;
 
+type MetricStamp = (u32, u32, u64);
+
+fn metric_stamp(ui: &Ui, font: &egui::FontId) -> MetricStamp {
+    (
+        font.size.to_bits(),
+        ui.ctx().pixels_per_point().to_bits(),
+        crate::script_layout::fonts_made(ui.ctx()),
+    )
+}
+
+#[derive(Clone)]
+struct LabelWidthCache {
+    stamp: MetricStamp,
+    widths: std::collections::HashMap<String, f32>,
+}
+
 /// The width `label` takes in its column: the column's, or its words' where
 /// they are wider.
 fn label_width(ui: &Ui, label: &str) -> f32 {
     let font = egui::TextStyle::Body.resolve(ui.style());
+    let stamp = metric_stamp(ui, &font);
+    let id = egui::Id::new("nui-form-label-widths");
+    if let Some(w) = ui.ctx().data_mut(|d| {
+        let cache = d.get_temp_mut_or_insert_with(id, || LabelWidthCache {
+            stamp,
+            widths: Default::default(),
+        });
+        if cache.stamp != stamp {
+            cache.stamp = stamp;
+            cache.widths.clear();
+        }
+        cache.widths.get(label).copied()
+    }) {
+        return w;
+    }
     let words = ui.painter().layout_no_wrap(label.to_string(), font, egui::Color32::WHITE);
-    LABEL.max(words.size().x.ceil() + 8.0)
+    let w = LABEL.max(words.size().x.ceil() + 8.0);
+    ui.ctx().data_mut(|d| {
+        let cache = d.get_temp_mut_or_insert_with(id, || LabelWidthCache {
+            stamp,
+            widths: Default::default(),
+        });
+        cache.widths.insert(label.to_string(), w);
+    });
+    w
+}
+
+/// Cached width of a segmented control whose labels and count stay constant for
+/// a given font size, display scale, and font atlas generation.
+pub(super) fn segmented_width(ui: &Ui, id: egui::Id, labels: &[&str]) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let stamp = metric_stamp(ui, &font);
+    if let Some((was, w)) = ui.ctx().data(|d| d.get_temp::<(MetricStamp, f32)>(id))
+        && was == stamp
+    {
+        return w;
+    }
+    let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
+    let sum: f32 = ui.fonts_mut(|f| {
+        labels
+            .iter()
+            .map(|w| {
+                f.layout_no_wrap((*w).to_string(), font.clone(), egui::Color32::WHITE).size().x
+                    + pad
+            })
+            .sum()
+    });
+    let w = sum.ceil() + labels.len().saturating_sub(1) as f32;
+    ui.ctx().data_mut(|d| d.insert_temp(id, (stamp, w)));
+    w
 }
 
 /// Whether a row of `label` has the room for its field beside it, `least`
@@ -59,8 +123,8 @@ pub(super) fn row_least<R>(
     least: f32,
     add: impl FnOnce(&mut Ui, &egui::Response) -> R,
 ) -> R {
-    let out = if beside(ui, words, least) {
-        let width = label_width(ui, words);
+    let width = label_width(ui, words);
+    let out = if ui.available_width() - width - ui.spacing().item_spacing.x >= least {
         ui.horizontal(|ui| {
             let size = egui::vec2(width, mg_uikit::metrics::CONTROL_HEIGHT);
             let left = egui::Layout::left_to_right(egui::Align::Center);

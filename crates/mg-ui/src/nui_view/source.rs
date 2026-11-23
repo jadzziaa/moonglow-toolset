@@ -244,16 +244,11 @@ fn header(app: &Moonglow, ui: &mut Ui, key: ResKey, state: &mut State) -> Asked 
             "The window's settings as JSON: binds, handlers, variants",
         ),
     ];
-    let width = {
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let words = |w: &str| {
-            ui.fonts_mut(|f| f.layout_no_wrap(w.to_string(), font.clone(), egui::Color32::WHITE))
-                .size()
-                .x
-        };
-        let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
-        (choices.iter().map(|(_, w, _)| words(w) + pad).sum::<f32>()).ceil() + 1.0
-    };
+    let width = form::segmented_width(
+        ui,
+        egui::Id::new("nui-source-switch-w"),
+        &[JUI_SOURCE, BINDING_JSON],
+    );
     let chosen = std::cell::Cell::new(state.source_of);
     let switch = |ui: &mut Ui| {
         let mut of = chosen.get();
@@ -626,6 +621,25 @@ fn skip_ws(b: &[u8], at: &mut usize) {
     }
 }
 
+/// Skips a JSON string literal starting at its opening quote without allocating.
+fn skip_string(b: &[u8], at: &mut usize) -> Option<()> {
+    if b.get(*at) != Some(&b'"') {
+        return None;
+    }
+    *at += 1;
+    while *at < b.len() {
+        match b[*at] {
+            b'\\' => *at += 2,
+            b'"' => {
+                *at += 1;
+                return Some(());
+            }
+            _ => *at += 1,
+        }
+    }
+    None
+}
+
 /// A string's text, read from its opening quote at `at` (escapes kept as
 /// written but for `~` and `/`, escaped as a pointer's step).
 fn string(b: &[u8], at: &mut usize) -> Option<String> {
@@ -634,12 +648,23 @@ fn string(b: &[u8], at: &mut usize) -> Option<String> {
     }
     *at += 1;
     let start = *at;
+    let mut has_escape = false;
     while *at < b.len() {
         match b[*at] {
-            b'\\' => *at += 2,
+            b'\\' => {
+                has_escape = true;
+                *at += 2;
+            }
             b'"' => {
                 let raw = std::str::from_utf8(&b[start..*at]).ok()?;
                 *at += 1;
+                if !has_escape {
+                    return Some(if raw.contains(['~', '/']) {
+                        raw.replace('~', "~0").replace('/', "~1")
+                    } else {
+                        raw.to_owned()
+                    });
+                }
                 let text: String = serde_json::from_str(&format!("\"{raw}\"")).ok()?;
                 return Some(text.replace('~', "~0").replace('/', "~1"));
             }
@@ -692,6 +717,7 @@ fn value(
             seen(pointer, start, *at);
         }
         b'[' => {
+            use std::fmt::Write;
             *at += 1;
             let mut i = 0;
             loop {
@@ -701,8 +727,7 @@ fn value(
                     break;
                 }
                 let len = pointer.len();
-                pointer.push('/');
-                pointer.push_str(&i.to_string());
+                let _ = write!(pointer, "/{i}");
                 value(b, at, pointer, seen, depth + 1)?;
                 pointer.truncate(len);
                 i += 1;
@@ -719,7 +744,7 @@ fn value(
             seen(pointer, start, *at);
         }
         b'"' => {
-            string(b, at)?;
+            skip_string(b, at)?;
         }
         _ => {
             while *at < b.len()

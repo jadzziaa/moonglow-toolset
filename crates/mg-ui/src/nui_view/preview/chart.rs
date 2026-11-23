@@ -5,28 +5,23 @@ use super::*;
 /// lowest and the highest of them, each with its place among the samples.
 type Gathered = (usize, (usize, f64), (usize, f64));
 
-/// The points of a line through `data`'s numbers, a `step` apart from
-/// `left`, each at the height `y` gives its value: every one of them
-/// while there are no more than two a pixel, and of more the lowest and
-/// the highest value of those that fall on each pixel, in the order they
-/// came (what a line through all of them covers of that pixel). `pixels`
-/// is a point's.
-///
-/// (A point and a mark were made for every value, in view or not: a chart
-/// bound to a log of a million samples was three vectors of a million and
-/// a million shapes a frame.)
-pub(super) fn line_points(
+fn downsample_samples(
     data: &[Value],
-    left: f32,
     step: f32,
     pixels: f32,
-    y: impl Fn(f64) -> f32,
-) -> Vec<egui::Pos2> {
+    mut on_sample: impl FnMut(f64),
+) -> Vec<(usize, f64)> {
     let number = |v: &Value| v.as_f64().filter(|n| n.is_finite());
-    let at = |i: usize, v: f64| pos2(left + i as f32 * step, y(v));
     let across = (data.len() as f32 * step * pixels).ceil().max(1.0);
     if data.len() as f32 <= 2.0 * across {
-        return data.iter().enumerate().filter_map(|(i, v)| Some(at(i, number(v)?))).collect();
+        let mut out = Vec::with_capacity(data.len());
+        for (i, v) in data.iter().enumerate() {
+            if let Some(v) = number(v) {
+                on_sample(v);
+                out.push((i, v));
+            }
+        }
+        return out;
     }
     let mut points = Vec::new();
     // The pixel being gathered: its lowest and highest values, with where
@@ -35,13 +30,14 @@ pub(super) fn line_points(
     let mut put = |g: Gathered| {
         let (_, low, high) = g;
         let (first, second) = if low.0 <= high.0 { (low, high) } else { (high, low) };
-        points.push(at(first.0, first.1));
+        points.push(first);
         if second.0 != first.0 {
-            points.push(at(second.0, second.1));
+            points.push(second);
         }
     };
     for (i, v) in data.iter().enumerate() {
         let Some(v) = number(v) else { continue };
+        on_sample(v);
         let pixel = (i as f32 * step * pixels) as usize;
         match &mut gathered {
             Some((on, low, high)) if *on == pixel => {
@@ -65,6 +61,70 @@ pub(super) fn line_points(
     points
 }
 
+fn line_series(data: &[Value], step: f32, pixels: f32) -> Option<(f64, f64, Vec<(usize, f64)>)> {
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    let samples = downsample_samples(data, step, pixels, |v| {
+        min = min.min(v);
+        max = max.max(v);
+    });
+    (min.is_finite() && max > min).then_some((min, max, samples))
+}
+
+fn sample_fingerprint(data: &[Value]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    data.len().hash(&mut h);
+    let mut hash_val = |v: &Value| {
+        v.as_f64().filter(|n| n.is_finite()).map(f64::to_bits).hash(&mut h);
+    };
+    if let Some(first) = data.first() {
+        hash_val(first);
+    }
+    if let Some(last) = data.last() {
+        hash_val(last);
+    }
+    if data.len() > 2 {
+        let step = (data.len() / 16).max(1);
+        for i in (step..data.len()).step_by(step).take(16) {
+            hash_val(&data[i]);
+        }
+    }
+    h.finish()
+}
+
+#[derive(Clone)]
+struct CachedChartSeries {
+    key: (usize, usize, u64, u32),
+    min: f64,
+    max: f64,
+    samples: Vec<(usize, f64)>,
+}
+
+/// The points of a line through `data`'s numbers, a `step` apart from
+/// `left`, each at the height `y` gives its value: every one of them
+/// while there are no more than two a pixel, and of more the lowest and
+/// the highest value of those that fall on each pixel, in the order they
+/// came (what a line through all of them covers of that pixel). `pixels`
+/// is a point's.
+///
+/// (A point and a mark were made for every value, in view or not: a chart
+/// bound to a log of a million samples was three vectors of a million and
+/// a million shapes a frame.)
+#[cfg(test)]
+pub(super) fn line_points(
+    data: &[Value],
+    left: f32,
+    step: f32,
+    pixels: f32,
+    y: impl Fn(f64) -> f32,
+) -> Vec<egui::Pos2> {
+    downsample_samples(data, step, pixels, |_| {})
+        .into_iter()
+        .map(|(i, v)| pos2(left + i as f32 * step, y(v)))
+        .collect()
+}
+
 impl Renderer<'_> {
     pub(super) fn chart(ui: &mut Ui, c: &Control<'_>) {
         let Control { s, a, scale, node, row, body, tint, font, .. } = *c;
@@ -80,20 +140,22 @@ impl Renderer<'_> {
                 c.label(body, "No chart data.", Align2::CENTER_CENTER, false);
             }
             let pointer = ui.input(|i| i.pointer.hover_pos());
-            for slot in slots {
+            let pixels = ui.ctx().pixels_per_point();
+            for (slot_idx, slot) in slots.iter().enumerate() {
                 let Some(data) = val(&slot["data"], s, row).as_array() else {
                     continue;
                 };
-                let values = || data.iter().filter_map(Value::as_f64).filter(|n| n.is_finite());
-                let min = values().fold(f64::INFINITY, f64::min);
-                let max = values().fold(f64::NEG_INFINITY, f64::max);
-                if !min.is_finite() || max <= min {
-                    continue;
-                }
-                let color = rgba(val(&slot["color"], s, row), Color32::LIGHT_BLUE) * tint;
-                let y = |v: f64| chart.bottom() - chart.height() * ((v - min) / (max - min)) as f32;
                 let step = chart.width() / data.len().max(1) as f32;
+                let color = rgba(val(&slot["color"], s, row), Color32::LIGHT_BLUE) * tint;
                 if slot["type"] == 1 {
+                    let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+                    for v in data.iter().filter_map(Value::as_f64).filter(|n| n.is_finite()) {
+                        min = min.min(v);
+                        max = max.max(v);
+                    }
+                    if !min.is_finite() || max <= min {
+                        continue;
+                    }
                     // Nuklear's nk_chart_push_column, as the client draws
                     // it (NWN EE 8193.37, np_chart3): a column is
                     // |v / range| high, stands at (v + |min|) / range from
@@ -138,17 +200,52 @@ impl Renderer<'_> {
                         p.rect_filled(column, 0, if hovered { Color32::WHITE } else { color });
                     }
                 } else {
-                    let pixels = ui.ctx().pixels_per_point();
-                    let points = line_points(data, chart.left(), step, pixels, y);
-                    let marks = points.clone();
-                    p.add(egui::Shape::line(points, Stroke::new(scale, color)));
-                    for point in marks {
+                    let (min, max, samples) = if data.len() > 256 {
+                        let cache_id =
+                            egui::Id::new(("nui-chart-series", c.source_path, c.row, slot_idx));
+                        let key = (
+                            data.as_ptr() as usize,
+                            data.len(),
+                            sample_fingerprint(data),
+                            (chart.width() * pixels).to_bits(),
+                        );
+                        let cached = ui.ctx().data_mut(|d| {
+                            d.get_temp::<CachedChartSeries>(cache_id).filter(|s| s.key == key)
+                        });
+                        if let Some(hit) = cached {
+                            (hit.min, hit.max, hit.samples)
+                        } else {
+                            let Some((min, max, samples)) = line_series(data, step, pixels) else {
+                                continue;
+                            };
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(
+                                    cache_id,
+                                    CachedChartSeries { key, min, max, samples: samples.clone() },
+                                );
+                            });
+                            (min, max, samples)
+                        }
+                    } else {
+                        let Some(res) = line_series(data, step, pixels) else {
+                            continue;
+                        };
+                        res
+                    };
+                    let y =
+                        |v: f64| chart.bottom() - chart.height() * ((v - min) / (max - min)) as f32;
+                    let points: Vec<egui::Pos2> = samples
+                        .into_iter()
+                        .map(|(i, v)| pos2(chart.left() + i as f32 * step, y(v)))
+                        .collect();
+                    for &point in &points {
                         p.rect_filled(
                             Rect::from_center_size(point, Vec2::splat(4.0 * scale)),
                             0,
                             color,
                         );
                     }
+                    p.add(egui::Shape::line(points, Stroke::new(scale, color)));
                 }
             }
             // The native chart shows the first slot's legend only.

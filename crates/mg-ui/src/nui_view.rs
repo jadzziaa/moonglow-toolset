@@ -245,6 +245,9 @@ pub(crate) fn chosen_many(state: &State) -> Vec<String> {
 /// Bind `name` chosen in a designer's Bindings table (`Moonglow::nui_choose_bind`).
 pub(crate) fn choose_bind(state: &mut State, name: &str) {
     state.bind_chosen = Some(name.to_owned());
+    if let Some(work) = &mut state.work {
+        work.verified_clean = false;
+    }
 }
 
 /// How many times a designer's Bindings table walked its window
@@ -261,7 +264,11 @@ pub(crate) fn copies(state: &State) -> usize {
 /// Designer `key` edits its variant `name` in its slot, as Layers' row
 /// does (`Moonglow::nui_edit_variant`, for the timing).
 pub(crate) fn edit_variant(app: &mut Moonglow, key: ResKey, name: &str) {
-    layouts::edit(app.nui_views.entry(key).or_default(), Some(name.into()));
+    let state = app.nui_views.entry(key).or_default();
+    if let Some(work) = &mut state.work {
+        work.verified_clean = false;
+    }
+    layouts::edit(state, Some(name.into()));
 }
 
 /// Where a designer's working copy keeps its words: the heap addresses of
@@ -329,7 +336,7 @@ enum Op {
 /// The API checks and build status of what the tab last showed.
 struct Checks {
     /// The window, its settings and its scripts when they were checked.
-    of: Vec<Held>,
+    of: [Held; 6],
     findings: std::rc::Rc<[mg_nui::Diagnostic]>,
     needs_build: bool,
 }
@@ -832,6 +839,10 @@ struct Work {
     of: [Held; 2],
     window: Value,
     settings: Settings,
+    /// True after a full comparison confirmed `window` and `settings` match
+    /// `state.source`, with no active widget state that could mutate them on a
+    /// subsequent quiet frame without events.
+    verified_clean: bool,
 }
 
 /// What Layers, Components, Properties' swap layout buttons and the
@@ -923,6 +934,9 @@ fn begin(
     if let Some(path) = state.select_next.take() {
         state.selected = path;
         state.page = Page::Design;
+        if let Some(work) = &mut state.work {
+            work.verified_clean = false;
+        }
     }
     let Some(work) = &mut state.work else { return Ok(checked) };
     // A variant is edited in the window's place (the panels act on it on
@@ -976,6 +990,19 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
     let mut config = state.typed_config.take();
     let picked = std::mem::take(&mut state.picked);
     if let Some(mut work) = state.work.take() {
+        let had_pending = picked.chosen.is_some()
+            || picked.act.is_some()
+            || picked.insert.is_some()
+            || state.move_pending.is_some()
+            || state.insert_pending.is_some()
+            || state.new_swap_slot.is_some()
+            || state.resize.is_some()
+            || state.draw_drag.is_some()
+            || state.window_move.is_some()
+            || !state.reverted.is_empty()
+            || state.source_draft.as_ref().is_some_and(|d| d.typed)
+            || raw.is_some()
+            || config.is_some();
         if let Some(chosen) = picked.chosen {
             chosen.put(state);
             ctx.request_repaint();
@@ -1000,15 +1027,47 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
         let last = std::mem::take(&mut state.reverted);
         fields::recover(ctx, &last, &mut work.window, &mut work.settings);
         if let Some(Source { window: Ok(was), settings: Ok(was_settings), .. }) = &state.source {
-            let mut now = Vec::new();
-            fields::put_back(ctx, was, &mut work.window, &fields::Place::Window, &mut now);
-            fields::put_back_settings(ctx, was_settings, &mut work.settings, &mut now);
-            state.reverted = now;
-            if raw.is_none() && work.window != *was {
-                raw = serde_json::to_string_pretty(&work.window).ok();
+            let has_unset = fields::has_unset(ctx);
+            let has_active_ui = ctx.memory(|m| m.focused().is_some())
+                || egui::Popup::is_any_open(ctx)
+                || mg_uikit::popover::Popover::any_open(ctx)
+                || ctx.dragged_id().is_some()
+                || egui::DragAndDrop::has_any_payload(ctx);
+            let quiet_input = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .all(|e| matches!(e, egui::Event::PointerMoved(_) | egui::Event::PointerGone))
+                    && !i.pointer.any_down()
+                    && !i.pointer.any_pressed()
+                    && !i.pointer.any_released()
+                    && i.keys_down.is_empty()
+            });
+            let can_skip_diff =
+                work.verified_clean && !had_pending && !has_unset && !has_active_ui && quiet_input;
+            if has_unset {
+                let mut now = Vec::new();
+                fields::put_back(ctx, was, &mut work.window, &fields::Place::Window, &mut now);
+                fields::put_back_settings(ctx, was_settings, &mut work.settings, &mut now);
+                state.reverted = now;
+            } else {
+                state.reverted.clear();
             }
-            if config.is_none() && work.settings != *was_settings {
-                config = String::from_utf8(work.settings.bytes()).ok();
+            if !can_skip_diff {
+                let window_changed = raw.is_some() || work.window != *was;
+                if raw.is_none() && window_changed {
+                    raw = serde_json::to_string_pretty(&work.window).ok();
+                }
+                let settings_changed = config.is_some() || work.settings != *was_settings;
+                if config.is_none() && settings_changed {
+                    config = String::from_utf8(work.settings.bytes()).ok();
+                }
+                work.verified_clean = !window_changed
+                    && !settings_changed
+                    && state.reverted.is_empty()
+                    && !has_active_ui
+                    && state.resize.is_none()
+                    && state.draw_drag.is_none()
+                    && state.window_move.is_none();
             }
         }
         state.work = Some(work);
@@ -1092,7 +1151,7 @@ pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
         // (Only onto the bytes it was typed over: the window gone, or
         // changed from elsewhere meanwhile, lets what was typed go, as
         // `begin` does for a designer still open.)
-        let now = app.ws.as_ref().and_then(|ws| held(&ws.module, key).ok());
+        let now = app.ws.as_ref().and_then(|ws| held_raw(&ws.module, key).ok());
         let unchanged = state.source.as_ref().zip(now).is_some_and(|(s, now)| same(&s.of, &now));
         if !unchanged {
             state.reverted.clear();
@@ -1126,13 +1185,14 @@ pub(crate) fn store_typed(app: &mut Moonglow) {
     for key in keys {
         let Some(mut state) = app.nui_views.remove(&key) else { continue };
         let typed = std::mem::take(&mut state.reverted);
-        let now = app.ws.as_ref().and_then(|ws| held(&ws.module, key).ok());
+        let now = app.ws.as_ref().and_then(|ws| held_raw(&ws.module, key).ok());
         let source = state.source.as_ref().filter(|s| now.is_some_and(|n| same(&s.of, &n)));
         let was = source.and_then(|s| Some((s.window.as_ref().ok()?, s.settings.as_ref().ok()?)));
         let (Some((was, was_settings)), Some(work)) = (was, state.work.as_mut()) else {
             app.nui_views.insert(key, state);
             continue;
         };
+        work.verified_clean = false;
         fields::set_typed(typed.iter(), &mut work.window, &mut work.settings);
         let raw = (work.window != *was).then(|| serde_json::to_string_pretty(&work.window).ok());
         let config =
@@ -1245,22 +1305,26 @@ fn editor(
 }
 
 /// What the module holds of window `key`: its text and its settings' text,
-/// as the shared bytes they are (a pointer each, no copy). Why there is
-/// nothing to edit where the window is gone or is not text.
-fn held(module: &mg_module::Module, key: ResKey) -> Result<[Held; 2], Nothing> {
+/// as the shared bytes they are (a pointer each, no copy). Does not scan UTF-8;
+/// [`check_utf8`] checks bytes only when the held handles change.
+fn held_raw(module: &mg_module::Module, key: ResKey) -> Result<[Held; 2], Nothing> {
     let Some(bytes) = module.shared(&key) else { return Err(GONE) };
-    if std::str::from_utf8(bytes).is_err() {
+    let config = module.shared(&ResKey::new(key.resref, ResType::TXT)).cloned();
+    Ok([Some(bytes.clone()), config])
+}
+
+fn check_utf8(of: &[Held; 2]) -> Result<(), Nothing> {
+    if of[0].as_deref().is_some_and(|bytes| std::str::from_utf8(bytes).is_err()) {
         return Err(
             "This window's JUI is not UTF-8 text: it is kept as it is and can't be edited here.",
         );
     }
-    let config = module.shared(&ResKey::new(key.resref, ResType::TXT)).cloned();
-    if config.as_ref().is_some_and(|c| std::str::from_utf8(c).is_err()) {
+    if of[1].as_deref().is_some_and(|c| std::str::from_utf8(c).is_err()) {
         return Err(
             "This window's settings (its TXT) are not UTF-8 text: they are kept as they are.",
         );
     }
-    Ok([Some(bytes.clone()), config])
+    Ok(())
 }
 
 /// What a JUI that reads as JSON but is no object says: in the editor, and
@@ -1272,9 +1336,14 @@ const NOT_A_WINDOW: &str = "A window is a JSON object ({ … }): this text is no
 /// `state` between ([`State::source`], [`State::checks`]); the designer's
 /// copy to edit made again where they were parsed again.
 fn check(module: &mg_module::Module, key: ResKey, state: &mut State) -> Result<Checked, Nothing> {
-    let name = key.resref.to_string();
-    let of = held(module, key)?;
+    let of = held_raw(module, key)?;
     if state.source.as_ref().is_none_or(|s| !same(&s.of, &of)) {
+        if let Err(why) = check_utf8(&of) {
+            state.source = None;
+            state.work = None;
+            state.checks = None;
+            return Err(why);
+        }
         // (A window is an object: text that reads as a list or a number
         // is not one, and the pages, which set its fields, are not shown
         // it.)
@@ -1295,7 +1364,12 @@ fn check(module: &mg_module::Module, key: ResKey, state: &mut State) -> Result<C
         state.work = match (&window, &settings) {
             (Ok(w), Ok(s)) => {
                 state.copies += 1;
-                Some(Work { of: of.clone(), window: w.clone(), settings: s.clone() })
+                Some(Work {
+                    of: of.clone(),
+                    window: w.clone(),
+                    settings: s.clone(),
+                    verified_clean: false,
+                })
             }
             _ => None,
         };
@@ -1307,12 +1381,16 @@ fn check(module: &mg_module::Module, key: ResKey, state: &mut State) -> Result<C
     // (Its scripts' keys made once for the designer, not for each of its
     // parts in every frame.)
     let scripts = *state.script_keys.get_or_insert_with(|| {
+        let name = key.resref.to_string();
         [("_o", ResType::NSS), ("_o", ResType::NCS), ("_e", ResType::NSS), ("_e", ResType::NCS)]
             .map(|(suffix, ty)| ResKey::parse(&format!("{name}{suffix}"), ty))
     });
     let shared = |key: Option<ResKey>| key.and_then(|k| module.shared(&k).cloned());
-    let checked: Vec<Held> = of.into_iter().chain(scripts.map(shared)).collect();
+    let [jui, txt] = of;
+    let checked: [Held; 6] =
+        [jui, txt, shared(scripts[0]), shared(scripts[1]), shared(scripts[2]), shared(scripts[3])];
     if state.checks.as_ref().is_none_or(|c| !same(&c.of, &checked)) {
+        let name = key.resref.to_string();
         let (findings, needs_build) = match (&source.window, &source.settings) {
             (Ok(v), Ok(s)) => (mg_nui::validate(v, s), !mg_nui::is_current(module, &name, v, s)),
             _ => (Vec::new(), false),
@@ -1459,17 +1537,11 @@ fn header(
     // (Measured as the kit lays it out: each choice its words and the
     // padding at each side, a line between them; as the area header's Day
     // | Night.)
-    let switch_width = {
-        let font = egui::TextStyle::Body.resolve(ui.style());
-        let words = |w: &str| {
-            ui.fonts_mut(|f| f.layout_no_wrap(w.to_string(), font.clone(), egui::Color32::WHITE))
-                .size()
-                .x
-        };
-        let pad = 2.0 * mg_uikit::metrics::CONTROL_PADDING_X;
-        let widths: f32 = PAGES.iter().map(|(_, w, _)| words(w) + pad).sum();
-        widths.ceil() + (PAGES.len() - 1) as f32
-    };
+    let switch_width = form::segmented_width(
+        ui,
+        egui::Id::new("nui-pages-switch-w"),
+        &[PAGES[0].1, PAGES[1].1, PAGES[2].1, PAGES[3].1],
+    );
     let switch = |ui: &mut Ui| {
         let mut chosen = page.get();
         // (In a room of its own size: the group's place is its choices'.)
@@ -1849,7 +1921,7 @@ fn bindings_page(ui: &mut Ui, state: &mut State) {
         return;
     };
     main_root(&mut work, state, true);
-    design::bindings(ui, &mut work.settings, Some(&mut work.window), state);
+    design::bindings(ui, &mut work.settings, Some(&mut work.window), Some(&work.of), state);
     main_root(&mut work, state, false);
     state.work = Some(work);
 }
@@ -2245,9 +2317,9 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     for (section, keys, open) in SECTIONS {
         let layout_sizes = *section == "Size & Layout" && ty != "window";
         if !layout_sizes
-            && !keys.iter().any(|k| {
-                obj.get(*k).is_some_and(|v| !v.is_null() || property_default(&ty, k).is_some())
-            })
+            && !keys
+                .iter()
+                .any(|k| obj.get(*k).is_some_and(|v| !v.is_null() || has_property_default(&ty, k)))
         {
             continue;
         }
@@ -2282,7 +2354,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                     continue;
                 }
                 if let Some(value) = obj.get_mut(*key)
-                    && (!value.is_null() || property_default(&ty, key).is_some())
+                    && (!value.is_null() || has_property_default(&ty, key))
                     && !(*key == "title" && *value == json!(false))
                     // Optional window settings show once added.
                     && !(value.is_null()
@@ -2547,12 +2619,12 @@ fn advanced_keys(obj: &serde_json::Map<String, Value>, ty: &str) -> Vec<String> 
             // additional authorable properties (e.g. Label.label, Button.value).
             if value.is_null()
                 && matches!(key.as_str(), "label" | "value")
-                && property_default(ty, key).is_none()
+                && !has_property_default(ty, key)
             {
                 return None;
             }
             if SECTIONS.iter().any(|(_, keys, _)| keys.contains(&key.as_str()))
-                && (!value.is_null() || property_default(ty, key).is_some())
+                && (!value.is_null() || has_property_default(ty, key))
             {
                 return None;
             }
@@ -2591,17 +2663,47 @@ fn fitting_size(node: &serde_json::Map<String, Value>, key: &str, fallback: f64)
         .fold(fallback + 4.0, f64::max)
 }
 
+fn template_for(ty: &str) -> Option<&'static Value> {
+    static TEMPLATES: std::sync::OnceLock<std::collections::HashMap<&'static str, Value>> =
+        std::sync::OnceLock::new();
+    let map = TEMPLATES.get_or_init(|| {
+        let mut m = std::collections::HashMap::with_capacity(mg_nui::ELEMENTS.len() + 1);
+        m.insert("window", mg_nui::window());
+        for &el in mg_nui::ELEMENTS {
+            m.insert(el, mg_nui::template(el));
+        }
+        m
+    });
+    map.get(ty)
+}
+
+fn has_property_default(ty: &str, key: &str) -> bool {
+    template_for(ty).and_then(|t| t.get(key)).is_some_and(|v| !v.is_null())
+        || matches!(
+            key,
+            "id" | "tooltip"
+                | "disabled_tooltip"
+                | "font"
+                | "width"
+                | "height"
+                | "margin"
+                | "padding"
+                | "aspect"
+                | "enabled"
+                | "visible"
+                | "encouraged"
+                | "collapsed"
+                | "foreground_color"
+                | "size_constraint"
+                | "edge_constraint"
+                | "image_region"
+        )
+}
+
 /// A missing value must use the property's type, not a generic JSON type menu.
 /// Unknown/custom fields remain losslessly editable in the source editor.
 fn property_default(ty: &str, key: &str) -> Option<Value> {
-    let template = if ty == "window" {
-        mg_nui::window()
-    } else if mg_nui::ELEMENTS.contains(&ty) {
-        mg_nui::template(ty)
-    } else {
-        Value::Null
-    };
-    if let Some(value) = template.get(key).filter(|v| !v.is_null()) {
+    if let Some(value) = template_for(ty).and_then(|t| t.get(key)).filter(|v| !v.is_null()) {
         return Some(value.clone());
     }
     Some(match key {
@@ -3456,5 +3558,35 @@ mod tests {
         egui::__run_test_ui(|ui| {
             draw::editor(ui, &mut node, &mut s.clone(), &skin::Assets::default());
         });
+    }
+
+    #[test]
+    fn check_rejects_non_utf8_and_recovers_on_valid_bytes() {
+        let mut module = mg_module::Module::new();
+        let key = ResKey::parse("badutf8", ResType::JUI).unwrap();
+        let valid = serde_json::to_vec(&mg_nui::window()).unwrap();
+        module.set(key, valid.clone());
+        let mut state = State::default();
+        assert!(check(&module, key, &mut state).is_ok());
+        assert!(state.source.is_some());
+        assert!(state.work.is_some());
+
+        module.set(key, vec![0xff, 0xfe]);
+        assert!(check(&module, key, &mut state).is_err());
+        assert!(state.source.is_none());
+        assert!(state.work.is_none());
+        assert!(state.checks.is_none());
+
+        module.set(key, valid);
+        let txt = ResKey::new(key.resref, ResType::TXT);
+        module.set(txt, vec![0x80]);
+        assert!(check(&module, key, &mut state).is_err());
+        assert!(state.source.is_none());
+        assert!(state.work.is_none());
+
+        module.set(txt, mg_nui::Settings::default().bytes());
+        assert!(check(&module, key, &mut state).is_ok());
+        assert!(state.source.is_some());
+        assert!(state.work.is_some());
     }
 }

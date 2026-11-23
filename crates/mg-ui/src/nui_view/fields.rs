@@ -65,6 +65,11 @@ fn shows_unset(ui: &Ui, field: egui::Id, set: Value, shown: Value) {
     ui.data_mut(|d| d.get_temp_mut_or_default::<Unset>(id).0.push((set, shown, field)));
 }
 
+/// Whether any field showed an uncommitted preview value this frame.
+pub(super) fn has_unset(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<Unset>(unset_id(ctx)).is_some_and(|u| !u.0.is_empty()))
+}
+
 /// Notes the field `field` as drawn this frame.
 fn drawn(ui: &Ui, field: egui::Id) {
     let id = drawn_id(ui.ctx());

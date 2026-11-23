@@ -80,23 +80,6 @@ fn polyline(points: &[Value], origin: Pos2, scale: f32) -> Vec<Pos2> {
         .collect()
 }
 
-/// Keep bind formatting metadata while resolving one repeated drawing's array values.
-fn instance_settings(item: &Value, settings: &Settings, index: usize) -> Settings {
-    let bindings = mg_nui::bind_names(item)
-        .into_iter()
-        .filter_map(|name| {
-            let binding = settings.bindings.get(&name)?;
-            let value = if binding.value.is_array() {
-                binding.value.get(index).cloned().unwrap_or(Value::Null)
-            } else {
-                binding.value.clone()
-            };
-            Some((name, Binding { value, ..Default::default() }))
-        })
-        .collect();
-    Settings { bindings, ..Default::default() }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint(
     p: &egui::Painter,
@@ -117,27 +100,11 @@ pub(super) fn paint(
         if (item["order"].as_i64().unwrap_or(1) < 0) != before {
             continue;
         }
-        if item["arrayBinds"] == true {
-            // Array binds hold one value per list row, as other binds in a
-            // list do: the client draws the item once, with this row's values
-            // (the first ones outside a list), not once per value (NWN EE
-            // 8193.37, np_drawidx: three rectangles bound, the first drawn).
-            let instance = instance_settings(item, s, row.unwrap_or(0));
-            let mut copy = item.clone();
-            copy["arrayBinds"] = false.into();
-            paint(
-                &p,
-                &json!({"draw_list":[copy]}),
-                bounds,
-                scale,
-                &instance,
-                assets,
-                None,
-                before,
-                mouse,
-            );
-            continue;
-        }
+        // Array binds hold one value per list row: resolve them directly at
+        // `row.unwrap_or(0)` without cloning `item` or `Settings` (NWN EE
+        // 8193.37, np_drawidx).
+        let sub_row = (item["arrayBinds"] == true).then_some(row.unwrap_or(0));
+        let row = sub_row.or(row);
         if !flag(&item["enabled"], s, row, true) {
             continue;
         }
@@ -156,8 +123,8 @@ pub(super) fn paint(
         let color = rgba(val(&item["color"], s, row), Color32::WHITE);
         let stroke = Stroke::new(num(&item["line_thickness"], s, row, 1.0).max(0.0) * scale, color);
         let fill = if flag(&item["fill"], s, row, false) { color } else { Color32::TRANSPARENT };
-        let point = |key: &str| bounds.min + coord(val(&item[key], s, row), s, None) * scale;
-        let r = rect(val(&item["rect"], s, row), s, None, bounds.min, scale);
+        let point = |key: &str| bounds.min + coord(val(&item[key], s, row), s, sub_row) * scale;
+        let r = rect(val(&item["rect"], s, row), s, sub_row, bounds.min, scale);
         let shape = |points: Vec<Pos2>, closed: bool| {
             p.add(egui::epaint::PathShape {
                 points,
@@ -1019,8 +986,7 @@ mod tests {
             text["bind"] = bind.into();
             let item = json!({"type":4,"arrayBinds":true,"text":text});
             for (index, expected) in expected.iter().enumerate() {
-                let instance = instance_settings(&item, &settings, index);
-                assert_eq!(string(&item["text"], &instance, None), *expected);
+                assert_eq!(string(&item["text"], &settings, Some(index)), *expected);
             }
         }
         assert_eq!(settings.bindings["values"].value, json!([15, 255]));

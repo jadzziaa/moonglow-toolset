@@ -8,66 +8,116 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct Insert(pub(super) &'static str);
 
-type Component = (&'static str, &'static str, &'static str);
-type ComponentGroup = (&'static str, &'static [Component]);
+#[derive(Clone, Copy)]
+pub(super) struct ComponentSpec {
+    pub ty: &'static str,
+    pub title: &'static str,
+    pub sentence: &'static str,
+    pub search: &'static str,
+    pub summary: &'static str,
+}
 
-const PALETTE: &[ComponentGroup] = &[
+type ComponentGroup = (&'static str, &'static [ComponentSpec]);
+
+const fn spec(
+    ty: &'static str,
+    title: &'static str,
+    sentence: &'static str,
+    search: &'static str,
+    summary: &'static str,
+) -> ComponentSpec {
+    ComponentSpec { ty, title, sentence, search, summary }
+}
+
+pub(super) const COMPONENTS: &[ComponentGroup] = &[
     (
         "Layout",
         &[
-            ("col", "Column", "Stack vertically"),
-            ("row", "Row", "Arrange side by side"),
-            ("group", "Group", "A bordered container"),
-            ("swap", "Swap layout", "A Group slot with alternate layouts"),
-            ("spacer", "Spacer", "Leave space between controls"),
+            spec("col", "Column", "Column", "col column", "Stack vertically"),
+            spec("row", "Row", "Row", "row row", "Arrange side by side"),
+            spec("group", "Group", "Group", "group group", "A bordered container"),
+            spec(
+                "swap",
+                "Swap Layout",
+                "Swap layout",
+                "swap swap layout",
+                "A Group slot with alternate layouts",
+            ),
+            spec("spacer", "Spacer", "Spacer", "spacer spacer", "Leave space between controls"),
         ],
     ),
     (
-        "Text & actions",
+        "Text & Actions",
         &[
-            ("label", "Label", "A short line of text"),
-            ("text", "Text block", "Longer, scrollable text"),
-            ("button", "Button", "A clickable action"),
-            ("button_select", "Toggle button", "A selectable action"),
+            spec("label", "Label", "Label", "label label", "A short line of text"),
+            spec("text", "Text Block", "Text block", "text text block", "Longer, scrollable text"),
+            spec("button", "Button", "Button", "button button", "A clickable action"),
+            spec(
+                "button_select",
+                "Toggle Button",
+                "Toggle button",
+                "button_select toggle button",
+                "A selectable action",
+            ),
         ],
     ),
     (
         "Inputs",
         &[
-            ("textedit", "Text input", "Let players type"),
-            ("check", "Checkbox", "An on/off option"),
-            ("combo", "Dropdown", "Choose from a list"),
-            ("slider", "Integer slider", "Choose a whole number"),
-            ("sliderf", "Decimal slider", "Choose a decimal value"),
-            ("color_picker", "Color picker", "Choose a color"),
+            spec("textedit", "Text Input", "Text input", "textedit text input", "Let players type"),
+            spec("check", "Checkbox", "Checkbox", "check checkbox", "An on/off option"),
+            spec("combo", "Dropdown", "Dropdown", "combo dropdown", "Choose from a list"),
+            spec(
+                "slider",
+                "Integer Slider",
+                "Integer slider",
+                "slider integer slider",
+                "Choose a whole number",
+            ),
+            spec(
+                "sliderf",
+                "Decimal Slider",
+                "Decimal slider",
+                "sliderf decimal slider",
+                "Choose a decimal value",
+            ),
+            spec(
+                "color_picker",
+                "Color Picker",
+                "Color picker",
+                "color_picker color picker",
+                "Choose a color",
+            ),
         ],
     ),
     (
-        "Display & navigation",
+        "Display & Navigation",
         &[
-            ("image", "Image", "Display a game resource"),
-            ("button_image", "Image button", "An action with an image"),
-            ("progress", "Progress bar", "Show progress"),
-            ("list", "List", "Repeat a row template"),
-            ("options", "Options", "A set of choices"),
-            ("tabbar", "Tabs", "Switch between choices"),
-            ("chart", "Chart", "Plot a data series"),
+            spec("image", "Image", "Image", "image image", "Display a game resource"),
+            spec(
+                "button_image",
+                "Image Button",
+                "Image button",
+                "button_image image button",
+                "An action with an image",
+            ),
+            spec(
+                "progress",
+                "Progress Bar",
+                "Progress bar",
+                "progress progress bar",
+                "Show progress",
+            ),
+            spec("list", "List", "List", "list list", "Repeat a row template"),
+            spec("options", "Options", "Options", "options options", "A set of choices"),
+            spec("tabbar", "Tabs", "Tabs", "tabbar tabs", "Switch between choices"),
+            spec("chart", "Chart", "Chart", "chart chart", "Plot a data series"),
         ],
     ),
 ];
 
-/// The palette's types, in its order (`panels::COMPONENTS`' test).
-#[cfg(test)]
-pub(super) fn palette_types() -> Vec<&'static str> {
-    PALETTE.iter().flat_map(|(_, items)| items.iter().map(|(ty, ..)| *ty)).collect()
-}
-
 fn title(ty: &str) -> &str {
-    PALETTE
-        .iter()
-        .flat_map(|(_, items)| *items)
-        .find(|(key, _, _)| *key == ty)
-        .map_or(ty, |(_, name, _)| name)
+    COMPONENTS.iter().flat_map(|(_, items)| *items).find(|c| c.ty == ty).map_or(ty, |c| c.sentence)
 }
 
 /// Where a document binds a property to `name`: the bound properties' paths.
@@ -90,6 +140,9 @@ fn binds_uses(
                 return;
             }
             for (k, v) in o {
+                if !matches!(v, Value::Object(_) | Value::Array(_)) {
+                    continue;
+                }
                 at.push('/');
                 at.push_str(k);
                 binds_uses(v, at, out);
@@ -98,6 +151,9 @@ fn binds_uses(
         }
         Value::Array(a) => {
             for (i, v) in a.iter().enumerate() {
+                if !matches!(v, Value::Object(_) | Value::Array(_)) {
+                    continue;
+                }
                 let _ = write!(at, "/{i}");
                 binds_uses(v, at, out);
                 at.truncate(here);
@@ -321,8 +377,14 @@ pub(super) fn inspector(
 }
 
 /// The Bindings page: [`bindings_in`] with its heading.
-pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&mut Value>, state: &mut State) {
-    bindings_in(ui, s, v, state, true);
+pub(super) fn bindings(
+    ui: &mut Ui,
+    s: &mut Settings,
+    v: Option<&mut Value>,
+    of: Option<&[Held; 2]>,
+    state: &mut State,
+) {
+    bindings_in(ui, s, v, of, state, true);
 }
 
 /// Whether a control, or anything under it, has what Layers' filter looks
@@ -339,6 +401,33 @@ pub(super) fn holds(v: &Value, search: &mg_core::text::Needle) -> bool {
     }
 }
 
+fn take_binds_seen(
+    state: &mut State,
+    s: &Settings,
+    v: Option<&Value>,
+    of: Option<&[Held; 2]>,
+) -> BindsSeen {
+    if let Some(of) = of
+        && let Some(kept) = state.binds_seen.take_if(|b| same(&b.of, of))
+    {
+        return kept;
+    }
+    let mut in_variants = std::collections::BTreeSet::new();
+    for view in s.variants.values() {
+        in_variants.extend(mg_nui::bind_names(view));
+    }
+    let mut used = in_variants.clone();
+    let mut uses = std::collections::BTreeMap::new();
+    if let Some(v) = v {
+        used.extend(mg_nui::bind_names(v));
+        binds_uses(v, &mut String::new(), &mut uses);
+    }
+    if of.is_some() {
+        state.binds_walks += 1;
+    }
+    BindsSeen { of: of.cloned().unwrap_or_default(), used, uses, in_variants }
+}
+
 /// The window's binds (the Bindings page, `titled` with its heading, and
 /// the Right Dock's Bindings panel): Create bind, each bind's initial
 /// value, watch, name and uses, Client delivery and Window identity.
@@ -346,6 +435,7 @@ pub(super) fn bindings_in(
     ui: &mut Ui,
     s: &mut Settings,
     v: Option<&mut Value>,
+    of: Option<&[Held; 2]>,
     state: &mut State,
     titled: bool,
 ) {
@@ -358,11 +448,8 @@ pub(super) fn bindings_in(
         ui.label("A bind is a named value the event script can change.");
         ui.weak("Made here, it is chosen for a control's property in Design.");
         workflow::create_bind(ui, &mut s.bindings, true, false);
-        let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
-        for view in s.variants.values() {
-            used.extend(mg_nui::bind_names(view));
-        }
-        for name in &used {
+        let seen = take_binds_seen(state, s, v.as_deref(), of);
+        for name in &seen.used {
             if !s.bindings.contains_key(name) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} needs an initial value"));
@@ -372,18 +459,13 @@ pub(super) fn bindings_in(
                 });
             }
         }
-        if s.bindings.is_empty() && used.is_empty() {
+        if s.bindings.is_empty() && seen.used.is_empty() {
             ui.weak("No binds yet.");
         }
         let names: Vec<_> = s.bindings.keys().cloned().collect();
         // The window is read by every bind's part of the page and written
         // by none: a bind renamed is renamed in it once they are drawn.
         // (It was copied whole for the page, and again for each bind.)
-        let mut uses = std::collections::BTreeMap::new();
-        let mut in_variants = std::collections::BTreeSet::new();
-        for view in s.variants.values() {
-            in_variants.extend(mg_nui::bind_names(view));
-        }
         let mut renamed = None;
         {
             let none;
@@ -394,12 +476,11 @@ pub(super) fn bindings_in(
                     &none
                 }
             };
-            binds_uses(doc, &mut String::new(), &mut uses);
             for name in names {
                 let used = Used {
-                    anywhere: used.contains(&name),
-                    at: uses.get(&name).map_or(&[], Vec::as_slice),
-                    in_a_variant: in_variants.contains(&name),
+                    anywhere: seen.used.contains(&name),
+                    at: seen.uses.get(&name).map_or(&[], Vec::as_slice),
+                    in_a_variant: seen.in_variants.contains(&name),
                 };
                 // (The bind chosen in the Bindings panel's table, brought
                 // into sight and opened: M4's U19.)
@@ -419,6 +500,9 @@ pub(super) fn bindings_in(
                     state.bind_reveal = false;
                 }
             }
+        }
+        if of.is_some() {
+            state.binds_seen = Some(seen);
         }
         if let (Some(names), Some(doc)) = (renamed, v) {
             shortcuts::rename_binds(doc, &names);
@@ -492,6 +576,72 @@ pub(super) fn window_settings(ui: &mut Ui, s: &mut Settings) {
 /// kind, When This Value Changes, where it is used, Delete), unless the
 /// Bindings page shows every bind's (`page`). `create`: the panel's
 /// header's plus was clicked (Create Bind's dialog).
+fn preview_json_value(v: &Value, max_bytes: usize) -> String {
+    fn write_truncated(v: &Value, out: &mut String, max: usize) -> bool {
+        use std::fmt::Write;
+        if out.len() >= max {
+            return true;
+        }
+        match v {
+            Value::Null => out.push_str("null"),
+            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Value::Number(n) => {
+                let _ = write!(out, "{n}");
+            }
+            Value::String(s) => {
+                if let Ok(q) = serde_json::to_string(s) {
+                    if out.len() + q.len() <= max {
+                        out.push_str(&q);
+                    } else {
+                        let room = max.saturating_sub(out.len());
+                        let cut = q
+                            .char_indices()
+                            .take_while(|(i, _)| *i <= room)
+                            .last()
+                            .map_or(0, |(i, _)| i);
+                        out.push_str(&q[..cut]);
+                        return true;
+                    }
+                }
+            }
+            Value::Array(a) => {
+                out.push('[');
+                for (i, item) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    if write_truncated(item, out, max) || out.len() >= max {
+                        return true;
+                    }
+                }
+                out.push(']');
+            }
+            Value::Object(o) => {
+                out.push('{');
+                for (i, (k, val)) in o.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    if let Ok(q) = serde_json::to_string(k) {
+                        out.push_str(&q);
+                        out.push(':');
+                    }
+                    if write_truncated(val, out, max) || out.len() >= max {
+                        return true;
+                    }
+                }
+                out.push('}');
+            }
+        }
+        false
+    }
+    let mut out = String::with_capacity(max_bytes.min(128));
+    if write_truncated(v, &mut out, max_bytes) {
+        out.push('…');
+    }
+    out
+}
+
 pub(super) fn bindings_table(
     ui: &mut Ui,
     (s, v, of): (&mut Settings, &mut Value, &[Held; 2]),
@@ -500,23 +650,7 @@ pub(super) fn bindings_table(
     create: bool,
 ) {
     let t = mg_uikit::tokens(ui.ctx());
-    // Where the window and its variants name each bind, walked once for the
-    // bytes they were read from (no frame walks the window for them: the
-    // tip's panel walked it twice a frame, M4's U19 review).
-    let fresh = state.binds_seen.as_ref().is_none_or(|b| !same(&b.of, of));
-    if fresh {
-        let mut used = mg_nui::bind_names(v);
-        let mut in_variants = std::collections::BTreeSet::new();
-        for view in s.variants.values() {
-            in_variants.extend(mg_nui::bind_names(view));
-        }
-        used.extend(in_variants.iter().cloned());
-        let mut uses = std::collections::BTreeMap::new();
-        binds_uses(v, &mut String::new(), &mut uses);
-        state.binds_seen = Some(BindsSeen { of: of.clone(), used, uses, in_variants });
-        state.binds_walks += 1;
-    }
-    let seen = state.binds_seen.take().expect("just made");
+    let seen = take_binds_seen(state, s, Some(v), Some(of));
     if let Some(name) = workflow::create_bind(ui, &mut s.bindings, false, create) {
         state.bind_chosen = Some(name);
     }
@@ -565,7 +699,26 @@ pub(super) fn bindings_table(
         .and_then(|n| n[&state.binding_property]["bind"].as_str())
         .map(str::to_owned);
     let mut toggled = None;
-    for name in &names {
+    let a11y = ui.ctx().accesskit_node_builder(said.id, |_| ()).is_some();
+    let step = row + ui.spacing().item_spacing.y;
+    let clip = ui.clip_rect();
+    let start_y = ui.cursor().top();
+    let (first_vis, last_vis) = if a11y || names.is_empty() {
+        (0, names.len())
+    } else {
+        let first = ((clip.top() - start_y) / step).floor().max(0.0) as usize;
+        let last =
+            (((clip.bottom() - start_y) / step).ceil().max(0.0) as usize + 1).min(names.len());
+        (first.min(last), last)
+    };
+    if first_vis > 0 {
+        ui.allocate_space(egui::vec2(
+            width,
+            first_vis as f32 * row
+                + first_vis.saturating_sub(1) as f32 * ui.spacing().item_spacing.y,
+        ));
+    }
+    for name in &names[first_vis..last_vis] {
         let Some(binding) = s.bindings.get(name) else { continue };
         let (rect, r) = ui.allocate_exact_size(egui::vec2(width, row), egui::Sense::click());
         // (The bind the property chosen in Property Binding takes its value
@@ -585,16 +738,18 @@ pub(super) fn bindings_table(
         let text = if bound { t.on_fill } else { t.text };
         let (n, value, w) = cols(rect);
         cell(ui, n, name, &mono, text);
-        let shown = serde_json::to_string(&binding.value).unwrap_or_default();
+        let shown = preview_json_value(&binding.value, 160);
         cell(ui, value, &shown, &mono, text);
         let watched = s.handlers.iter().any(|h| h.event == "watch" && h.element == *name);
         let mut on = watched;
         let check = egui::Rect::from_center_size(w.center(), egui::vec2(18.0, 18.0));
-        let said = format!("Watch {name}");
         let c = ui
             .put(check, egui::Checkbox::without_text(&mut on))
             .on_hover_text("A handler runs when the event script's value of it changes");
-        c.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, &said));
+        c.widget_info(|| {
+            let said = format!("Watch {name}");
+            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, &said)
+        });
         if on != watched {
             toggled = Some((name.clone(), on));
         }
@@ -605,10 +760,22 @@ pub(super) fn bindings_table(
             let said = "Bound to the property chosen";
             ui.ctx().accesskit_node_builder(r.id, |node| node.set_description(said));
         }
-        if r.on_hover_text(format!("{name} = {shown}")).clicked() {
+        let clicked = r
+            .on_hover_ui(|ui| {
+                ui.label(format!("{name} = {}", preview_json_value(&binding.value, 256)));
+            })
+            .clicked();
+        if clicked {
             state.bind_chosen = Some(name.clone());
             state.bind_reveal = true;
         }
+    }
+    let after = names.len().saturating_sub(last_vis);
+    if after > 0 {
+        ui.allocate_space(egui::vec2(
+            width,
+            after as f32 * row + after.saturating_sub(1) as f32 * ui.spacing().item_spacing.y,
+        ));
     }
     if let Some((name, on)) = toggled {
         if on {
