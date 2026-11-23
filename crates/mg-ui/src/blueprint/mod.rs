@@ -1882,9 +1882,12 @@ impl Form<'_> {
     /// A placed outline's own color (Moonglow's `MG_OutlineColor`, a
     /// DWORD 0x00BBGGRR the game and Aurora don't read), with the picker
     /// and its `swatches`, shown as `default` (its kind's) where it has
-    /// none; what is picked is stored when the picker closes (one
-    /// command). Default takes the field off (of each object edited
-    /// together), enabled where any of them has it.
+    /// none. Each pick is stored at once, one command: a swatch, a color
+    /// typed or pasted; a drag on the picker when the button is let go
+    /// (held, the color is shown, kept for this frame and the next only,
+    /// so it never lands later or on another object). Default takes the
+    /// field off (of each object edited together), enabled where any of
+    /// them has it, of any type.
     pub(crate) fn outline_color(
         &mut self,
         ui: &mut Ui,
@@ -1896,12 +1899,19 @@ impl Form<'_> {
         let current = mg_rules::placement::outline_color(&self.root);
         let differs = self.differs(label);
         let pending_id = self.id(label).with("pending");
-        let pending: Option<[u8; 3]> = ui.data(|d| d.get_temp(pending_id));
+        // (A drag's color, held: kept from the last frame only. A form no
+        // longer drawn while it was held leaves it stale, dropped.)
+        let pass = ui.ctx().cumulative_pass_nr();
+        let pending: Option<[u8; 3]> = ui
+            .data(|d| d.get_temp::<([u8; 3], u64)>(pending_id))
+            .filter(|(_, at)| pass.saturating_sub(*at) <= 1)
+            .map(|(c, _)| c);
+        ui.data_mut(|d| d.remove::<([u8; 3], u64)>(pending_id));
         let mut rgb = pending.or(current).unwrap_or(default);
         let mut reset = false;
         let id = self.id(label);
-        let open = row(ui, |ui| {
-            let (changed, open) = ui
+        let picked = row(ui, |ui| {
+            let (changed, _open) = ui
                 .push_id(id, |ui| {
                     let popup = ui.auto_id_with("popup");
                     let button = crate::color_button::edit_srgb_with(ui, &mut rgb, swatches);
@@ -1916,30 +1926,35 @@ impl Form<'_> {
                     (changed, egui::Popup::is_id_open(ui.ctx(), popup))
                 })
                 .inner;
-            if changed {
-                ui.data_mut(|d| d.insert_temp(pending_id, rgb));
-            }
-            // (Past MIXED_LIMIT the others aren't looked at: maybe set.)
-            let set = current.is_some() || differs || self.also.len() > MIXED_LIMIT;
+            let picked = (changed || pending.is_some()).then_some(rgb);
+            // (Past MIXED_LIMIT the others aren't looked at: maybe set.
+            // A field of another type, from another tool, reads as no
+            // color and is still taken off.)
+            let set = self.root.get(label).is_some() || differs || self.also.len() > MIXED_LIMIT;
             let button = egui::Button::new(OUTLINE_COLOR_DEFAULT).small();
             reset = ui
                 .add_enabled(set, button)
                 .on_hover_text("Draws the outline in its usual color again")
                 .clicked();
-            open
+            picked
         })
         .inner;
         if reset {
-            ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
             self.set_opt(OUTLINE_COLOR_LABEL, label, None);
             return;
         }
-        if !open && let Some(v) = ui.data(|d| d.get_temp::<[u8; 3]>(pending_id)) {
-            ui.data_mut(|d| d.remove::<[u8; 3]>(pending_id));
-            if current != Some(v) || self.several() {
-                let [r, g, b] = v.map(u32::from);
-                self.set(OUTLINE_COLOR_LABEL, label, Value::Dword(r | g << 8 | b << 16));
-            }
+        let Some(v) = picked else { return };
+        // (Dragged on the picker: stored when the button is let go.)
+        if ui.input(|i| i.pointer.any_down()) {
+            ui.data_mut(|d| d.insert_temp(pending_id, (v, pass)));
+            return;
+        }
+        if current != Some(v)
+            || self.several()
+            || self.root.get(label).is_some_and(|_| current.is_none())
+        {
+            let [r, g, b] = v.map(u32::from);
+            self.set(OUTLINE_COLOR_LABEL, label, Value::Dword(r | g << 8 | b << 16));
         }
     }
 

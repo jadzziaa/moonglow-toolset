@@ -233,11 +233,13 @@ fn the_outline_color_row_sets_undoes_and_resets() {
     assert!(h.query_by_label("Paste Color").is_some(), "the picker open");
     h.get_by_label(cyan_name).click();
     settle(&mut h);
-    assert!(own_color(&encounters_now(&mut h, area)[1]).is_none(), "stored when it closes");
-    to_row(&mut h);
-    well(&h).click();
-    settle(&mut h);
     let stored = u32::from(cyan[0]) | u32::from(cyan[1]) << 8 | u32::from(cyan[2]) << 16;
+    let now = encounters_now(&mut h, area);
+    assert_eq!(own_color(&now[1]), Some(&Value::Dword(stored)), "stored at once");
+    // (Escape, the picker closed: as it was stored.)
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.query_by_label("Paste Color").is_none(), "the picker closed");
     let now = encounters_now(&mut h, area);
     assert_eq!(own_color(&now[1]), Some(&Value::Dword(stored)));
     assert!(own_color(&now[0]).is_none(), "the other untouched");
@@ -272,6 +274,136 @@ fn the_outline_color_row_sets_undoes_and_resets() {
     reset(&h).click();
     settle(&mut h);
     assert!(encounters_now(&mut h, area).iter().all(|e| own_color(e).is_none()));
+}
+
+/// A pick is stored on its object at once: the selection changed after
+/// it writes nothing more, and coming back to the object later writes
+/// nothing either (the review's probe: the color had waited, and landed
+/// as a new step when the object was next shown).
+#[test]
+fn a_pick_is_stored_at_once_and_never_later() {
+    let Some((mut h, area)) = area_harness("outline-color-at-once") else { return };
+    wide_window(&mut h);
+    two_encounters(&mut h, area, None);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    to_row(&mut h);
+    well(&h).click();
+    settle(&mut h);
+    h.get_by_label(OUTLINE_SWATCHES[2].0).click();
+    settle(&mut h);
+    let revision = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().revision();
+    let at = revision(&h);
+    let now = encounters_now(&mut h, area);
+    assert!(own_color(&now[1]).is_some() && own_color(&now[0]).is_none(), "{now:?}");
+    assert_eq!(undo_label(&h).as_deref(), Some(OUTLINE_COLOR_LABEL));
+    select(&mut h, area, &[(ObjectKind::Encounter, 0)]);
+    select(&mut h, area, &[]);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    assert_eq!(revision(&h), at, "nothing written after");
+    assert!(own_color(&encounters_now(&mut h, area)[0]).is_none(), "nor on the other");
+}
+
+/// A drag on the picker is stored when the button is let go; held while
+/// its encounter is deleted, it is written nowhere (not on the other
+/// encounter, not when the deletion is undone).
+#[test]
+fn a_drag_held_while_its_encounter_is_deleted_writes_nothing() {
+    let Some((mut h, area)) = area_harness("outline-color-drag") else { return };
+    wide_window(&mut h);
+    two_encounters(&mut h, area, None);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    to_row(&mut h);
+    well(&h).click();
+    settle(&mut h);
+    // (The picker's square, over its Paste Color button.)
+    let paste = h.get_by_label("Paste Color").rect();
+    let (a, b) = (
+        egui::pos2(paste.left(), paste.top() - 150.0),
+        egui::pos2(paste.left() + 40.0, paste.top() - 120.0),
+    );
+    h.hover_at(a);
+    press(&h, a, true, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.hover_at(b);
+    h.run_steps(2);
+    assert!(own_color(&encounters_now(&mut h, area)[1]).is_none(), "held: not yet stored");
+    // Its encounter deleted while the button is held.
+    let edit = mg_edit::Edit::remove_item(
+        ResKey::new(area, ResType::GIT),
+        mg_edit::GffPath::root(),
+        "Encounter List",
+        1,
+    );
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Delete", vec![edit])));
+    select(&mut h, area, &[]);
+    press(&h, b, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let now = encounters_now(&mut h, area);
+    assert_eq!(now.len(), 1);
+    assert!(own_color(&now[0]).is_none(), "not on the other: {:?}", now[0]);
+    assert_eq!(undo_label(&h).as_deref(), Some("Delete"));
+    select(&mut h, area, &[(ObjectKind::Encounter, 0)]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    let now = encounters_now(&mut h, area);
+    assert!(now.iter().all(|e| own_color(e).is_none()), "written nowhere: {now:?}");
+}
+
+/// A drag on the picker, let go, is stored then, one step.
+#[test]
+fn a_drag_on_the_picker_is_stored_when_let_go() {
+    let Some((mut h, area)) = area_harness("outline-color-drag-go") else { return };
+    wide_window(&mut h);
+    two_encounters(&mut h, area, None);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    to_row(&mut h);
+    well(&h).click();
+    settle(&mut h);
+    let paste = h.get_by_label("Paste Color").rect();
+    let (a, b) = (
+        egui::pos2(paste.left(), paste.top() - 150.0),
+        egui::pos2(paste.left() + 40.0, paste.top() - 120.0),
+    );
+    h.hover_at(a);
+    press(&h, a, true, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.hover_at(b);
+    h.run_steps(2);
+    assert!(own_color(&encounters_now(&mut h, area)[1]).is_none(), "held: not yet stored");
+    press(&h, b, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert!(own_color(&encounters_now(&mut h, area)[1]).is_some(), "let go: stored");
+    assert_eq!(undo_label(&h).as_deref(), Some(OUTLINE_COLOR_LABEL));
+}
+
+/// A field of another type (another tool's) reads as no color, and
+/// Default still takes it off.
+#[test]
+fn default_takes_off_a_field_of_another_type() {
+    let Some((mut h, area)) = area_harness("outline-color-typed") else { return };
+    wide_window(&mut h);
+    two_encounters(&mut h, area, None);
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("Encounter List", 1),
+        label: OUTLINE_COLOR.into(),
+        value: Some(Value::String(b"cyan".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Typed", vec![edit])));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Properties, Encounter");
+    to_row(&mut h);
+    assert!(!reset(&h).accesskit_node().is_disabled(), "Default on for a field of any type");
+    reset(&h).click();
+    settle(&mut h);
+    assert!(own_color(&encounters_now(&mut h, area)[1]).is_none(), "taken off");
 }
 
 /// The row is the placed encounter's alone: an encounter blueprint's

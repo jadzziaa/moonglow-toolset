@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T05:54:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T06:31:08Z }
 ---
 
 # Areas
@@ -740,8 +740,9 @@ Point** adds to the selected encounter.
 **An encounter's outline color**: encounters are outlined in orange, and
 so are their spawn points. To tell overlapping encounters apart, give
 one a color of its own: **Outline color** on a placed encounter's
-Properties › Basic (a swatch, or any color from the picker; it is stored
-when the picker closes, one Undo step). Selected, an encounter of its
+Properties › Basic (a swatch, or any color from the picker). Each pick
+is stored at once as one Undo step, a drag on the picker when you let
+go, and closing the picker, Escape too, keeps it. Selected, an encounter of its
 own color keeps it, drawn wider over a dark edge; one without turns the
 selection's color, as before. **Default** takes the color off. Moonglow
 keeps the color in a field of its own on the placed encounter
