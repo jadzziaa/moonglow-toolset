@@ -241,14 +241,7 @@ pub fn calls(code: &[Instr], spec: &Spec) -> Vec<Call> {
     for (at, i) in code.iter().enumerate() {
         let Arg::Action { routine, argc } = i.arg else { continue };
         let Some(f) = spec.functions.get(usize::from(routine)) else { continue };
-        let mut args = Vec::with_capacity(argc.into());
-        let mut depth = 0;
-        for p in f.params.iter().take(argc.into()) {
-            // (A vector is three constants, never one.)
-            let one = type_size(&p.ty) == 4;
-            args.push(one.then(|| pushed_at(code, at, depth, spec, &targets)).flatten());
-            depth += type_size(&p.ty);
-        }
+        let args = resolve_args(code, at, &f.params, argc, spec, &targets);
         out.push(Call { offset: i.offset, routine, args });
     }
     out
@@ -269,48 +262,60 @@ fn jump_targets(code: &[Instr]) -> std::collections::HashSet<usize> {
         .collect()
 }
 
-/// The constant at `depth` bytes below the top of the stack as the
-/// instruction at `at` runs, if a constant was pushed there in the
-/// straight code before it.
-fn pushed_at(
+/// Resolves all 4-byte constant arguments pushed before `at` in a single
+/// backward pass over straight-line instructions.
+fn resolve_args(
     code: &[Instr],
     at: usize,
-    mut depth: usize,
+    params: &[crate::spec::Param],
+    argc: u8,
     spec: &Spec,
     targets: &std::collections::HashSet<usize>,
-) -> Option<Const> {
-    let mut k = at;
-    loop {
-        // (Code a jump comes to may be reached from elsewhere than what
-        // is before it.)
-        if k == 0 || targets.contains(&code[k].offset) {
-            return None;
+) -> Vec<Option<Const>> {
+    let count = params.len().min(usize::from(argc));
+    let mut args = vec![None; count];
+    let mut pending: Vec<(usize, usize)> = Vec::new();
+    let mut depth = 0;
+    for (idx, p) in params.iter().take(count).enumerate() {
+        let sz = type_size(&p.ty);
+        // (A vector is three constants, never one.)
+        if sz == 4 {
+            pending.push((idx, depth));
         }
+        depth += sz;
+    }
+    let mut k = at;
+    while !pending.is_empty() && k > 0 && !targets.contains(&code[k].offset) {
         k -= 1;
         let i = &code[k];
         // What it pushed (on top), and what it took off first.
         let (pushed, popped) = match (&i.arg, i.op) {
-            (Arg::Const(c), _) => {
-                if depth < 4 {
-                    return (depth == 0).then(|| c.clone());
-                }
-                (4, 0)
-            }
+            (Arg::Const(_), _) => (4, 0),
             (Arg::Copy { size, .. }, op::CPTOPSP | op::CPTOPBP) => (usize::from(*size), 0),
             (Arg::None, op::RSADD) => (4, 0),
             (Arg::Action { routine, argc }, _) => {
-                let f = spec.functions.get(usize::from(*routine))?;
+                let Some(f) = spec.functions.get(usize::from(*routine)) else { break };
                 let args: usize =
                     f.params.iter().take((*argc).into()).map(|p| type_size(&p.ty)).sum();
                 (type_size(&f.return_type), args)
             }
-            _ => return None,
+            _ => break,
         };
-        if depth < pushed {
-            return None;
-        }
-        depth = depth - pushed + popped;
+        pending.retain_mut(|(idx, d)| {
+            if *d < pushed {
+                if *d == 0
+                    && let Arg::Const(c) = &i.arg
+                {
+                    args[*idx] = Some(c.clone());
+                }
+                false
+            } else {
+                *d = *d - pushed + popped;
+                true
+            }
+        });
     }
+    args
 }
 
 #[cfg(test)]

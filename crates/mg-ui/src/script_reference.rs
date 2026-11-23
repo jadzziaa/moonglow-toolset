@@ -67,7 +67,7 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
     // (The script's symbols as its editor last made them: none before it
     // is first drawn, which draws the panel again once it has them.)
     let symbols = app.script_tools.symbols.get(&key).map(|(_, s)| s.clone());
-    let made = symbols.as_ref().map_or(0, |s| std::sync::Arc::as_ptr(s) as usize);
+    let made = symbols.as_ref().map_or(0, |s| s.ptr_id());
     let shown = app.script_tools.help.as_ref().map(|h| h.name.clone());
     let pass = ui.ctx().cumulative_pass_nr();
     app.script_tools.reference_drawn = Some((pass, key, made, shown));
@@ -136,17 +136,34 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             SideTab::Variables => SymbolKind::Variable,
             _ => SymbolKind::Constant,
         };
-        let all = symbols.as_deref().map_or(&[][..], |s| s.as_slice());
-        // (By name already: `ScriptTools::symbols_for`.)
-        let list: Vec<&Symbol> =
-            all.iter().filter(|s| s.kind == kind && filter.finds(&s.name)).collect();
+        let empty = crate::script_tools::SymbolSet::default();
+        let set = symbols.as_ref().unwrap_or(&empty);
+        let cache_key = set.cache_key();
+        let hit = t.ref_cache.as_ref().is_some_and(|c| {
+            c.key == key && c.made == cache_key && c.kind == kind && c.filter == t.filter
+        });
+        if !hit {
+            let mut entries = Vec::new();
+            let mut iter = set.iter();
+            while let Some((is_own, idx, s)) = iter.next_indexed() {
+                if s.kind == kind && filter.finds(&s.name) {
+                    entries.push((is_own, idx));
+                }
+            }
+            t.ref_cache =
+                Some(RefCache { key, made: cache_key, kind, filter: t.filter.clone(), entries });
+        }
+        let entries = &t.ref_cache.as_ref().expect("just cached").entries;
+        let entry = |&(is_own, idx): &(bool, usize)| -> &Symbol {
+            if is_own { &set.own[idx] } else { &set.spec[idx] }
+        };
         let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
         // (The name Help shows, chosen elsewhere (the text's cursor, Go to
         // Definition) since the list last showed it: the list scrolled to
         // it, in its middle, once.)
         let shown = t.help.as_ref().map(|h| h.name.clone());
         if shown.is_some() && shown != t.list_at {
-            let at = list.iter().position(|s| Some(&s.name) == shown.as_ref());
+            let at = entries.iter().position(|e| Some(&entry(e).name) == shown.as_ref());
             if let Some(at) = at {
                 let (_, pitch) = mg_uikit::row_metrics(ui);
                 let room = ui.available_height();
@@ -156,11 +173,12 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             t.list_at = shown;
         }
         let area = area.id_salt(("symbols", kind));
-        mg_uikit::show_rows(area, ui, list.len(), |ui, range| {
+        mg_uikit::show_rows(area, ui, entries.len(), |ui, range| {
             // (Each row as wide as the list, so that its width doesn't
             // change with the names in view.)
             ui.set_min_width(ui.available_width());
-            for s in &list[range] {
+            for e in &entries[range] {
+                let s = entry(e);
                 // (The module's own in the theme's text, the game's in its
                 // secondary text. Chosen, the selection's own color.)
                 let chosen = t.help.as_ref().is_some_and(|h| h.name == s.name);
@@ -170,7 +188,7 @@ pub(crate) fn reference(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                 // bar they share under 1400 stays on the list, so that a
                 // double click can put it in.)
                 if r.clicked() {
-                    t.help = Some((*s).clone());
+                    t.help = Some(s.clone());
                     t.list_at = Some(s.name.clone());
                 }
                 if r.double_clicked() {
@@ -272,6 +290,37 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             r
         }
     };
+    let read_ptr = std::sync::Arc::as_ptr(&read) as usize;
+    let ppp = ui.ctx().pixels_per_point();
+    let fonts = crate::script_layout::fonts_made(ui.ctx());
+    let mono = egui::FontId::monospace(12.0);
+    let body = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
+    let layout = match &mut app.script_tools.help_layout {
+        Some(cached) if cached.read_ptr == read_ptr => {
+            if cached.palette != palette {
+                cached.palette = palette;
+                cached.decl_job = decl_layout(&read.declaration, &palette);
+            }
+            if cached.ppp != ppp || cached.fonts != fonts {
+                cached.ppp = ppp;
+                cached.fonts = fonts;
+                (cached.param_widths, cached.widest) = measure_params(ui, &read.blocks, &mono);
+            }
+            cached
+        }
+        slot => {
+            let (param_widths, widest) = measure_params(ui, &read.blocks, &mono);
+            slot.insert(HelpLayout {
+                read_ptr,
+                palette,
+                decl_job: decl_layout(&read.declaration, &palette),
+                ppp,
+                fonts,
+                param_widths,
+                widest,
+            })
+        }
+    };
     let area = egui::ScrollArea::vertical().id_salt("script-help").auto_shrink([false, false]);
     area.show(ui, |ui| {
         ui.set_min_width(ui.available_width());
@@ -280,11 +329,6 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
         // The declaration (`.sig`): a parameter to a line, in the editor's
         // colors and font, on its ground, its lines whole (scrolled across
         // where the panel is narrower), 18 points apart.
-        let mut job = highlight(&read.declaration, &palette);
-        job.wrap.max_width = f32::INFINITY;
-        for section in &mut job.sections {
-            section.format.line_height = Some(LINE_HEIGHT);
-        }
         let ground = palette.background.unwrap_or(t.inset);
         egui::Frame::new()
             .fill(ground)
@@ -294,25 +338,14 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
                 egui::ScrollArea::horizontal().id_salt("script-help-declaration").show(ui, |ui| {
-                    ui.add(egui::Label::new(job).extend());
+                    ui.add(egui::Label::new(layout.decl_job.clone()).extend());
                 });
             });
-        let mono = egui::FontId::monospace(12.0);
-        let body = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
         // (Each parameter's name in a column as wide as the widest, from
         // the board's 60 to two fifths of the panel; a longer one has what
         // it says on the line under it.)
-        let widest = (read.blocks.iter())
-            .filter_map(|b| match b {
-                Block::Param { name, .. } => Some(name.as_str()),
-                _ => None,
-            })
-            .map(|n| {
-                let g = ui.painter().layout_no_wrap(n.to_string(), mono.clone(), Color32::WHITE);
-                g.size().x.ceil()
-            })
-            .fold(0.0, f32::max);
-        let column = widest.clamp(PARAM_COLUMN, (width * 0.4).max(PARAM_COLUMN));
+        let column = layout.widest.clamp(PARAM_COLUMN, (width * 0.4).max(PARAM_COLUMN));
+        let mut param_idx = 0;
         for (i, block) in read.blocks.iter().enumerate() {
             match block {
                 Block::Prose(text) | Block::Item(text) => {
@@ -322,8 +355,11 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
                     ui.add(egui::Label::new(paragraph(text, &body, t.text_3, width)).wrap());
                 }
                 Block::Param { name, text } => {
+                    let name_w =
+                        layout.param_widths.get(param_idx).copied().unwrap_or(column + 1.0);
+                    param_idx += 1;
                     let fonts = (&mono, &body);
-                    param_row(ui, name, text, column, fonts, (t.text, t.text_2));
+                    param_row(ui, name, name_w, text, column, fonts, (t.text, t.text_2));
                 }
                 // (As written, its columns kept: nwscript.nss lines up its
                 // lists. Scrolled across where the panel is narrower.)
@@ -335,6 +371,55 @@ pub(crate) fn help(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>) {
             }
         }
     });
+}
+
+/// Cached filtered list of symbols for [`reference`].
+#[derive(Debug, Clone)]
+pub(crate) struct RefCache {
+    pub(crate) key: ResKey,
+    made: (usize, usize),
+    kind: SymbolKind,
+    filter: String,
+    entries: Vec<(bool, usize)>,
+}
+
+/// Cached syntax-highlighted declaration and parameter width measurements for [`help`].
+#[derive(Debug, Clone)]
+pub(crate) struct HelpLayout {
+    read_ptr: usize,
+    palette: Palette,
+    decl_job: egui::text::LayoutJob,
+    ppp: f32,
+    fonts: u64,
+    param_widths: Vec<f32>,
+    widest: f32,
+}
+
+fn decl_layout(declaration: &str, palette: &Palette) -> egui::text::LayoutJob {
+    let mut job = highlight(declaration, palette);
+    job.wrap.max_width = f32::INFINITY;
+    for section in &mut job.sections {
+        section.format.line_height = Some(LINE_HEIGHT);
+    }
+    job
+}
+
+fn measure_params(ui: &Ui, blocks: &[Block], mono: &egui::FontId) -> (Vec<f32>, f32) {
+    let mut widths = Vec::new();
+    let mut widest = 0.0_f32;
+    let painter = ui.painter();
+    for b in blocks {
+        if let Block::Param { name, .. } = b {
+            let w = painter
+                .layout_no_wrap(name.to_string(), mono.clone(), Color32::WHITE)
+                .size()
+                .x
+                .ceil();
+            widest = widest.max(w);
+            widths.push(w);
+        }
+    }
+    (widths, widest)
 }
 
 /// The room from one line of Help's text to the next (`.help-doc` and
@@ -372,13 +457,13 @@ fn paragraph(text: &str, font: &egui::FontId, color: Color32, width: f32) -> egu
 fn param_row(
     ui: &mut Ui,
     name: &str,
+    name_w: f32,
     text: &str,
     column: f32,
     (mono, body): (&egui::FontId, &egui::FontId),
     colors: (Color32, Color32),
 ) {
-    let galley = ui.painter().layout_no_wrap(name.to_string(), mono.clone(), colors.0);
-    let fits = galley.size().x <= column + 0.5;
+    let fits = name_w <= column + 0.5;
     let name = paragraph(name, mono, colors.0, f32::INFINITY);
     if !fits {
         ui.add(egui::Label::new(name));

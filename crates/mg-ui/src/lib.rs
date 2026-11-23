@@ -2230,6 +2230,8 @@ impl Moonglow {
         // The Shaders switch, for every 3D view (they share one renderer),
         // and the game's programs that couldn't be drawn, said once each.
         renderer_check::lit_check(self);
+        self.poll_live_check(ui.ctx(), false);
+        self.script_tools.poll_symbol_job(ui.ctx(), false);
         let shaders = self.game_shaders();
         // (The lit check having turned them off: the pictures made with
         // them let go, as the switch does.)
@@ -5022,7 +5024,7 @@ impl Moonglow {
         // (`nwscript.nss` too: Options' reload closes the module, and
         // another install has its own.)
         self.script_tools.spec = None;
-        self.script_tools.symbols.clear();
+        self.script_tools.clear_symbols();
         self.script_tools.seen.clear();
         self.buffers.clear();
         self.held_text = None;

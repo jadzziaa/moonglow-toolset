@@ -15,7 +15,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::lex::{Token, TokenKind, tokenize};
-use crate::outline::{Outline, outline};
+use crate::outline::Outline;
 
 /// The engine's implicit include.
 pub const NWSCRIPT: &str = "nwscript";
@@ -177,7 +177,7 @@ impl File {
             };
             members.push(MemberUse { span: t.span.clone(), of });
         }
-        let outline = outline(text.as_bytes());
+        let outline = crate::outline::outline_with_tokens(&text, &toks);
         let mut locals = Vec::new();
         for f in &outline.functions {
             let Some(body) = f.body.clone() else { continue };
@@ -225,7 +225,8 @@ impl File {
 
     /// The identifier at (or just before) a byte offset.
     fn ident_at(&self, offset: usize) -> Option<Range<usize>> {
-        self.idents.iter().find(|r| r.start <= offset && offset <= r.end).cloned()
+        let i = self.idents.partition_point(|r| r.start <= offset);
+        i.checked_sub(1).and_then(|k| self.idents.get(k)).filter(|r| offset <= r.end).cloned()
     }
 
     /// The local or parameter a name at `at` refers to.
@@ -241,12 +242,13 @@ impl File {
 
     /// A name's span inside a declaration's span (after its type).
     fn name_in(&self, span: &Range<usize>, name: &str) -> Range<usize> {
-        self.idents
+        let start = self.idents.partition_point(|r| r.start < span.start);
+        self.idents[start..]
             .iter()
-            .filter(|r| r.start >= span.start && r.end <= span.end)
-            .find(|r| self.word(r) == name)
+            .take_while(|r| r.start < span.end)
+            .find(|r| r.end <= span.end && self.word(r) == name)
             .cloned()
-            .unwrap_or(span.clone())
+            .unwrap_or_else(|| span.clone())
     }
 }
 
@@ -486,8 +488,17 @@ impl Index {
         sources: &mut dyn Sources,
     ) -> Option<Declaration> {
         let unit = self.unit(file, sources);
+        self.top_level_in(&unit, name, sources)
+    }
+
+    fn top_level_in(
+        &mut self,
+        unit: &[String],
+        name: &str,
+        sources: &mut dyn Sources,
+    ) -> Option<Declaration> {
         let mut prototype = None;
-        for f in &unit {
+        for f in unit {
             let Some(idx) = self.file(f, sources) else { continue };
             let o = &idx.outline;
             for func in o.functions.iter().filter(|x| x.name == name) {
@@ -949,8 +960,9 @@ impl Index {
             .chain(f.outline.globals.iter().map(|g| g.name.clone()))
             .chain(f.outline.structs.iter().map(|s| s.name.clone()))
             .collect();
+        let unit = self.unit(&name, sources);
         for n in names {
-            if let Some(d) = self.top_level(&name, &n, sources).filter(|d| d.at.file == name)
+            if let Some(d) = self.top_level_in(&unit, &n, sources).filter(|d| d.at.file == name)
                 && !out.iter().any(|o: &Declaration| o.at == d.at)
             {
                 out.push(d);

@@ -57,18 +57,56 @@ struct MadeWith {
     fonts: u64,
 }
 
-/// A script editor's text and line numbers, laid out a line at a time and
-/// kept between frames.
+/// A script editor's text and line numbers, laid out lazily a line at a time
+/// and kept between frames.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LaidOut {
     made_with: Option<MadeWith>,
-    /// Each line, and its galley.
+    /// Text hash corresponding to `lines` (`None` until [`LaidOut::sync_full`]
+    /// or [`LaidOut::apply_edit`] runs).
+    synced_hash: Option<u64>,
+    /// Each line, with its byte and character bounds.
     lines: Vec<Line>,
-    galleys: Vec<Arc<Galley>>,
-    /// The whole text's galley.
+    /// Shaped galley per line (`None` for off-screen lines not yet painted or queried).
+    galleys: Vec<Option<Arc<Galley>>>,
+    /// Full concatenated galley, built lazily only when AccessKit or unit tests ask.
     galley: Option<Arc<Galley>>,
-    /// Each line's number, laid out ([`LaidOut::numbers`]).
-    numbers: Vec<Arc<Galley>>,
+    /// Each line's number galley (`None` until painted or queried).
+    numbers: Vec<Option<Arc<Galley>>>,
+    /// Total UTF-8 character count of `lines`.
+    total_chars: usize,
+    /// Widest line in display columns (tabs counted as 4), used to estimate
+    /// horizontal scroll bounds before off-screen lines are shaped.
+    max_cols: usize,
+    /// Widest shaped line galley seen so far in points.
+    max_width: f32,
+    /// Measured monospace column advance (`"M"`).
+    char_advance: f32,
+    /// Pixel-snapped line height for `made_with`.
+    row_height: f32,
+    /// Active IME preedit character range and sub-range inside it.
+    ime_preedit: Option<(egui::text::CCursorRange, Option<std::ops::Range<egui::text::CCursor>>)>,
+    /// Last pointer/key interaction time for caret blink phase.
+    last_interaction_time: f64,
+}
+
+/// Output returned by [`code_edit`] for one frame.
+pub(crate) struct CodeEditOutput {
+    pub(crate) response: egui::Response,
+    pub(crate) text_origin: egui::Pos2,
+    pub(crate) gutter_rect: egui::Rect,
+    pub(crate) cursor_range: Option<egui::text::CCursorRange>,
+    pub(crate) current_band: Option<egui::Rangef>,
+    pub(crate) cursor_line_col: (usize, usize),
+}
+
+fn count_chars(s: &str) -> usize {
+    if s.is_ascii() { s.len() } else { s.chars().count() }
+}
+
+fn est_line_cols(s: &str, char_len: usize) -> usize {
+    let tabs = s.bytes().filter(|&b| b == b'\t').count();
+    char_len + tabs * 3
 }
 
 impl LaidOut {
@@ -76,125 +114,432 @@ impl LaidOut {
     /// laid out otherwise (other colors, another font size or scale, egui's
     /// fonts made again) are let go of.
     pub(crate) fn begin(&mut self, ui: &Ui, palette: &Palette) {
+        let ppp = ui.ctx().pixels_per_point();
         let made_with = MadeWith {
             palette: *palette,
             weak: ui.visuals().weak_text_color(),
-            pixels_per_point: ui.ctx().pixels_per_point(),
+            pixels_per_point: ppp,
             fonts: fonts_made(ui.ctx()),
         };
         if self.made_with != Some(made_with) {
-            *self = LaidOut { made_with: Some(made_with), ..LaidOut::default() };
+            *self = LaidOut {
+                made_with: Some(made_with),
+                row_height: palette.row_height(ppp),
+                ..LaidOut::default()
+            };
+        } else if self.row_height == 0.0 {
+            self.row_height = palette.row_height(ppp);
         }
     }
 
-    /// The text laid out, colored by its tokens (the live error's wavy
-    /// underline is painted over it by the editor, M4's U13: no line is
-    /// laid out again as the error comes and goes). Of the text laid out
-    /// before, the lines before the change are kept, and those after it
-    /// once the tokens there begin as they did (a block comment opened
-    /// colors the lines down to its end); between them, those as they were
-    /// somewhere there before (a Replace All's lines between its
-    /// replacements).
+    pub(crate) fn line_count(&self) -> usize {
+        self.lines.len().max(1)
+    }
+
+    pub(crate) fn row_height(&self) -> f32 {
+        self.row_height.max(1.0)
+    }
+
+    pub(crate) fn row_y(&self, line: usize, ppp: f32) -> f32 {
+        ((line as f32 * self.row_height) * ppp).round() / ppp
+    }
+
+    /// Ensures line metadata (`lines`, `total_chars`, `max_cols`) matches `text`
+    /// (`h`), leaving off-screen galleys `None` for lazy shaping on demand.
+    pub(crate) fn sync_full(&mut self, ui: &Ui, text: &str, h: u64, palette: &Palette) {
+        self.begin(ui, palette);
+        if self.char_advance <= 0.0 {
+            self.char_advance = ui
+                .painter()
+                .layout_no_wrap("M".into(), palette.font(), Color32::WHITE)
+                .size()
+                .x
+                .max(1.0);
+        }
+        if self.synced_hash == Some(h) {
+            return;
+        }
+        let mut was: std::collections::HashMap<u64, Arc<Galley>> = std::collections::HashMap::new();
+        for (line, galley) in self.lines.iter().zip(self.galleys.drain(..)) {
+            if let Some(g) = galley {
+                was.insert(line.print, g);
+            }
+        }
+        self.lines.clear();
+        let mut tokens = Vec::new();
+        let (mut start, mut within, mut char_pos) = (0, Within::Code, 0);
+        let mut max_cols = 0;
+        let mut max_width: f32 = 0.0;
+        loop {
+            let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+            let next = lex_line(text, start, end, within, &mut tokens);
+            let print = fingerprint(text, start, end, &tokens);
+            let slice = &text[start..end];
+            let char_len = count_chars(slice);
+            let cols = est_line_cols(slice, char_len);
+            max_cols = max_cols.max(cols);
+            let galley = was.get(&print).cloned();
+            if let Some(g) = &galley {
+                max_width = max_width.max(g.size().x);
+            }
+            self.lines.push(Line {
+                start,
+                end,
+                char_start: char_pos,
+                char_len,
+                cols,
+                within,
+                print,
+            });
+            self.galleys.push(galley);
+            char_pos += char_len;
+            if end == text.len() {
+                break;
+            }
+            char_pos += 1;
+            (start, within) = (end + 1, next);
+        }
+        self.total_chars = char_pos;
+        self.max_cols = max_cols;
+        self.max_width = max_width;
+        self.galley = None;
+        self.synced_hash = Some(h);
+    }
+
+    /// Incrementally updates line metadata after `text` changed in byte range
+    /// `edit_start..old_end` -> `edit_start..new_end`, without shaping any line.
+    pub(crate) fn apply_edit(
+        &mut self,
+        text: &str,
+        edit_start: usize,
+        old_end: usize,
+        new_end: usize,
+        new_hash: u64,
+    ) {
+        if self.lines.is_empty() || self.synced_hash.is_none() {
+            self.synced_hash = None;
+            return;
+        }
+        let delta = new_end as isize - old_end as isize;
+        let first = self.lines.partition_point(|l| l.start <= edit_start).saturating_sub(1);
+        let reached = self.lines.partition_point(|l| l.start <= old_end).min(self.lines.len());
+        let mut was: std::collections::HashMap<u64, Arc<Galley>> = std::collections::HashMap::new();
+        for i in first..reached {
+            if let Some(g) = &self.galleys[i] {
+                was.insert(self.lines[i].print, g.clone());
+            }
+        }
+        let mut start = self.lines[first].start;
+        let mut within = self.lines[first].within;
+        let mut char_pos = self.lines[first].char_start;
+        let (mut fresh, mut fresh_galleys) = (Vec::new(), Vec::new());
+        let mut fresh_max_cols = 0;
+        let mut tokens = Vec::new();
+        let mut tail = self.lines.len();
+        loop {
+            if start > new_end {
+                let at = (start as isize - delta) as usize;
+                if let Ok(j) = self.lines.binary_search_by_key(&at, |l| l.start)
+                    && self.lines[j].within == within
+                {
+                    tail = j;
+                    break;
+                }
+            }
+            let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+            let next = lex_line(text, start, end, within, &mut tokens);
+            let print = fingerprint(text, start, end, &tokens);
+            let slice = &text[start..end];
+            let char_len = count_chars(slice);
+            let cols = est_line_cols(slice, char_len);
+            fresh_max_cols = fresh_max_cols.max(cols);
+            fresh.push(Line { start, end, char_start: char_pos, char_len, cols, within, print });
+            fresh_galleys.push(was.get(&print).cloned());
+            char_pos += char_len;
+            if end == text.len() {
+                break;
+            }
+            char_pos += 1;
+            (start, within) = (end + 1, next);
+        }
+        drop(was);
+        let shrank_max = self.lines[first..tail].iter().any(|l| l.cols >= self.max_cols);
+        let kept = first + fresh.len();
+        if tail < self.lines.len() {
+            let char_delta = char_pos as isize - self.lines[tail].char_start as isize;
+            self.lines.splice(first..tail, fresh);
+            self.galleys.splice(first..tail, fresh_galleys);
+            for l in &mut self.lines[kept..] {
+                l.start = (l.start as isize + delta) as usize;
+                l.end = (l.end as isize + delta) as usize;
+                l.char_start = (l.char_start as isize + char_delta) as usize;
+            }
+            self.total_chars = (self.total_chars as isize + char_delta) as usize;
+        } else {
+            self.lines.splice(first..tail, fresh);
+            self.galleys.splice(first..tail, fresh_galleys);
+            self.total_chars = char_pos;
+        }
+        if fresh_max_cols > self.max_cols {
+            self.max_cols = fresh_max_cols;
+        } else if shrank_max {
+            self.max_cols = self.lines.iter().map(|l| l.cols).max().unwrap_or(0);
+        }
+        self.galley = None;
+        self.synced_hash = Some(new_hash);
+    }
+
+    /// Shapes line `i` on demand if `None`, returning its cached galley.
+    pub(crate) fn ensure_line(
+        &mut self,
+        ui: &Ui,
+        text: &str,
+        i: usize,
+        palette: &Palette,
+    ) -> Arc<Galley> {
+        if let Some(g) = &self.galleys[i] {
+            return g.clone();
+        }
+        let line = self.lines[i];
+        let mut tokens = Vec::new();
+        lex_line(text, line.start, line.end, line.within, &mut tokens);
+        let job = line_job(text, line.start, line.end, &tokens, palette);
+        let g = ui.fonts_mut(|f| f.layout_job(job));
+        self.max_width = self.max_width.max(g.size().x);
+        self.galleys[i] = Some(g.clone());
+        g
+    }
+
+    fn ensure_number(&mut self, ui: &Ui, i: usize, palette: &Palette) -> Arc<Galley> {
+        if let Some(Some(g)) = self.numbers.get(i) {
+            return g.clone();
+        }
+        if i >= self.numbers.len() {
+            self.numbers.resize(i + 1, None);
+        }
+        let color = self.made_with.map_or(mg_uikit::Tokens::DARK.text_3, |m| m.weak);
+        let g = ui.fonts_mut(|f| {
+            let mut job = LayoutJob::default();
+            job.append(&(i + 1).to_string(), 0.0, palette.format(color));
+            f.layout_job(palette.pitched(job))
+        });
+        self.numbers[i] = Some(g.clone());
+        g
+    }
+
+    pub(crate) fn ensure_gutter_width(&mut self, ui: &Ui, lines: usize, palette: &Palette) -> f32 {
+        let lines = lines.max(1);
+        if self.numbers.len() != lines {
+            self.numbers.truncate(lines);
+            if self.numbers.len() < lines {
+                self.numbers.resize(lines, None);
+            }
+        }
+        let widest = self.ensure_number(ui, lines - 1, palette).size().x;
+        GUTTER_LEFT + widest + GUTTER_RIGHT
+    }
+
+    /// Maps character index `c` (0..=`total_chars`) to `(line, column_chars)`.
+    pub(crate) fn line_col(&self, char_idx: usize) -> (usize, usize) {
+        if self.lines.is_empty() {
+            return (0, 0);
+        }
+        let clamped = char_idx.min(self.total_chars);
+        let li = self.lines.partition_point(|l| l.char_start <= clamped).saturating_sub(1);
+        let line = &self.lines[li];
+        let col = (clamped - line.char_start).min(line.char_len);
+        (li, col)
+    }
+
+    pub(crate) fn ccursor_at(&self, line: usize, col: usize) -> egui::text::CCursor {
+        let li = line.min(self.lines.len().saturating_sub(1));
+        let l = &self.lines[li];
+        egui::text::CCursor::new(l.char_start + col.min(l.char_len))
+    }
+
+    pub(crate) fn byte_of_char(&self, text: &str, char_idx: usize) -> usize {
+        if self.lines.is_empty() {
+            return crate::script_tools::byte_index(text, char_idx);
+        }
+        let (li, col) = self.line_col(char_idx);
+        let line = &self.lines[li];
+        let slice = &text[line.start..line.end];
+        if slice.is_ascii() {
+            line.start + col.min(slice.len())
+        } else {
+            line.start + slice.char_indices().nth(col).map_or(slice.len(), |(b, _)| b)
+        }
+    }
+
+    pub(crate) fn char_of_byte(&self, text: &str, byte_idx: usize) -> usize {
+        if self.lines.is_empty() {
+            return crate::script_tools::char_index(text, byte_idx);
+        }
+        let clamped = byte_idx.min(text.len());
+        let li = self.lines.partition_point(|l| l.start <= clamped).saturating_sub(1);
+        let line = &self.lines[li];
+        let rel = clamped.saturating_sub(line.start).min(line.end - line.start);
+        let slice = &text[line.start..line.start + rel];
+        line.char_start + count_chars(slice)
+    }
+
+    pub(crate) fn line_moved_char(&self, from_char: usize, delta_lines: isize) -> usize {
+        if self.lines.is_empty() {
+            return 0;
+        }
+        let (li, col) = self.line_col(from_char);
+        let target = li as isize + delta_lines;
+        if target < 0 {
+            return 0;
+        }
+        let Some(dst) = self.lines.get(target as usize) else {
+            return self.total_chars;
+        };
+        dst.char_start + col.min(dst.char_len)
+    }
+
+    pub(crate) fn cursor_local_rect(
+        &mut self,
+        ui: &Ui,
+        text: &str,
+        palette: &Palette,
+        c: egui::text::CCursor,
+    ) -> egui::Rect {
+        if self.lines.is_empty() {
+            return egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(0.0, self.row_height()));
+        }
+        let (li, col) = self.line_col(usize::from(c.index));
+        let g = self.ensure_line(ui, text, li, palette);
+        let x = g.rows.first().map_or(0.0, |r| r.x_offset(egui::text::CharIndex::from(col)));
+        let y = self.row_y(li, ui.ctx().pixels_per_point());
+        egui::Rect::from_min_max(egui::pos2(x, y), egui::pos2(x, y + self.row_height()))
+    }
+
+    fn ccursor_from_local_pos(
+        &mut self,
+        ui: &Ui,
+        text: &str,
+        palette: &Palette,
+        local: egui::Pos2,
+    ) -> egui::text::CCursor {
+        let li = ((local.y / self.row_height()).floor().max(0.0) as usize)
+            .min(self.lines.len().saturating_sub(1));
+        let g = self.ensure_line(ui, text, li, palette);
+        let col = g.rows.first().map_or(0, |r| usize::from(r.char_at(local.x)));
+        self.ccursor_at(li, col)
+    }
+
+    /// Total UTF-8 character count of the currently synced text.
+    pub(crate) fn total_chars(&self) -> usize {
+        self.total_chars
+    }
+
+    /// The text laid out whole (concatenated across all lines): used by tests
+    /// and when AccessKit is enabled.
     pub(crate) fn text(&mut self, ui: &Ui, text: &str, palette: &Palette) -> Arc<Galley> {
-        let before = self.galley.clone();
-        if let Some(g) = &before
+        let h = crate::script_tools::hash(text);
+        self.sync_full(ui, text, h, palette);
+        if let Some(g) = &self.galley
             && g.text() == text
         {
             return g.clone();
         }
-        let old = before.as_ref().map_or("", |g| g.text());
-        // The change: from the first byte that differs to the last (as
-        // the old text has them, and as the new one does).
-        let p = common_prefix(old.as_bytes(), text.as_bytes());
-        let room = old.len().min(text.len()) - p;
-        let s = common_suffix(&old.as_bytes()[p..], &text.as_bytes()[p..]).min(room);
-        let (old_end, new_end) = (old.len() - s, text.len() - s);
-        let delta = text.len() as isize - old.len() as isize;
-        let first = self.lines.partition_point(|l| l.start <= p).saturating_sub(1);
-        let reached = self.lines.partition_point(|l| l.start <= old_end);
-        let was: std::collections::HashMap<u64, &Arc<Galley>> =
-            (first..reached).map(|i| (self.lines[i].print, &self.galleys[i])).collect();
-        let (mut start, mut within) =
-            self.lines.get(first).map_or((0, Within::Code), |l| (l.start, l.within));
-        let (mut fresh, mut fresh_galleys) = (Vec::new(), Vec::new());
         let mut tokens = Vec::new();
-        let mut tail = self.lines.len();
         ui.fonts_mut(|f| {
-            loop {
-                // A line after the change, begun as the old one in its place
-                // began: the rest are as they were.
-                if before.is_some() && start > new_end {
-                    let at = (start as isize - delta) as usize;
-                    if let Ok(j) = self.lines.binary_search_by_key(&at, |l| l.start)
-                        && self.lines[j].within == within
-                    {
-                        tail = j;
-                        return;
-                    }
+            for (i, line) in self.lines.iter().enumerate() {
+                if self.galleys[i].is_none() {
+                    lex_line(text, line.start, line.end, line.within, &mut tokens);
+                    let job = line_job(text, line.start, line.end, &tokens, palette);
+                    self.galleys[i] = Some(f.layout_job(job));
                 }
-                let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-                let next = lex_line(text, start, end, within, &mut tokens);
-                let print = fingerprint(text, start, end, &tokens);
-                let galley = match was.get(&print) {
-                    Some(g) => (*g).clone(),
-                    None => f.layout_job(line_job(text, &tokens, palette)),
-                };
-                fresh.push(Line { start, within, print });
-                fresh_galleys.push(galley);
-                if end == text.len() {
-                    return;
-                }
-                (start, within) = (end + 1, next);
             }
         });
-        drop(was);
-        let kept = first + fresh.len();
-        self.lines.splice(first..tail, fresh);
-        self.galleys.splice(first..tail, fresh_galleys);
-        for l in &mut self.lines[kept..] {
-            l.start = (l.start as isize + delta) as usize;
-        }
+        let slices: Vec<Arc<Galley>> =
+            self.galleys.iter().map(|g| g.as_ref().expect("all lines shaped").clone()).collect();
         let mut job = LayoutJob::single_section(
             text.to_owned(),
             TextFormat::simple(palette.font(), palette.colors[0]),
         );
         job.wrap.max_width = f32::INFINITY;
         let ppp = ui.ctx().pixels_per_point();
-        let galley = Arc::new(Galley::concat(Arc::new(job), &self.galleys, ppp));
+        let galley = Arc::new(Galley::concat(Arc::new(job), &slices, ppp));
+        self.max_width = galley.size().x;
         self.galley = Some(galley.clone());
         galley
     }
 
-    /// Lays out the numbers of `lines` lines (each line's own, kept while
-    /// the palette is: those of lines added laid out as they come).
+    /// Lays out all `lines` line numbers immediately (for unit tests).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn numbers(&mut self, ui: &Ui, lines: usize, palette: &Palette) {
-        if self.numbers.len() == lines {
+        if self.numbers.len() == lines && self.numbers.iter().all(Option::is_some) {
             return;
         }
         let color = self.made_with.map_or(mg_uikit::Tokens::DARK.text_3, |m| m.weak);
-        self.numbers.truncate(lines);
+        self.numbers.resize(lines, None);
         ui.fonts_mut(|f| {
-            for n in self.numbers.len() + 1..=lines {
-                let mut job = LayoutJob::default();
-                job.append(&n.to_string(), 0.0, palette.format(color));
-                self.numbers.push(f.layout_job(palette.pitched(job)));
+            for (i, slot) in self.numbers.iter_mut().enumerate() {
+                if slot.is_none() {
+                    let mut job = LayoutJob::default();
+                    job.append(&(i + 1).to_string(), 0.0, palette.format(color));
+                    *slot = Some(f.layout_job(palette.pitched(job)));
+                }
             }
         });
     }
 
     /// The gutter's width: the board's `.code .ln` (12 points, the widest
     /// number, 10 points), for the numbers laid out last.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn gutter_width(&self) -> f32 {
-        let widest = self.numbers.last().map_or(0.0, |g| g.size().x);
+        let widest = self.numbers.last().and_then(|o| o.as_ref()).map_or(0.0, |g| g.size().x);
         GUTTER_LEFT + widest + GUTTER_RIGHT
     }
 
-    /// Paints the line numbers in the gutter whose left edge is `left`,
-    /// beside the rows of `galley` (the text, laid out at `at`, a row a
-    /// line), those in sight alone: each right-aligned, the line
-    /// `current`'s in `current_color` (`.ln.cur`), the others in the
-    /// numbers' color; and each bookmark's mark in the room before them
-    /// ([`paint_marks`]).
+    /// Paints visible line numbers and bookmark icons in `gutter` alongside the
+    /// code rows intersecting `ui.clip_rect()`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn paint_gutter_visible(
+        &mut self,
+        ui: &Ui,
+        left: f32,
+        text_origin: egui::Pos2,
+        first_vis: usize,
+        last_vis: usize,
+        current: Option<usize>,
+        current_color: Color32,
+        palette: &Palette,
+        marks: Marks<'_>,
+    ) {
+        let lines = self.line_count();
+        let gutter_w = self.ensure_gutter_width(ui, lines, palette);
+        let right = left + gutter_w - GUTTER_RIGHT;
+        let ppp = ui.ctx().pixels_per_point();
+        let weakest = self.made_with.map_or(current_color, |m| m.weak);
+        for i in first_vis..last_vis.min(lines) {
+            let top = text_origin.y + self.row_y(i, ppp);
+            let number = self.ensure_number(ui, i, palette);
+            let pos = egui::pos2(right - number.size().x, top);
+            let painter = ui.painter();
+            if current == Some(i) {
+                painter.galley_with_override_text_color(pos, number, current_color);
+            } else {
+                painter.galley(pos, number, current_color);
+            }
+        }
+        let row_h = self.row_height();
+        paint_mark_badges(ui, palette.font(), weakest, marks, |line| {
+            (first_vis..last_vis.min(lines)).contains(&line).then(|| {
+                let top = text_origin.y + self.row_y(line, ppp);
+                egui::Rect::from_min_size(
+                    egui::pos2(left, top),
+                    egui::vec2(GUTTER_LEFT - MARK_GAP, row_h),
+                )
+            })
+        });
+    }
+
+    /// Paints visible line numbers and bookmark icons for callers holding a whole
+    /// [`Galley`] (such as the read-only NUI source viewer).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn paint_gutter(
         &self,
@@ -207,7 +552,9 @@ impl LaidOut {
         marks: Marks<'_>,
     ) {
         let clip = ui.clip_rect();
-        let right = left + GUTTER_LEFT + self.numbers.last().map_or(0.0, |g| g.size().x);
+        let right = left
+            + GUTTER_LEFT
+            + self.numbers.last().and_then(|o| o.as_ref()).map_or(0.0, |g| g.size().x);
         let first = galley.rows.partition_point(|r| at.y + r.pos.y + r.size.y < clip.top());
         let painter = ui.painter();
         for (i, row) in galley.rows.iter().enumerate().skip(first) {
@@ -215,7 +562,7 @@ impl LaidOut {
             if top > clip.bottom() {
                 break;
             }
-            let Some(number) = self.numbers.get(i) else { break };
+            let Some(number) = self.numbers.get(i).and_then(|o| o.as_ref()) else { break };
             let pos = egui::pos2(right - number.size().x, top);
             if current == Some(i) {
                 painter.galley_with_override_text_color(pos, number.clone(), current_color);
@@ -223,22 +570,67 @@ impl LaidOut {
                 painter.galley(pos, number.clone(), current_color);
             }
         }
-        paint_marks(ui, left, galley, at, marks, self.made_with.map_or(current_color, |m| m.weak));
+        let font = galley
+            .job
+            .sections
+            .first()
+            .map(|s| s.format.font_id.clone())
+            .unwrap_or_else(|| egui::TextStyle::Monospace.resolve(ui.style()));
+        let weakest = self.made_with.map_or(current_color, |m| m.weak);
+        paint_mark_badges(ui, font, weakest, marks, |line| {
+            let row = galley.rows.get(line)?;
+            let top = at.y + row.pos.y;
+            if top + row.size.y < clip.top() || top > clip.bottom() {
+                return None;
+            }
+            Some(egui::Rect::from_min_size(
+                egui::pos2(left, top),
+                egui::vec2(GUTTER_LEFT - MARK_GAP, row.size.y),
+            ))
+        });
+    }
+}
+
+fn paint_mark_badges(
+    ui: &Ui,
+    font: egui::FontId,
+    weakest: Color32,
+    marks: Marks<'_>,
+    mut place: impl FnMut(usize) -> Option<egui::Rect>,
+) {
+    let painter = ui.painter();
+    for &line in marks.bookmarks {
+        if marks.numbered.contains(&Some(line)) {
+            continue;
+        }
+        let Some(rect) = place(line) else { continue };
+        let side = rect.height().min(rect.width());
+        let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
+        mg_uikit::Icon::Bookmark.paint(painter, square, weakest);
+    }
+    for (n, line) in marks.numbered.iter().enumerate() {
+        let Some(line) = *line else { continue };
+        let Some(rect) = place(line) else { continue };
+        let digit = painter.layout_no_wrap(n.to_string(), font.clone(), weakest);
+        painter.galley(rect.center() - digit.size() / 2.0, digit, weakest);
     }
 }
 
 /// The gutter named for a screen reader by what it shows ("Line numbers 1
 /// to 3000"), not by every number in it.
 pub(crate) fn name_gutter(gutter: &egui::Response, lines: usize) {
-    let said = format!("Line numbers 1 to {}", lines.max(1));
-    gutter.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said));
+    gutter.widget_info(|| {
+        let said = format!("Line numbers 1 to {}", lines.max(1));
+        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &said)
+    });
 }
 
 /// The text field described for a screen reader by the cursor's line
 /// ("Line 12 of 3000"): the gutter's number for it, said.
 pub(crate) fn describe_line(field: &egui::Response, line: usize, lines: usize) {
-    let said = format!("Line {line} of {}", lines.max(1));
-    field.ctx.accesskit_node_builder(field.id, |node| node.set_description(said));
+    field.ctx.accesskit_node_builder(field.id, |node| {
+        node.set_description(format!("Line {line} of {}", lines.max(1)));
+    });
 }
 
 /// The room before the line numbers (`.code .ln`'s `padding-left`), where
@@ -292,8 +684,14 @@ enum Within {
 /// A line of the text, laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Line {
-    /// Where it starts (bytes), and what in.
+    /// Where it starts and ends in bytes (excluding trailing `\n`).
     start: usize,
+    end: usize,
+    /// Where it starts and how many characters long it is.
+    char_start: usize,
+    char_len: usize,
+    /// Estimated display columns (tabs counted as 4).
+    cols: usize,
     within: Within,
     /// Its text and its tokens' colors (each one's element and place in
     /// the line): two lines alike in these are laid out alike.
@@ -371,37 +769,15 @@ fn fingerprint(text: &str, start: usize, end: usize, tokens: &[Token]) -> u64 {
     egui::epaint::util::hash((&text[start..end], colors))
 }
 
-/// How many bytes `a` and `b` begin with alike.
-fn common_prefix(a: &[u8], b: &[u8]) -> usize {
-    let n = a.len().min(b.len());
-    let mut i = 0;
-    // (64 at a time, compared as slices are: quick.)
-    while i + 64 <= n && a[i..i + 64] == b[i..i + 64] {
-        i += 64;
-    }
-    while i < n && a[i] == b[i] {
-        i += 1;
-    }
-    i
-}
-
-/// How many bytes `a` and `b` end with alike.
-fn common_suffix(a: &[u8], b: &[u8]) -> usize {
-    let n = a.len().min(b.len());
-    let (a, b) = (&a[a.len() - n..], &b[b.len() - n..]);
-    let mut i = 0;
-    while i + 64 <= n && a[n - i - 64..n - i] == b[n - i - 64..n - i] {
-        i += 64;
-    }
-    while i < n && a[n - i - 1] == b[n - i - 1] {
-        i += 1;
-    }
-    i
-}
-
 /// A line's layout: its tokens' pieces in their colors, the line
 /// [`Palette::pitch`] high.
-fn line_job(text: &str, tokens: &[Token], palette: &Palette) -> LayoutJob {
+fn line_job(
+    text: &str,
+    _line_start: usize,
+    _line_end: usize,
+    tokens: &[Token],
+    palette: &Palette,
+) -> LayoutJob {
     let mut job = LayoutJob::default();
     for t in tokens.iter().filter(|t| t.span.end > t.span.start) {
         let color = palette.colors[element(t.kind)];
@@ -415,42 +791,696 @@ fn line_job(text: &str, tokens: &[Token], palette: &Palette) -> LayoutJob {
     palette.pitched(job)
 }
 
-/// Each bookmark's mark in the room before the line numbers of the
-/// gutter whose left edge is `left` ([`GUTTER_LEFT`]), on its line's row
-/// of `galley` (laid out at `at`): a numbered bookmark's number, else the
-/// `bookmark` icon, in `color` (the numbers').
-fn paint_marks(
-    ui: &Ui,
-    left: f32,
-    galley: &Galley,
-    at: egui::Pos2,
-    marks: Marks<'_>,
-    color: Color32,
-) {
-    let clip = ui.clip_rect();
-    let place = |line: usize| {
-        let row = galley.rows.get(line)?;
-        let rect = egui::Rect::from_min_size(
-            at + row.pos.to_vec2() + egui::vec2(left - at.x - row.pos.x, 0.0),
-            egui::vec2(GUTTER_LEFT - MARK_GAP, row.size.y),
-        );
-        clip.intersects(rect).then_some(rect)
+/// Viewport-virtualized multiline script editor built directly over [`LaidOut`]
+/// and [`ScriptBuffer`], avoiding `egui::TextEdit`'s full-galley clones and
+/// full-document undo snapshots.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn code_edit(
+    ui: &mut Ui,
+    key: mg_resman::ResKey,
+    buf: &mut crate::script_view::ScriptBuffer,
+    laid: &mut LaidOut,
+    palette: &Palette,
+    room: f32,
+) -> CodeEditOutput {
+    use egui::text::{CCursor, CCursorRange};
+    use egui::text_selection::text_cursor_state::{ccursor_next_word, ccursor_previous_word};
+    use egui::{Event, Key, Modifiers};
+
+    let ctx = ui.ctx().clone();
+    let id = crate::script_view::editor_id(key);
+    let h = buf.text_hash();
+    laid.sync_full(ui, &buf.text, h, palette);
+    let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+    let max_char = egui::text::CharIndex::from(laid.total_chars);
+    let prev_cursor_range = state.cursor.char_range().map(|mut r| {
+        r.primary.index = r.primary.index.min(max_char);
+        r.secondary.index = r.secondary.index.min(max_char);
+        r
+    });
+    let mut cursor_range = prev_cursor_range.unwrap_or_default();
+
+    let lines = laid.line_count();
+    let gutter_width = laid.ensure_gutter_width(ui, lines, palette);
+    let (gutter_rect, numbers) =
+        ui.allocate_exact_size(egui::vec2(gutter_width, room), egui::Sense::hover());
+    name_gutter(&numbers, lines);
+
+    let est_w = (laid.max_cols as f32 + 1.0) * laid.char_advance;
+    let content_w = laid.max_width.max(est_w);
+    let field_w = (content_w + 20.0).max(ui.available_width());
+    let field_h = (lines as f32 * laid.row_height()).max(room);
+    let (_, field_rect) = ui.allocate_space(egui::vec2(field_w, field_h));
+    let mut response = ui.interact(field_rect, id, egui::Sense::click_and_drag());
+    let text_origin = egui::pos2(field_rect.left() + 8.0, field_rect.top());
+
+    let os = ui.os();
+    let has_focus = ctx.memory(|m| m.has_focus(id));
+    let mut text_changed = false;
+    let mut any_cursor_edit = false;
+    let prev_text_for_a11y = if ctx.accesskit_node_builder(id, |_| ()).is_some() {
+        Some(buf.text.clone())
+    } else {
+        None
     };
-    for line in marks.bookmarks {
-        if marks.numbered.contains(&Some(*line)) {
-            continue;
-        }
-        let Some(rect) = place(*line) else { continue };
-        let side = rect.height().min(rect.width());
-        let square = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(side));
-        mg_uikit::Icon::Bookmark.paint(ui.painter(), square, color);
+
+    if has_focus {
+        let filter = egui::EventFilter {
+            horizontal_arrows: true,
+            vertical_arrows: true,
+            tab: true,
+            escape: false,
+        };
+        ctx.memory_mut(|m| m.set_focus_lock_filter(id, filter));
     }
-    let font = galley.job.sections.first().map(|s| s.format.font_id.clone());
-    for (n, line) in marks.numbered.iter().enumerate() {
-        let (Some(line), Some(font)) = (line, &font) else { continue };
-        let Some(rect) = place(*line) else { continue };
-        let digit = ui.painter().layout_no_wrap(n.to_string(), font.clone(), color);
-        ui.painter().galley(rect.center() - digit.size() / 2.0, digit, color);
+
+    // Helper: delete `range` (sorted) or replace with `ins`, updating `laid`, `buf`, `cursor_range`.
+    let apply_replace = |buf: &mut crate::script_view::ScriptBuffer,
+                         laid: &mut LaidOut,
+                         range: CCursorRange,
+                         ins: &str,
+                         new_cursor: CCursorRange,
+                         time: f64,
+                         mergeable: bool| {
+        let [min, max] = range.sorted_cursors();
+        let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
+        let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
+        let (at, old_end, new_end) =
+            buf.replace_range_undo(bf..bt, ins, range, new_cursor, time, mergeable);
+        let nh = buf.text_hash();
+        laid.apply_edit(&buf.text, at, old_end, new_end, nh);
+    };
+
+    // Pointer interaction (preserving right-click selection for context menus).
+    if response.hovered() {
+        ui.set_cursor_icon(egui::CursorIcon::Text);
+        ui.output_mut(|o| o.mutable_text_under_cursor = true);
+    }
+    if let Some(pos) = response.interact_pointer_pos() {
+        let local = egui::pos2(pos.x - text_origin.x, pos.y - text_origin.y);
+        let pointer_cursor = laid.ccursor_from_local_pos(ui, &buf.text, palette, local);
+        if response.double_clicked() {
+            ctx.memory_mut(|m| m.request_focus(id));
+            let (li, col) = laid.line_col(usize::from(pointer_cursor.index));
+            let l = laid.lines[li];
+            let s = &buf.text[l.start..l.end];
+            let rel = CCursor::new(col);
+            let a = usize::from(ccursor_previous_word(s, rel).index) + l.char_start;
+            let b = usize::from(ccursor_next_word(s, rel).index) + l.char_start;
+            cursor_range = CCursorRange::two(CCursor::new(a), CCursor::new(b));
+            laid.ime_preedit = None;
+            any_cursor_edit = true;
+        } else if response.triple_clicked() {
+            ctx.memory_mut(|m| m.request_focus(id));
+            let (li, _) = laid.line_col(usize::from(pointer_cursor.index));
+            let l = laid.lines[li];
+            let end =
+                (l.char_start + l.char_len + usize::from(li + 1 < lines)).min(laid.total_chars);
+            cursor_range = CCursorRange::two(CCursor::new(l.char_start), CCursor::new(end));
+            laid.ime_preedit = None;
+            any_cursor_edit = true;
+        } else if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+            ctx.memory_mut(|m| m.request_focus(id));
+            if ui.input(|i| i.modifiers.shift) {
+                cursor_range.primary = pointer_cursor;
+                cursor_range.h_pos = None;
+            } else {
+                cursor_range = CCursorRange::one(pointer_cursor);
+            }
+            laid.ime_preedit = None;
+            any_cursor_edit = true;
+        } else if ui.is_being_dragged(id) && ui.input(|i| i.pointer.primary_down()) {
+            cursor_range.primary = pointer_cursor;
+            cursor_range.h_pos = None;
+            any_cursor_edit = true;
+        }
+    }
+
+    // Keyboard / clipboard / IME events when focused.
+    if has_focus {
+        let now = ui.input(|i| i.time);
+        let events = ui.input(|i| {
+            i.events
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e,
+                        Event::Key { .. }
+                            | Event::Text(_)
+                            | Event::Paste(_)
+                            | Event::Copy
+                            | Event::Cut
+                            | Event::Ime(_)
+                            | Event::AccessKitActionRequest(_)
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        });
+        for ev in &events {
+            match ev {
+                Event::Copy => {
+                    if !cursor_range.is_empty() {
+                        let [min, max] = cursor_range.sorted_cursors();
+                        let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
+                        let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
+                        ui.copy_text(buf.text[bf..bt].to_owned());
+                    }
+                }
+                Event::Cut => {
+                    if !cursor_range.is_empty() {
+                        let [min, max] = cursor_range.sorted_cursors();
+                        let bf = laid.byte_of_char(&buf.text, usize::from(min.index));
+                        let bt = laid.byte_of_char(&buf.text, usize::from(max.index));
+                        ui.copy_text(buf.text[bf..bt].to_owned());
+                        let next = CCursorRange::one(min);
+                        apply_replace(buf, laid, cursor_range, "", next, now, false);
+                        cursor_range = next;
+                        text_changed = true;
+                    }
+                }
+                Event::Paste(ins) => {
+                    if !ins.is_empty() {
+                        let min = cursor_range.sorted_cursors()[0];
+                        let after_c = CCursor::new(min.index + count_chars(ins));
+                        let next = CCursorRange::one(after_c);
+                        apply_replace(buf, laid, cursor_range, ins, next, now, false);
+                        cursor_range = next;
+                        laid.ime_preedit = None;
+                        text_changed = true;
+                    }
+                }
+                Event::Text(ins) => {
+                    if !ins.is_empty() && ins != "\n" && ins != "\r" {
+                        let mergeable = cursor_range.is_empty();
+                        let min = cursor_range.sorted_cursors()[0];
+                        let after_c = CCursor::new(min.index + count_chars(ins));
+                        let next = CCursorRange::one(after_c);
+                        apply_replace(buf, laid, cursor_range, ins, next, now, mergeable);
+                        cursor_range = next;
+                        laid.ime_preedit = None;
+                        text_changed = true;
+                    }
+                }
+                Event::Ime(ime) => match ime {
+                    egui::ImeEvent::Preedit { text: pre, .. }
+                        if pre.is_empty() && laid.ime_preedit.is_none() => {}
+                    egui::ImeEvent::Commit(c) if c.is_empty() && laid.ime_preedit.is_none() => {}
+                    egui::ImeEvent::Preedit { text: pre, .. } | egui::ImeEvent::Commit(pre)
+                        if pre == "\n" || pre == "\r" => {}
+                    egui::ImeEvent::Preedit { text: pre, active_range_chars } => {
+                        let base = laid.ime_preedit.take().map_or(cursor_range, |(r, _)| r);
+                        let min = base.sorted_cursors()[0];
+                        if pre.is_empty() {
+                            let next = CCursorRange::one(min);
+                            apply_replace(buf, laid, base, "", next, now, false);
+                            cursor_range = next;
+                        } else {
+                            let end = CCursor::new(min.index + count_chars(pre));
+                            let next = CCursorRange::two(min, end);
+                            apply_replace(buf, laid, base, pre, next, now, false);
+                            cursor_range = next;
+                            laid.ime_preedit = Some((
+                                next,
+                                active_range_chars
+                                    .as_ref()
+                                    .map(|r| CCursor::new(r.start)..CCursor::new(r.end)),
+                            ));
+                        }
+                        text_changed = true;
+                    }
+                    egui::ImeEvent::Commit(commit) => {
+                        let base = laid.ime_preedit.take().map_or(cursor_range, |(r, _)| r);
+                        let min = base.sorted_cursors()[0];
+                        let next = CCursor::new(min.index + count_chars(commit));
+                        let range = CCursorRange::one(next);
+                        apply_replace(buf, laid, base, commit, range, now, false);
+                        cursor_range = range;
+                        text_changed = true;
+                    }
+                    egui::ImeEvent::DeleteSurrounding { before_chars, after_chars } => {
+                        let [min, max] = cursor_range.sorted_cursors();
+                        let a = usize::from(min.index).saturating_sub(*before_chars);
+                        let b = usize::from(max.index)
+                            .saturating_add(*after_chars)
+                            .min(laid.total_chars);
+                        let del = CCursorRange::two(CCursor::new(a), CCursor::new(b));
+                        let next = CCursorRange::one(CCursor::new(a));
+                        apply_replace(buf, laid, del, "", next, now, false);
+                        cursor_range = next;
+                        text_changed = true;
+                    }
+                    _ => {}
+                },
+                Event::Key { key, pressed: true, modifiers, .. } => match key {
+                    Key::A if modifiers.command => {
+                        cursor_range =
+                            CCursorRange::two(CCursor::new(0), CCursor::new(laid.total_chars));
+                        any_cursor_edit = true;
+                    }
+                    Key::ArrowLeft | Key::ArrowRight
+                        if modifiers.is_none() && !cursor_range.is_empty() =>
+                    {
+                        let [min, max] = cursor_range.sorted_cursors();
+                        cursor_range =
+                            CCursorRange::one(if *key == Key::ArrowLeft { min } else { max });
+                        any_cursor_edit = true;
+                    }
+                    Key::ArrowLeft => {
+                        let cur = usize::from(cursor_range.primary.index);
+                        let c = if modifiers.alt || modifiers.ctrl {
+                            let (li, col) = laid.line_col(cur);
+                            if col > 0 {
+                                let l = laid.lines[li];
+                                let rel = ccursor_previous_word(
+                                    &buf.text[l.start..l.end],
+                                    CCursor::new(col),
+                                );
+                                laid.ccursor_at(li, usize::from(rel.index))
+                            } else if li > 0 {
+                                let pl = laid.lines[li - 1];
+                                laid.ccursor_at(li - 1, pl.char_len)
+                            } else {
+                                CCursor::new(0)
+                            }
+                        } else if modifiers.mac_cmd {
+                            let (li, _) = laid.line_col(cur);
+                            laid.ccursor_at(li, 0)
+                        } else {
+                            CCursor::new(cur.saturating_sub(1))
+                        };
+                        cursor_range.primary = c;
+                        cursor_range.h_pos = None;
+                        if !modifiers.shift {
+                            cursor_range.secondary = c;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::ArrowRight => {
+                        let cur = usize::from(cursor_range.primary.index);
+                        let c = if modifiers.alt || modifiers.ctrl {
+                            let (li, col) = laid.line_col(cur);
+                            let l = laid.lines[li];
+                            if col < l.char_len {
+                                let rel =
+                                    ccursor_next_word(&buf.text[l.start..l.end], CCursor::new(col));
+                                laid.ccursor_at(li, usize::from(rel.index))
+                            } else if li + 1 < lines {
+                                laid.ccursor_at(li + 1, 0)
+                            } else {
+                                CCursor::new(laid.total_chars)
+                            }
+                        } else if modifiers.mac_cmd {
+                            let (li, _) = laid.line_col(cur);
+                            laid.ccursor_at(li, laid.lines[li].char_len)
+                        } else {
+                            CCursor::new((cur + 1).min(laid.total_chars))
+                        };
+                        cursor_range.primary = c;
+                        cursor_range.h_pos = None;
+                        if !modifiers.shift {
+                            cursor_range.secondary = c;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::ArrowUp => {
+                        if modifiers.command {
+                            cursor_range.primary = CCursor::new(0);
+                            cursor_range.h_pos = None;
+                        } else {
+                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
+                            let h_pos = cursor_range.h_pos.unwrap_or_else(|| {
+                                laid.cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
+                                    .min
+                                    .x
+                            });
+                            if li > 0 {
+                                let g = laid.ensure_line(ui, &buf.text, li - 1, palette);
+                                let col =
+                                    g.rows.first().map_or(0, |r| usize::from(r.char_at(h_pos)));
+                                cursor_range.primary = laid.ccursor_at(li - 1, col);
+                                cursor_range.h_pos = Some(h_pos);
+                            } else {
+                                cursor_range.primary = CCursor::new(0);
+                                cursor_range.h_pos = Some(h_pos);
+                            }
+                        }
+                        if !modifiers.shift {
+                            cursor_range.secondary = cursor_range.primary;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::ArrowDown => {
+                        if modifiers.command {
+                            cursor_range.primary = CCursor::new(laid.total_chars);
+                            cursor_range.h_pos = None;
+                        } else {
+                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
+                            let h_pos = cursor_range.h_pos.unwrap_or_else(|| {
+                                laid.cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
+                                    .min
+                                    .x
+                            });
+                            if li + 1 < lines {
+                                let g = laid.ensure_line(ui, &buf.text, li + 1, palette);
+                                let col =
+                                    g.rows.first().map_or(0, |r| usize::from(r.char_at(h_pos)));
+                                cursor_range.primary = laid.ccursor_at(li + 1, col);
+                                cursor_range.h_pos = Some(h_pos);
+                            } else {
+                                cursor_range.primary = CCursor::new(laid.total_chars);
+                                cursor_range.h_pos = Some(h_pos);
+                            }
+                        }
+                        if !modifiers.shift {
+                            cursor_range.secondary = cursor_range.primary;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::Home => {
+                        let c = if modifiers.ctrl {
+                            CCursor::new(0)
+                        } else {
+                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
+                            laid.ccursor_at(li, 0)
+                        };
+                        cursor_range.primary = c;
+                        cursor_range.h_pos = None;
+                        if !modifiers.shift {
+                            cursor_range.secondary = c;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::End => {
+                        let c = if modifiers.ctrl {
+                            CCursor::new(laid.total_chars)
+                        } else {
+                            let (li, _) = laid.line_col(usize::from(cursor_range.primary.index));
+                            laid.ccursor_at(li, laid.lines[li].char_len)
+                        };
+                        cursor_range.primary = c;
+                        cursor_range.h_pos = None;
+                        if !modifiers.shift {
+                            cursor_range.secondary = c;
+                        }
+                        any_cursor_edit = true;
+                    }
+                    Key::Z | Key::Y
+                        if modifiers.matches_logically(Modifiers::COMMAND)
+                            || modifiers
+                                .matches_logically(Modifiers::COMMAND | Modifiers::SHIFT) =>
+                    {
+                        let redo = *key == Key::Y || modifiers.shift;
+                        if let Some((next_range, at, old_end, new_end)) =
+                            buf.undo.step(&mut buf.text, redo)
+                        {
+                            buf.invalidate_hash();
+                            let nh = buf.text_hash();
+                            laid.apply_edit(&buf.text, at, old_end, new_end, nh);
+                            cursor_range = next_range;
+                            laid.ime_preedit = None;
+                            text_changed = true;
+                        }
+                    }
+                    Key::Backspace => {
+                        let cur = usize::from(cursor_range.primary.index);
+                        if !cursor_range.is_empty() {
+                            let min = cursor_range.sorted_cursors()[0];
+                            let next = CCursorRange::one(min);
+                            apply_replace(buf, laid, cursor_range, "", next, now, false);
+                            cursor_range = next;
+                            text_changed = true;
+                        } else if cur > 0 {
+                            let (from_c, merge) = if modifiers.mac_cmd {
+                                let (li, _) = laid.line_col(cur);
+                                (usize::from(laid.ccursor_at(li, 0).index), false)
+                            } else if modifiers.alt || modifiers.ctrl {
+                                let (li, col) = laid.line_col(cur);
+                                if col > 0 {
+                                    let l = laid.lines[li];
+                                    let rel = ccursor_previous_word(
+                                        &buf.text[l.start..l.end],
+                                        CCursor::new(col),
+                                    );
+                                    (
+                                        usize::from(
+                                            laid.ccursor_at(li, usize::from(rel.index)).index,
+                                        ),
+                                        false,
+                                    )
+                                } else {
+                                    (cur - 1, false)
+                                }
+                            } else {
+                                (cur - 1, true)
+                            };
+                            let span =
+                                CCursorRange::two(CCursor::new(from_c), cursor_range.primary);
+                            let next = CCursorRange::one(CCursor::new(from_c));
+                            apply_replace(buf, laid, span, "", next, now, merge);
+                            cursor_range = next;
+                            text_changed = true;
+                        }
+                    }
+                    Key::Delete if !modifiers.shift || os != egui::os::OperatingSystem::Windows => {
+                        let cur = usize::from(cursor_range.primary.index);
+                        if !cursor_range.is_empty() {
+                            let min = cursor_range.sorted_cursors()[0];
+                            let next = CCursorRange::one(min);
+                            apply_replace(buf, laid, cursor_range, "", next, now, false);
+                            cursor_range = next;
+                            text_changed = true;
+                        } else if cur < laid.total_chars {
+                            let to_c = if modifiers.mac_cmd {
+                                let (li, _) = laid.line_col(cur);
+                                usize::from(laid.ccursor_at(li, laid.lines[li].char_len).index)
+                            } else if modifiers.alt || modifiers.ctrl {
+                                let (li, col) = laid.line_col(cur);
+                                let l = laid.lines[li];
+                                if col < l.char_len {
+                                    let rel = ccursor_next_word(
+                                        &buf.text[l.start..l.end],
+                                        CCursor::new(col),
+                                    );
+                                    usize::from(laid.ccursor_at(li, usize::from(rel.index)).index)
+                                } else {
+                                    cur + 1
+                                }
+                            } else {
+                                cur + 1
+                            };
+                            let span = CCursorRange::two(cursor_range.primary, CCursor::new(to_c));
+                            let next = CCursorRange::one(CCursor {
+                                prefer_next_row: true,
+                                ..cursor_range.primary
+                            });
+                            apply_replace(buf, laid, span, "", next, now, false);
+                            cursor_range = next;
+                            text_changed = true;
+                        }
+                    }
+                    Key::Enter if modifiers.is_none() => {
+                        let min = cursor_range.sorted_cursors()[0];
+                        let next = CCursorRange::one(CCursor::new(min.index + 1));
+                        apply_replace(buf, laid, cursor_range, "\n", next, now, false);
+                        cursor_range = next;
+                        text_changed = true;
+                    }
+                    _ => {}
+                },
+                Event::AccessKitActionRequest(_)
+                    if ctx.accesskit_node_builder(id, |_| ()).is_some() =>
+                {
+                    let full = laid.text(ui, &buf.text, palette);
+                    cursor_range.on_event(os, ev, &full, id);
+                    any_cursor_edit = true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if text_changed {
+        response.mark_changed();
+    }
+    let selection_changed = prev_cursor_range != Some(cursor_range);
+    let final_cursor_range =
+        if has_focus || prev_cursor_range.is_some() || any_cursor_edit || text_changed {
+            state.cursor.set_char_range(Some(cursor_range));
+            Some(cursor_range)
+        } else {
+            None
+        };
+
+    let mut primary_cursor_rect = laid
+        .cursor_local_rect(ui, &buf.text, palette, cursor_range.primary)
+        .translate(text_origin.to_vec2());
+    primary_cursor_rect = primary_cursor_rect.expand(1.5);
+    if has_focus && (response.changed() || selection_changed) {
+        ui.scroll_to_rect(primary_cursor_rect, None);
+    }
+
+    // Reserve ground shape before visible text & gutter.
+    let ground = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
+    let radius = ui.style().interact(&response).corner_radius;
+    let ground_shape = ui.painter().add(egui::Shape::Noop);
+    let mut under_shapes =
+        vec![egui::Shape::rect_filled(field_rect.union(gutter_rect), radius, ground)];
+
+    // Visible range from clip_rect.
+    let clip = ui.clip_rect();
+    let lines = laid.line_count();
+    let row_h = laid.row_height();
+    let first_vis = ((clip.top() - text_origin.y) / row_h).floor().max(0.0) as usize;
+    let last_vis =
+        (((clip.bottom() - text_origin.y) / row_h).ceil().max(0.0) as usize + 1).min(lines);
+    let first_vis = first_vis.min(last_vis);
+
+    let (cursor_line, cursor_col) = laid.line_col(usize::from(cursor_range.primary.index));
+    let ppp = ctx.pixels_per_point();
+    let current = final_cursor_range.filter(|r| r.is_empty()).map(|_| cursor_line);
+    let current_band = current.map(|li| {
+        let y = text_origin.y + laid.row_y(li, ppp);
+        egui::Rangef::new(y, y + row_h)
+    });
+    if let Some(y) = current_band {
+        let t = match palette.background {
+            Some(g) if crate::script_view::ground_is_dark([g.r(), g.g(), g.b()]) => {
+                mg_uikit::Tokens::DARK
+            }
+            Some(_) => mg_uikit::Tokens::LIGHT,
+            None => mg_uikit::tokens(&ctx),
+        };
+        let sight = clip.x_range();
+        under_shapes.push(egui::Shape::rect_filled(
+            egui::Rect::from_x_y_ranges(sight, y),
+            0.0,
+            t.current_line,
+        ));
+        let text_x = egui::Rangef::new(gutter_rect.right().max(sight.min), sight.max);
+        for edge in crate::script_view::hairlines(y, ppp) {
+            under_shapes.push(egui::Shape::rect_filled(
+                egui::Rect::from_x_y_ranges(text_x, edge),
+                0.0,
+                t.current_line_edge,
+            ));
+        }
+    }
+
+    // Visible-only selection rectangles.
+    let selected_color = ui.visuals().selection.bg_fill;
+    if let Some(r) = final_cursor_range.filter(|r| !r.is_empty()) {
+        let [min, max] = r.sorted_cursors();
+        let (min_li, min_col) = laid.line_col(usize::from(min.index));
+        let (max_li, max_col) = laid.line_col(usize::from(max.index));
+        let vis_from = min_li.max(first_vis);
+        let vis_to = max_li.min(last_vis.saturating_sub(1));
+        for li in vis_from..=vis_to {
+            let g = laid.ensure_line(ui, &buf.text, li, palette);
+            let Some(row) = g.rows.first() else { continue };
+            let left =
+                if li == min_li { row.x_offset(egui::text::CharIndex::from(min_col)) } else { 0.0 };
+            let right = if li == max_li {
+                row.x_offset(egui::text::CharIndex::from(max_col))
+            } else {
+                row.size.x
+            };
+            if li == max_li && li != min_li && right <= left {
+                continue;
+            }
+            let right = if right <= left && li != max_li { left + 3.0 } else { right };
+            let y = text_origin.y + laid.row_y(li, ppp);
+            let rect = egui::Rect::from_min_max(
+                egui::pos2(text_origin.x + left, y),
+                egui::pos2(text_origin.x + right, y + row.size.y),
+            );
+            under_shapes.push(egui::Shape::rect_filled(rect, 0.0, selected_color));
+        }
+    }
+    ui.painter().set(ground_shape, egui::Shape::Vec(under_shapes));
+
+    // Paint ONLY visible lines and visible gutter rows.
+    let text_painter = ui.painter_at(field_rect.intersect(clip).expand(1.0));
+    for li in first_vis..last_vis {
+        let g = laid.ensure_line(ui, &buf.text, li, palette);
+        let y = text_origin.y + laid.row_y(li, ppp);
+        text_painter.galley(egui::pos2(text_origin.x, y), g, palette.colors[0]);
+    }
+    let marks = Marks { bookmarks: &buf.bookmarks, numbered: &buf.numbered };
+    laid.paint_gutter_visible(
+        ui,
+        gutter_rect.left(),
+        text_origin,
+        first_vis,
+        last_vis,
+        current_band.and(current),
+        palette.colors[0],
+        palette,
+        marks,
+    );
+
+    if has_focus {
+        let now = ui.input(|i| i.time);
+        if text_changed || any_cursor_edit {
+            laid.last_interaction_time = now;
+        }
+        if ui.input(|i| i.focused) {
+            egui::text_selection::visuals::paint_text_cursor(
+                ui,
+                &text_painter,
+                primary_cursor_rect,
+                now - laid.last_interaction_time,
+            );
+        }
+        let to_global = ctx.layer_transform_to_global(ui.layer_id()).unwrap_or_default();
+        ui.output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput {
+                purpose: egui::IMEPurpose::Normal,
+                rect: to_global * field_rect,
+                cursor_rect: to_global * primary_cursor_rect,
+                should_interrupt_composition: false,
+            });
+        });
+    }
+
+    state.store(&ctx, id);
+
+    if let Some(prev) = &prev_text_for_a11y {
+        let full = laid.text(ui, &buf.text, palette);
+        if response.changed() {
+            response.widget_info(|| {
+                egui::WidgetInfo::text_edit(ui.is_enabled(), prev.as_str(), buf.text.as_str(), "")
+            });
+        } else if selection_changed && let Some(r) = final_cursor_range {
+            let info = egui::WidgetInfo::text_selection_changed(
+                ui.is_enabled(),
+                r.as_sorted_char_range(),
+                buf.text.as_str(),
+            );
+            response.output_event(egui::output::OutputEvent::TextSelectionChanged(info));
+        } else {
+            response.widget_info(|| {
+                egui::WidgetInfo::text_edit(ui.is_enabled(), prev.as_str(), buf.text.as_str(), "")
+            });
+        }
+        egui::text_selection::accesskit_text::update_accesskit_for_text_widget(
+            &ctx,
+            id,
+            final_cursor_range,
+            egui::accesskit::Role::MultilineTextInput,
+            egui::emath::TSTransform::from_translation(text_origin.to_vec2()),
+            &full,
+        );
+        describe_line(&response, cursor_line + 1, lines);
+    }
+
+    CodeEditOutput {
+        response,
+        text_origin,
+        gutter_rect,
+        cursor_range: final_cursor_range,
+        current_band,
+        cursor_line_col: (cursor_line, cursor_col),
     }
 }
 
@@ -620,7 +1650,11 @@ mod tests {
                 laid.begin(ui, &palette);
                 let before = laid.galleys.clone();
                 let g = laid.text(ui, text, &palette);
-                let kept = laid.galleys.iter().filter(|g| before.iter().any(|b| Arc::ptr_eq(b, g)));
+                let kept = laid
+                    .galleys
+                    .iter()
+                    .flatten()
+                    .filter(|g| before.iter().flatten().any(|b| Arc::ptr_eq(b, g)));
                 out = Some((g, laid.galleys.len() - kept.count()));
             });
             out.unwrap()
@@ -675,8 +1709,13 @@ mod tests {
         assert_eq!(nine.len(), 9);
         let (twelve, last, width) = frame(12);
         assert_eq!(twelve.len(), 12);
-        assert!(nine.iter().zip(&twelve).all(|(a, b)| Arc::ptr_eq(a, b)), "kept");
-        let ours = twelve.last().unwrap();
+        assert!(
+            nine.iter()
+                .zip(&twelve)
+                .all(|(a, b)| Arc::ptr_eq(a.as_ref().unwrap(), b.as_ref().unwrap())),
+            "kept"
+        );
+        let ours = twelve.last().unwrap().as_ref().unwrap();
         assert_eq!(ours.text(), "12");
         assert_eq!(ours.size(), last.size());
         assert_eq!(ours.size().y, palette.pitch());
@@ -685,7 +1724,12 @@ mod tests {
         assert_eq!((GUTTER_LEFT, GUTTER_RIGHT), (12.0, 10.0));
         let (five, _, _) = frame(5);
         assert_eq!(five.len(), 5);
-        assert!(five.iter().zip(&twelve).all(|(a, b)| Arc::ptr_eq(a, b)), "kept");
+        assert!(
+            five.iter()
+                .zip(&twelve)
+                .all(|(a, b)| Arc::ptr_eq(a.as_ref().unwrap(), b.as_ref().unwrap())),
+            "kept"
+        );
     }
 
     /// The editor's lines are the board's 18 points apart at its 13-point

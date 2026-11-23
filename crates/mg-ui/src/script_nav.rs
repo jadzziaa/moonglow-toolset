@@ -47,8 +47,53 @@ pub struct Nav {
     /// The buffer texts the index has.
     texts: HashMap<ResKey, u64>,
     pub(crate) live: HashMap<ResKey, Live>,
+    /// Generation bumped whenever module revision or another script invalidates live checks.
+    live_gen: u64,
+    /// In-flight background compilation checks keyed by script (`(text_hash, live_gen, rx)`).
+    pending_checks:
+        HashMap<ResKey, (u64, u64, std::sync::mpsc::Receiver<Option<mg_script::CompileError>>)>,
     /// The Rename Symbol window: the declaration and the new name.
     pub rename: Option<(Declaration, String)>,
+}
+
+/// Collects saved module overrides of all `#include` files transitively
+/// reachable from `root_source` (plus module `nwscript.nss`, if overridden).
+fn collect_module_includes(
+    module: Option<&mg_module::Module>,
+    resman: Option<&mg_resman::ResMan>,
+    root_name: &str,
+    root_source: &[u8],
+) -> HashMap<String, Vec<u8>> {
+    let mut module_files = HashMap::new();
+    let Some(module) = module else { return module_files };
+    if let Some(nw) = ResKey::parse("nwscript", ResType::NSS).and_then(|k| module.get(&k)) {
+        module_files.insert("nwscript".to_string(), nw.to_vec());
+    }
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(root_name.to_ascii_lowercase());
+    let mut queue = vec![root_source.to_vec()];
+    while let Some(src) = queue.pop() {
+        if !src.windows(7).any(|w| w == b"include") {
+            continue;
+        }
+        for inc in mg_script::lex::includes(&src) {
+            let Some(slice) = src.get(inc.name) else { continue };
+            let Ok(raw) = std::str::from_utf8(slice) else { continue };
+            let low = raw.to_ascii_lowercase();
+            if seen.len() >= 128 || !seen.insert(low.clone()) {
+                continue;
+            }
+            let Some(k) = ResKey::parse(&low, ResType::NSS) else { continue };
+            if let Some(own) = module.get(&k) {
+                let bytes = own.to_vec();
+                queue.push(bytes.clone());
+                module_files.insert(low, bytes);
+            } else if let Some(raw) = resman.and_then(|r| r.get(&k).ok()) {
+                queue.push(raw.into_owned());
+            }
+        }
+    }
+    module_files
 }
 
 /// Scripts by name: editors' text, then the module's, then the game's.
@@ -86,11 +131,22 @@ impl Nav {
     /// Every script's live check but `but`'s to be made again when next
     /// shown: an include of theirs may have changed.
     pub(crate) fn check_again(&mut self, but: Option<ResKey>) {
+        self.live_gen = self.live_gen.wrapping_add(1);
         for (k, live) in &mut self.live {
             if Some(*k) != but {
                 live.checked = None;
             }
         }
+        if let Some(keep) = but {
+            self.pending_checks.retain(|k, _| *k == keep);
+        } else {
+            self.pending_checks.clear();
+        }
+    }
+
+    /// Whether any background live-check compile is still running.
+    pub(crate) fn checking(&self) -> bool {
+        !self.pending_checks.is_empty()
     }
 }
 
@@ -251,9 +307,72 @@ impl Moonglow {
         ));
     }
 
+    /// Polls background live-check compilation results and applies the first
+    /// error (if any) back onto [`Nav::live`].
+    pub(crate) fn poll_live_check(&mut self, ctx: &egui::Context, repaint_if_changed: bool) {
+        if self.script_nav.pending_checks.is_empty() {
+            return;
+        }
+        let keys: Vec<ResKey> = self.script_nav.pending_checks.keys().copied().collect();
+        let cur_gen = self.script_nav.live_gen;
+        for key in keys {
+            let recv = {
+                let Some((_, _, rx)) = self.script_nav.pending_checks.get(&key) else { continue };
+                rx.try_recv()
+            };
+            match recv {
+                Ok(error) => {
+                    let Some((h, job_gen, _)) = self.script_nav.pending_checks.remove(&key) else {
+                        continue;
+                    };
+                    if job_gen != cur_gen {
+                        continue;
+                    }
+                    let name = key.resref.to_lowercase().to_string();
+                    let logged = self.log.entries.len();
+                    let live = self.script_nav.live.entry(key).or_default();
+                    if live.text != h {
+                        continue;
+                    }
+                    live.checked = Some(h);
+                    if error.as_ref().map(|e| &e.message) != live.error.as_ref().map(|e| &e.1) {
+                        live.logged = logged;
+                    }
+                    let new_include = error
+                        .as_ref()
+                        .and_then(|e| e.location())
+                        .filter(|(file, _)| {
+                            !file.trim_end_matches(".nss").eq_ignore_ascii_case(&name)
+                        })
+                        .map(|(file, line)| (file.trim_end_matches(".nss").to_string(), line));
+                    let new_error = error.map(|e| {
+                        let line = e
+                            .location()
+                            .filter(|(file, _)| {
+                                file.trim_end_matches(".nss").eq_ignore_ascii_case(&name)
+                            })
+                            .map(|(_, line)| line.saturating_sub(1));
+                        (line, e.message)
+                    });
+                    let changed = new_error != live.error || new_include != live.include;
+                    live.include = new_include;
+                    live.error = new_error;
+                    if repaint_if_changed && changed {
+                        ctx.request_repaint();
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.script_nav.pending_checks.remove(&key);
+                }
+            }
+        }
+    }
+
     /// Checks a script a moment after typing stops: compiles its text (an
-    /// include file needs no `main`) and keeps the first error.
+    /// include file needs no `main`) on a worker thread and keeps the first error.
     pub(crate) fn live_check(&mut self, key: ResKey, h: u64, ctx: &egui::Context) {
+        self.poll_live_check(ctx, true);
         let live = self.script_nav.live.entry(key).or_default();
         if live.text != h {
             // A script just opened is checked at once; edits wait for a pause.
@@ -270,43 +389,51 @@ impl Moonglow {
             self.frame_after(ctx, PAUSE - waited);
             return;
         }
-        let name = key.resref.to_lowercase().to_string();
-        let error = {
-            let module = self.ws.as_ref().map(|w| &w.module);
-            let resman = self.game.as_deref().map(|g| &g.resman);
-            // (Its includes as Compile reads them: the module's, not their
-            // editors' unsaved text.)
-            let source = self.scripts.get(&key).map(ScriptBuffer::bytes).unwrap_or_default();
-            let mut c =
-                Compiler::new(crate::script_view::sources(module, resman, &name, &source, None));
-            c.set_require_entry_point(false);
-            c.compile(&name).err()
-        };
-        let logged = self.log.entries.len();
-        let live = self.script_nav.live.entry(key).or_default();
-        live.checked = Some(h);
-        if error.as_ref().map(|e| &e.message) != live.error.as_ref().map(|e| &e.1) {
-            live.logged = logged;
+        let cur_gen = self.script_nav.live_gen;
+        if self
+            .script_nav
+            .pending_checks
+            .get(&key)
+            .is_some_and(|&(pending_h, pending_gen, _)| pending_h == h && pending_gen == cur_gen)
+        {
+            return;
         }
-        live.include = error
-            .as_ref()
-            .and_then(|e| e.location())
-            .filter(|(file, _)| !file.trim_end_matches(".nss").eq_ignore_ascii_case(&name))
-            .map(|(file, line)| (file.trim_end_matches(".nss").to_string(), line));
-        live.error = error.map(|e| {
-            let line = e
-                .location()
-                .filter(|(file, _)| file.trim_end_matches(".nss").eq_ignore_ascii_case(&name))
-                .map(|(_, line)| line.saturating_sub(1));
-            (line, e.message)
+        let name = key.resref.to_lowercase().to_string();
+        // (Its includes as Compile reads them: the module's, not their
+        // editors' unsaved text.)
+        let source = self.scripts.get(&key).map(ScriptBuffer::bytes).unwrap_or_default();
+        let module = self.ws.as_ref().map(|w| &w.module);
+        let resman = self.game.as_deref().map(|g| &g.resman);
+        let module_files = collect_module_includes(module, resman, &name, &source);
+        let game = self.game.clone();
+        let ctx_bg = ctx.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let root = name.clone();
+            let mut c = Compiler::new(move |n: &str, t: ResType| -> Option<Vec<u8>> {
+                if t == ResType::NSS && n.eq_ignore_ascii_case(&root) {
+                    return Some(source.clone());
+                }
+                let k = ResKey::parse(n, t)?;
+                if t == ResType::NSS
+                    && let Some(bytes) = module_files.get(&k.resref.to_lowercase().to_string())
+                {
+                    return Some(bytes.clone());
+                }
+                game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned())
+            });
+            c.set_require_entry_point(false);
+            let _ = tx.send(c.compile(&name).err());
+            ctx_bg.request_repaint();
         });
+        self.script_nav.pending_checks.insert(key, (h, cur_gen, rx));
     }
 
     /// Sets an open script editor's text, as typing would (for tests).
     #[doc(hidden)]
     pub fn scripts_mut_for_test(&mut self, key: ResKey, text: &str) {
         if let Some(b) = self.scripts.get_mut(&key) {
-            b.text = text.to_string();
+            b.set_text(text.to_string());
         }
     }
 

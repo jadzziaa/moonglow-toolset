@@ -140,15 +140,15 @@ fn an_include_edited_in_its_tab_is_what_its_includers_see() {
     };
     let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss(name))));
-        h.run();
+        settle(h);
     };
     open(&mut h, "uses_a");
     assert!(names(&h).contains(&"Old".to_string()), "{:?}", names(&h));
     open(&mut h, "inc_a");
     h.state_mut().script_tools.jump = Some((nss("inc_a"), 0));
-    h.run();
+    settle(&mut h);
     h.event(egui::Event::Text("int New() { return 2; }\n".into()));
-    h.run();
+    settle(&mut h);
     assert!(h.state().script_text(nss("inc_a")).unwrap().starts_with("int New()"));
     open(&mut h, "uses_a");
     assert!(names(&h).contains(&"New".to_string()), "{:?}", names(&h));
@@ -1586,7 +1586,7 @@ fn compile_and_the_live_check_read_an_include_as_saved() {
     h.run_steps(3);
     let checked = |h: &mut Harness<'_, Moonglow>| {
         std::thread::sleep(std::time::Duration::from_millis(600));
-        h.run_steps(2);
+        settle(h);
         h.state().script_error_for_test(nss("uses_n"))
     };
     let compiled = |h: &mut Harness<'_, Moonglow>| {
@@ -1665,7 +1665,7 @@ fn script_navigation_definition_references_rename_and_live_errors() {
 
     // Errors as you type: checked once typing pauses, the line shown.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
-    h.run_steps(3);
+    settle(&mut h);
     // (Where the text begins: it does not move as an error comes and
     // goes, Jasperre's report; since M4's U13 the error is the Status
     // Bar's message and a wavy underline, no row of its own.)
@@ -1680,7 +1680,7 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     );
     h.run_steps(1);
     std::thread::sleep(std::time::Duration::from_millis(600));
-    h.run_steps(2);
+    settle(&mut h);
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
     // (Its wavy underline, M4's U13: no row of its own under the header.)

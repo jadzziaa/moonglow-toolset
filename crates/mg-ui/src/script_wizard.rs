@@ -389,6 +389,13 @@ fn pick_list(
 /// Two lists with -> and <- between them (Feats, Skills, Race): moves rows
 /// between `chosen` and the rest of `all`.
 #[allow(clippy::too_many_arguments)]
+#[derive(Clone)]
+struct CachedMoveLists {
+    key: (usize, u64, String),
+    left: Vec<usize>,
+    right: Vec<usize>,
+}
+
 fn move_lists(
     ui: &mut Ui,
     id: &str,
@@ -400,15 +407,35 @@ fn move_lists(
     filter: Option<&str>,
     height: f32,
 ) {
-    let filter = mg_core::text::Needle::new(filter.unwrap_or_default());
-    let left: Vec<(usize, &str)> = all
-        .iter()
-        .filter(|e| !chosen.contains(&e.row))
-        .filter(|e| filter.finds(&e.name))
-        .map(|e| (e.row, e.name.as_str()))
-        .collect();
+    let filter_str = filter.unwrap_or_default();
+    let cache_id = egui::Id::new(("wizard-move-lists", id));
+    let key = (all.len(), egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
+    let cached = ui.ctx().data_mut(|d| {
+        let slot = d.get_temp_mut_or_insert_with(cache_id, || CachedMoveLists {
+            key: (usize::MAX, 0, String::new()),
+            left: Vec::new(),
+            right: Vec::new(),
+        });
+        if slot.key != key {
+            let needle = mg_core::text::Needle::new(filter_str);
+            let chosen_set: std::collections::HashSet<usize> = chosen.iter().copied().collect();
+            slot.left.clear();
+            slot.right.clear();
+            for (i, e) in all.iter().enumerate() {
+                if chosen_set.contains(&e.row) {
+                    slot.right.push(i);
+                } else if needle.finds(&e.name) {
+                    slot.left.push(i);
+                }
+            }
+            slot.key = key;
+        }
+        slot.clone()
+    });
+    let left: Vec<(usize, &str)> =
+        cached.left.iter().map(|&i| (all[i].row, all[i].name.as_str())).collect();
     let right: Vec<(usize, &str)> =
-        all.iter().filter(|e| chosen.contains(&e.row)).map(|e| (e.row, e.name.as_str())).collect();
+        cached.right.iter().map(|&i| (all[i].row, all[i].name.as_str())).collect();
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.label(titles[0]);
