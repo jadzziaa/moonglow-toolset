@@ -21,6 +21,7 @@ fn harness<'a>(size: egui::Vec2, app: impl FnMut(&mut egui::Ui) + 'a) -> Harness
     let mut app = app;
     Harness::builder().with_size(size).build_ui(move |ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
+        header::record_headers(ui.ctx());
         app(ui);
     })
 }

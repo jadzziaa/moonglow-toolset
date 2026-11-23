@@ -560,6 +560,8 @@ impl VarTableEdit {
 
     /// Why the table cannot be saved, if it cannot.
     pub fn problem(&self) -> Option<String> {
+        let mut seen = (self.rows.len() > 16)
+            .then(|| std::collections::HashSet::with_capacity(self.rows.len()));
         for (i, r) in self.rows.iter().enumerate() {
             if r.name.trim().is_empty() {
                 return Some(format!("Variable {} has no name", i + 1));
@@ -569,7 +571,11 @@ impl VarTableEdit {
             {
                 return Some(format!("{}: {e}", r.name));
             }
-            if self.rows[..i].iter().any(|o| o.name == r.name) {
+            let duplicate = match seen.as_mut() {
+                Some(set) => !set.insert(r.name.as_str()),
+                None => self.rows[..i].iter().any(|o| o.name == r.name),
+            };
+            if duplicate {
                 return Some(format!("{} is defined twice", r.name));
             }
         }
@@ -1602,9 +1608,19 @@ fn var_body(
     let together_tall = together.as_ref().map_or(0.0, |t| {
         let wrap = ui.available_width();
         let font = egui::TextStyle::Body.resolve(ui.style());
-        let color = ui.visuals().weak_text_color();
-        ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
-            + ui.spacing().item_spacing.y
+        let ppp = ui.ctx().pixels_per_point().to_bits();
+        let id = ui.id().with("together-tall");
+        let key = (edit.target.also.len(), wrap.to_bits(), font.size.to_bits(), ppp);
+        ui.data(|d| d.get_temp::<((usize, u32, u32, u32), f32)>(id))
+            .filter(|(k, _)| *k == key)
+            .map(|(_, h)| h)
+            .unwrap_or_else(|| {
+                let color = ui.visuals().weak_text_color();
+                let h = ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
+                    + ui.spacing().item_spacing.y;
+                ui.data_mut(|d| d.insert_temp(id, (key, h)));
+                h
+            })
     });
     // (The list scrolls, over the buttons kept in reach below it. In the
     // Properties panel's all-pages scroll, cap and shrink vertically so an
@@ -1657,14 +1673,19 @@ fn var_body(
                     let r = &edit.rows[i];
                     let desc = help.variables.describe(r.name.trim());
                     let name = match desc {
-                        Some(d) => name.on_hover_text(description_tip(d)),
+                        Some(d) => name.on_hover_ui(|ui| {
+                            ui.label(description_tip(d));
+                        }),
                         None => name,
                     };
                     // The described names, offered as one is typed.
                     if described {
                         // (Escape closes the offer, until the name
                         // changes; the name is still being typed.)
-                        let dismissed = help.dismissed.as_ref() == Some(&(i, r.name.clone()));
+                        let dismissed = help
+                            .dismissed
+                            .as_ref()
+                            .is_some_and(|(di, dn)| *di == i && dn == &r.name);
                         if closed {
                             help.completing = None;
                             help.dismissed = Some((i, r.name.clone()));
@@ -1767,15 +1788,16 @@ fn var_body(
                     help.completing = None;
                 }
                 // A name changed to a described one: its type.
-                let names: Vec<String> = edit.rows.iter().map(|r| r.name.clone()).collect();
-                if names.len() == help.names.len() {
-                    for (r, was) in edit.rows.iter_mut().zip(&help.names) {
+                if edit.rows.len() == help.names.len() {
+                    for (r, was) in edit.rows.iter_mut().zip(&mut help.names) {
                         if r.name != *was {
+                            *was = r.name.clone();
                             take_described_type(&help.variables, r);
                         }
                     }
+                } else {
+                    help.names = edit.rows.iter().map(|r| r.name.clone()).collect();
                 }
-                help.names = names;
             });
         },
     );
@@ -1925,6 +1947,8 @@ fn together_note(edit: &VarTableEdit) -> Option<String> {
 pub struct VarPage {
     edit: VarTableEdit,
     read: Vec<Struct>,
+    as_read: Vec<Struct>,
+    clean_rows: Vec<VarRow>,
     /// The frame it was last drawn in: one not drawn since is forgotten.
     drawn: u64,
     /// Whether one of this page's own variable fields currently holds keyboard focus.
@@ -1956,12 +1980,12 @@ pub(crate) fn variables_page(
     app.var_pages.retain(|_, p| p.drawn + 1 >= frame);
     let mut page = match app.var_pages.remove(&id) {
         Some(p) if p.edit.target == target && (p.read == list || p.editing) => p,
-        _ => VarPage {
-            edit: VarTableEdit::new(target.clone(), list),
-            read: list.to_vec(),
-            drawn: frame,
-            editing: false,
-        },
+        _ => {
+            let edit = VarTableEdit::new(target.clone(), list);
+            let as_read = edit.list();
+            let clean_rows = edit.rows.clone();
+            VarPage { edit, read: list.to_vec(), as_read, clean_rows, drawn: frame, editing: false }
+        }
     };
     page.drawn = frame;
     let edit = &mut page.edit;
@@ -1992,19 +2016,30 @@ pub(crate) fn variables_page(
     // read anew after. While a color is being picked, not yet: the area views
     // show the object with it (`var_preview`), and it is set, one command, as
     // the picker closes.
-    let as_read = VarTableEdit::new(target, list).list();
+    let modified = page.edit.rows != page.clean_rows || page.read != list;
+    let dirty = if !modified {
+        false
+    } else if locked.is_none() && problem.is_none() {
+        if page.read != list {
+            page.as_read = VarTableEdit::new(target.clone(), list).list();
+            page.read = list.to_vec();
+        }
+        page.edit.list() != page.as_read
+    } else {
+        false
+    };
     let picking = ui.ctx().data(|d| d.get_temp::<bool>(picking())).unwrap_or(false);
-    if picking && locked.is_none() && problem.is_none() && edit.list() != as_read {
-        let each = edit.each_merged(app);
+    if picking && locked.is_none() && problem.is_none() && dirty {
+        let each = page.edit.each_merged(app);
         app.var_preview_next.extend(each);
         app.var_pages.insert(id, page);
         return;
     }
-    if locked.is_none() && !editing && problem.is_none() && edit.list() != as_read {
-        let action = if edit.target.also.is_empty() {
-            edit.target.command("Edit variables", Value::List(edit.list()))
+    if locked.is_none() && !editing && problem.is_none() && dirty {
+        let action = if page.edit.target.also.is_empty() {
+            page.edit.target.command("Edit variables", Value::List(page.edit.list()))
         } else {
-            edit.merged(app)
+            page.edit.merged(app)
         };
         app.actions.push(action);
         return;
@@ -3839,7 +3874,7 @@ impl<'a> Dialog<'a> {
             ctx.data_mut(|d| d.insert_temp(natural_id, took));
         }
         // (A dialog shown with no footer, noted as such for the tests.)
-        if !footed && !folded && shown.is_some() {
+        if !footed && !folded && shown.is_some() && is_recording_footers(ctx) {
             let seen = FooterSeen {
                 title: title.clone(),
                 rect: None,
@@ -4508,7 +4543,25 @@ fn footers_id() -> egui::Id {
     egui::Id::new("mg-dialog-footers")
 }
 
+fn footers_record_id() -> egui::Id {
+    egui::Id::new("mg-dialog-footers-record")
+}
+
+/// Starts recording [`FooterSeen`] snapshots on `ctx` (enabled by test
+/// harnesses so the app does not build footer snapshots in normal runs).
+#[doc(hidden)]
+pub fn record_footers(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(footers_record_id(), true));
+}
+
+fn is_recording_footers(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(footers_record_id()).unwrap_or(false))
+}
+
 fn record_footer(ctx: &egui::Context, seen: FooterSeen) {
+    if !is_recording_footers(ctx) {
+        return;
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
@@ -4521,6 +4574,9 @@ fn record_footer(ctx: &egui::Context, seen: FooterSeen) {
 
 /// Notes the window of the dialog `title` drawn this pass in its record.
 fn window_seen(ctx: &egui::Context, title: &str, window: egui::Rect, margin: f32) {
+    if !is_recording_footers(ctx) {
+        return;
+    }
     let pass = ctx.cumulative_pass_nr();
     ctx.data_mut(|d| {
         let kept = d.get_temp_mut_or_default::<(u64, Vec<FooterSeen>)>(footers_id());
@@ -4704,26 +4760,28 @@ fn place_foot(ui: &mut Ui, foot: Foot, title: &str) -> Pressed {
             note_press(ui.ctx(), title, &b.words, how);
         }
     }
-    let seen = FooterSeen {
-        title: title.to_string(),
-        rect: Some(shown.rect),
-        window: egui::Rect::NOTHING,
-        note,
-        check: check.map(|(w, _, _)| w),
-        buttons: (buttons.iter().zip(&shown.buttons))
-            .map(|(b, r)| ButtonSeen {
-                words: b.words.clone(),
-                main: b.role == FootRole::Main,
-                leaves: b.role == FootRole::Cancel,
-                enabled: b.enabled,
-                rect: r.rect,
-            })
-            .collect(),
-        enter_withheld: no_enter,
-        layer: ui.layer_id(),
-        margin: 0.0,
-    };
-    record_footer(ui.ctx(), seen);
+    if is_recording_footers(ui.ctx()) {
+        let seen = FooterSeen {
+            title: title.to_string(),
+            rect: Some(shown.rect),
+            window: egui::Rect::NOTHING,
+            note,
+            check: check.map(|(w, _, _)| w),
+            buttons: (buttons.iter().zip(&shown.buttons))
+                .map(|(b, r)| ButtonSeen {
+                    words: b.words.clone(),
+                    main: b.role == FootRole::Main,
+                    leaves: b.role == FootRole::Cancel,
+                    enabled: b.enabled,
+                    rect: r.rect,
+                })
+                .collect(),
+            enter_withheld: no_enter,
+            layer: ui.layer_id(),
+            margin: 0.0,
+        };
+        record_footer(ui.ctx(), seen);
+    }
     Pressed {
         words: buttons.into_iter().map(|b| b.words).collect(),
         clicked,
@@ -5045,10 +5103,10 @@ impl<'a> RowChoice<'a> {
                     let pad = 2.0 * ui.spacing().button_padding.x;
                     let bar = ui.spacing().scroll.allocated_width();
                     // (Measured: the longest rows by their characters, not
-                    // every row of a table of thousands.)
+                    // every row of a table of thousands; order-independent.)
                     let mut texts: Vec<std::borrow::Cow<'_, str>> =
                         (none.map(std::borrow::Cow::from).into_iter())
-                            .chain(in_order().iter().map(|c| text(c, numbered)))
+                            .chain(choices.iter().map(|c| text(c, numbered)))
                             .collect();
                     let measured = texts.len().min(MEASURED_ROWS);
                     if measured < texts.len() {
@@ -5101,39 +5159,6 @@ impl<'a> RowChoice<'a> {
                 let matches = |c: &mg_rules::Choice| {
                     filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
                 };
-                // The rows shown: the row of none (`None`) first, then those
-                // the filter finds.
-                // (Of a long list, found once while it is open and kept until
-                // the filter changes: not sorted and searched every frame.)
-                let found: Vec<&mg_rules::Choice> = if long {
-                    // (Where in `choices` each row shown is, by the list it was
-                    // found in and the filter.)
-                    type Kept = (usize, usize, String, std::sync::Arc<Vec<usize>>);
-                    let kept_id = open_id.with("found");
-                    let made_for = (choices.as_ptr() as usize, choices.len(), filter.as_str());
-                    let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
-                    let at = match kept {
-                        Some((p, n, f, at)) if !opened && (p, n, f.as_str()) == made_for => at,
-                        _ => {
-                            let order = match by_name {
-                                true => mg_rules::name_order(choices),
-                                false => (0..choices.len()).collect(),
-                            };
-                            let at: Vec<usize> =
-                                order.into_iter().filter(|&i| matches(&choices[i])).collect();
-                            let at = std::sync::Arc::new(at);
-                            let kept: Kept =
-                                (made_for.0, made_for.1, made_for.2.into(), at.clone());
-                            ui.data_mut(|d| d.insert_temp(kept_id, kept));
-                            at
-                        }
-                    };
-                    at.iter().map(|&i| &choices[i]).collect()
-                } else {
-                    in_order().iter().filter(|c| matches(c)).collect()
-                };
-                let shown: Vec<Option<&mg_rules::Choice>> =
-                    (none.map(|_| None).into_iter()).chain(found.into_iter().map(Some)).collect();
                 let chosen = |c: Option<&mg_rules::Choice>| match c {
                     Some(c) => current == Some(c.row as i64),
                     None => current.is_none(),
@@ -5156,6 +5181,43 @@ impl<'a> RowChoice<'a> {
                     }
                 };
                 if long {
+                    // (Of a long list, found once while it is open and kept until
+                    // the filter changes: not sorted and searched every frame.)
+                    type Kept = (ChoicesSig, bool, String, std::sync::Arc<Vec<usize>>);
+                    let kept_id = open_id.with("found");
+                    let sig = choices_sig(choices);
+                    let kept = ui.data(|d| d.get_temp::<Kept>(kept_id));
+                    let at = match kept {
+                        Some((s, ordered_name, f, at))
+                            if !opened
+                                && s == sig
+                                && ordered_name == by_name
+                                && f.as_str() == filter.as_str() =>
+                        {
+                            at
+                        }
+                        _ => {
+                            let at: Vec<usize> = if by_name {
+                                let order = cached_name_order(ui, choices);
+                                order.iter().copied().filter(|&i| matches(&choices[i])).collect()
+                            } else {
+                                (0..choices.len()).filter(|&i| matches(&choices[i])).collect()
+                            };
+                            let at = std::sync::Arc::new(at);
+                            let kept: Kept = (sig, by_name, filter.as_str().to_owned(), at.clone());
+                            ui.data_mut(|d| d.insert_temp(kept_id, kept));
+                            at
+                        }
+                    };
+                    let none_off = usize::from(none.is_some());
+                    let shown_len = none_off + at.len();
+                    let shown_at = |idx: usize| -> Option<&mg_rules::Choice> {
+                        if none.is_some() {
+                            (idx > 0).then(|| &choices[at[idx - 1]])
+                        } else {
+                            Some(&choices[at[idx]])
+                        }
+                    };
                     // (The rows scroll under the Filter field, which stays;
                     // only those in sight are laid out, of a table of tens of
                     // thousands too. Opened, the chosen one is in the middle.)
@@ -5167,18 +5229,32 @@ impl<'a> RowChoice<'a> {
                     let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
                     if narrowed {
                         area = area.vertical_scroll_offset(0.0);
-                    } else if go && let Some(at) = shown.iter().position(|c| chosen(*c)) {
-                        let offset = at as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
-                        area = area.vertical_scroll_offset(offset.max(0.0));
+                    } else if go {
+                        let target = if let Some(cur) = current {
+                            at.iter()
+                                .position(|&i| choices[i].row as i64 == cur)
+                                .map(|p| p + none_off)
+                        } else if none.is_some() {
+                            Some(0)
+                        } else {
+                            None
+                        };
+                        if let Some(pos) = target {
+                            let offset = pos as f32 * step + height / 2.0 - ROWS_HEIGHT / 2.0;
+                            area = area.vertical_scroll_offset(offset.max(0.0));
+                        }
                     }
-                    area.show_rows(ui, height, shown.len(), |ui, range| {
-                        for c in &shown[range] {
-                            row(ui, *c, false);
+                    area.show_rows(ui, height, shown_len, |ui, range| {
+                        for idx in range {
+                            row(ui, shown_at(idx), false);
                         }
                     });
                 } else {
-                    for c in &shown {
-                        row(ui, *c, true);
+                    if none.is_some() {
+                        row(ui, None, true);
+                    }
+                    for c in in_order().iter().filter(|c| matches(c)) {
+                        row(ui, Some(c), true);
                     }
                 }
             })
@@ -5197,30 +5273,55 @@ impl<'a> RowChoice<'a> {
         // shown), and the wheel where asked.
         let stepping = r.clicked() || r.has_focus() || (wheel && r.hovered());
         if pick.is_none() && stepping {
-            // (Put in order only for a key or the wheel: a box with the
-            // keys is drawn every frame, its list of thousands too.)
-            let asked = ui.input(|i| {
-                (i.events.iter()).any(|e| {
-                    matches!(
-                        e,
-                        egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
-                    )
-                })
-            });
-            let rows: Vec<i64> = match asked {
-                true => (none.map(|_| NO_ROW).into_iter())
-                    .chain(in_order().iter().map(|c| c.row as i64))
-                    .collect(),
-                false => Vec::new(),
-            };
-            let at = current.unwrap_or(NO_ROW);
-            let stepped = arrow_pick(ui, r, &rows, at)
-                .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
-            pick = stepped.map(|row| (row != NO_ROW).then_some(row));
+            let nav_key = (r.clicked() || r.has_focus())
+                && ui.input(|i| {
+                    i.modifiers.is_none()
+                        && [
+                            egui::Key::ArrowDown,
+                            egui::Key::ArrowUp,
+                            egui::Key::PageDown,
+                            egui::Key::PageUp,
+                            egui::Key::Home,
+                            egui::Key::End,
+                        ]
+                        .iter()
+                        .any(|k| i.key_pressed(*k))
+                });
+            let wheel_moved = wheel
+                && r.hovered()
+                && ui.input(|i| {
+                    i.events.iter().any(|e| matches!(e, egui::Event::MouseWheel { .. }))
+                });
+            if nav_key || wheel_moved {
+                let rows: Vec<i64> = if by_name {
+                    let order = cached_name_order(ui, choices);
+                    (none.map(|_| NO_ROW).into_iter())
+                        .chain(order.iter().map(|&i| choices[i].row as i64))
+                        .collect()
+                } else {
+                    (none.map(|_| NO_ROW).into_iter())
+                        .chain(choices.iter().map(|c| c.row as i64))
+                        .collect()
+                };
+                let at = current.unwrap_or(NO_ROW);
+                let stepped = arrow_pick(ui, r, &rows, at)
+                    .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
+                pick = stepped.map(|row| (row != NO_ROW).then_some(row));
+            } else if r.clicked() || r.has_focus() {
+                let _ = hold_arrows(ui, r);
+            }
         }
         // Letters typed to a short list (a long one types into its Filter):
         // the first row whose name begins with them.
-        if pick.is_none() && !long {
+        if pick.is_none()
+            && !long
+            && (open || r.has_focus())
+            && ui.input(|i| {
+                i.events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Text(t) if !t.chars().any(char::is_control)))
+            })
+        {
             let rows: Vec<Option<&mg_rules::Choice>> =
                 none.map(|_| None).into_iter().chain(in_order().iter().map(Some)).collect();
             let names = |i: usize| match rows[i] {
@@ -5243,6 +5344,57 @@ impl<'a> RowChoice<'a> {
         }
         pick.filter(|&p| p != current)
     }
+}
+
+type ChoicesSig = (usize, u64);
+
+fn choices_sig(choices: &[mg_rules::Choice]) -> ChoicesSig {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let len = choices.len();
+    len.hash(&mut h);
+    if len <= 16 {
+        for c in choices {
+            c.row.hash(&mut h);
+            c.text.hash(&mut h);
+        }
+    } else {
+        for step in 0..8 {
+            let idx = (step * (len - 1)) / 7;
+            let c = &choices[idx];
+            c.row.hash(&mut h);
+            c.text.hash(&mut h);
+        }
+    }
+    (len, h.finish())
+}
+
+fn cached_name_order(ui: &Ui, choices: &[mg_rules::Choice]) -> std::sync::Arc<Vec<usize>> {
+    type Entry = (ChoicesSig, std::sync::Arc<Vec<usize>>);
+    let sig = choices_sig(choices);
+    let cache_id = egui::Id::new("mg-row-choice-name-order");
+    if let Some(hit) = ui.data_mut(|d| {
+        let lru = d.get_temp_mut_or_default::<Vec<Entry>>(cache_id);
+        if let Some(pos) = lru.iter().position(|(s, _)| *s == sig) {
+            let entry = lru.remove(pos);
+            let order = entry.1.clone();
+            lru.push(entry);
+            Some(order)
+        } else {
+            None
+        }
+    }) {
+        return hit;
+    }
+    let order = std::sync::Arc::new(mg_rules::name_order(choices));
+    ui.data_mut(|d| {
+        let lru = d.get_temp_mut_or_default::<Vec<Entry>>(cache_id);
+        if lru.len() >= 8 {
+            lru.remove(0);
+        }
+        lru.push((sig, order.clone()));
+    });
+    order
 }
 
 /// The arrow keys on a list of choices, as in Aurora: with the list's

@@ -364,13 +364,30 @@ pub(super) fn page(
     let names = used(doc, s);
     let module_images: Vec<ResKey> = names.iter().flat_map(|n| in_module(&ws.module, n)).collect();
     let haks = crate::listed_haks(ws);
-    // Pictures added to the module that no control shows yet.
-    let unused: BTreeSet<String> = TYPES
-        .iter()
-        .flat_map(|ty| ws.module.keys_of(*ty))
-        .map(|k| k.resref.to_string().to_lowercase())
-        .filter(|n| !names.contains(n))
-        .collect();
+    // Pictures added to the module that no control shows yet (cached per revision & used set).
+    let names_hash = {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        names.hash(&mut h);
+        h.finish()
+    };
+    let unused_id = egui::Id::new("nui-images-unused");
+    let unused_key = (ws.identity(), ws.revision(), names_hash);
+    let unused: std::sync::Arc<BTreeSet<String>> = ui
+        .data(|d| d.get_temp::<((u64, u64, u64), std::sync::Arc<BTreeSet<String>>)>(unused_id))
+        .filter(|(k, _)| *k == unused_key)
+        .map(|(_, u)| u)
+        .unwrap_or_else(|| {
+            let u: BTreeSet<String> = TYPES
+                .iter()
+                .flat_map(|ty| ws.module.keys_of(*ty))
+                .map(|k| k.resref.to_string().to_lowercase())
+                .filter(|n| !names.contains(n))
+                .collect();
+            let u = std::sync::Arc::new(u);
+            ui.data_mut(|d| d.insert_temp(unused_id, (unused_key, u.clone())));
+            u
+        });
     egui::ScrollArea::vertical().id_salt("nui-images-page").show(ui, |ui| {
         widgets::section_heading(ui, "Images");
         ui.label(
@@ -395,14 +412,9 @@ pub(super) fn page(
                         ui.label("");
                         ui.end_row();
                     }
-                    for picture in names.iter().chain(&unused) {
+                    for picture in names.iter().chain(unused.iter()) {
                         ui.label(picture);
-                        let origin = app
-                            .nui_assets
-                            .origins
-                            .iter()
-                            .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
-                            .map(|(_, o)| o.clone());
+                        let origin = app.nui_assets.origin_stems.get(picture).cloned();
                         let in_module = module_names.contains(picture);
                         let missing = origin.is_none() && !in_module && !unused.contains(picture);
                         match origin {

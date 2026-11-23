@@ -3701,7 +3701,9 @@ impl Moonglow {
         panes.push(self.editor_keys());
         marks.push(None);
         // (Each floating editor's window's other panes after it.)
-        for p in self.window_bars.iter().filter(|p| **p != Panel::OUTLINER) {
+        for p in
+            self.window_bars.iter().filter(|p| !matches!(**p, Panel::OUTLINER | Panel::Appearance))
+        {
             panes.push((p.keys(), None));
             marks.push(None);
         }
@@ -3711,8 +3713,14 @@ impl Moonglow {
             // (In two columns, a stop for each: the Palette's, then the
             // Preview's.)
             match self.right_columns {
-                true => panes.extend(self.right_bars.iter().map(|p| (p.keys(), None))),
-                false => panes.push((panel.keys(), None)),
+                true => panes.extend(
+                    self.right_bars
+                        .iter()
+                        .filter(|p| **p != Panel::Appearance)
+                        .map(|p| (p.keys(), None)),
+                ),
+                false if panel != Panel::Appearance => panes.push((panel.keys(), None)),
+                false => {}
             }
         }
         // The Bottom Dock last, below them all, where it is shown: its
@@ -4377,19 +4385,35 @@ impl Moonglow {
         // The keys as Options › Keyboard last set them.
         // (And the open project's commands' own keys, as they read: a
         // project opened, or its file changed, takes the keys anew.)
-        let project = project_commands::commands(self).map(|(_, c)| c).unwrap_or_default();
-        let project_keys: Vec<(String, Option<String>)> =
-            project.iter().map(|c| (c.name.clone(), c.key.clone())).collect();
+        let empty: &[mg_module::project_file::ProjectCommand] = &[];
+        let project = self
+            .ws
+            .as_ref()
+            .filter(|ws| {
+                ws.module
+                    .location
+                    .as_ref()
+                    .and_then(mg_module::project_file::ProjectFile::root_of)
+                    .is_some()
+            })
+            .map_or(empty, |ws| ws.module.project_file.commands.as_slice());
+        let project_changed = self.project_keys_from.len() != project.len()
+            || self
+                .project_keys_from
+                .iter()
+                .zip(project)
+                .any(|((n, k), c)| n != &c.name || k != &c.key);
         if std::mem::take(&mut self.keymap_stale)
             || self.keymap_from != self.settings.key_bindings
-            || self.project_keys_from != project_keys
+            || project_changed
         {
-            self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             let commands = self.plugin_commands_cached();
+            self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             plugins::register_keys(&mut self.keymap, &commands);
-            project_commands::register_keys(&mut self.keymap, &project);
+            project_commands::register_keys(&mut self.keymap, project);
             self.keymap_from = self.settings.key_bindings.clone();
-            self.project_keys_from = project_keys;
+            self.project_keys_from =
+                project.iter().map(|c| (c.name.clone(), c.key.clone())).collect();
         }
         // (Find's keys, for the search fields.)
         self.keymap.share_find(ui.ctx());
@@ -4461,10 +4485,14 @@ impl Moonglow {
                 // (Fix All beside the first fix of a check with several
                 // to make.)
                 let mut firsts: Vec<(usize, String, usize)> = Vec::new();
+                let mut by_check: HashMap<&str, usize> = HashMap::new();
                 for o in self.log.fixes.iter().filter(|o| !o.made && o.fix.asks.is_none()) {
-                    match firsts.iter_mut().find(|(_, c, _)| *c == o.check) {
-                        Some(f) => f.2 += 1,
-                        None => firsts.push((o.line, o.check.clone(), 1)),
+                    if let Some(&idx) = by_check.get(o.check.as_str()) {
+                        firsts[idx].2 += 1;
+                    } else {
+                        let idx = firsts.len();
+                        by_check.insert(o.check.as_str(), idx);
+                        firsts.push((o.line, o.check.clone(), 1));
                     }
                 }
                 // Only the lines in sight are laid out (a Verify of a large

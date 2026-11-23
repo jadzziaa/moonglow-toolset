@@ -92,9 +92,19 @@ fn undo(h: &mut Harness<'_, Moonglow>) {
 fn creator(mut app: Moonglow, size: [u32; 2]) -> Harness<'static, Moonglow> {
     app.settings.window_sizes.retain(|(kind, _)| kind != "nui");
     app.settings.window_sizes.push(("nui".into(), size));
+    let mut recorded = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(size[0] as f32 + 100.0, size[1] as f32 + 150.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        .build_ui_state(
+            move |ui, app: &mut Moonglow| {
+                if !recorded {
+                    recorded = true;
+                    mg_uikit::header::record_headers(ui.ctx());
+                }
+                app.ui(ui);
+            },
+            app,
+        );
     h.run();
     h
 }

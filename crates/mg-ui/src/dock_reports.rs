@@ -121,8 +121,8 @@ pub struct HakConflicts {
 /// A row of Hak Pak Conflict Analysis' table.
 #[derive(Debug, Clone)]
 enum HakRow {
-    /// A resource and the haks that have it, the first winning.
-    Resource(ResKey, Vec<String>),
+    /// A resource and its joined haks string, the first winning.
+    Resource(ResKey, String),
     /// A hak and its file (or what is said of it not found).
     Hak(String, String, bool),
     /// A line of What the Module Uses.
@@ -177,7 +177,7 @@ impl HakConflicts {
             return rows.clone();
         }
         let r = &self.report;
-        let res = |(k, h): (&ResKey, &Vec<String>)| HakRow::Resource(*k, h.clone());
+        let res = |(k, h): (&ResKey, &Vec<String>)| HakRow::Resource(*k, h.join(", "));
         let rows: Vec<HakRow> = match self.view {
             HakView::Conflicts => r.conflicts().map(res).collect(),
             HakView::Overrides => r.overrides.iter().map(res).collect(),
@@ -244,13 +244,25 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
         // segments: on the next line where the room is too narrow.)
         let font = egui::TextStyle::Button.resolve(ui.style());
         let pad = ui.spacing().button_padding.x * 2.0;
-        let width = |words: &str| {
-            let g = ui
-                .fonts_mut(|f| f.layout_no_wrap(words.into(), font.clone(), egui::Color32::WHITE));
-            g.size().x + pad
-        };
-        let need =
-            width("What the Module Uses") + width("Copy Report") + ui.spacing().item_spacing.x;
+        let ppp = ui.ctx().pixels_per_point().to_bits();
+        let width_id = egui::Id::new("hak-report-buttons-width");
+        let width_key = (font.size.to_bits(), pad.to_bits(), ppp);
+        let both = ui
+            .data(|d| d.get_temp::<((u32, u32, u32), f32)>(width_id))
+            .filter(|(k, _)| *k == width_key)
+            .map(|(_, w)| w)
+            .unwrap_or_else(|| {
+                let width = |words: &str| {
+                    let g = ui.fonts_mut(|f| {
+                        f.layout_no_wrap(words.into(), font.clone(), egui::Color32::PLACEHOLDER)
+                    });
+                    g.size().x + pad
+                };
+                let w = width("What the Module Uses") + width("Copy Report");
+                ui.data_mut(|d| d.insert_temp(width_id, (width_key, w)));
+                w
+            });
+        let need = both + ui.spacing().item_spacing.x;
         let left = ui.available_size_before_wrap().x;
         if left >= need + REPORT_GAP {
             ui.add_space(left - need - ui.spacing().item_spacing.x);
@@ -274,29 +286,39 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
     let key = view as u64;
     // (The haks in their priority order, the first winning: their Hak
     // column sorts by it, up or down; File by the file's words.)
-    let order = h.table.order(
-        key,
-        rows.len(),
-        |_| true,
-        |a, b, col| {
-            if !sorts {
-                return a.cmp(&b);
-            }
-            match (&rows[a], &rows[b]) {
-                (HakRow::Resource(ka, ha), HakRow::Resource(kb, hb)) => match col {
-                    0 => report_table::by_words(&ka.resref.to_string(), &kb.resref.to_string())
-                        .then(ka.restype.0.cmp(&kb.restype.0)),
-                    1 => ext(ka).cmp(&ext(kb)).then(ka.resref.cmp(&kb.resref)),
-                    _ => report_table::by_words(&ha.join(", "), &hb.join(", ")),
-                },
-                (HakRow::Hak(na, fa, _), HakRow::Hak(nb, fb, _)) => match col {
-                    0 => a.cmp(&b),
-                    _ => report_table::by_words(fa, fb).then(report_table::by_words(na, nb)),
-                },
-                _ => a.cmp(&b),
-            }
-        },
-    );
+    let order =
+        h.table.order(
+            key,
+            rows.len(),
+            |_| true,
+            |a, b, col| {
+                if !sorts {
+                    return a.cmp(&b);
+                }
+                match (&rows[a], &rows[b]) {
+                    (HakRow::Resource(ka, ha), HakRow::Resource(kb, hb)) => match col {
+                        0 => {
+                            let a_s =
+                                ka.resref.as_str().map(std::borrow::Cow::Borrowed).unwrap_or_else(
+                                    || std::borrow::Cow::Owned(ka.resref.to_string()),
+                                );
+                            let b_s =
+                                kb.resref.as_str().map(std::borrow::Cow::Borrowed).unwrap_or_else(
+                                    || std::borrow::Cow::Owned(kb.resref.to_string()),
+                                );
+                            report_table::by_words(&a_s, &b_s).then(ka.restype.0.cmp(&kb.restype.0))
+                        }
+                        1 => ext(ka).cmp(ext(kb)).then(ka.resref.cmp(&kb.resref)),
+                        _ => report_table::by_words(ha, hb),
+                    },
+                    (HakRow::Hak(na, fa, _), HakRow::Hak(nb, fb, _)) => match col {
+                        0 => a.cmp(&b),
+                        _ => report_table::by_words(fa, fb).then(report_table::by_words(na, nb)),
+                    },
+                    _ => a.cmp(&b),
+                }
+            },
+        );
     let t = mg_uikit::tokens(ui.ctx());
     let spec = report_table::Spec {
         id: egui::Id::new("hak-report-table"),
@@ -323,7 +345,7 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
             &spec,
             &order,
             |i| match &rows[i] {
-                HakRow::Resource(k, haks) => (k.to_string(), haks.join(", ")),
+                HakRow::Resource(k, haks) => (k.to_string(), haks.clone()),
                 HakRow::Hak(n, f, _) => (n.clone(), f.clone()),
                 HakRow::Line(l) => (l.trim().to_string(), String::new()),
             },
@@ -333,7 +355,7 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
                     HakRow::Resource(k, haks) => {
                         report_table::text(ui, cells[0], k.resref.to_string(), text, false);
                         report_table::text(ui, cells[1], ext(k), quiet, false);
-                        report_table::text(ui, cells[2], haks.join(", "), text, false);
+                        report_table::text(ui, cells[2], haks.clone(), text, false);
                     }
                     HakRow::Hak(n, f, found) => {
                         report_table::text(ui, cells[0], n.clone(), text, false);
@@ -360,8 +382,8 @@ pub(crate) fn hak_body(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
-fn ext(k: &ResKey) -> String {
-    k.restype.extension().unwrap_or("?").to_string()
+fn ext(k: &ResKey) -> &'static str {
+    k.restype.extension().unwrap_or("?")
 }
 
 /// The least gap between a header's view switch and its buttons at its
@@ -402,7 +424,15 @@ pub(crate) fn used_body(app: &mut Moonglow, ui: &mut Ui) {
             ui.weak(area.to_string());
         }
     });
-    let order: Vec<usize> = (0..rows.len()).collect();
+    let order_id = egui::Id::new("used-rows-order");
+    let order = ui
+        .data(|d| d.get_temp::<Arc<Vec<usize>>>(order_id))
+        .filter(|o| o.len() == rows.len())
+        .unwrap_or_else(|| {
+            let o: Arc<Vec<usize>> = Arc::new((0..rows.len()).collect());
+            ui.data_mut(|d| d.insert_temp(order_id, o.clone()));
+            o
+        });
     let t = mg_uikit::tokens(ui.ctx());
     let spec = report_table::Spec {
         id: egui::Id::new("resources-used-table"),

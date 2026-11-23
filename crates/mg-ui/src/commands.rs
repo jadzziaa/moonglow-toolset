@@ -364,38 +364,46 @@ impl Id {
         if kind == BlueprintKind::Creature { Id::CreatureWizard } else { Id::Wizard(kind) }
     }
 
-    /// Every command, in the menus' order, then those no menu has.
-    pub fn all() -> Vec<Id> {
-        fn walk(items: &[Item], out: &mut Vec<Id>) {
-            for item in items {
-                match item {
-                    Do(id) | Item::WithPlugins(id, _) => out.push(*id),
-                    Sub(_, items) => walk(items, out),
-                    Item::Wizards => {
-                        out.extend(crate::blueprint_wizard::KINDS.into_iter().map(Id::Wizard));
+    /// Every command, in the menus' order, then those no menu has (cached).
+    pub(crate) fn all_slice() -> &'static [Id] {
+        static ALL: std::sync::OnceLock<Vec<Id>> = std::sync::OnceLock::new();
+        ALL.get_or_init(|| {
+            fn walk(items: &[Item], out: &mut Vec<Id>) {
+                for item in items {
+                    match item {
+                        Do(id) | Item::WithPlugins(id, _) => out.push(*id),
+                        Sub(_, items) => walk(items, out),
+                        Item::Wizards => {
+                            out.extend(crate::blueprint_wizard::KINDS.into_iter().map(Id::Wizard));
+                        }
+                        Separator
+                        | Item::Recent
+                        | Item::Prefabs
+                        | Item::PluginCommands
+                        | Item::PluginWizards
+                        | Item::PluginPanels
+                        | Item::Project => {}
                     }
-                    Separator
-                    | Item::Recent
-                    | Item::Prefabs
-                    | Item::PluginCommands
-                    | Item::PluginWizards
-                    | Item::PluginPanels
-                    | Item::Project => {}
                 }
             }
-        }
-        let mut out = Vec::new();
-        for (_, items) in MENUS {
-            walk(items, &mut out);
-        }
-        out.push(Id::FullScreen);
-        out.push(Id::QuickOpen);
-        // (The compass's button's: no menu has it.)
-        out.push(Id::ReorientCamera);
-        out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
-        out.push(Id::MaximizeWindow);
-        out.extend([Id::NextPane, Id::PreviousPane]);
-        out
+            let mut out = Vec::new();
+            for (_, items) in MENUS {
+                walk(items, &mut out);
+            }
+            out.push(Id::FullScreen);
+            out.push(Id::QuickOpen);
+            // (The compass's button's: no menu has it.)
+            out.push(Id::ReorientCamera);
+            out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
+            out.push(Id::MaximizeWindow);
+            out.extend([Id::NextPane, Id::PreviousPane]);
+            out
+        })
+    }
+
+    /// Every command, in the menus' order, then those no menu has.
+    pub fn all() -> Vec<Id> {
+        Self::all_slice().to_vec()
     }
 
     /// The id its keys are kept under in the settings (never to change),
@@ -1248,6 +1256,9 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     if let Some(after) = app.command_after_text.take() {
         run_after(app, ui, after);
     }
+    if !ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))) {
+        return;
+    }
     // (Undo and Redo's keys of Options › Keyboard in a script's editor:
     // its own history's, as the menu's are. Taken before the editor is
     // drawn, so that its own Ctrl+Z doesn't take a second step.)
@@ -1256,7 +1267,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // waits, its keys left to the field, Ctrl+Z its own undo:
     // `quick_open::runs_from_field`.)
     let searching = focused == Some(crate::quick_open::field_id());
-    for id in Id::all() {
+    for &id in Id::all_slice() {
         if searching && !crate::quick_open::runs_from_field(id) {
             continue;
         }
@@ -1547,24 +1558,39 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     let size = egui::vec2(width.min(ui.available_width()), ui.available_height());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     ui.allocate_ui_with_layout(size, layout, |ui| {
-        egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
-            for (name, items) in MENUS {
-                // (Its first letter underlined: Alt and the letter opens it.)
-                let mut job = egui::text::LayoutJob::default();
-                let font = egui::TextStyle::Button.resolve(ui.style());
-                // (The button's own text color, which its state gives: on the
-                // open menu's `accent-fill`, `on-fill`.)
+        type MenuJobs = (u32, egui::FontFamily, std::sync::Arc<[egui::WidgetText]>);
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let jobs_id = ui.id().with("menu-bar-jobs");
+        let font_key = (font.size.to_bits(), font.family.clone());
+        let jobs = ui
+            .data(|d| d.get_temp::<MenuJobs>(jobs_id))
+            .filter(|(s, f, _)| *s == font_key.0 && *f == font_key.1)
+            .map(|(_, _, j)| j)
+            .unwrap_or_else(|| {
                 let color = egui::Color32::PLACEHOLDER;
                 let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
                 let under =
                     egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
-                let split = name.chars().next().map_or(0, char::len_utf8);
-                job.append(&name[..split], 0.0, under);
-                job.append(&name[split..], 0.0, plain);
-                let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
-                    app.menu_row = vec![0];
-                    menu(app, ui, items, 0);
-                });
+                let made: std::sync::Arc<[egui::WidgetText]> = MENUS
+                    .iter()
+                    .map(|(name, _)| {
+                        let mut job = egui::text::LayoutJob::default();
+                        let split = name.chars().next().map_or(0, char::len_utf8);
+                        job.append(&name[..split], 0.0, under.clone());
+                        job.append(&name[split..], 0.0, plain.clone());
+                        egui::WidgetText::LayoutJob(std::sync::Arc::new(job))
+                    })
+                    .collect();
+                ui.data_mut(|d| d.insert_temp(jobs_id, (font_key.0, font_key.1, made.clone())));
+                made
+            });
+        egui::MenuBar::new().style(mg_uikit::menu_bar_style).config(config).ui(ui, |ui| {
+            for ((_, items), job) in MENUS.iter().zip(jobs.iter()) {
+                let (response, _) =
+                    egui::containers::menu::MenuButton::new(job.clone()).ui(ui, |ui| {
+                        app.menu_row = vec![0];
+                        menu(app, ui, items, 0);
+                    });
                 tops.push((Popup::default_response_id(&response), response));
             }
         });
@@ -2133,7 +2159,7 @@ fn menu_of(id: Id) -> Option<&'static str> {
 }
 
 /// What a command row of Quick Open runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Choice {
     Window(Id),
     /// A plugin's command: the plugin's id and the command's.
@@ -2191,9 +2217,7 @@ pub(crate) fn found(app: &Moonglow) -> Vec<Row> {
         (Added::Panel, "Panels"),
     ]
     .into_iter()
-    .flat_map(|(kind, menu)| {
-        app.plugin_entries(kind).into_iter().map(move |e| (menu, e)).collect::<Vec<_>>()
-    })
+    .flat_map(|(kind, menu)| app.plugin_entries(kind).into_iter().map(move |e| (menu, e)))
     .map(|(menu, e)| Row {
         enabled: app.plugin_entry_enabled(&e),
         key_id: format!("{}/{}:{}", e.plugin, menu.to_lowercase(), e.id),

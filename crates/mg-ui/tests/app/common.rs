@@ -180,7 +180,18 @@ fn build_harness(
     if let Some(rs) = rs.or_else(|| using_shared_renderer().then(gpu).flatten()) {
         b = b.renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs));
     }
-    let h = b.build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut recorded = false;
+    let h = b.build_ui_state(
+        move |ui, app: &mut Moonglow| {
+            if !recorded {
+                recorded = true;
+                mg_uikit::header::record_headers(ui.ctx());
+                mg_ui::widgets::record_footers(ui.ctx());
+            }
+            app.ui(ui)
+        },
+        app,
+    );
     // (Which icons are drawn where, for a test to ask: [`icon_drawn`].)
     mg_uikit::record_icons(&h.ctx);
     h

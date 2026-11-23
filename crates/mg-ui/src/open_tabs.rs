@@ -1200,17 +1200,29 @@ impl Moonglow {
         }
         self.dock.focused_leaf().map(|p| (p.surface.0, p.node.0)).hash(&mut h);
         let shape = h.finish();
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        let mut places: Vec<[i32; 4]> = (self.windows.iter())
-            .map(|(t, w)| self.maximized.get(t).map_or(w.now, |m| m.0))
-            .map(|r| [r.left(), r.top(), r.width(), r.height()].map(|v| v.round() as i32))
-            .collect();
-        places.sort_unstable();
-        places.hash(&mut h);
-        let places = h.finish();
+        let places = if self.windows.is_empty() {
+            0
+        } else {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            let mut places: Vec<[i32; 4]> = (self.windows.iter())
+                .map(|(t, w)| self.maximized.get(t).map_or(w.now, |m| m.0))
+                .map(|r| [r.left(), r.top(), r.width(), r.height()].map(|v| v.round() as i32))
+                .collect();
+            places.sort_unstable();
+            places.hash(&mut h);
+            h.finish()
+        };
         let now = ctx.input(|i| i.time);
         if std::mem::replace(&mut self.open_tabs.shape, shape) != shape {
-            self.keep_open_tabs();
+            // Establish initial snapshot immediately when none exists yet; once
+            // written, debounce interactive tab switches on the same 1.0s timer
+            // as window moves (flushed synchronously on Close/OpenModule/Exit).
+            if self.open_tabs.written.is_none() {
+                self.keep_open_tabs();
+            } else {
+                self.open_tabs.moved = Some(now);
+                ctx.request_repaint_after_secs(1.0);
+            }
         } else if std::mem::replace(&mut self.open_tabs.places, places) != places {
             self.open_tabs.moved = Some(now);
             ctx.request_repaint_after_secs(1.0);

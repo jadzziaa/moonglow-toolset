@@ -1128,6 +1128,9 @@ fn focused_field_border(ctx: &egui::Context, t: &Tokens, style: &Style) {
 }
 
 fn tooltip_fill(ctx: &egui::Context, t: &Tokens, style: &Style) {
+    if !ctx.memory(|m| m.layer_ids().any(|l| l.order == egui::Order::Tooltip)) {
+        return;
+    }
     let layers: Vec<egui::LayerId> =
         ctx.memory(|m| m.layer_ids().filter(|l| l.order == egui::Order::Tooltip).collect());
     let (fill, stroke) = (style.visuals.window_fill, style.visuals.window_stroke);

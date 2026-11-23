@@ -691,6 +691,19 @@ impl Keymap {
         map
     }
 
+    /// Order-independent content hash of bound shortcuts for cache keys.
+    pub(crate) fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut xor = self.keys.len() as u64;
+        for (id, list) in &self.keys {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            id.hash(&mut h);
+            list.hash(&mut h);
+            xor ^= h.finish();
+        }
+        xor
+    }
+
     /// The key `cmd` gave way on ([`Keymap::give_way`]), and the id of the
     /// command that has it: what Options › Keyboard says on its row.
     pub fn gave_way_to(&self, cmd: Cmd) -> Option<(KeyboardShortcut, String)> {

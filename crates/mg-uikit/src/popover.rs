@@ -702,7 +702,7 @@ impl<'a> Popover<'a> {
                     }
                     Some(Row::Action(a)) => {
                         if ui.add(a.button(enabled && a.enabled)).clicked() {
-                            out.clicked.push(a.words.clone());
+                            out.clicked.push(a.words);
                             out.changed = true;
                         }
                     }

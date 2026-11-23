@@ -64,6 +64,7 @@
 //! layer and whether it has a view of its own (at most 40 bytes each,
 //! 22 MB with the shared text for the game and 150 haks).
 
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, mpsc};
@@ -502,22 +503,34 @@ pub(crate) type Rank<'a> = (bool, Tier, Field, usize, &'a str, &'a str, &'a str)
 /// The entries of `part` (of `within`, where given: those an earlier,
 /// shorter query found) that are of the query's type and hold every word.
 pub(crate) fn matches(part: &Part, within: Option<&[u32]>, q: &Query) -> Vec<u32> {
-    match (within, part.file_scores(q)) {
-        (Some(within), _) => {
-            within.iter().copied().filter(|&i| part.finds(i as usize, q)).collect()
-        }
+    matches_with_scores(part, within, q).0
+}
+
+fn matches_with_scores(
+    part: &Part,
+    within: Option<&[u32]>,
+    q: &Query,
+) -> (Vec<u32>, Option<Vec<Option<(Tier, Field)>>>) {
+    if let Some(within) = within {
+        let found = within.iter().copied().filter(|&i| part.finds(i as usize, q)).collect();
+        return (found, None);
+    }
+    match part.file_scores(q) {
         // (One word: the file names searched at once, the names one by one.)
-        (None, Some(files)) => {
+        Some(files) => {
             let typed = |i: usize| q.restype.is_none_or(|t| part.entries[i].key.restype == t);
-            (0..part.entries.len())
+            let found = (0..part.entries.len())
                 .filter(|&i| {
                     typed(i) && (files[i].is_some() || part.name_fold(i).contains(q.text.as_str()))
                 })
                 .map(|i| i as u32)
-                .collect()
+                .collect();
+            (found, Some(files))
         }
-        (None, None) => {
-            (0..part.entries.len() as u32).filter(|&i| part.finds(i as usize, q)).collect()
+        None => {
+            let found =
+                (0..part.entries.len() as u32).filter(|&i| part.finds(i as usize, q)).collect();
+            (found, None)
         }
     }
 }
@@ -525,11 +538,21 @@ pub(crate) fn matches(part: &Part, within: Option<&[u32]>, q: &Query) -> Vec<u32
 /// The best `most` of `found` (indices into `part`, all of which match),
 /// in order: [`Rank`]'s. Only those taken are sorted.
 pub(crate) fn rank(part: &Part, found: &[u32], q: &Query, most: usize) -> Vec<u32> {
+    rank_with_scores(part, found, q, most, None)
+}
+
+fn rank_with_scores(
+    part: &Part,
+    found: &[u32],
+    q: &Query,
+    most: usize,
+    pre_files: Option<Vec<Option<(Tier, Field)>>>,
+) -> Vec<u32> {
     if most == 0 {
         return Vec::new();
     }
     // (One word, and many found: the file names' tiers from one search.)
-    let files = (found.len() > 256).then(|| part.file_scores(q)).flatten();
+    let files = if found.len() > 256 { pre_files.or_else(|| part.file_scores(q)) } else { None };
     let mut ranked: Vec<(Rank<'_>, u32)> = found
         .iter()
         .map(|&i| {
@@ -999,6 +1022,15 @@ struct Keys {
     escape: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ResultsCache {
+    text: String,
+    commands_only: bool,
+    sig: u64,
+    found: std::sync::Arc<Found>,
+    want: Option<(u32, f32)>,
+}
+
 /// Quick Open's state.
 #[derive(Debug, Default)]
 pub struct QuickOpen {
@@ -1034,6 +1066,8 @@ pub struct QuickOpen {
     shown: (Vec<String>, usize),
     /// An input method is composing in the field ([`read_keys`]).
     composing: bool,
+    /// Last `results` and its measured popover width, reused on idle frames.
+    cached: Option<ResultsCache>,
 }
 
 impl QuickOpen {
@@ -1053,6 +1087,7 @@ impl QuickOpen {
         self.open = true;
         self.focus_asked = true;
         self.selected = 0;
+        self.cached = None;
     }
 
     /// Closes it: what was typed goes, and with `back` the keys go back
@@ -1066,6 +1101,7 @@ impl QuickOpen {
         self.selected = 0;
         self.focus_asked = false;
         self.popover = None;
+        self.cached = None;
         let id = field_id();
         ctx.memory_mut(|m| {
             if m.has_focus(id) {
@@ -1447,14 +1483,16 @@ pub(crate) fn after_bar(app: &mut Moonglow, ui: &mut Ui, bar: Rect) {
     // Index::module_part and game_part (lazily: only while open).
     Index::module_part(app);
     Index::game_part(app, &ctx);
-    let found = results(app, &ctx);
+    let (found, cache_hit) = results(app, &ctx);
     // (Names and the load order taken a few at a time: frames go on until
     // it is all in hand, whatever is typed.)
     if app.quick_open.index.indexing() {
         ctx.request_repaint();
     }
     let qo = &mut app.quick_open;
-    qo.shown = (found.hits.iter().map(|h| h.name.clone()).collect(), found.more);
+    if !cache_hit || qo.shown.0.len() != found.hits.len() || qo.shown.1 != found.more {
+        qo.shown = (found.hits.iter().map(|h| h.name.clone()).collect(), found.more);
+    }
     let n = found.hits.len();
     // The keys read before the field took them.
     let keys = std::mem::take(&mut qo.keys);
@@ -1517,7 +1555,17 @@ fn popover(ui: &Ui, qo: &mut QuickOpen, found: &Found, anchor: Rect) -> Option<H
     let t = mg_uikit::tokens(&ctx);
     // As wide as the field, or wider where the rows want it, never past
     // the window's edges.
-    let want = found.hits.iter().map(|h| row_width(ui, h)).fold(0.0, f32::max).min(WIDEST);
+    let ppp = ctx.pixels_per_point().to_bits();
+    let want =
+        if let Some((_, w)) = qo.cached.as_ref().and_then(|c| c.want).filter(|(p, _)| *p == ppp) {
+            w
+        } else {
+            let w = found.hits.iter().map(|h| row_width(ui, h)).fold(0.0, f32::max).min(WIDEST);
+            if let Some(c) = qo.cached.as_mut() {
+                c.want = Some((ppp, w));
+            }
+            w
+        };
     // (The frame's own margin and line round the rows, kept inside too.)
     let mut style = (*ctx.global_style()).clone();
     mg_uikit::menu_style(&mut style);
@@ -1607,9 +1655,13 @@ fn note_text(found: &Found, n: usize) -> String {
 fn row_width(ui: &Ui, hit: &Hit) -> f32 {
     let text = |s: &str, size: f32| {
         ui.fonts_mut(|f| {
-            f.layout_no_wrap(s.to_string(), egui::FontId::proportional(size), egui::Color32::WHITE)
-                .size()
-                .x
+            f.layout_no_wrap(
+                s.to_string(),
+                egui::FontId::proportional(size),
+                egui::Color32::PLACEHOLDER,
+            )
+            .size()
+            .x
         })
     };
     let pad = mg_uikit::metrics::CONTROL_PADDING_X;
@@ -1786,30 +1838,78 @@ fn module_hit(path: &std::path::Path) -> Hit {
     }
 }
 
-/// The window's commands as Quick Open offers them (Quick Open itself and
-/// the Command Palette aside).
-fn command_rows(app: &Moonglow) -> Vec<CommandRow> {
-    commands::found(app)
-        .into_iter()
-        .filter(|r| !matches!(r.choice, Choice::Window(Id::QuickOpen | Id::CommandPalette)))
-        .map(CommandRow::new)
-        .collect()
+/// Hash of every external input affecting [`results`].
+fn results_sig(app: &Moonglow, ctx: &egui::Context, commands: &[commands::Row]) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let index = &app.quick_open.index;
+    index.module_for.hash(&mut h);
+    index.named.hash(&mut h);
+    index.own.entries.len().hash(&mut h);
+    index.game_for.hash(&mut h);
+    index.game_builds.hash(&mut h);
+    index.game.entries.len().hash(&mut h);
+    index.building.is_some().hash(&mut h);
+    app.ws.as_ref().map(|ws| (ws.identity(), ws.revision())).hash(&mut h);
+    app.load_order.hash(&mut h);
+    app.game.as_ref().map(|g| g.language.0).hash(&mut h);
+    let mod_path = app.module_path();
+    mod_path.hash(&mut h);
+    if let Some(m) = mod_path {
+        app.settings.recent_areas(&m).hash(&mut h);
+    }
+    app.settings.recent.hash(&mut h);
+    commands.len().hash(&mut h);
+    for c in commands {
+        c.choice.hash(&mut h);
+        c.label.hash(&mut h);
+        c.menu.hash(&mut h);
+        c.key_id.hash(&mut h);
+        c.enabled.hash(&mut h);
+    }
+    app.keymap.fingerprint().hash(&mut h);
+    (ctx.os() as u8).hash(&mut h);
+    // HashSet order is non-deterministic: combine elements with XOR so `sig` stays stable.
+    app.tree_selected.len().hash(&mut h);
+    let mut tree_xor = 0u64;
+    for k in &app.tree_selected {
+        let mut kh = std::collections::hash_map::DefaultHasher::new();
+        k.hash(&mut kh);
+        tree_xor ^= kh.finish();
+    }
+    tree_xor.hash(&mut h);
+    for p in app.enabled_plugins() {
+        p.manifest.id.hash(&mut h);
+    }
+    h.finish()
 }
 
-/// What the popover shows now.
-fn results(app: &mut Moonglow, ctx: &egui::Context) -> Found {
+/// What the popover shows now, with whether it was reused from [`QuickOpen::cached`].
+fn results(app: &mut Moonglow, ctx: &egui::Context) -> (Arc<Found>, bool) {
     let text = app.quick_open.text.clone();
     let (commands_only, typed) = parse(&text);
+    let raw_commands = commands::found(app);
+    let sig = results_sig(app, ctx, &raw_commands);
+    if let Some(c) = app.quick_open.cached.as_ref()
+        && c.commands_only == commands_only
+        && c.sig == sig
+        && c.text == text
+    {
+        return (Arc::clone(&c.found), true);
+    }
     // (The commands by every word typed; the resources by the words, a
     // last word naming a type narrowing them: [`Query`].)
     let needle = Needle::new(typed);
     let query = query_of(&needle);
     let q = Query::new(typed);
-    let commands = command_rows(app);
+    let commands: Vec<CommandRow> = raw_commands
+        .into_iter()
+        .filter(|r| !matches!(r.choice, Choice::Window(Id::QuickOpen | Id::CommandPalette)))
+        .map(CommandRow::new)
+        .collect();
     let indexing = app.quick_open.index.indexing();
     let mut hits: Vec<Hit> = Vec::new();
     let mut total = 0;
-    if needle.is_empty() {
+    let found = if needle.is_empty() {
         // (This module's areas opened lately, most recent first.)
         let recent =
             app.module_path().map(|m| app.settings.recent_areas(&m).to_vec()).unwrap_or_default();
@@ -1840,68 +1940,73 @@ fn results(app: &mut Moonglow, ctx: &egui::Context) -> Found {
             total = hits.len();
             hits.truncate(MOST);
         }
-        return Found { more: total - hits.len(), indexing: false, hits };
-    }
-    // Typed: the module's (or the recent modules), the commands, the load
-    // order's, each ranked.
-    narrow(app, typed, &q, commands_only);
-    let qo = &app.quick_open;
-    let index = &qo.index;
-    if !commands_only {
-        if app.ws.is_some() {
-            total += qo.narrowed.own.len();
-            let best = qo.narrowed.own_best.iter();
-            hits.extend(best.map(|&i| resource_hit(&index.own, i as usize, false)));
-        } else if q.restype.is_none() {
-            let mut found: Vec<(Tier, &PathBuf)> = (app.settings.recent.iter())
-                .filter_map(|p| {
-                    let name = fold(&p.file_name().unwrap_or_default().to_string_lossy());
-                    tier_of(&name, &query)
-                        .or_else(|| needle.finds_in(&[&name]).then_some(Tier::Scattered))
-                        .map(|t| (t, p))
-                })
-                .collect();
-            found.sort_by_key(|(t, _)| *t);
-            total += found.len();
-            hits.extend(found.into_iter().map(|(_, p)| module_hit(p)));
-        }
-    }
-    let found = rank_commands(&commands, &needle, &query);
-    total += found.len();
-    let room = MOST.saturating_sub(hits.len());
-    hits.extend(found.iter().take(room).map(|&i| command_hit(app, ctx, &commands[i].row)));
-    if !commands_only {
-        // (The game's own dialog.tlk, no resource of the load order: read
-        // only in its tab, M4's U17. First of the load order's, as the
-        // talk table the game reads.)
-        if let Some(game) = app.game.as_deref()
-            && q.restype.is_none_or(|t| t == ResType::TLK)
-        {
-            let named = fold("dialog.tlk");
-            let found = tier_of(&named, &query).is_some() || needle.finds_in(&[&named]);
-            if found {
-                total += 1;
-            }
-            // (Within the rows shown, as every hit.)
-            if found && hits.len() < MOST {
-                hits.push(Hit {
-                    target: Target::GameTalk,
-                    name: "dialog.tlk".into(),
-                    detail: crate::browser::game_talk_layer(game.language),
-                    icon: Icon::TalkTable,
-                    key: String::new(),
-                    enabled: true,
-                    why: String::new(),
-                });
+        Found { more: total - hits.len(), indexing: false, hits }
+    } else {
+        // Typed: the module's (or the recent modules), the commands, the load
+        // order's, each ranked.
+        narrow(app, typed, &q, commands_only);
+        let qo = &app.quick_open;
+        let index = &qo.index;
+        if !commands_only {
+            if app.ws.is_some() {
+                total += qo.narrowed.own.len();
+                let best = qo.narrowed.own_best.iter();
+                hits.extend(best.map(|&i| resource_hit(&index.own, i as usize, false)));
+            } else if q.restype.is_none() {
+                let mut found: Vec<(Tier, &PathBuf)> = (app.settings.recent.iter())
+                    .filter_map(|p| {
+                        let name = fold(&p.file_name().unwrap_or_default().to_string_lossy());
+                        tier_of(&name, &query)
+                            .or_else(|| needle.finds_in(&[&name]).then_some(Tier::Scattered))
+                            .map(|t| (t, p))
+                    })
+                    .collect();
+                found.sort_by_key(|(t, _)| *t);
+                total += found.len();
+                hits.extend(found.into_iter().map(|(_, p)| module_hit(p)));
             }
         }
-        total += qo.narrowed.game_found;
+        let found = rank_commands(&commands, &needle, &query);
+        total += found.len();
         let room = MOST.saturating_sub(hits.len());
-        let best = qo.narrowed.game_best.iter().take(room);
-        hits.extend(best.map(|&i| resource_hit(&index.game, i as usize, true)));
-    }
-    hits.truncate(MOST);
-    Found { more: total.saturating_sub(hits.len()), indexing, hits }
+        hits.extend(found.iter().take(room).map(|&i| command_hit(app, ctx, &commands[i].row)));
+        if !commands_only {
+            // (The game's own dialog.tlk, no resource of the load order: read
+            // only in its tab, M4's U17. First of the load order's, as the
+            // talk table the game reads.)
+            if let Some(game) = app.game.as_deref()
+                && q.restype.is_none_or(|t| t == ResType::TLK)
+            {
+                let named = fold("dialog.tlk");
+                let found = tier_of(&named, &query).is_some() || needle.finds_in(&[&named]);
+                if found {
+                    total += 1;
+                }
+                // (Within the rows shown, as every hit.)
+                if found && hits.len() < MOST {
+                    hits.push(Hit {
+                        target: Target::GameTalk,
+                        name: "dialog.tlk".into(),
+                        detail: crate::browser::game_talk_layer(game.language),
+                        icon: Icon::TalkTable,
+                        key: String::new(),
+                        enabled: true,
+                        why: String::new(),
+                    });
+                }
+            }
+            total += qo.narrowed.game_found;
+            let room = MOST.saturating_sub(hits.len());
+            let best = qo.narrowed.game_best.iter().take(room);
+            hits.extend(best.map(|&i| resource_hit(&index.game, i as usize, true)));
+        }
+        hits.truncate(MOST);
+        Found { more: total.saturating_sub(hits.len()), indexing, hits }
+    };
+    let found = Arc::new(found);
+    app.quick_open.cached =
+        Some(ResultsCache { text, commands_only, sig, found: Arc::clone(&found), want: None });
+    (found, false)
 }
 
 /// The module's and the load order's entries that match (`narrowed`),
@@ -1941,12 +2046,12 @@ fn narrow(app: &mut Moonglow, typed: &str, q: &Query, commands_only: bool) {
         && (n.restype.is_none() || n.restype == q.restype)
         && q.text.starts_with(n.query_text.as_str());
     let module_within = (grew && same_index).then_some(n.own.as_slice());
-    let own = matches(&index.own, module_within, q);
+    let (own, file_scores) = matches_with_scores(&index.own, module_within, q);
     // (The load order's searched anew: [`Part::find`].)
     if !(same_game && n.text == typed) {
         (n.game_found, n.game_best) = index.game.find(q, &index.hidden, MOST);
     }
-    n.own_best = rank(&index.own, &own, q, MOST);
+    n.own_best = rank_with_scores(&index.own, &own, q, MOST, file_scores);
     n.own = own;
     n.text = typed.to_string();
     n.query_text = q.text.clone();
@@ -2085,9 +2190,10 @@ pub fn time_whole_keystrokes(
             let took = (0..tries.max(1))
                 .map(|_| {
                     app.quick_open.narrowed = Narrowed::default();
+                    app.quick_open.cached = None;
                     app.quick_open.text = typed.to_string();
                     let began = Instant::now();
-                    let f = results(app, &ctx);
+                    let (f, _) = results(app, &ctx);
                     found = f.hits.len() + f.more;
                     began.elapsed()
                 })
@@ -2604,7 +2710,8 @@ mod tests {
             app.quick_open.text = "nw_c2".into();
             Index::module_part(app);
             Index::game_part(app, &ctx);
-            let rows: Vec<(String, bool)> = (results(app, &ctx).hits.into_iter())
+            let (found, _) = results(app, &ctx);
+            let rows: Vec<(String, bool)> = (found.hits.iter())
                 .filter_map(|h| match h.target {
                     Target::Resource(k) => Some((k.to_string(), true)),
                     Target::Game(k) => Some((k.to_string(), false)),
@@ -2782,7 +2889,7 @@ mod tests {
         app.quick_open.text = "new".into();
         Index::module_part(&mut app);
         Index::game_part(&mut app, &ctx);
-        let found = results(&mut app, &ctx);
+        let (found, _) = results(&mut app, &ctx);
         let group = |t: &Target| match t {
             Target::Resource(_) | Target::Module(_) => 0,
             Target::Command(_) => 1,
@@ -2798,7 +2905,7 @@ mod tests {
         assert_eq!(found.hits[0].target, Target::Resource(key("new_mine", ResType::NSS)));
         // (`>`: the commands alone.)
         app.quick_open.text = ">new".into();
-        let found = results(&mut app, &ctx);
+        let (found, _) = results(&mut app, &ctx);
         assert!(found.hits.iter().all(|h| matches!(h.target, Target::Command(_))));
         assert!(!found.hits.is_empty());
     }

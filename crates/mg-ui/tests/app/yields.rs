@@ -1046,6 +1046,7 @@ fn a_header_holds_its_controls_down_to_its_least_width() {
     let mut day = true;
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 300.0)).build_ui(move |ui| {
         mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        mg_uikit::header::record_headers(ui.ctx());
         let _ = EditorHeader::new("Kit header")
             .left(Item::button(Icon::Save, "Save"))
             .left(Item::button(Icon::Compile, "Compile"))
@@ -1086,6 +1087,7 @@ fn two_headers_of_one_name_are_each_held() {
     use mg_uikit::header::{EditorHeader, Item};
     let mut h = Harness::builder().with_size(egui::vec2(900.0, 300.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), mg_uikit::Theme::Dark);
+        mg_uikit::header::record_headers(ui.ctx());
         for salt in ["first", "second"] {
             ui.push_id(salt, |ui| {
                 let _ = EditorHeader::new("Twin header")

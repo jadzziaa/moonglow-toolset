@@ -89,6 +89,7 @@ fn harness(width: f32) -> (Harness<'static>, std::rc::Rc<RefCell<Option<Run>>>) 
     let mut values = Values::default();
     let h = Harness::builder().with_size(vec2(width, 300.0)).build_ui(move |ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
+        header::record_headers(ui.ctx());
         let out = test_header(ui, &mut values);
         *seen.borrow_mut() =
             Some(Run { places: out.places, row: out.response.rect, end: out.end_rect });
@@ -537,6 +538,7 @@ fn a_popover_button_can_be_kept_to_its_icon() {
     let open = Cell::new(false);
     let mut h = Harness::builder().with_size(vec2(1200.0, 300.0)).build_ui(|ui| {
         mg_uikit::apply(ui.ctx(), Theme::Dark);
+        header::record_headers(ui.ctx());
         let mut grid = false;
         let pop = Popover::new("Overlays").check(PopCheck::new(&mut grid, "Grid").icon(Icon::Grid));
         let out = EditorHeader::new(HEADER)

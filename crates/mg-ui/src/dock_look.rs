@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use mg_uikit::dock::DocTabMark;
 use mg_uikit::icons::ButtonState;
 
-use crate::{Action, Moonglow, Tab, tabs};
+use crate::{Action, Moonglow, tabs};
 
 /// The Split Editor button's tip.
 pub(crate) const SPLIT_TIP: &str = "Move the tab in front to another editor group";
@@ -26,20 +26,17 @@ impl Moonglow {
     pub(crate) fn doc_tab_parts(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let pointer = ctx.pointer_hover_pos();
-        let fronts: HashSet<Tab> = (self.dock.iter_leaves())
-            .filter_map(|(_, l)| l.tabs.get(l.active.0).cloned())
-            .collect();
-        let mut marks = Vec::new();
+        let mut marks = Vec::with_capacity(self.tab_buttons.len());
         let mut close = None;
-        let mut rects = HashMap::new();
-        for (tab, rect, layer, shown) in self.tab_buttons.clone() {
+        let mut rects = HashMap::with_capacity(self.tab_buttons.len());
+        for &(ref tab, rect, layer, shown) in &self.tab_buttons {
             rects.insert(tab.clone(), (rect, shown));
-            let Some(look) = self.doc_tabs.get(&tab) else { continue };
+            let Some(look) = self.doc_tabs.get(tab) else { continue };
             // (The tab being dragged has its parts where it is dragged.)
-            if self.dragged_tab.as_ref() == Some(&tab) {
+            if self.dragged_tab.as_ref() == Some(tab) {
                 continue;
             }
-            let active = fronts.contains(&tab);
+            let active = self.dock.iter_leaves().any(|(_, l)| l.tabs.get(l.active.0) == Some(tab));
             // (Under the pointer where nothing lies over it: a window over
             // the main surface's tabs hides their close buttons.)
             let hovered = pointer.is_some_and(|p| {
@@ -48,7 +45,7 @@ impl Moonglow {
             let parts = mg_uikit::shell::doc_tab_parts(rect, look.title.width, look.modified);
             let mut state = None;
             if tab.closeable() && (active || hovered) && shown.contains_rect(parts.close) {
-                let id = egui::Id::new(("doc-tab-close", &tab));
+                let id = egui::Id::new(("doc-tab-close", tab));
                 let builder = egui::UiBuilder::new().layer_id(layer).max_rect(parts.close);
                 let r = ui
                     .scope_builder(builder, |ui| {
@@ -57,8 +54,10 @@ impl Moonglow {
                         ui.interact(parts.close, id, egui::Sense::click())
                     })
                     .inner;
-                let name = format!("Close {}", look.name);
-                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+                r.widget_info(|| {
+                    let name = format!("Close {}", look.name);
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+                });
                 state = Some(if r.is_pointer_button_down_on() {
                     ButtonState::Pressed
                 } else if r.hovered() || r.has_focus() {
@@ -72,7 +71,7 @@ impl Moonglow {
                 }
             }
             marks.push(DocTabMark {
-                tab,
+                tab: tab.clone(),
                 rect,
                 layer,
                 shown,

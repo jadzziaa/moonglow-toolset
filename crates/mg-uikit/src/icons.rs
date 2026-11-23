@@ -59,24 +59,22 @@ impl Icon {
         // fine enough for 32 px, and at 16 px each icon was hundreds of
         // vertices.)
         let level = simplify_level(scale * ppp);
-        let mut shapes = Vec::new();
         for s in simplified(self, level).iter() {
             let points: Vec<Pos2> = s.points.iter().map(at).collect();
             if s.filled && points.len() > 2 {
-                shapes.push(Shape::convex_polygon(points.clone(), color, Stroke::NONE));
+                painter.add(Shape::convex_polygon(points.clone(), color, Stroke::NONE));
             }
             // Round caps and sharp corners: a dot as wide as the stroke
             // (a path of `h.01`, a dot, is all cap).
             for &i in &s.dots {
-                shapes.push(Shape::circle_filled(points[i], width / 2.0, color));
+                painter.add(Shape::circle_filled(points[i], width / 2.0, color));
             }
             if s.closed {
-                shapes.push(Shape::closed_line(points, stroke));
+                painter.add(Shape::closed_line(points, stroke));
             } else {
-                shapes.push(Shape::line(points, stroke));
+                painter.add(Shape::line(points, stroke));
             }
         }
-        painter.extend(shapes);
     }
 }
 
@@ -98,36 +96,35 @@ fn simplify_level(px: f32) -> u8 {
     (tolerance * 64.0).clamp(0.0, 64.0) as u8
 }
 
-type Cache = std::collections::HashMap<(Icon, u8), std::sync::Arc<Vec<Painted>>>;
-
 /// `icon`'s strokes simplified to `level` ([`simplify_level`]), worked out
 /// once a size (the set is the program's own: a cache of it alone).
-fn simplified(icon: Icon, level: u8) -> std::sync::Arc<Vec<Painted>> {
-    static CACHE: std::sync::OnceLock<std::sync::Mutex<Cache>> = std::sync::OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
-    if let Ok(cache) = cache.lock()
-        && let Some(found) = cache.get(&(icon, level))
-    {
-        return found.clone();
+fn simplified(icon: Icon, level: u8) -> std::rc::Rc<Vec<Painted>> {
+    thread_local! {
+        static CACHE: std::cell::RefCell<
+            std::collections::HashMap<(Icon, u8), std::rc::Rc<Vec<Painted>>>,
+        > = Default::default();
     }
-    let tolerance = f32::from(level) / 64.0;
-    let made: Vec<Painted> = strokes(icon)
-        .iter()
-        .map(|s| {
-            let points = if s.points.len() > 2 && !s.filled {
-                douglas_peucker(s.points, tolerance, s.closed)
-            } else {
-                s.points.to_vec()
-            };
-            let dots = dots(&points, s.closed);
-            Painted { points, closed: s.closed, filled: s.filled, dots }
-        })
-        .collect();
-    let made = std::sync::Arc::new(made);
-    if let Ok(mut cache) = cache.lock() {
-        cache.insert((icon, level), made.clone());
-    }
-    made
+    CACHE.with(|cache| {
+        if let Some(found) = cache.borrow().get(&(icon, level)) {
+            return std::rc::Rc::clone(found);
+        }
+        let tolerance = f32::from(level) / 64.0;
+        let made: Vec<Painted> = strokes(icon)
+            .iter()
+            .map(|s| {
+                let points = if s.points.len() > 2 && !s.filled {
+                    douglas_peucker(s.points, tolerance, s.closed)
+                } else {
+                    s.points.to_vec()
+                };
+                let dots = dots(&points, s.closed);
+                Painted { points, closed: s.closed, filled: s.filled, dots }
+            })
+            .collect();
+        let made = std::rc::Rc::new(made);
+        cache.borrow_mut().insert((icon, level), std::rc::Rc::clone(&made));
+        made
+    })
 }
 
 /// The points of a stroke that get a dot: an open one's ends, and every

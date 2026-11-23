@@ -304,6 +304,8 @@ pub(crate) struct Assets {
     /// Where the skin, the fonts and the pictures of the window last
     /// prepared for came from, and what was not found of them.
     pub(super) origins: BTreeMap<String, String>,
+    /// Lowercase stem (`name` before last `.`) -> first-seen origin for O(1) lookup.
+    pub(super) origin_stems: std::collections::HashMap<String, String>,
     pub(super) issues: Vec<String>,
     pub(super) loaded: bool,
     /// Where the canvas put the window and each control, while a caller
@@ -975,6 +977,12 @@ impl Assets {
         self.origins = (self.fixed_origins.iter().map(|(k, v)| (k.clone(), v.clone())))
             .chain(pictures().filter_map(|p| p.origin.clone()))
             .collect();
+        self.origin_stems.clear();
+        for (k, origin) in &self.origins {
+            if let Some((stem, _)) = k.rsplit_once('.') {
+                self.origin_stems.entry(stem.to_string()).or_insert_with(|| origin.clone());
+            }
+        }
     }
 
     pub(super) fn number(&self, path: &str, default: f32) -> f32 {

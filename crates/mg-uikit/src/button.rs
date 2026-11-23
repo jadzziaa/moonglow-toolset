@@ -269,17 +269,12 @@ impl KitButton {
         FontId::proportional(metrics::BODY_SIZE * self.scale())
     }
 
-    fn words_width(&self, ui: &Ui) -> f32 {
-        let galley = ui.painter().layout_no_wrap(self.words.clone(), self.font(), Color32::WHITE);
-        galley.size().x
-    }
-
-    /// The width it takes (the same in every state): 22 for an icon
-    /// alone, 36 for an icon alone with a chevron; words 8 px from each
-    /// side, an icon 6 px before them and a chevron 6 px after.
-    pub fn width(&self, ui: &Ui) -> f32 {
+    /// Measures the button once and returns its laid-out text parts using
+    /// `Color32::PLACEHOLDER` so `epaint::GalleyCache` hits across sizing,
+    /// hover, and disabled states.
+    fn measure_parts(&self, ui: &Ui) -> ButtonParts {
         if self.icon_only {
-            return match self.chevron {
+            let width = match self.chevron {
                 false => metrics::ICON_BUTTON,
                 true => {
                     2.0 * ICON_CHEVRON_PADDING
@@ -289,33 +284,56 @@ impl KitButton {
                         - BUTTON_INSET
                 }
             };
+            return ButtonParts { width, words: None, count: None, keys: None };
         }
-        let mut width = 2.0 * metrics::CONTROL_PADDING_X + self.words_width(ui);
-        if let Some(count) = &self.count {
+        let words =
+            ui.painter().layout_no_wrap(self.words.clone(), self.font(), Color32::PLACEHOLDER);
+        let mut width = 2.0 * metrics::CONTROL_PADDING_X + words.size().x;
+        let count = self.count.as_ref().map(|count| {
             let font = FontId::proportional(metrics::SMALL_SIZE);
-            let galley = ui.painter().layout_no_wrap(count.clone(), font, Color32::WHITE);
+            let galley = ui.painter().layout_no_wrap(count.clone(), font, Color32::PLACEHOLDER);
             width += COUNT_GAP + galley.size().x;
-        }
+            galley
+        });
         if self.icon.is_some() {
             width += metrics::ICON - BUTTON_INSET + BUTTON_GAP;
         }
         if self.chevron {
             width += BUTTON_GAP + metrics::ICON_SMALL - BUTTON_INSET;
         }
-        if let Some(keys) = &self.keys {
-            width += KEYS_GAP + Self::keys_galley(ui, keys, Color32::WHITE).size().x;
+        let keys = self.keys.as_ref().map(|keys| {
+            let galley = Self::keys_galley(ui, keys, Color32::PLACEHOLDER);
+            width += KEYS_GAP + galley.size().x;
+            galley
+        });
+        ButtonParts {
+            width: width.ceil().max(self.least.unwrap_or(0.0)),
+            words: Some(words),
+            count,
+            keys,
         }
-        width.ceil().max(self.least.unwrap_or(0.0))
+    }
+
+    /// The width it takes (the same in every state): 22 for an icon
+    /// alone, 36 for an icon alone with a chevron; words 8 px from each
+    /// side, an icon 6 px before them and a chevron 6 px after.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.measure_parts(ui).width
     }
 
     /// The fill, the color of its icon and words, the color of its
     /// chevron and its ring, in `state`.
-    fn colors(&self, t: &Tokens, state: ButtonState) -> (Color32, Color32, Color32, Stroke) {
+    fn colors(
+        &self,
+        t: &Tokens,
+        state: ButtonState,
+        enabled: bool,
+    ) -> (Color32, Color32, Color32, Stroke) {
         let open = self.open == Some(true);
         let lit = state != ButtonState::Rest;
         let none = Color32::TRANSPARENT;
         let flat = self.look == ButtonLook::Flat;
-        let (fill, text) = if !self.enabled {
+        let (fill, text) = if !enabled {
             match self.look {
                 ButtonLook::Toggle if self.on => (t.accent_fill_off, t.on_fill_off),
                 _ if flat => (none, t.text_off),
@@ -345,14 +363,14 @@ impl KitButton {
                 },
             }
         };
-        let chevron = if !self.enabled {
+        let chevron = if !enabled {
             text
         } else if text == t.on_fill {
             t.on_fill
         } else {
             t.text_2
         };
-        let ring = if self.enabled && (open || state == ButtonState::Pressed) {
+        let ring = if enabled && (open || state == ButtonState::Pressed) {
             Stroke::new(1.0, t.accent)
         } else {
             Stroke::NONE
@@ -361,18 +379,27 @@ impl KitButton {
     }
 }
 
+struct ButtonParts {
+    width: f32,
+    words: Option<std::sync::Arc<egui::Galley>>,
+    count: Option<std::sync::Arc<egui::Galley>>,
+    keys: Option<std::sync::Arc<egui::Galley>>,
+}
+
 impl egui::Widget for KitButton {
     fn ui(self, ui: &mut Ui) -> Response {
-        let width = self.width(ui);
+        let parts = self.measure_parts(ui);
         let height = self.high.unwrap_or(metrics::CONTROL_HEIGHT) * self.scale();
         let sense = if self.enabled { Sense::click() } else { Sense::hover() };
-        let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
-        let name = self.accessible_name().to_string();
+        let (rect, response) = ui.allocate_exact_size(vec2(parts.width, height), sense);
         let enabled = self.enabled && ui.is_enabled();
         let toggle = self.look == ButtonLook::Toggle;
-        response.widget_info(|| match toggle {
-            true => WidgetInfo::selected(WidgetType::Button, enabled, self.on, &name),
-            false => WidgetInfo::labeled(WidgetType::Button, enabled, &name),
+        response.widget_info(|| {
+            let name = self.accessible_name();
+            match toggle {
+                true => WidgetInfo::selected(WidgetType::Button, enabled, self.on, name),
+                false => WidgetInfo::labeled(WidgetType::Button, enabled, name),
+            }
         });
         if let Some(open) = self.open {
             crate::icons::say_expanded(&response, open);
@@ -387,9 +414,7 @@ impl egui::Widget for KitButton {
                 true => ButtonState::of(&response),
                 false => ButtonState::Rest,
             });
-            let mut look = self.clone();
-            look.enabled = enabled;
-            let (fill, text, chevron, ring) = look.colors(&t, state);
+            let (fill, text, chevron, ring) = self.colors(&t, state, enabled);
             let painter = crate::controls::box_painter(ui, enabled);
             let corners = self.corners.unwrap_or(metrics::RADIUS.into());
             painter.rect(rect, corners, fill, ring, egui::StrokeKind::Inside);
@@ -414,20 +439,17 @@ impl egui::Widget for KitButton {
                         pos2(x, y - metrics::ICON / 2.0),
                         Vec2::splat(metrics::ICON),
                     );
-                    let t = ui.tokens();
                     let quiet = self.quiet_icon && enabled && text == t.text;
                     icon.paint(&painter, square, if quiet { t.text_2 } else { text });
                     x += metrics::ICON + BUTTON_GAP;
                 }
-                let galley = painter.layout_no_wrap(self.words.clone(), self.font(), text);
-                let at = pos2(x, y - galley.size().y / 2.0);
-                x += galley.size().x;
-                painter.galley(at, galley, text);
-                if let Some(count) = &self.count {
-                    let t = ui.tokens();
+                if let Some(galley) = parts.words {
+                    let at = pos2(x, y - galley.size().y / 2.0);
+                    x += galley.size().x;
+                    painter.galley(at, galley, text);
+                }
+                if let Some(galley) = parts.count {
                     let weak = if enabled { t.text_3 } else { t.text_off };
-                    let font = FontId::proportional(metrics::SMALL_SIZE);
-                    let galley = painter.layout_no_wrap(count.clone(), font, weak);
                     let at = pos2(x + COUNT_GAP, y - galley.size().y / 2.0);
                     x += COUNT_GAP + galley.size().x;
                     painter.galley(at, galley, weak);
@@ -436,24 +458,21 @@ impl egui::Widget for KitButton {
                     let cx = x + BUTTON_GAP + metrics::ICON_SMALL / 2.0;
                     crate::controls::paint_chevron(&painter, pos2(cx, y), 1.0, chevron);
                 }
-                if let Some(keys) = &self.keys {
-                    let t = ui.tokens();
+                if let Some(galley) = parts.keys {
                     let weak = if enabled { t.text_3 } else { t.text_off };
-                    let galley = Self::keys_galley(ui, keys, weak);
                     let right = rect.right() - metrics::CONTROL_PADDING_X;
                     let at = pos2(right - galley.size().x, y - galley.size().y / 2.0);
                     painter.galley(at, galley, weak);
                 }
             }
         }
-        let tip = match (&self.tip, self.icon_only) {
-            (Some(tip), _) => Some(tip.clone()),
-            (None, true) => Some(name),
-            (None, false) => None,
-        };
-        match tip {
-            Some(tip) => response.on_hover_text(&tip).on_disabled_hover_text(&tip),
-            None => response,
+        match (self.tip, self.icon_only) {
+            (Some(tip), _) => response.on_hover_text(&tip).on_disabled_hover_text(tip),
+            (None, true) => {
+                let tip = self.name.unwrap_or(self.words);
+                response.on_hover_text(&tip).on_disabled_hover_text(tip)
+            }
+            (None, false) => response,
         }
     }
 }
@@ -464,7 +483,7 @@ mod tests {
     use crate::Theme;
 
     fn colors(button: KitButton, theme: Theme, state: ButtonState) -> (Color32, Color32) {
-        let (fill, text, _, _) = button.colors(&theme.tokens(), state);
+        let (fill, text, _, _) = button.colors(&theme.tokens(), state, button.enabled);
         (fill, text)
     }
 

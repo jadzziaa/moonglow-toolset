@@ -1104,7 +1104,7 @@ pub(crate) fn name(app: &mut Moonglow, tab: &Tab) -> String {
         }
         Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()),
         Tab::Blueprints(keys) => {
-            let ext = keys[0].restype.extension().unwrap_or_default();
+            let ext = keys.first().and_then(|k| k.restype.extension()).unwrap_or_default();
             format!("{} blueprints (.{ext})", keys.len())
         }
         Tab::Manual => "User Manual".into(),
@@ -1146,6 +1146,9 @@ pub(crate) struct Look {
 pub(crate) struct LookCache {
     titles: HashMap<TitleKey, mg_uikit::dock::DocTabTitle>,
     resources: HashMap<ResKey, Watched>,
+    /// `(ws (identity, revision), hash of open tabs)` when `resources` / saved
+    /// copies were last pruned against `open`.
+    open_sig: Option<(Option<(u64, u64)>, u64)>,
     /// How many times a document was compared with its saved copy (for
     /// tests: `Moonglow::dot_comparisons`).
     pub(crate) comparisons: u64,
@@ -1499,11 +1502,17 @@ fn paint_window_bar_button(
 /// ([`mg_uikit::dock::doc_tab_cap`], not under its least), and laid out
 /// again only where what they are laid out from changed ([`LookCache`]).
 pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
+    use std::hash::{Hash as _, Hasher as _};
     let font = egui::TextStyle::Button.resolve(&ctx.global_style());
     let made = (ctx.pixels_per_point().to_bits(), crate::script_layout::fonts_made(ctx));
+    let mut tabs_h = std::collections::hash_map::DefaultHasher::new();
     let panes: Vec<(bool, f32, Vec<Tab>)> = (app.dock.iter_leaves())
-        .map(|(p, l)| (p.surface.is_main(), l.rect.width(), l.tabs.clone()))
+        .map(|(p, l)| {
+            l.tabs.hash(&mut tabs_h);
+            (p.surface.is_main(), l.rect.width(), l.tabs.clone())
+        })
         .collect();
+    let open_sig = (app.ws.as_ref().map(|w| (w.identity(), w.revision())), tabs_h.finish());
     let mut cache = std::mem::take(&mut app.look_cache);
     let mut titles = HashMap::new();
     let mut looks = HashMap::new();
@@ -1570,12 +1579,15 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
     // (Only the titles laid out this frame are kept, and the resources of
     // the tabs open.)
     cache.titles = titles;
-    let open: std::collections::HashSet<ResKey> =
-        looks.keys().flat_map(|t| resources_of(app, t)).collect();
-    cache.resources.retain(|k, _| open.contains(k));
-    // (And the saved copies read to compare them.)
-    if let Some(ws) = &app.ws {
-        ws.forget_saved_copies(|k| open.contains(k));
+    if cache.open_sig != Some(open_sig) {
+        let open: std::collections::HashSet<ResKey> =
+            looks.keys().flat_map(|t| resources_of(app, t)).collect();
+        cache.resources.retain(|k, _| open.contains(k));
+        // (And the saved copies read to compare them.)
+        if let Some(ws) = &app.ws {
+            ws.forget_saved_copies(|k| open.contains(k));
+        }
+        cache.open_sig = Some(open_sig);
     }
     app.look_cache = cache;
     app.doc_tabs = looks;

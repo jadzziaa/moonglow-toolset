@@ -225,33 +225,40 @@ impl StatusSwitch {
         self
     }
 
-    /// The width it takes in `ui`.
-    pub fn width(&self, ui: &Ui) -> f32 {
+    /// Measures width, optional label galley (`Color32::PLACEHOLDER`), and badge width once.
+    fn measure(&self, ui: &Ui) -> (f32, Option<Arc<egui::Galley>>, f32) {
         let pad = if self.icon_only { 4.0 } else { SWITCH_PADDING };
         let mut w = 2.0 * pad + SWITCH_ICON;
-        if !self.icon_only {
-            let galley =
-                ui.painter().layout_no_wrap(self.text.clone(), body_font(), Color32::WHITE);
-            w += SWITCH_GAP + galley.size().x;
-        }
-        if let Some(badge) = &self.badge {
-            w += SWITCH_GAP + badge.width(ui);
-        }
-        w
+        let galley = (!self.icon_only).then(|| {
+            let g =
+                ui.painter().layout_no_wrap(self.text.clone(), body_font(), Color32::PLACEHOLDER);
+            w += SWITCH_GAP + g.size().x;
+            g
+        });
+        let badge_w = self.badge.as_ref().map_or(0.0, |badge| {
+            let bw = badge.width(ui);
+            w += SWITCH_GAP + bw;
+            bw
+        });
+        (w, galley, badge_w)
+    }
+
+    /// The width it takes in `ui`.
+    pub fn width(&self, ui: &Ui) -> f32 {
+        self.measure(ui).0
     }
 }
 
 impl egui::Widget for StatusSwitch {
     fn ui(self, ui: &mut Ui) -> Response {
-        let size = vec2(self.width(ui), SWITCH_HEIGHT);
+        let (width, label_galley, badge_w) = self.measure(ui);
+        let size = vec2(width, SWITCH_HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         let enabled = ui.is_enabled();
-        let text = self.text.clone();
         let on = self.on;
-        response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, &text));
+        response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, &self.text));
         if let Some(badge) = &self.badge {
-            let count = badge.text().to_owned();
-            response.ctx.accesskit_node_builder(response.id, |node| node.set_value(count));
+            response.ctx.accesskit_node_builder(response.id, |node| node.set_value(badge.text()));
         }
         if ui.is_rect_visible(rect) {
             let t = ui.tokens();
@@ -285,8 +292,7 @@ impl egui::Widget for StatusSwitch {
             );
             self.icon.paint(p, icon, color);
             x += SWITCH_ICON;
-            if !self.icon_only {
-                let galley = p.layout_no_wrap(self.text.clone(), body_font(), color);
+            if let Some(galley) = label_galley {
                 x += SWITCH_GAP;
                 let pos = pos2(x, (rect.center().y - galley.size().y / 2.0).round());
                 x += galley.size().x;
@@ -296,12 +302,12 @@ impl egui::Widget for StatusSwitch {
                 x += SWITCH_GAP;
                 let r = Rect::from_min_size(
                     pos2(x, rect.center().y - marks::MARK_HEIGHT / 2.0),
-                    vec2(badge.width(ui), marks::MARK_HEIGHT),
+                    vec2(badge_w, marks::MARK_HEIGHT),
                 );
                 badge.paint(p, &t, r);
             }
         }
-        let tip = self.tooltip.clone().or_else(|| self.icon_only.then(|| self.text.clone()));
+        let tip = self.tooltip.or_else(|| self.icon_only.then_some(self.text));
         match tip {
             Some(tip) => response.on_hover_text(tip),
             None => response,
@@ -518,13 +524,17 @@ impl Hint {
             .map(|part| match part {
                 HintPart::Key(k) | HintPart::Held(k) => marks::key_cap_width(ui, k),
                 HintPart::Join(j) => {
-                    painter.layout_no_wrap((*j).to_string(), small_font(), Color32::WHITE).size().x
+                    painter
+                        .layout_no_wrap((*j).to_string(), small_font(), Color32::PLACEHOLDER)
+                        .size()
+                        .x
                 }
                 HintPart::Icon(_) | HintPart::NamedIcon { .. } => metrics::ICON,
                 HintPart::Glyph { width, .. } => *width,
             })
             .collect();
-        let word = painter.layout_no_wrap(self.word.clone(), small_font(), Color32::WHITE).size().x;
+        let word =
+            painter.layout_no_wrap(self.word.clone(), small_font(), Color32::PLACEHOLDER).size().x;
         (parts, word)
     }
 
@@ -551,7 +561,8 @@ impl Hint {
                 HintPart::Key(k) => marks::paint_key_cap(p, t, rect, k),
                 HintPart::Held(k) => marks::paint_held_key_cap(p, t, rect, k),
                 HintPart::Join(j) => {
-                    let galley = p.layout_no_wrap((*j).to_string(), small_font(), t.text_3);
+                    let galley =
+                        p.layout_no_wrap((*j).to_string(), small_font(), Color32::PLACEHOLDER);
                     let pos = pos2(x, (y - galley.size().y / 2.0).round());
                     p.galley(pos, galley, t.text_3);
                 }
@@ -563,7 +574,7 @@ impl Hint {
             x += w + HINT_PART_GAP;
         }
         let margin = if self.parts.is_empty() { 0.0 } else { HINT_WORD_MARGIN };
-        let galley = p.layout_no_wrap(self.word.clone(), small_font(), t.text_2);
+        let galley = p.layout_no_wrap(self.word.clone(), small_font(), Color32::PLACEHOLDER);
         let pos = pos2(x + margin, (y - galley.size().y / 2.0).round());
         p.galley(pos, galley, t.text_2);
     }
@@ -691,8 +702,8 @@ impl MeasuredHints<'_> {
             for (i, hint) in self.hints[..shown].iter().enumerate() {
                 let size = vec2(self.widths[i], HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-                let spoken = hint.spoken();
-                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
+                response
+                    .widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, hint.spoken()));
                 if ui.is_rect_visible(rect) {
                     hint.paint(ui, &t, rect.left(), rect.center().y, &self.parts[i].0);
                 }
@@ -702,17 +713,17 @@ impl MeasuredHints<'_> {
                 let mut job = egui::text::LayoutJob::simple_singleline(
                     note.word.clone(),
                     small_font(),
-                    t.text_2,
+                    Color32::PLACEHOLDER,
                 );
                 job.wrap = egui::text::TextWrapping::truncate_at_width(left);
                 let galley = ui.painter().layout_job(job);
                 let size = vec2(galley.size().x, HINT_HEIGHT);
                 let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-                let spoken = note.spoken();
-                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &spoken));
+                response
+                    .widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, note.spoken()));
                 let pos = pos2(rect.left(), (rect.center().y - galley.size().y / 2.0).round());
                 ui.painter().galley(pos, galley, t.text_2);
-                response.on_hover_text(note.word.clone());
+                response.on_hover_text(&note.word);
             }
         });
         shown + usize::from(cut.is_some())
@@ -802,13 +813,17 @@ impl StatusItem {
         if self.modified { marks::DOT + ITEM_GAP } else { 0.0 }
     }
 
-    /// Its text and its kept words as laid out in `ui` (`color`), the text
-    /// cut short to its room.
-    fn galleys(&self, ui: &Ui, color: Color32) -> (Arc<egui::Galley>, Arc<egui::Galley>) {
+    /// Its text and its kept words as laid out in `ui` using
+    /// `Color32::PLACEHOLDER` (`painter.galley` recolors at paint time), the
+    /// text cut short to its room.
+    fn galleys(&self, ui: &Ui) -> (Arc<egui::Galley>, Arc<egui::Galley>) {
         let p = ui.painter();
-        let kept = p.layout_no_wrap(self.kept.clone(), self.font(), color);
-        let mut job =
-            egui::text::LayoutJob::simple_singleline(self.text.clone(), self.font(), color);
+        let kept = p.layout_no_wrap(self.kept.clone(), self.font(), Color32::PLACEHOLDER);
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            self.text.clone(),
+            self.font(),
+            Color32::PLACEHOLDER,
+        );
         if let Some(max) = self.max_width {
             let room = (max - self.dot() - kept.size().x).max(0.0);
             job.wrap = egui::text::TextWrapping::truncate_at_width(room);
@@ -818,14 +833,14 @@ impl StatusItem {
 
     /// The width it takes in `ui`.
     pub fn width(&self, ui: &Ui) -> f32 {
-        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        let (text, kept) = self.galleys(ui);
         self.dot() + text.size().x + kept.size().x
     }
 
     /// The words it shows in `ui`: its text, cut short with an ellipsis
     /// where it does not fit, and its kept words.
     pub fn shown(&self, ui: &Ui) -> String {
-        let (text, kept) = self.galleys(ui, Color32::WHITE);
+        let (text, kept) = self.galleys(ui);
         // (A galley's `text` is the whole of it: its glyphs, what is drawn.)
         let drawn: String = text.rows.iter().flat_map(|r| r.glyphs.iter().map(|g| g.chr)).collect();
         format!("{drawn}{}", kept.text())
@@ -833,7 +848,7 @@ impl StatusItem {
 
     /// Whether its text is cut short in `ui`.
     pub fn is_cut(&self, ui: &Ui) -> bool {
-        self.galleys(ui, Color32::WHITE).0.elided
+        self.galleys(ui).0.elided
     }
 }
 
@@ -845,12 +860,15 @@ impl egui::Widget for StatusItem {
             (_, true) => t.text_3,
             _ => t.text_2,
         };
-        let (galley, kept) = self.galleys(ui, color);
+        let (galley, kept) = self.galleys(ui);
         let height = galley.size().y.max(kept.size().y).max(marks::MARK_HEIGHT);
-        let size = vec2(self.width(ui), height);
+        let width = self.dot() + galley.size().x + kept.size().x;
+        let size = vec2(width, height);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-        let text = format!("{}{}", self.text, self.kept);
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
+        response.widget_info(|| {
+            let text = format!("{}{}", self.text, self.kept);
+            WidgetInfo::labeled(WidgetType::Label, true, text)
+        });
         if ui.is_rect_visible(rect) {
             let mut x = rect.left();
             if self.modified {
