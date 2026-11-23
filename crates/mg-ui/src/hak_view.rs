@@ -1602,7 +1602,11 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
                 egui::pos2(xs[0].start() + 8.0 + 8.0, rect.center().y),
                 egui::vec2(16.0, 16.0),
             );
-            crate::browser::kind_icon(key.restype).paint(ui.painter(), icon, quiet);
+            // (Its kind's hue with Options › General › Colored icons, unless
+            // the row is selected.)
+            let kind = crate::browser::kind_icon(key.restype);
+            let hued = if selected { quiet } else { mg_uikit::hues::tint(ui.ctx(), kind, quiet) };
+            kind.paint(ui.painter(), icon, hued);
             match d.rename.as_mut().filter(|(k, _)| *k == key) {
                 Some((_, typed)) => {
                     let cell = egui::Rect::from_x_y_ranges(xs[0].clone(), rect.y_range())

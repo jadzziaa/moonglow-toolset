@@ -9,7 +9,9 @@
 //! groups and an area's kinds, the Outliner's kinds and resource types,
 //! and the Palette's row of types ([`crate::TreeRow::kind_icon`],
 //! [`crate::TreeGroup::kind_icon`], [`crate::IconButton::kind_hue`],
-//! [`kind_icon`]). Everything else keeps `text-2`.
+//! [`kind_icon`]); and the rows that paint their icon themselves, the
+//! Resources panel's, Quick Open's and the hak editor's ([`tint`]).
+//! Everything else keeps `text-2`.
 //!
 //! The hues follow the area view where it has a color for a kind
 //! (encounters orange, triggers green, doors and waypoints blue, sounds

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T18:35:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T22:46:51Z }
 ---
 
 # The main window
@@ -56,7 +56,7 @@ plus) are icons on the Module panel's tab bar, beside **Expand All** and
 under the area view's compass (it and the Start filter show its circled
 arrow); the resource browser is the Left Dock's Resources tab (Tools ›
 Resource Browser), and the palettes and the Preview are the Right
-Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types. The icons are one gray; with **Colored icons** (Options › General, off by default) each kind's icon in the module tree, the Outliner and the palette's row of types has a color of its own.
+Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has one icon wherever it appears: on the area's header and in the palette's row of types. The icons are one gray; with **Colored icons** (Options › General, off by default) each kind's icon in the module tree, the Outliner, the palette's row of types, the Resources panel, Quick Open and the hak editor's list has a color of its own.
 
 ## Menus
 

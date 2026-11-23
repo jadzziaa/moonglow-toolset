@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor with its tips over names, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T18:38:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T22:46:51Z }
 ---
 
 # Options
@@ -417,15 +417,17 @@ window is one in As Tabs too, for a kind you moved to a window):
   Ctrl with the wheel still zooms; a 3D view's wheel zoom, which follows
   the wheel's scrolling, arrives at once too.
 - **Colored icons** (off): each kind's icon in a color of its own in the
-  module tree, the Outliner and the palette's row of types, so that the
-  kinds tell apart at a glance: creatures red, encounters orange, areas
+  module tree, the Outliner, the palette's row of types, the Resources
+  panel, Quick Open and the hak editor's list, so that the kinds tell
+  apart at a glance: creatures red, encounters orange, areas
   tan, sounds yellow, stores lime, triggers green, waypoints cyan, doors
   blue, scripts indigo, placeables violet, items magenta and
   conversations pink (in the area view, encounters, triggers and sounds
   are drawn in the same families). The rest (folders, files, the journal,
-  NUI windows, tools) stay gray. A selected row and the palette's type
-  that is chosen keep their white icon, and a dimmed row (an empty kind,
-  a kind hidden in the area) its dim gray. The colors are as clear in
+  NUI windows, models, textures, commands, tools) stay gray. A selected
+  row and the palette's type that is chosen keep their white icon, and a
+  dimmed row (an empty kind, a kind hidden in the area, an overridden
+  copy in the Resources panel) its gray. The colors are as clear in
   the light theme as in the dark one. It changes when OK closes Options,
   without a restart. Off, every icon is the one gray, as before.
 - **Graphics backend** (Automatic): what the window, the area view and

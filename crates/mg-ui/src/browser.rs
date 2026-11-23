@@ -513,7 +513,13 @@ fn list_row(ui: &mut Ui, row: &Row, marked: bool, fonts: &RowFonts) -> egui::Res
         } else {
             let fill = if hovered { t.hover_row } else { egui::Color32::TRANSPARENT };
             let text = if row.over.is_some() { t.text_3 } else { t.text };
-            (fill, text, t.text_3, t.text_2)
+            // (Its kind's hue with Options › General › Colored icons; an
+            // overridden copy, dimmed, keeps the gray.)
+            let icon = match row.over {
+                Some(_) => t.text_2,
+                None => mg_uikit::hues::tint(ui.ctx(), kind_icon(row.key.restype), t.text_2),
+            };
+            (fill, text, t.text_3, icon)
         };
         let p = ui.painter();
         if fill != egui::Color32::TRANSPARENT {

@@ -17559,3 +17559,93 @@ fn colored_icons() {
         }
     }
 }
+
+/// Colored icons in the Resources panel, Quick Open and the hak editor
+/// (5.2.0, W7's second round, the owner's ruling): a module of one
+/// blueprint of each kind, a script and a conversation; the Resources
+/// panel filtered to `bandit` (blueprints, scripts, conversations, models);
+/// Quick Open with `my_` typed; a hak of a script, a sound, a creature, a
+/// placeable, a conversation and a picture open in its editor
+/// (`colored-icons-{resources,quick-open,hak}-{dark,light}`).
+#[test]
+#[ignore]
+fn colored_icons_more() {
+    use mg_module::hak_edit::{Hak, Source};
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-colored-icons-more");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let kinds = [
+        ("my_bandit", ResType::UTC, *b"UTC "),
+        ("my_door", ResType::UTD, *b"UTD "),
+        ("my_encounter", ResType::UTE, *b"UTE "),
+        ("my_item", ResType::UTI, *b"UTI "),
+        ("my_chest", ResType::UTP, *b"UTP "),
+        ("my_sound", ResType::UTS, *b"UTS "),
+        ("my_store", ResType::UTM, *b"UTM "),
+        ("my_trigger", ResType::UTT, *b"UTT "),
+        ("my_waypoint", ResType::UTW, *b"UTW "),
+        ("my_talk", ResType::DLG, *b"DLG "),
+    ];
+    for (name, t, sig) in kinds {
+        m.set(ResKey::parse(name, t).unwrap(), mg_gff::Gff::new(sig).to_bytes().unwrap());
+    }
+    m.set(ResKey::parse("my_script", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    let path = scratch.join("colored.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let hak_path = scratch.join("zz_colored.hak");
+    let mut hak = Hak::new();
+    let gff = |sig: [u8; 4]| Source::Bytes(mg_gff::Gff::new(sig).to_bytes().unwrap().into());
+    let tga = {
+        let mut img = mg_image::Rgba::new(2, 1);
+        img.data.copy_from_slice(&[255, 0, 0, 255, 0, 0, 255, 255]);
+        mg_image::write_tga(&img)
+    };
+    let key = |n: &str, t| ResKey::parse(n, t).unwrap();
+    hak.add_sources(vec![
+        (key("zz_script", ResType::NSS), Source::Bytes(b"void main() { }\n".to_vec().into())),
+        (key("zz_bandit", ResType::UTC), gff(*b"UTC ")),
+        (key("zz_chest", ResType::UTP), gff(*b"UTP ")),
+        (key("zz_talk", ResType::DLG), gff(*b"DLG ")),
+        (key("zz_door", ResType::UTD), gff(*b"UTD ")),
+        (key("zz_tex", ResType::TGA), Source::Bytes(tga.into())),
+    ])
+    .unwrap();
+    hak.save(Some(&hak_path)).unwrap();
+    let window = |resources: bool| {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.settings.colored_icons = true;
+        app.settings.open_editors = mg_ui::OpenEditors::Tabs;
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        if resources {
+            app.actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Resources));
+            app.browser.filter = "bandit".into();
+        }
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 900.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(10);
+        h
+    };
+    for light in [false, true] {
+        let theme = if light { "light" } else { "dark" };
+        let mut h = window(true);
+        shoot_in(&mut h, &dir, &format!("colored-icons-resources-{theme}"), light);
+        let mut h = window(false);
+        h.state_mut().settings.light_theme = light;
+        quick_open_typed(&mut h, "my_");
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(3);
+        shoot_in(&mut h, &dir, &format!("colored-icons-quick-open-{theme}"), light);
+        let mut h = window(false);
+        mg_ui::hak_view::open_at(h.state_mut(), &hak_path).unwrap();
+        h.run_steps(10);
+        shoot_in(&mut h, &dir, &format!("colored-icons-hak-{theme}"), light);
+    }
+}

@@ -1658,7 +1658,13 @@ fn hit_row(ui: &mut Ui, t: &mg_uikit::Tokens, hit: &Hit, selected: bool, width: 
             egui::pos2(rect.left() + pad, rect.center().y - side / 2.0),
             egui::vec2(side, side),
         );
-        let icon_color = if lit && hit.enabled { t.on_fill } else { dim };
+        // (A resource's kind in its hue with Options › General › Colored
+        // icons, unless the row is chosen or unavailable.)
+        let icon_color = match (lit, hit.enabled) {
+            (true, true) => t.on_fill,
+            (false, true) => mg_uikit::hues::tint(ui.ctx(), hit.icon, dim),
+            (_, false) => dim,
+        };
         hit.icon.paint(&painter, icon, icon_color);
         let mut right = rect.right() - pad;
         if !hit.key.is_empty() {
