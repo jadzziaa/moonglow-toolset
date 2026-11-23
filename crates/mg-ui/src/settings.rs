@@ -1075,9 +1075,11 @@ pub struct Settings {
     pub drag_windows_anywhere: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
-    /// Options > General: Start a Steam copy through Steam for a test is
-    /// off (the game is started bare: no overlay, no Workshop content).
-    pub test_without_steam: bool,
+    // (`test_without_steam`, Options > General's Start a Steam copy of the
+    // game through Steam for a test, unticked, was retired in 5.1.0: a
+    // test follows Read Steam Workshop content,
+    // [`Settings::test_through_steam`]. An older file's is read and
+    // dropped, as any field this version does not have.)
     /// Options > General: Create backups of modules off (Aurora's default:
     /// on; the module as it was kept as `<name>.BackupMod` at each save).
     pub no_backups: bool,
@@ -1173,7 +1175,9 @@ pub struct Settings {
     /// started through Steam reads it. Off by default, as Aurora: an item
     /// subscribed to for play is not the module's (builders' asks; the
     /// setting was `no_workshop`, on by default, until 1.38, and is read
-    /// anew, so it is off for everyone until turned on).
+    /// anew, so it is off for everyone until turned on). It also decides
+    /// whether a test starts a Steam copy of the game through Steam
+    /// ([`Settings::test_through_steam`]).
     pub read_workshop: bool,
     /// Options > Folders: Read userpatch.ini's haks, as the game reads
     /// them. Off by default, as Aurora (the same reason).
@@ -1597,6 +1601,16 @@ impl Settings {
         self.game_shaders.unwrap_or(GAME_SHADERS_BY_DEFAULT)
     }
 
+    /// Whether Test Module starts a Steam copy of the game through Steam,
+    /// so that it loads the Workshop items subscribed to: where Moonglow
+    /// reads them too (Read Steam Workshop content), and only there, so
+    /// that the test and Moonglow's views show the same content (the
+    /// owner's ruling of 2026-11-22; a separate option, on by default,
+    /// had the test load what the views left out).
+    pub fn test_through_steam(&self) -> bool {
+        self.read_workshop
+    }
+
     /// The model viewer's Shadow switch ([`Settings::model_shadows`]).
     pub fn model_shadows(&self) -> bool {
         self.model_shadows.unwrap_or(true)
@@ -1854,6 +1868,45 @@ mod tests {
         let on = Settings { close_cancels: true, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&on).unwrap()).unwrap();
         assert!(back.close_cancels);
+    }
+
+    /// A 5.0.0 file with `test_without_steam` either way, and Read Steam
+    /// Workshop content either way, reads without an error, nothing
+    /// unread or kept aside, and is written back without the field: a
+    /// builder who reads the Workshop keeps tests through Steam, one who
+    /// doesn't (the default) gets them without Steam, whatever the old
+    /// field said (the owner's ruling of 2026-11-22).
+    #[test]
+    fn an_old_file_with_test_without_steam_reads_and_tests_follow_the_workshop() {
+        let tip = include_str!("../tests/fixtures/settings-tip-icons-only-false.ron").trim_end();
+        assert!(tip.contains("test_without_steam:false,") && tip.contains("read_workshop:false,"));
+        let dir = mg_testkit::scratch_dir("settings-old-test-without-steam");
+        let key = "moonglow-settings";
+        for without in [false, true] {
+            for workshop in [false, true] {
+                let text = tip
+                    .replace("test_without_steam:false,", &format!("test_without_steam:{without},"))
+                    .replace("read_workshop:false,", &format!("read_workshop:{workshop},"));
+                let (read, unread) = Settings::read_fields(&text).expect("it reads");
+                assert!(unread.is_empty(), "{unread:?}");
+                assert_eq!(read.read_workshop, workshop, "the Workshop as it was");
+                assert_eq!(read.test_through_steam(), workshop, "{without} {workshop}");
+                assert!(!read.saved_text().contains("test_without_steam"), "written without it");
+                let path = dir.join(format!("app-{without}-{workshop}.ron"));
+                let kv = std::collections::HashMap::from([(key.to_string(), text.clone())]);
+                std::fs::write(&path, ron::to_string(&kv).unwrap()).unwrap();
+                let r = Settings::read_eframe(&path, key);
+                assert!(r.unread.is_empty() && r.problem().is_none(), "{:?}", r.problem());
+                assert_eq!(r.kept, None, "nothing kept aside");
+                assert_eq!(r.settings, read);
+                let json =
+                    format!("{{\"test_without_steam\":{without},\"read_workshop\":{workshop}}}");
+                let from_json: Settings = serde_json::from_str(&json).unwrap();
+                assert_eq!(from_json.test_through_steam(), workshop, "{json}");
+            }
+        }
+        // Never touched: no Steam for a test.
+        assert!(!Settings::default().test_through_steam());
     }
 
     #[test]
@@ -2643,7 +2696,10 @@ mod tests {
             let back = read.saved_text();
             assert!(!back.contains("toolbar_icons_only"), "written without it");
             let old = fields_of(text).expect("fields");
-            let kept: Vec<_> = old.into_iter().filter(|(n, _)| n != "toolbar_icons_only").collect();
+            // (`test_without_steam` was retired in 5.1.0 too.)
+            let retired = ["toolbar_icons_only", "test_without_steam"];
+            let kept: Vec<_> =
+                old.into_iter().filter(|(n, _)| !retired.contains(&n.as_str())).collect();
             // (Three fields came after the file, two from develop's
             // Builders' asks and M5's W1's: written at their defaults, the
             // rest as it was.)

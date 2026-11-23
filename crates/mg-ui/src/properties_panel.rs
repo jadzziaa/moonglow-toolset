@@ -139,9 +139,6 @@ fn open_on(app: &Moonglow, area: ResRef, paths: &[GffPath]) -> Option<Tab> {
     docked.chain(app.panes_tabs.iter().flatten()).find(|t| theirs(t)).cloned()
 }
 
-/// Open in Tab, on the panel's header (at its bar's end, before the
-/// dock's fold button where that is there too): enabled while objects of
-/// one kind are selected. Whether it was clicked.
 /// The Hide Properties button's name (`hide_button`).
 pub const HIDE_PROPERTIES: &str = "Hide Properties";
 /// Its tip.
@@ -160,6 +157,9 @@ pub(crate) fn editable_selected(app: &Moonglow, editor: Option<&Tab>) -> bool {
     area_of(editor).is_some_and(|a| matches!(selected(app, a), Selected::Objects(_, _)))
 }
 
+/// Open in Tab, on the panel's header (at its bar's end, before the
+/// dock's fold button where that is there too): enabled while objects of
+/// one kind are selected. Whether it was clicked.
 pub(crate) fn open_in_tab_button(app: &Moonglow, ui: &mut Ui, editor: Option<&Tab>) -> bool {
     let can = area_of(editor).is_some_and(|a| window_of(app, a).is_some());
     let button = mg_uikit::IconButton::new(mg_uikit::Icon::OpenInTab, OPEN_IN_TAB).icon_only(true);
@@ -187,7 +187,17 @@ pub(crate) fn open_in_tab(app: &mut Moonglow, editor: Option<&Tab>) {
     {
         app.blueprint_pages.insert((git, first), page);
     }
-    app.props_popped_out.insert(area);
+    pop_out(app, tab);
+}
+
+/// Opens `tab` (an object's Properties, or several objects', in a tab or
+/// a window) and closes the docked Properties pane of its area while it
+/// is open: Open in Tab, the right-click menus' Properties and a triple
+/// click on a Module Tree or Outliner row all do so.
+pub(crate) fn pop_out(app: &mut Moonglow, tab: Tab) {
+    if let Tab::Instance { area, .. } | Tab::Instances { area, .. } = &tab {
+        app.props_popped_out.insert(*area);
+    }
     app.actions.push(Action::OpenTab(tab));
 }
 
@@ -331,8 +341,9 @@ pub(crate) fn panel(
     page = Some(pages[at]);
     app.panel_pages.insert(restype, pages[at]);
     // The page beside it, 8 in from the rail and 4 from the dock's edge,
-    // 8 under its top (the boards' `.content`); on one scroll, those are
-    // each page's margins, the scroll's bar at the dock's edge.
+    // 8 under its top and 4 above its foot (the boards' `.content`); on
+    // one scroll, those are each page's margins, the scroll's bar at the
+    // dock's edge. (At least a point high where the dock is that short.)
     let room = whole.with_min_x(whole.left() + mg_uikit::pages::PAGE_RAIL + 8.0);
     let room = room
         .with_max_x(room.right() - 4.0)

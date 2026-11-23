@@ -2103,20 +2103,22 @@ pub(crate) fn borrowed_field<R>(
 }
 
 /// A text field of a localized string as [`commit_loc_text`] makes one,
-/// showing what [`loc_shown`] says and marked where that is not its own.
+/// showing what [`loc_shown`] says and marked where that is not its own:
+/// `rows` lines of it shown (one where `None`).
 pub(crate) fn loc_text(
     app: &mut Moonglow,
     ui: &mut Ui,
     id: egui::Id,
     ls: &mg_core::LocString,
-    multiline: bool,
+    rows: Option<usize>,
     width: f32,
 ) -> Option<String> {
-    match loc_shown(app, ls) {
-        (shown, None) => commit_loc_text(app, ui, id, &shown, multiline, width),
-        (shown, Some((from, why))) => borrowed_field(ui, &from, why, |ui| {
-            commit_loc_text(app, ui, id, &shown, multiline, width)
-        }),
+    let (shown, borrowed) = loc_shown(app, ls);
+    let mut commit =
+        |ui: &mut Ui| commit_loc_text_in(&mut app.buffers, ui, id, &shown, rows, width, None);
+    match borrowed {
+        None => commit(ui),
+        Some((from, why)) => borrowed_field(ui, &from, why, commit),
     }
 }
 

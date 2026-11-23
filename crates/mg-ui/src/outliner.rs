@@ -453,6 +453,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
         ..Default::default()
     };
     let mut go = None;
+    let read_only = crate::claims::read_only(app, area).is_some();
     let Moonglow { ws, game, area_contents, area_names, outliner, .. } = app;
     let chosen = (outliner.chosen.len() > 1).then_some(&outliner.chosen);
     let Some(ws) = ws.as_ref() else { return };
@@ -467,6 +468,7 @@ fn panel(app: &mut Moonglow, ui: &mut Ui) {
             let commands = &menu_commands;
             tree::contents_ui(
                 ui, area, contents, None, &mut go, in_hand, chosen, &mut keys, commands, look,
+                read_only,
             )
         });
     let went = rows.inner;

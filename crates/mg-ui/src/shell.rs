@@ -1584,8 +1584,58 @@ pub(crate) fn area_properties_shown(app: &Moonglow, area: mg_core::ResRef) -> bo
     !tiles_in_hand(app, area)
         && !app.settings.hide_properties
         && !app.props_popped_out.contains(&area)
-        && (!app.yields.wide
-            || crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area))))
+        && (!app.yields.wide || wide_editable(app, area))
+}
+
+/// Whether something editable is selected in `area`, for the wide
+/// layout's auto-hide: as [`hold_wide_properties`] last let it change for
+/// the active area (live for another).
+fn wide_editable(app: &Moonglow, area: mg_core::ResRef) -> bool {
+    match app.wide_props {
+        Some((a, editable)) if a == area => editable,
+        _ => crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area))),
+    }
+}
+
+/// The wide layout's auto-hide of Properties (its column given back while
+/// nothing editable is selected) changes the Right Dock's width, and so
+/// moves the area view's scene. It is let change only while no pointer
+/// button is down and, after a press in an area view, once egui's
+/// double-click time has passed since it was let go: a click, a double
+/// click and a drag all end on the scene as it stood when they began (a
+/// double click on a chest had its second click land 200 points away).
+pub(crate) fn hold_wide_properties(app: &mut Moonglow, ctx: &egui::Context) {
+    app.wide_props_waiting = false;
+    let area = match app.active_editor() {
+        Some(crate::Tab::Area(area)) if app.yields.wide => *area,
+        _ => {
+            app.wide_props = None;
+            return;
+        }
+    };
+    let (down, pressed, released, at, now) = ctx.input(|i| {
+        let p = &i.pointer;
+        (p.any_down(), p.any_pressed(), p.any_released(), p.interact_pos(), i.time)
+    });
+    let in_area = at.is_some_and(|p| app.area_views.values().any(|v| v.rect.contains(p)));
+    if pressed {
+        app.area_press.1 = in_area;
+    }
+    if released && std::mem::take(&mut app.area_press.1) {
+        app.area_press.0 = Some(now);
+    }
+    let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+    let wait = app.area_press.0.map_or(0.0, |t| t + delay - now);
+    let editable = crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area)));
+    match app.wide_props {
+        Some((a, was)) if a == area && was != editable && (down || wait > 0.0) => {
+            app.wide_props_waiting = true;
+            if !down {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+            }
+        }
+        _ => app.wide_props = Some((area, editable)),
+    }
 }
 
 fn active_area_right_base(app: &Moonglow) -> crate::settings::AreaRightLayout {
@@ -1846,6 +1896,48 @@ fn apply_area_drop(
     }
 }
 
+/// A Palette, Preview or Properties tab or header dragged in an area's
+/// Right Dock (`can`: the dock takes a custom arrangement here): where it
+/// would land outlined, and the arrangement changed there once the button
+/// is let go.
+fn area_drop(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    pane: egui::Rect,
+    can: bool,
+    section_boxes: &[AreaSectionBox],
+) {
+    let Some(dragged) = app.right_dock_drag.filter(|_| can) else {
+        app.right_dock_drag = None;
+        return;
+    };
+    let t = mg_uikit::tokens(ui.ctx());
+    let pointer = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
+    let drop = pointer.and_then(|pos| area_drop_target(app, pane, dragged, pos, section_boxes));
+    if let Some((_, preview)) = drop {
+        let layer =
+            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("right-dock-drop-preview"));
+        let painter = ui.ctx().layer_painter(layer);
+        painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
+        painter.rect_stroke(
+            preview,
+            2.0,
+            egui::Stroke::new(2.0, t.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if !ui.input(|i| i.pointer.any_down()) {
+        if let Some((zone, _)) = drop
+            && let Some(dragged_ap) = to_area_panel(dragged)
+        {
+            let base = active_area_right_base(app);
+            app.settings.area_right_layout = Some(apply_area_drop(&base, dragged_ap, zone));
+            app.right_panel = Some(dragged);
+        }
+        app.right_dock_drag = None;
+    }
+}
+
 fn area_drop_target(
     app: &Moonglow,
     pane: egui::Rect,
@@ -1965,7 +2057,7 @@ fn show_area_context_menu(
                 ))));
                 ui.close();
             }
-            if ui.button("Split Into Own Section").clicked() {
+            if ui.button("Split into Own Section").clicked() {
                 *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
                     &menu.base,
                     ap,
@@ -2695,6 +2787,7 @@ pub(crate) fn frame_yields(app: &mut Moonglow, ctx: &egui::Context) {
     if !app.yields.right_dock_folded {
         app.right_unfolded_here = false;
     }
+    hold_wide_properties(app, ctx);
 }
 
 /// Whether the Left Dock is folded to its strip at this frame: in a
@@ -4811,8 +4904,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let custom_area = customizable_area(app, editor.as_ref());
     let area_menu = custom_area.map(|area| {
         let props_shown = area_properties_shown(app, area);
-        let editable =
-            crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area)));
+        let editable = wide_editable(app, area);
         let can_show_props = (app.settings.hide_properties || app.props_popped_out.contains(&area))
             && (!app.yields.wide || editable);
         AreaRightMenuState {
@@ -4940,43 +5032,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             if let Some(p) = drag_start {
                 app.right_dock_drag = Some(p);
             }
-            if let Some(area) = custom_area
-                && !narrow
-                && let Some(dragged) = app.right_dock_drag
-            {
-                let pointer =
-                    ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
-                let drop = pointer
-                    .and_then(|pos| area_drop_target(app, pane, dragged, pos, &section_boxes));
-                if let Some((_, preview)) = drop {
-                    let layer = egui::LayerId::new(
-                        egui::Order::Foreground,
-                        egui::Id::new("right-dock-drop-preview"),
-                    );
-                    let painter = ui.ctx().layer_painter(layer);
-                    painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
-                    painter.rect_stroke(
-                        preview,
-                        2.0,
-                        egui::Stroke::new(2.0, t.accent),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-                if !ui.input(|i| i.pointer.any_down()) {
-                    if let Some((zone, _)) = drop
-                        && let Some(dragged_ap) = to_area_panel(dragged)
-                    {
-                        let base = active_area_right_base(app);
-                        let next = apply_area_drop(&base, dragged_ap, zone);
-                        let _ = area;
-                        app.settings.area_right_layout = Some(next);
-                        app.right_panel = Some(dragged);
-                    }
-                    app.right_dock_drag = None;
-                }
-            } else {
-                app.right_dock_drag = None;
-            }
+            area_drop(app, ui, pane, custom_area.is_some() && !narrow, &section_boxes);
             if let Some(cmd) = menu_cmd {
                 apply_area_right_command(app, cmd);
             }
@@ -5087,42 +5143,7 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         if let Some(p) = drag_start {
             app.right_dock_drag = Some(p);
         }
-        if let Some(area) = custom_area
-            && !narrow
-            && let Some(dragged) = app.right_dock_drag
-        {
-            let pointer = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
-            let drop =
-                pointer.and_then(|pos| area_drop_target(app, pane, dragged, pos, &section_boxes));
-            if let Some((_, preview)) = drop {
-                let layer = egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("right-dock-drop-preview"),
-                );
-                let painter = ui.ctx().layer_painter(layer);
-                painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
-                painter.rect_stroke(
-                    preview,
-                    2.0,
-                    egui::Stroke::new(2.0, t.accent),
-                    egui::StrokeKind::Inside,
-                );
-            }
-            if !ui.input(|i| i.pointer.any_down()) {
-                if let Some((zone, _)) = drop
-                    && let Some(dragged_ap) = to_area_panel(dragged)
-                {
-                    let base = active_area_right_base(app);
-                    let next = apply_area_drop(&base, dragged_ap, zone);
-                    let _ = area;
-                    app.settings.area_right_layout = Some(next);
-                    app.right_panel = Some(dragged);
-                }
-                app.right_dock_drag = None;
-            }
-        } else {
-            app.right_dock_drag = None;
-        }
+        area_drop(app, ui, pane, custom_area.is_some() && !narrow, &section_boxes);
         if let Some(cmd) = menu_cmd {
             apply_area_right_command(app, cmd);
         }

@@ -961,6 +961,18 @@ pub struct Moonglow {
     /// floating window (`properties_panel::open_in_tab`). While present,
     /// the docked Properties pane closes for that area to reclaim space.
     pub(crate) props_popped_out: std::collections::HashSet<mg_core::ResRef>,
+    /// The wide layout's auto-hide of Properties as it was last let
+    /// change, for the active area: whether something editable was
+    /// selected (`shell::hold_wide_properties`, which keeps it while a
+    /// press in the area view may still be a click, a double click or a
+    /// drag).
+    pub(crate) wide_props: Option<(mg_core::ResRef, bool)>,
+    /// When the last press in an area view was let go (egui's clock), and
+    /// whether the press under way began in one.
+    pub(crate) area_press: (Option<f64>, bool),
+    /// Whether [`Moonglow::wide_props`] waits to change (for the tests'
+    /// `under_way`).
+    pub(crate) wide_props_waiting: bool,
     /// An Area Right Dock pane currently being dragged to rearrange the
     /// dock's columns, stacked sections, or tab bars.
     pub(crate) right_dock_drag: Option<Panel>,
@@ -1749,6 +1761,9 @@ impl Moonglow {
             right_columns: false,
             props_full_height: false,
             props_popped_out: Default::default(),
+            wide_props: None,
+            area_press: (None, false),
+            wide_props_waiting: false,
             right_dock_drag: None,
             docked_instance_tabs: Vec::new(),
             right_bars: Vec::new(),
@@ -5331,9 +5346,11 @@ impl Moonglow {
                         self.panel_pages.insert(restype, page);
                     }
                 }
+                // (No longer popped out once its tab is closed: the batch's
+                // `sync_props_popped_out` drops it before the next frame,
+                // where `show_dock_panel`'s request is met.)
                 tabs::close_tabs(&mut self.dock, |t| *t != tab);
                 if let Some(area) = area {
-                    self.props_popped_out.remove(&area);
                     self.settings.hide_properties = false;
                     let placed: Vec<(mg_area::ObjectKind, usize)> = objects
                         .iter()
@@ -7087,11 +7104,16 @@ impl Moonglow {
         name: &str,
         choose: bool,
     ) {
-        let steam = !self.settings.test_without_steam;
+        // (Through Steam where Moonglow reads the Workshop too: the test
+        // and the views show the same content.)
+        let steam = self.settings.test_through_steam();
         match test_module::command(client, user, name, choose, steam).spawn() {
             Ok(game) => {
                 test_module::let_game_run(game);
                 self.log.info(format!("Testing {name}"));
+                if let Some(line) = test_module::steam_line(client, steam) {
+                    self.log.info(line);
+                }
                 // Options > General: Minimize Toolset on test module.
                 self.minimize_requested = self.settings.minimize_on_test;
             }

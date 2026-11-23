@@ -167,6 +167,13 @@ impl Browser {
         self.reveal = true;
     }
 
+    /// The types of the resources listed under the filters (for the
+    /// tests: that every type checked in the Type list is listed).
+    pub fn listed_types(&mut self) -> std::collections::BTreeSet<ResType> {
+        let shown = self.filtered().to_vec();
+        shown.into_iter().map(|i| self.entries[i].key.restype).collect()
+    }
+
     fn filtered(&mut self) -> &[usize] {
         let needle = mg_core::text::Needle::new(&self.filter);
         let query = (self.restypes.clone(), needle.as_str().to_string(), self.show_copies);

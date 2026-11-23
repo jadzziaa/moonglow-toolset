@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-21T23:56:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:03:16Z }
 ---
 
 # Build, verify and test
@@ -510,12 +510,17 @@ Folders, or start Moonglow with `--user-dir FOLDER` for one run (see
 **Minimize Toolset on test module** (Options › General), Moonglow's window
 is minimized.
 
-A Steam copy of the game is started so that it reaches Steam when Steam
-is running, and loads your Steam Workshop content as when you start it
-from Steam. With **Start a Steam copy of the game through Steam for a
-test** off (Options › General), the game's program is started on its
-own instead: no Steam overlay and no Workshop content, which some find
-steadier.
+A Steam copy of the game follows **Read Steam Workshop content**
+(Options › Folders), so that the test and Moonglow's views show the
+same content. Off (the default), Moonglow starts the game's program
+without Steam's app ID, as Aurora does, and the game is expected to run
+without your Workshop items (this was tried here only with Steam not
+running). On, it is started through Steam: with Steam running it loads
+the Workshop items you subscribe to (their textures and materials over
+the game's, say), as when you start it from Steam. The log says which way
+each test started. (Before 5.1.0 a separate option on General started
+every test through Steam, so a test could show Workshop content that
+Moonglow's views left out.)
 
 - **Test Module, Choose Character** (Shift+F9) opens the game's
   character selection for the module instead, so you can test with any

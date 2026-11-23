@@ -2807,6 +2807,56 @@ fn tree_rows_with<'t>(h: &'t Harness<'_, Moonglow>, words: &'t str) -> Vec<egui_
     h.get_by_label("Module Tree Rows").query_all_by_label_contains(words).collect()
 }
 
+/// 5.1.0's review (F1 round 2, fault 2): an object's menu in the Module
+/// Tree and in the Outliner leaves out Adjust Location… where its area is
+/// read-only here, as the area view's menu does (its edit would not be
+/// saved).
+#[test]
+fn a_read_only_area_s_object_menu_has_no_adjust_location() {
+    let Some((mut h, _area)) = read_only_area_harness("tree-read-only-adjust") else { return };
+    unfold_left_dock(&mut h);
+    tall_tree(&mut h);
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let (button, modifiers) = (egui::PointerButton::Secondary, egui::Modifiers::NONE);
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+            h.step();
+        }
+        settle(h);
+    };
+    let menu_has = |h: &Harness<'_, Moonglow>| {
+        // (Its menu open: Export as Blueprint… is in it.)
+        h.get_by_label("Export as Blueprint…");
+        h.query_by_label("Adjust Location…").is_some()
+    };
+    // The Module Tree's.
+    h.get_by_label_contains("Placed Objects in ").click();
+    until_tree(&mut h, "its kinds", |h| !tree_rows_with(h, "Placeables (1)").is_empty());
+    tree_rows_with(&h, "Placeables (1)")[0].click();
+    until_tree(&mut h, "the chest's row", |h| !tree_rows_with(h, "Chest").is_empty());
+    let row = tree_rows_with(&h, "Chest")[0].rect().center();
+    right_click(&mut h, row);
+    assert!(!menu_has(&h), "the Module Tree's menu has no Adjust Location…");
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+
+    // The Outliner's. (The Module Panel as at first, the Outliner in view.)
+    h.state_mut().settings.module_panel_height = None;
+    settle(&mut h);
+    let outliner_row = |h: &Harness<'_, Moonglow>| {
+        h.get_by_label(mg_ui::OUTLINER).query_by_label_contains("Chest").map(|n| n.rect())
+    };
+    if outliner_row(&h).is_none() {
+        h.run_steps(30);
+        h.get_by_label(mg_ui::OUTLINER).get_by_label("1 placeable").click();
+        settle(&mut h);
+    }
+    let row = outliner_row(&h).expect("the Outliner's chest row").center();
+    right_click(&mut h, row);
+    assert!(!menu_has(&h), "the Outliner's menu has no Adjust Location…");
+}
+
 /// A placed object of a read-only area (another builder's) is not
 /// deleted from the module tree, by its Delete key or its menu's Delete:
 /// the claims' gate refuses it and says why, and what was selected,
@@ -3070,4 +3120,115 @@ fn the_module_tree_follows_the_selection_beside_a_docked_conversation() {
         h.step();
     }
     assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
+}
+
+/// The owner's ruling of 2026-11-22 ("tree double click: focus, triple
+/// click properties"): in the Outliner and in the Module Tree a double
+/// click on an object's row goes to it (the camera on it) and opens
+/// nothing; a third click opens its Properties, as its menu's Properties
+/// does (the docked pane closed while that is open).
+#[test]
+fn a_triple_click_on_an_object_s_row_opens_its_properties() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-triple") else { return };
+    // (Tall enough that the Outliner's rows stand clear of the Status Bar.)
+    h.set_size(egui::vec2(1600.0, 1300.0));
+    settle(&mut h);
+    unfold_left_dock(&mut h);
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let mut list = ws.doc(&git).unwrap().root.list("WaypointList").unwrap().to_vec();
+    for (w, tag) in list.iter_mut().zip(["WP_A", "WP_B"]) {
+        w.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+    }
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        label: "WaypointList".into(),
+        value: Some(mg_gff::Value::List(list)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    settle(&mut h);
+    let position = |h: &Harness<'_, Moonglow>, index: usize| {
+        let view = &h.state().area_views[&area];
+        view.model.as_ref().unwrap().object(ObjectKind::Waypoint, index).unwrap().position
+    };
+    let window = |index: usize| {
+        let path = mg_edit::GffPath::root().item("WaypointList", index);
+        Tab::Instance { area, path }
+    };
+    let away = |h: &mut Harness<'_, Moonglow>| {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = glam::Vec3::new(2.0, 2.0, 0.0);
+        settle(h);
+    };
+    // Clicks on `row`, a frame between (not settled: within the
+    // double-click time).
+    let clicks = |h: &mut Harness<'_, Moonglow>, row: egui::Rect, n: usize| {
+        let at = row.center();
+        h.hover_at(at);
+        // (Past the double-click time of any click before: egui counts a
+        // click anywhere within it.)
+        h.run_steps(30);
+        for _ in 0..n {
+            press(h, at, true, egui::Modifiers::NONE);
+            press(h, at, false, egui::Modifiers::NONE);
+            h.step();
+        }
+        settle(h);
+    };
+    let focused = |h: &Harness<'_, Moonglow>, index: usize| {
+        let target = h.state().area_views[&area].orbit.unwrap().target;
+        (target - position(h, index)).length() < 0.01
+    };
+
+    // The Module Tree: a double click goes to waypoint 0 and opens
+    // nothing; a triple click goes to it and opens its Properties.
+    // (The Module Panel tall, its rows in view over the Outliner, and
+    // unfolded.)
+    h.state_mut().settings.module_panel_height = Some(10_000);
+    settle(&mut h);
+    h.get_by_label("Placed Objects in field").click();
+    settle(&mut h);
+    h.get_by_label("Waypoints (2)").click();
+    settle(&mut h);
+    away(&mut h);
+    let a = h.get_by_label("WP_A").rect();
+    clicks(&mut h, a, 2);
+    assert!(focused(&h, 0), "the Module Tree's double click went to waypoint 0");
+    assert!(h.state().dock.find_tab(&window(0)).is_none(), "and opened nothing");
+    away(&mut h);
+    let a = h.get_by_label("WP_A").rect();
+    clicks(&mut h, a, 3);
+    assert!(focused(&h, 0), "the Module Tree's triple click went to waypoint 0");
+    assert!(h.state().dock.find_tab(&window(0)).is_some(), "and opened its Properties");
+    assert!(h.state().is_props_popped_out(area), "the docked pane closed");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(window(0)));
+    settle(&mut h);
+    assert!(!h.state().is_props_popped_out(area), "back once the window is closed");
+
+    // (The Module Panel as at first, the Outliner's rows in view.)
+    h.state_mut().settings.module_panel_height = None;
+    settle(&mut h);
+    // The Outliner: the same, a double click goes to waypoint 0 and opens nothing;
+    // a triple click on waypoint 1 goes to it and opens its Properties.
+    if h.get_by_label(mg_ui::OUTLINER).query_by_label_contains("tag WP_A").is_none() {
+        h.run_steps(30);
+        h.get_by_label(mg_ui::OUTLINER).get_by_label("2 waypoints").click();
+        settle(&mut h);
+    }
+    let row = |h: &Harness<'_, Moonglow>, tag: &str| {
+        h.get_by_label(mg_ui::OUTLINER).get_by_label_contains(&format!("tag {tag}")).rect()
+    };
+    away(&mut h);
+    let a = row(&h, "WP_A");
+    clicks(&mut h, a, 2);
+    assert!(focused(&h, 0), "the Outliner's double click went to waypoint 0");
+    assert!(h.state().dock.find_tab(&window(0)).is_none(), "and opened nothing");
+    away(&mut h);
+    let b = row(&h, "WP_B");
+    clicks(&mut h, b, 3);
+    assert!(focused(&h, 1), "the Outliner's triple click went to waypoint 1");
+    assert!(h.state().dock.find_tab(&window(1)).is_some(), "and opened its Properties");
+    assert!(h.state().is_props_popped_out(area), "the docked pane closed");
 }

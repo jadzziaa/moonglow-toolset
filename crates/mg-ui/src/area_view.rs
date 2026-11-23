@@ -524,7 +524,14 @@ pub struct AreaView {
     /// model was copied every frame.
     posed: Option<(AreaModel, Vec<usize>)>,
     /// The workspace revision `model` was read at.
-    revision: Option<u64>,
+    pub(crate) revision: Option<u64>,
+    /// The outline a plain click cycled away from (the selection before
+    /// it): a double click whose first click cycled goes back to it, the
+    /// outline that was double-clicked. Taken by the next click on an
+    /// object in the view, whatever its keys. (egui counts a double click
+    /// only where both clicks are within its click distance, so its second
+    /// click is always that next click.)
+    cycled_from: Option<(ObjectKind, usize)>,
     /// The ARE and GIT `model` was read from: what an edit changed of
     /// them is read again, not the whole area (`refresh`).
     read_from: Option<(Gff, Gff)>,
@@ -1228,6 +1235,7 @@ impl AreaView {
             reading: None,
             textures_drawn: 0,
             revision: None,
+            cycled_from: None,
             read_from: None,
             read_since: Default::default(),
             whole_reads: 0,
@@ -1551,6 +1559,24 @@ impl AreaView {
             &|i| scene.ray_hit(model, i, &ray),
             &|o| self.show[o.kind.index()] && !o.locked,
         )
+    }
+
+    /// Of `hits` ([`AreaView::pick_all`]'s, nearest first), the one a press
+    /// acts on: the nearest, unless it is an outline (a trigger's or an
+    /// encounter's, which lies on the ground) and a selected outline is
+    /// under the pointer too, which keeps it (a right-click on the encounter
+    /// already selected among overlapping ones, for Add Spawn Point). What
+    /// stands inside a selected outline is nearer, and is what it acts on.
+    fn press_target(&self, hits: &[usize]) -> Option<usize> {
+        let front = *hits.first()?;
+        if !self.is_outline(front) {
+            return Some(front);
+        }
+        hits.iter().copied().find(|&i| self.is_outline(i) && self.selected(i)).or(Some(front))
+    }
+
+    fn is_outline(&self, i: usize) -> bool {
+        self.model.as_ref().and_then(|m| m.objects.get(i)).is_some_and(|o| o.kind.has_outline())
     }
 
     /// Whether object `i`, under `pos`, is seen there: nearer the eye than
@@ -2014,8 +2040,20 @@ impl AreaView {
     }
 
     /// The ring whose line `pos` is on (or within [`RING_REACH`] of).
+    /// A selected outline's ring gives way where the nearest object under
+    /// `pos` is not an outline (it stands inside or across it, and is
+    /// pressed as itself, as [`AreaView::press_target`] has it); over bare
+    /// ground and other outlines the ring still wins.
     fn ring_at(&self, pos: Pos2) -> Option<TurnRing> {
-        self.turn_rings(self.model.as_ref()?).into_iter().find(|ring| self.on_ring(ring, pos))
+        let mut object_in_front = None;
+        let mut gives_way = |ring: &TurnRing| {
+            ring.of.0.has_outline()
+                && *object_in_front.get_or_insert_with(|| {
+                    self.pick_all(pos).first().is_some_and(|&i| !self.is_outline(i))
+                })
+        };
+        (self.turn_rings(self.model.as_ref()?).into_iter())
+            .find(|ring| self.on_ring(ring, pos) && !gives_way(ring))
     }
 
     fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
@@ -5469,6 +5507,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             })
             .collect();
         let double = response.double_clicked() || response.triple_clicked();
+        // What a click picks among: the nearest object, or, where that is
+        // an outline (a trigger's or an encounter's, lying on the ground),
+        // every outline under the pointer, which repeated clicks cycle
+        // through. (What stands inside an outline is nearer, and is picked
+        // as itself: a click on a selected waypoint keeps it.)
+        let among: Vec<(ObjectKind, usize)> = match hits.first() {
+            Some(front) if front.0.has_outline() => {
+                hits.iter().copied().filter(|h| h.0.has_outline()).collect()
+            }
+            Some(&front) => vec![front],
+            None => Vec::new(),
+        };
+        let cycled_from = view.cycled_from.take();
         match (hits.is_empty(), command, shift) {
             (false, true, _) => {
                 let h = hits[0];
@@ -5481,23 +5532,29 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             }
             (false, false, true) => {
                 let add =
-                    hits.iter().copied().find(|h| !view.selection.contains(h)).unwrap_or(hits[0]);
+                    among.iter().copied().find(|h| !view.selection.contains(h)).unwrap_or(among[0]);
                 if !view.selection.contains(&add) {
                     view.selection.push(add);
                 }
                 view.start_selected = false;
             }
             (false, false, false) => {
-                if double && view.selection.len() == 1 && hits.contains(&view.selection[0]) {
-                    // Keep the already-selected overlap on the second click of a double-click.
+                if double && view.selection.len() == 1 && among.contains(&view.selection[0]) {
+                    // Keep the already-selected overlap on the second click
+                    // of a double-click; where the first click cycled away
+                    // from the one selected, back to that one.
+                    if let Some(was) = cycled_from.filter(|was| among.contains(was)) {
+                        view.selection = vec![was];
+                    }
                 } else if !double
                     && view.selection.len() == 1
-                    && hits.len() > 1
-                    && let Some(at) = hits.iter().position(|h| *h == view.selection[0])
+                    && among.len() > 1
+                    && let Some(at) = among.iter().position(|h| *h == view.selection[0])
                 {
-                    view.selection = vec![hits[(at + 1) % hits.len()]];
+                    view.cycled_from = Some(view.selection[0]);
+                    view.selection = vec![among[(at + 1) % among.len()]];
                 } else {
-                    view.selection = vec![hits[0]];
+                    view.selection = vec![among[0]];
                 }
                 view.start_selected = false;
             }
@@ -5511,10 +5568,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if response.secondary_clicked()
         && let Some(pos) = response.interact_pointer_pos()
     {
-        let hits = view.pick_all(pos);
-        if !hits.is_empty()
-            && !hits.iter().any(|&i| view.selected(i))
-            && let Some(&i) = hits.first()
+        // (Kept where what the press acts on is selected: one of several,
+        // or the encounter already picked among overlapping ones, for Add
+        // Spawn Point.)
+        if let Some(i) = view.press_target(&view.pick_all(pos))
+            && !view.selected(i)
             && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
         {
             view.selection = vec![(o.kind, o.index)];
@@ -5539,13 +5597,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let double_click_picked = (response.double_clicked() || response.triple_clicked())
         .then(|| response.interact_pointer_pos())
         .flatten()
-        .and_then(|pos| {
-            let hits = view.pick_all(pos);
-            hits.iter()
-                .copied()
-                .find(|&i| view.selection.len() == 1 && view.selected(i))
-                .or_else(|| hits.first().copied())
-        });
+        .and_then(|pos| view.press_target(&view.pick_all(pos)));
     if let Some(i) = double_click_picked
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
@@ -5591,9 +5643,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && !command
         && let Some(pos) = origin
     {
-        let hits = view.pick_all(pos);
-        let hit =
-            hits.iter().copied().find(|&i| view.selected(i)).or_else(|| hits.first().copied());
+        let hit = view.press_target(&view.pick_all(pos));
         // (The handle a press here takes: the one the hover lit, named and
         // gave the hand, by the same call.)
         let modifiers = ui.input(|i| i.modifiers);
@@ -6693,7 +6743,7 @@ fn show_properties(app: &mut Moonglow, view: &mut AreaView, kind: ObjectKind, in
 /// Opens (or shows) the Properties of the placed object `index` of `kind`.
 fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
     let path = mg_edit::GffPath::root().item(kind.list(), index);
-    app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));
+    crate::properties_panel::pop_out(app, crate::Tab::Instance { area: view.area, path });
 }
 
 fn delete(app: &mut Moonglow, view: &mut AreaView) {

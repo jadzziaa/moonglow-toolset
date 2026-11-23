@@ -205,6 +205,9 @@ impl Moonglow {
         if self.decodes.busy() {
             return Some("a picture being decoded");
         }
+        if self.wide_props_waiting {
+            return Some("the wide layout's Properties waiting for the pointer");
+        }
         if self.area_views.values().any(crate::area_view::AreaView::reading) {
             return Some("an area being read");
         }

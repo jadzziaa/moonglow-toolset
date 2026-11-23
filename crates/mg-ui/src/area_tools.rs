@@ -151,11 +151,16 @@ fn sync_live(app: &mut Moonglow, a: &mut AdjustLocation) {
 struct AdjustWinState {
     rect: egui::Rect,
     seen_selection: (bool, Vec<(ObjectKind, usize)>),
+    /// The revision of the area view's model its numbers were last
+    /// refreshed from ([`sync_live`]): not again until the model changes
+    /// (a drag shows in the view's posed copy, not in its model, until it
+    /// is let go and written).
+    synced: Option<u64>,
 }
 
 impl Default for AdjustWinState {
     fn default() -> Self {
-        Self { rect: egui::Rect::NOTHING, seen_selection: (false, Vec::new()) }
+        Self { rect: egui::Rect::NOTHING, seen_selection: (false, Vec::new()), synced: None }
     }
 }
 
@@ -186,7 +191,7 @@ pub(crate) fn adjust_start(area: ResRef, (position, facing): (Vec3, f32)) -> Adj
 
 /// Adjust Location for the selection of an area's view (showing the first
 /// object's location).
-pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation> {
+pub fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation> {
     let model = view.model.as_ref()?;
     let first = view.selection.first().and_then(|&(k, i)| model.object(k, i))?;
     let fixed: Vec<&mg_area::AreaObject> = view
@@ -237,6 +242,10 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
         return;
     };
     let prev_state: Option<AdjustWinState> = ui.ctx().data(|d| d.get_temp(state_id));
+    // (An area another builder holds, in a project that keeps others'
+    // areas read-only: its writes are refused, so nothing is applied or
+    // saved on the way, and the edit stays in the dialog until Cancel.)
+    let read_only = crate::claims::read_only(app, a.area);
     let mut open = true;
     let footed = crate::widgets::dialog(ui.ctx(), "Adjust Location", &mut open)
         .resizable(false)
@@ -365,9 +374,18 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                     ui.add_space(crate::widgets::SECTION_GAP);
                     ui.colored_label(ui.visuals().warn_fg_color, note);
                 }
+                if let Some(why) = &read_only {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    let note = format!("{why}: read-only here, so what you change is not saved.");
+                    ui.scope(|ui| {
+                        crate::widgets::fit_width(ui, 340.0);
+                        let text = egui::RichText::new(note).color(ui.visuals().warn_fg_color);
+                        ui.add(egui::Label::new(text).wrap());
+                    });
+                }
             });
-            let foot =
-                crate::widgets::Foot::new().main("OK", !empty).button("Apply", !empty).cancel();
+            let can = !empty && read_only.is_none();
+            let foot = crate::widgets::Foot::new().main("OK", can).button("Apply", can).cancel();
             ((), foot)
         });
     let (cancel, done) = match &footed {
@@ -381,7 +399,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
         return;
     }
     if let Some(close) = done {
-        if !a.is_empty() {
+        if !a.is_empty() && read_only.is_none() {
             apply_location(app, &a);
             a.clear_changes();
         }
@@ -393,18 +411,26 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     let cur_selection =
         app.area_views.get(&a.area).map(|v| (v.start_is_selected(), v.selection.clone()));
     let rect = footed.as_ref().map_or(egui::Rect::NOTHING, |f| f.response.rect);
+    let model_now = app.area_views.get(&a.area).and_then(|v| v.revision);
+    let mut synced = None;
     if let Some(prev) = prev_state {
         let selection_changed = cur_selection.as_ref().is_some_and(|cur| {
             *cur != prev.seen_selection && (cur.0 != a.start || cur.1 != a.objects)
         });
+        // (Not saved where the write would be refused: kept, as its note
+        // says.)
+        let held = read_only.is_some() && a.has_changes() && !a.is_empty();
         let pressed_outside = a.has_changes()
             && !a.is_empty()
+            && !held
             && !egui::Popup::is_any_open(ui.ctx())
             && ui.ctx().input(|i| {
                 i.pointer.primary_pressed()
                     && i.pointer.press_origin().is_some_and(|p| !prev.rect.contains(p))
             });
-        if selection_changed {
+        if selection_changed && held {
+            // (The dialog stays on what it was editing.)
+        } else if selection_changed {
             if a.has_changes() && !a.is_empty() {
                 apply_location(app, &a);
             }
@@ -422,11 +448,14 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
             apply_location(app, &a);
             a.clear_changes();
         } else if !a.has_changes() && !a.is_empty() {
-            sync_live(app, &mut a);
+            if a.start || model_now.is_none() || model_now != prev.synced {
+                sync_live(app, &mut a);
+            }
+            synced = model_now;
         }
     }
     let seen_selection = cur_selection.unwrap_or_else(|| (a.start, a.objects.clone()));
-    ui.ctx().data_mut(|d| d.insert_temp(state_id, AdjustWinState { rect, seen_selection }));
+    ui.ctx().data_mut(|d| d.insert_temp(state_id, AdjustWinState { rect, seen_selection, synced }));
     app.adjust = Some(a);
 }
 

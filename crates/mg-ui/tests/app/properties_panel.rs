@@ -1661,3 +1661,98 @@ fn rearrange_right_dock_and_half_height_on_ultrawide() {
     assert!(h.state().right_dock_rect().unwrap().width() > 600.0);
     assert!(h.state().props_one_scroll());
 }
+
+/// 5.1.0's review (F1, fault 3): in the wide layout Properties shows only
+/// with something editable selected, and the column it takes is given
+/// once the press is over and the double-click time has passed, so that
+/// the scene does not move under a click, a double click or a drag that
+/// began on it. A double click on a chest, nothing selected, reaches the
+/// chest (its Properties shown); a drag of an unselected chest moves it by
+/// what the pointer moved.
+#[test]
+fn the_wide_layout_s_properties_wait_for_the_pointer() {
+    let Some((mut h, area)) = props_area("props-wide-wait", Mode::Tabs, 1600.0) else { return };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[]);
+    let narrow = right_dock_rect(&h).width();
+    assert!(narrow < 400.0, "Properties hidden, nothing selected: {narrow}");
+    // A double click on chest 0 (between the clicks, a frame: not settled,
+    // which would wait out the double-click time).
+    let at = screen(&h, area, Vec3::new(12.0, 20.0, 0.0));
+    h.hover_at(at);
+    h.step();
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.step();
+    }
+    settle(&mut h);
+    let selection = h.state().area_views[&area].selection.clone();
+    assert_eq!(selection, [(ObjectKind::Placeable, 0)], "the double click reached the chest");
+    let wide = right_dock_rect(&h).width();
+    assert!(wide > 600.0, "Properties shown once the click is over: {wide}");
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties));
+
+    // Nothing selected again: a drag of chest 1, unselected, 2 m north.
+    select(&mut h, area, &[]);
+    assert!(right_dock_rect(&h).width() < 400.0, "hidden again");
+    let from = screen(&h, area, Vec3::new(14.0, 20.0, 0.0));
+    let to = screen(&h, area, Vec3::new(14.0, 22.0, 0.0));
+    drag(&mut h, from, to);
+    settle(&mut h);
+    let moved = &placeables(&mut h, area)[1];
+    let (x, y) = (moved.float("X").unwrap(), moved.float("Y").unwrap());
+    assert!(
+        (x - 14.0).abs() < 0.3 && (y - 22.0).abs() < 0.3,
+        "the chest moved by what the pointer moved: ({x}, {y})"
+    );
+    assert!(right_dock_rect(&h).width() > 600.0, "Properties shown after the drag");
+}
+
+/// 5.1.0's review (F1, fault 5): under 1400 points Properties shares the
+/// Right Dock's one tab bar and draws its own Hide Properties at its top
+/// (not the section header's): it hides Properties alone.
+#[test]
+fn the_shared_tab_bar_s_hide_properties_hides_properties() {
+    let Some((mut h, area)) = props_area("props-hide-shared", Mode::Tabs, 1280.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.state_mut().actions.push(mg_ui::Action::ShowPanel(mg_ui::Panel::Properties));
+    settle(&mut h);
+    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties));
+    // (One Hide Properties: the panel's own, the header being the tab bar.)
+    h.get_by_label(mg_ui::properties_panel::HIDE_PROPERTIES).click();
+    settle(&mut h);
+    assert!(h.state().settings.hide_properties, "Properties hidden");
+    assert!(!h.state().settings.hide_palettes, "the palettes not");
+    assert!(h.query_by_label(mg_ui::properties_panel::HIDE_PROPERTIES).is_none());
+}
+
+/// 5.1.0's review (F1, fault 4): the view's right-click › Properties opens
+/// the object's Properties in a tab, as Open in Tab does, and closes the
+/// docked pane while it is open.
+#[test]
+fn right_click_properties_closes_the_docked_pane() {
+    let Some((mut h, area)) = props_area("props-menu-pops-out", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    assert!(h.state().properties_bar_shown(), "the docked pane at first");
+    let at = screen(&h, area, Vec3::new(12.0, 20.0, 0.3));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Secondary;
+        let modifiers = egui::Modifiers::NONE;
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    settle(&mut h);
+    popup_item(&h, "Properties").click();
+    settle(&mut h);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    let tab = mg_ui::Tab::Instance { area, path };
+    assert!(h.state().dock.find_tab(&tab).is_some(), "its Properties in a tab");
+    assert!(h.state().is_props_popped_out(area), "popped out");
+    assert!(!h.state().properties_bar_shown(), "the docked pane closed");
+}

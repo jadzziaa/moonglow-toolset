@@ -1189,6 +1189,9 @@ fn browser_type_dropdown_supports_type_ahead_and_multi_select() {
     assert!(egui::Popup::is_any_open(&h.ctx), "popup stays open after second type");
     assert_eq!(h.state().browser.restypes, [ResType::TWODA, ResType::MDL].into());
     h.get_by_value("2da, mdl");
+    // (Both listed: the rows of each type checked, and of no other.)
+    let listed = h.state_mut().browser.listed_types();
+    assert_eq!(listed, [ResType::TWODA, ResType::MDL].into(), "the rows listed");
 
     // Clear All resets to "all types", while keeping popup open.
     h.get_by_label("Clear All").click();

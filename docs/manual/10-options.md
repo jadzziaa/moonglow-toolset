@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: antigravity/gemini-3-pro, at: 2026-11-22T16:02:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:03:16Z }
 ---
 
 # Options
@@ -72,7 +72,12 @@ again from its file.
   `portraits`, `ambient` and `music` under your own and over the
   game's (an item's module is opened as any module, by File › Open).
   Changing it reads the game's data again. `mg --workshop` reads them
-  too.
+  too. It also decides how Test Module starts a Steam copy of the game:
+  through Steam where it is on, and without Steam's app ID where it is
+  off, so that the test and Moonglow's views agree (the game through
+  Steam loads the items you subscribe to, while Moonglow reads every item
+  Steam has downloaded, so an item unsubscribed but still on disk is in
+  the view alone; see [Build, verify and test](09-build-and-test.md)).
 - **Read userpatch.ini's haks**: off by default, as in Aurora, for the
   same reason. On, the haks your
   `userpatch.ini` names (`PatchFile000=…` and on, the highest number
@@ -298,10 +303,9 @@ window is one in As Tabs too, for a kind you moved to a window):
 
 ### Testing
 
-- **Minimize Toolset on test module**.
-- **Start a Steam copy of the game through Steam for a test** (on):
-  off, the game's program is started on its own, without Steam's overlay
-  or Workshop content (see [Build, verify and test](09-build-and-test.md)).
+- **Minimize Toolset on test module**. Whether a test starts a Steam
+  copy of the game through Steam follows **Read Steam Workshop content**
+  on the Folders page (5.1.0 retired the separate option that was here).
 
 ### Windows and Tabs
 

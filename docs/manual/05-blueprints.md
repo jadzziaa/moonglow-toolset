@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - the palettes in the Right Dock (types, Standard and Custom, search, List and Gallery, Group by, categories, the right-click menu), the Appearance Gallery, the blueprint editors (header with OK and Cancel, the page list and pages on one scroll, sections in columns, each kind's pages including a creature's Sound set and Faction on Basic), the wizards, Update Instances, and instances in the Properties panel.
 tags: [manual, blueprints, palettes]
-generated: { by: antigravity/gemini-3-pro, at: 2026-11-22T16:02:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T03:25:26Z }
 ---
 
 # Blueprints
@@ -1344,25 +1344,43 @@ holds, in a project that keeps those read-only, the fields are only
 looked at.
 
 A double click on an object in the area's view shows the Properties
-panel in front, the Right Dock unfolded on it (or tabs in a window under
-1400 points wide; clicking **Hide Properties** (`X`) hides only the
-Properties pane until restored via **View › Properties Panel**). In the
-panel's narrow room the pages fit its width: the fields fill it, scripts
-and conversations stay compactly aligned, and tables stack where needed
-(a creature's ability scores show each total and bonus as "12 (+1)", the
-racial modifier in its tip). With the keyboard on the pages' icons (F6),
-Up and Down show the page before or after. In the wide full-height layout
-(2560 points or wider in **Two Columns**, [The main
-window](02-main-window.md)), the panel automatically hides whenever
-nothing editable is selected (reclaiming column width) and shows every
-page on one compact scroll, each under its heading in the icons' order;
-switching the dock to **Stacked (Half-Height)** keeps Properties at half
-height on ultrawide displays. **Open in Tab**, at the panel's header's
-end (under 1400, at its top), and right-click › **Properties** close
-the docked Properties pane and open a floating window or tab with
-**OK** and **Cancel**; click **Pop In** next to Maximize/Restore (or next
-to OK/Cancel in a docked Properties tab) to put Properties back into the
-Right Dock. Changing an instance changes neither its blueprint nor other
+panel in front, the Right Dock unfolded on it (in a window under 1400
+points wide, its Properties tab between Palette and Preview); the object
+is selected, whatever key is held (a second click with Ctrl would take
+it out of the selection: a double click keeps it, with the others). A
+double click on its row in the module tree or the Outliner goes to it
+instead, and a third click opens its Properties in a tab or window, as
+below. **Hide Properties**, the × at the panel's header's end, hides the
+Properties pane alone until **View › Properties Panel** brings it back.
+In the panel's narrow room the pages fit its width: the fields fill it,
+scripts and conversations stay compactly aligned with their **…** and
+**Edit** on one line, and a page's tables stand their columns under one
+another (a creature's ability scores show each total and bonus as
+"12 (+1)", the racial modifier in its tip). With the keyboard on the
+pages' icons (F6), Up and Down show the page before or after. In the
+wide layout (a window 2560 points wide or more, [The main
+window](02-main-window.md)) the panel hides while nothing editable is
+selected, once the click is over: in **Two Columns** its column goes
+and the area gets that width back, in **Stacked** the palettes take the
+dock's whole height, and in **One Tab Bar** its tab leaves the bar. In
+its own full-height column (**Two Columns**) it shows every page on
+one scroll instead, each under its heading in the icons' order, and
+the icons are its index: the page at the top is marked, a page clicked
+comes to the top (the page at the top clicked again brings its heading
+back), the wheel scrolls through them all, and Tab goes from
+page to page, the field it reaches scrolled into sight. Only the pages
+in sight are drawn. The page at the top is kept for each type of object,
+as the page shown is in a narrower window: another chest shows the place
+the last one was left at, and a narrower window shows that page alone.
+**Stacked (Half-Height)** keeps it under the palettes at half the
+dock's height, one page shown. **Open in Tab**, at the panel's header's
+end (under 1400, at its top), an object's right-click › **Properties**
+(in the area's view, the module tree or the Outliner) and a triple click
+on its row open the Properties window, a tab or a window as Tools ›
+Options › General › Open editors says, with **OK** and **Cancel**, and
+close the docked Properties pane while it is open; **Pop In**, beside
+Maximize/Restore on the window's bar (or beside OK and Cancel on a
+docked Properties tab), puts them back in the Right Dock. Changing an instance changes neither its blueprint nor other
 instances. **Reuse › Add to
 Palette** (its right-click menu) turns an instance into a new custom
 blueprint, and **Update Instances** on a blueprint remakes its instances from it.

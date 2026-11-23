@@ -9732,3 +9732,421 @@ fn overlapping_encounters_cycle_preserve_right_click_focus_bbox_and_wireframe_sp
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target - Vec3::new(22.0, 32.0, 0.0)).length() < 0.01, "bbox center: {target:?}");
 }
+
+/// An encounter 12 m by 12 m with its middle at (20, 20), where
+/// [`area_harness`]'s waypoint 0 stands: what stands inside a selected
+/// outline is what a press on it acts on.
+fn encounter_round_waypoint(h: &mut Harness<'_, Moonglow>, area: ResRef) {
+    let outline = [[-6.0, -6.0, 0.0], [6.0, -6.0, 0.0], [6.0, 6.0, 0.0], [-6.0, 6.0, 0.0]];
+    let at = [20.0, 20.0, 0.0];
+    insert_at(h, area, ("nw_giantevil", ResType::UTE), "Encounter List", at, &outline);
+}
+
+/// Places blueprint `of` from the game at `at`, first in the GIT's `list`
+/// (with `outline`, for a trigger or an encounter).
+fn insert_at(
+    h: &mut Harness<'_, Moonglow>,
+    area: ResRef,
+    of: (&str, ResType),
+    list: &str,
+    at: [f32; 3],
+    outline: &[[f32; 3]],
+) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let app = h.state_mut();
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse(of.0, of.1).unwrap();
+    let blueprint = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let at = Placement { position: at, rotation: 0.0 };
+    let item = instance(&placing, of.1, &blueprint, at, outline).unwrap();
+    let edit = mg_edit::Edit::InsertItem {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root(),
+        list: list.into(),
+        index: 0,
+        item,
+    };
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    settle(h);
+}
+
+/// 5.1.0's review (F1 round 2, item 7): a double click on an overlapping
+/// encounter that is already selected keeps it (its Properties are the
+/// ones shown): its first click cycles to the other one, its second goes
+/// back.
+#[test]
+fn a_double_click_on_a_selected_overlapping_outline_keeps_it() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("overlap-double") else { return };
+    let square = |r: f32| [[-r, -r, 0.0], [r, -r, 0.0], [r, r, 0.0], [-r, r, 0.0]];
+    let encounter = ("nw_giantevil", ResType::UTE);
+    insert_at(&mut h, area, encounter, "Encounter List", [20.0, 30.0, 0.0], &square(3.0));
+    insert_at(&mut h, area, encounter, "Encounter List", [21.0, 30.0, 0.0], &square(3.0));
+    let overlap = screen(&h, area, Vec3::new(20.5, 30.0, 0.0));
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    for kept in [(ObjectKind::Encounter, 0), (ObjectKind::Encounter, 1)] {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![kept];
+        settle(&mut h);
+        // (Past the double-click time of any click before.)
+        h.run_steps(30);
+        h.hover_at(overlap);
+        h.step();
+        for _ in 0..2 {
+            press(&h, overlap, true, egui::Modifiers::NONE);
+            press(&h, overlap, false, egui::Modifiers::NONE);
+            h.step();
+        }
+        settle(&mut h);
+        assert_eq!(selection(&h), [kept], "a double click on {kept:?}, selected");
+    }
+}
+
+/// 5.1.0's review (F1 round 2, fault 6): Shift+click on a selected chest
+/// standing inside an encounter adds nothing (the chest is what is under
+/// the pointer, already selected): it does not add the encounter behind
+/// it, as Shift's "add the next one" does among overlapping outlines.
+#[test]
+fn shift_click_on_a_selected_object_inside_an_outline_adds_nothing() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("outline-shift-inside") else { return };
+    encounter_round_waypoint(&mut h, area);
+    let chest = ("plc_chest1", ResType::UTP);
+    insert_at(&mut h, area, chest, "Placeable List", [23.0, 20.0, 0.0], &[]);
+    let (enc, plc) = ((ObjectKind::Encounter, 0), (ObjectKind::Placeable, 0));
+    {
+        // (Near it: the handles keep their size on screen, the chest is
+        // larger than they are.)
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![plc];
+        let o = view.orbit.as_mut().unwrap();
+        o.target = Vec3::new(23.0, 20.0, 0.5);
+        o.distance = 2.5;
+    }
+    settle(&mut h);
+    h.run_steps(30);
+    // A point on the chest, the encounter behind it, clear of the handles
+    // Shift shows (its arrows, tilt rings and scale handle).
+    let at = {
+        let view = &h.state().area_views[&area];
+        let model = view.model.as_ref().unwrap();
+        let i = model.objects.iter().position(|o| (o.kind, o.index) == plc).unwrap();
+        let handles: Vec<egui::Pos2> = view.handle_points(true).into_iter().flatten().collect();
+        let clear = |p: egui::Pos2| handles.iter().map(|q| q.distance(p)).fold(f32::MAX, f32::min);
+        let under = |p: egui::Pos2| {
+            let all = view.pick_all(p).into_iter();
+            all.map(|j| (model.objects[j].kind, model.objects[j].index)).collect::<Vec<_>>()
+        };
+        let steps = [-0.5f32, -0.4, -0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5];
+        let points = steps.iter().flat_map(|&x| {
+            steps.iter().flat_map(move |&y| {
+                [0.1f32, 0.3, 0.5, 0.7, 0.9].map(|z| Vec3::new(23.0 + x, 20.0 + y, z))
+            })
+        });
+        let found = points
+            .map(|p| screen(&h, area, p))
+            .filter(|&p| view.pick(p) == Some(i) && under(p) == [plc, enc])
+            .max_by(|a, b| clear(*a).total_cmp(&clear(*b)));
+        found.expect("a point on the chest")
+    };
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.hover_at(at);
+    h.step();
+    press(&h, at, true, egui::Modifiers::SHIFT);
+    press(&h, at, false, egui::Modifiers::SHIFT);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [plc], "Shift+click on the chest");
+}
+
+/// 5.1.0's review (F1 round 2, fault 1): a selected outline's turning ring
+/// gives way where an object that is not an outline is under the pointer
+/// (a chest in the ring's band is clicked and dragged as itself), and
+/// still turns the outline over bare ground.
+#[test]
+fn a_selected_outline_s_ring_gives_way_to_an_object_under_it() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("outline-ring-gives-way") else { return };
+    let square = [[-10.0, -10.0, 0.0], [10.0, -10.0, 0.0], [10.0, 10.0, 0.0], [-10.0, 10.0, 0.0]];
+    let encounter = ("nw_giantevil", ResType::UTE);
+    insert_at(&mut h, area, encounter, "Encounter List", [20.0, 20.0, 0.0], &square);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let enc = (ObjectKind::Encounter, 0);
+    let wp = (ObjectKind::Waypoint, 0);
+    let plc = (ObjectKind::Placeable, 0);
+    let select = |h: &mut Harness<'_, Moonglow>, what| {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![what];
+        settle(h);
+        // (Past the double-click time: the next click is a click of its own.)
+        h.run_steps(30);
+    };
+    // A point on the ring of `what`, selected, toward `toward` from its middle.
+    let on_ring = |h: &mut Harness<'_, Moonglow>, what, toward: Vec3| {
+        select(h, what);
+        let view = &h.state().area_views[&area];
+        let pivot = view.ring_places()[0].0;
+        pivot + toward.normalize() * view.handle_radius_at(pivot).unwrap()
+    };
+    let chest = ("plc_chest1", ResType::UTP);
+    let chest_on = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        insert_at(h, area, chest, "Placeable List", [p.x, p.y, 0.0], &[]);
+    };
+    // A chest on area_harness's waypoint 0's ring (the waypoint stands at
+    // the encounter's middle), then one on the encounter's: placeable 0.
+    let on_waypoint_ring = on_ring(&mut h, wp, Vec3::new(1.0, -1.0, 0.0));
+    chest_on(&mut h, on_waypoint_ring);
+    let on_encounter_ring = on_ring(&mut h, enc, Vec3::new(-1.0, 1.0, 0.0));
+    chest_on(&mut h, on_encounter_ring);
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    let float = |h: &mut Harness<'_, Moonglow>, list: &str, field: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list(list).unwrap()[0].float(field).unwrap()
+    };
+    let corner = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let encounters = ws.doc(&git_key).unwrap().root.list("Encounter List").unwrap();
+        let point = &encounters[0].list("Geometry").unwrap()[1];
+        (point.float("X").unwrap_or(0.0), point.float("Y").unwrap_or(0.0))
+    };
+    let under = |h: &Harness<'_, Moonglow>, at: egui::Pos2| {
+        let view = &h.state().area_views[&area];
+        let model = view.model.as_ref().unwrap();
+        let all =
+            view.pick_all(at).into_iter().map(|i| (model.objects[i].kind, model.objects[i].index));
+        all.collect::<Vec<_>>()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        h.step();
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        settle(h);
+    };
+    // A selected waypoint's ring (it is not an outline) keeps the click,
+    // a chest in front of it or not.
+    let at_waypoint_ring = screen(&h, area, on_waypoint_ring);
+    select(&mut h, wp);
+    assert_eq!(under(&h, at_waypoint_ring)[0], (ObjectKind::Placeable, 1), "on the second chest");
+    click(&mut h, at_waypoint_ring);
+    assert_eq!(selection(&h), [wp], "a click on a selected waypoint's ring");
+
+    // With the encounter selected, a click on the chest in its ring's band
+    // selects the chest.
+    let at = screen(&h, area, on_encounter_ring);
+    select(&mut h, enc);
+    assert_eq!(under(&h, at), [plc, enc], "what is under the first chest");
+    click(&mut h, at);
+    assert_eq!(selection(&h), [plc], "a click on the chest in the ring's band");
+
+    // With the encounter selected, a drag of it 4 m west moves it.
+    select(&mut h, enc);
+    let enc_x = float(&mut h, "Encounter List", "XPosition");
+    let enc_corner = corner(&mut h);
+    let west = on_encounter_ring - Vec3::X * 4.0;
+    let to = screen(&h, area, west);
+    drag(&mut h, at, to);
+    settle(&mut h);
+    let chest_x = float(&mut h, "Placeable List", "X");
+    assert!((chest_x - west.x).abs() < 0.3, "the chest moved 4 m west: {chest_x}");
+    assert_eq!(float(&mut h, "Encounter List", "XPosition"), enc_x, "the encounter stayed");
+    assert_eq!(corner(&mut h), enc_corner, "the encounter did not turn");
+
+    // Where the chest stood is bare ground now: a drag there along the
+    // ring turns the encounter, and the chest stays.
+    select(&mut h, enc);
+    assert_eq!(under(&h, at), [enc], "only the encounter where the chest stood");
+    let middle = screen(&h, area, h.state().area_views[&area].ring_places()[0].0);
+    let out = at - middle;
+    drag(&mut h, at, middle + egui::vec2(-out.y, out.x));
+    settle(&mut h);
+    assert_eq!(selection(&h), [enc], "the encounter stays selected");
+    assert_ne!(corner(&mut h), enc_corner, "the ring turned the encounter");
+    let chest_after = float(&mut h, "Placeable List", "X");
+    assert_eq!(chest_after, chest_x, "the chest stayed");
+}
+
+/// 5.1.0's review (F1, faults 1 and 2): a selected encounter lies on the
+/// ground under what stands inside it, and does not take the clicks,
+/// right-clicks and drags meant for that: a waypoint at its middle is
+/// dragged, right-clicked and clicked again as itself.
+#[test]
+fn a_selected_outline_gives_way_to_what_stands_inside_it() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("outline-gives-way") else { return };
+    encounter_round_waypoint(&mut h, area);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let enc = (ObjectKind::Encounter, 0);
+    let wp = (ObjectKind::Waypoint, 0);
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, m: egui::Modifiers| {
+        h.event(egui::Event::ModifiersChanged(m));
+        h.hover_at(at);
+        press(h, at, true, m);
+        press(h, at, false, m);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        settle(h);
+        // (Past the double-click time: the next click is a click of its own.)
+        h.run_steps(30);
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let button = egui::PointerButton::Secondary;
+            let modifiers = egui::Modifiers::NONE;
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+        }
+        settle(h);
+        h.key_press(egui::Key::Escape);
+        settle(h);
+    };
+    let wp_at = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    // (Both are under the pointer there, the waypoint nearer.)
+    let under = |h: &Harness<'_, Moonglow>, at: egui::Pos2| {
+        let view = &h.state().area_views[&area];
+        let model = view.model.as_ref().unwrap();
+        let all =
+            view.pick_all(at).into_iter().map(|i| (model.objects[i].kind, model.objects[i].index));
+        all.collect::<Vec<_>>()
+    };
+    assert_eq!(under(&h, wp_at), [wp, enc], "what is under the waypoint");
+    // The encounter, clicked inside away from the waypoint, is selected.
+    let inside = screen(&h, area, Vec3::new(24.0, 16.0, 0.0));
+    click(&mut h, inside, egui::Modifiers::NONE);
+    assert_eq!(selection(&h), [enc], "a click inside the outline selects the encounter");
+
+    // A click on the waypoint selects it, and a second click on it, already
+    // selected, keeps it (it is not an outline: nothing behind it is cycled to).
+    click(&mut h, wp_at, egui::Modifiers::NONE);
+    assert_eq!(selection(&h), [wp], "a click on the waypoint inside the selected outline");
+    click(&mut h, wp_at, egui::Modifiers::NONE);
+    assert_eq!(selection(&h), [wp], "a second click on the selected waypoint keeps it");
+
+    // With the encounter selected, a right-click on the waypoint selects
+    // the waypoint (the menu's Delete and Adjust Location are its).
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![enc];
+    settle(&mut h);
+    right_click(&mut h, wp_at);
+    assert_eq!(selection(&h), [wp], "right-click on what stands inside");
+
+    // With the encounter selected, a drag of the waypoint 3 m east moves
+    // the waypoint, not the encounter.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![enc];
+    settle(&mut h);
+    let float = |h: &mut Harness<'_, Moonglow>, list: &str, field: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list(list).unwrap()[0].float(field).unwrap()
+    };
+    let enc_x = float(&mut h, "Encounter List", "XPosition");
+    let to = screen(&h, area, Vec3::new(23.0, 20.0, 0.0));
+    drag(&mut h, wp_at, to);
+    settle(&mut h);
+    let wp_x = float(&mut h, "WaypointList", "XPosition");
+    assert!((wp_x - 23.0).abs() < 0.3, "the waypoint moved 3 m east: {wp_x}");
+    assert_eq!(float(&mut h, "Encounter List", "XPosition"), enc_x, "the encounter stayed");
+}
+
+/// 5.1.0's review (F1, fault 6): Adjust Location on an area held
+/// read-only does not auto-save (the write would be refused): a click
+/// away, or another object selected, keeps the edit in the dialog, whose
+/// note says why, and OK and Apply are off.
+#[test]
+fn adjust_location_on_a_read_only_area_keeps_the_edit() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = read_only_area_harness("adjust-read-only") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    settle(&mut h);
+    let adjust = mg_ui::area_tools::adjust(&h.state().area_views[&area]).unwrap();
+    h.state_mut().adjust = Some(adjust);
+    settle(&mut h);
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.y = 24.0;
+        a.changed[1] = true;
+    }
+    h.run_steps(2);
+    // A click away, on the Status Bar.
+    let away = egui::pos2(8.0, h.ctx.content_rect().bottom() - 10.0);
+    h.hover_at(away);
+    press(&h, away, true, egui::Modifiers::NONE);
+    press(&h, away, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let a = h.state().adjust.as_ref().expect("the dialog stays open");
+    assert!(a.has_changes() && (a.position.y - 24.0).abs() < 0.01, "the edit kept: {a:?}");
+    h.get_by_label_contains("read-only here, so what you change is not saved");
+    assert!(h.get_by_label("OK").accesskit_node().is_disabled(), "OK off");
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled(), "Apply off");
+    // Another object selected: the edit is kept, the dialog on the chest.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    settle(&mut h);
+    let a = h.state().adjust.as_ref().expect("the dialog stays open");
+    assert_eq!(a.objects, [(ObjectKind::Placeable, 0)], "still the chest's");
+    assert!(a.has_changes() && (a.position.y - 24.0).abs() < 0.01, "the edit kept: {a:?}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None, "nothing written");
+}
+
+/// 5.1.0's review (F1, fault 5): Escape in Adjust Location closes it and
+/// takes back what was not applied, as Cancel does.
+#[test]
+fn escape_in_adjust_location_discards_the_edit() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("adjust-escape") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let wp_x = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("WaypointList").unwrap()[0].float("XPosition").unwrap()
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    settle(&mut h);
+    let adjust = mg_ui::area_tools::adjust(&h.state().area_views[&area]).unwrap();
+    h.state_mut().adjust = Some(adjust);
+    settle(&mut h);
+    let was = wp_x(&mut h);
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.x = was + 7.0;
+        a.changed[0] = true;
+    }
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    settle(&mut h);
+    assert!(h.state().adjust.is_none(), "closed");
+    assert!((wp_x(&mut h) - was).abs() < 0.01, "the edit taken back");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None, "nothing written");
+}
+
+/// Adjust Location open with nothing changed in it follows the object
+/// moved in the view: a drag of the waypoint shows in its numbers once it
+/// is let go (F1: refreshed when the view's model changes, not every
+/// frame).
+#[test]
+fn adjust_location_follows_a_drag_in_the_view() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("adjust-live") else { return };
+    // (The waypoint clear above the dialog, in the middle of the window.)
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().target =
+        Vec3::new(25.0, 12.0, 0.0);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    settle(&mut h);
+    let adjust = mg_ui::area_tools::adjust(&h.state().area_views[&area]).unwrap();
+    h.state_mut().adjust = Some(adjust);
+    settle(&mut h);
+    let x = |h: &Harness<'_, Moonglow>| h.state().adjust.as_ref().unwrap().position.x;
+    assert!((x(&h) - 20.0).abs() < 0.01, "at first: {}", x(&h));
+    let from = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    let to = screen(&h, area, Vec3::new(23.0, 20.0, 0.0));
+    drag(&mut h, from, to);
+    settle(&mut h);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let moved =
+        ws.doc(&git_key).unwrap().root.list("WaypointList").unwrap()[0].float("XPosition").unwrap();
+    assert!((moved - 23.0).abs() < 0.3, "the waypoint was dragged: {moved}");
+    assert!((x(&h) - 23.0).abs() < 0.3, "the dialog's X followed the drag: {}", x(&h));
+    assert!(!h.state().adjust.as_ref().unwrap().has_changes(), "still clean");
+}

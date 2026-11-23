@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui::Ui;
-use mg_core::{LocString, ResRef, ResType};
+use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath, lists};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
@@ -1011,19 +1011,6 @@ impl Form<'_> {
         }
     }
 
-    /// A text field of a localized string, in the talk table's color where
-    /// that is where its text is from, with the StrRef beside it.
-    fn loc_text(
-        &mut self,
-        ui: &mut Ui,
-        label: &str,
-        current: &LocString,
-        multiline: bool,
-        width: f32,
-    ) -> Option<String> {
-        crate::widgets::loc_text(self.app, ui, self.id(label), current, multiline, width)
-    }
-
     /// An item's Properties, from the inventory that holds it (item `index`
     /// of `list` in the struct at `at`): a placed object's item is its own,
     /// edited where it is held; a blueprint's is its blueprint (the
@@ -1632,35 +1619,11 @@ impl Form<'_> {
             self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
         }
         self.mark_mixed(ui, label);
-        let typed = if in_panel_scroll {
-            let id = self.id(label);
-            match crate::widgets::loc_shown(self.app, &current) {
-                (shown, None) => crate::widgets::commit_loc_text_in(
-                    &mut self.app.buffers,
-                    ui,
-                    id,
-                    &shown,
-                    Some(3),
-                    f32::INFINITY,
-                    None,
-                ),
-                (shown, Some((from, why))) => {
-                    crate::widgets::borrowed_field(ui, &from, why, |ui| {
-                        crate::widgets::commit_loc_text_in(
-                            &mut self.app.buffers,
-                            ui,
-                            id,
-                            &shown,
-                            Some(3),
-                            f32::INFINITY,
-                            None,
-                        )
-                    })
-                }
-            }
-        } else {
-            self.loc_text(ui, label, &current, true, f32::INFINITY)
-        };
+        // (Three lines inside the panel's scroll of every page, six
+        // elsewhere.)
+        let rows = Some(if in_panel_scroll { 3 } else { 6 });
+        let id = self.id(label);
+        let typed = crate::widgets::loc_text(self.app, ui, id, &current, rows, f32::INFINITY);
         if let Some(v) = typed {
             self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
         }
@@ -2201,16 +2164,7 @@ impl Form<'_> {
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        // Yield the resref field width so `…` and `Edit` always fit beside it
-        // on the same line, including in narrow Properties panels.
-        let s = ui.spacing();
-        let small = egui::TextStyle::Button.resolve(ui.style());
-        let color = ui.visuals().text_color();
-        let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
-        let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
-        let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
-        let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
-        let yield_to = width.clamp(least, 160.0);
+        let yield_to = resref_beside_buttons(ui);
         ui.horizontal(|ui| {
             let id = self.id(label);
             let picked = crate::widgets::with_resref_width(ui, yield_to, |ui| {
@@ -2316,14 +2270,7 @@ impl Form<'_> {
     ) {
         self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        let s = ui.spacing();
-        let small = egui::TextStyle::Button.resolve(ui.style());
-        let color = ui.visuals().text_color();
-        let edit_w = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
-        let buttons = s.interact_size.y + edit_w + 2.0 * s.button_padding.x;
-        let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
-        let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
-        let yield_to = width.clamp(least, 160.0);
+        let yield_to = resref_beside_buttons(ui);
         ui.horizontal(|ui| {
             let id = self.id(label);
             let picked = crate::widgets::with_resref_width(ui, yield_to, |ui| {
@@ -2580,6 +2527,22 @@ pub(crate) const NARROW_FORM: f32 = 400.0;
 /// The width of a localized name's field in a window (`Form::locstring`):
 /// its row's room, held to these.
 const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
+
+/// How wide a resref field may be so that its `…` and an **Edit** button
+/// fit beside it on one line, in a narrow Properties panel too (a script's
+/// or a conversation's field; Module Properties' events at a window of 420
+/// put both past its edge, U30's #14). The room left in the row, not a
+/// column's width: no feedback.
+fn resref_beside_buttons(ui: &Ui) -> f32 {
+    let s = ui.spacing();
+    let small = egui::TextStyle::Button.resolve(ui.style());
+    let color = ui.visuals().text_color();
+    let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+    let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
+    let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
+    let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };
+    width.clamp(least, 160.0)
+}
 
 /// The least a script's field yields to ([`Form::script`]): about eight
 /// characters of a resref.

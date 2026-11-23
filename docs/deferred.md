@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T01:04:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -131,14 +131,18 @@ Size: S (an hour or two), M (a day or so), L (several days).
   pipes, the links for haks, and Ctrl+C (the server in a console
   process group of its own, `CREATE_NEW_PROCESS_GROUP`, told to `exit`
   by `mg`). (S) (waits on a Windows machine)
-- **Test Module and Steam:** the game started for a test is told which
-  Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
+- **Test Module and Steam:** a test of a Steam copy follows Read Steam
+  Workshop content (5.1.0, the owner's ruling of 2026-11-22, after a
+  builder's test looked other than the views): on, the game is told
+  which Steam game it is (`SteamAppId`), so that it reaches a running
   Steam and loads the Workshop's content, as when started from Steam;
-  started bare it had none of it (a builder's "F9 won't load the stuff
-  correctly either"). Not tried: the client is only ever run here with
-  Steam hidden. With Steam running, the test then shows in Steam as the
-  game being played. (needs a builder's word)
-  (from builders' reports after 1.14.1)
+  off, it is started bare, as Aurora starts it, without the Workshop
+  items (`SteamAppId` taken away). Not tried, as the client is only
+  ever run here with Steam hidden: whether a bare start on Windows or
+  macOS still reaches a running Steam (the install's `steam_appid.txt`
+  is in its root, the client started in `bin/<platform>`), and that
+  the start through Steam loads every item the view reads. (needs a
+  builder's word) (from builders' reports after 1.14.1 and 5.0.0)
 - **`mg serve`'s run folders under a shared, guessable parent:** `mg
   serve` and `mg test` make a module's user directory under
   `/tmp/moonglow-serve/<stem>-<hash>` (`apps/mg/src/serve.rs`,
@@ -320,6 +324,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   its fix's commit: left as beyond what the reviewer's run was asked
   (at most eight new views, the largest costs). (M) (the review of
   November 2026, [its fixes](review-2026-11/fixes.md))
+- **The area's Right Dock layout worked out anew each frame:**
+  `shell::active_area_right_base` clones the builder's layout through
+  `AreaRightLayout::normalized` (settings.rs); `area_visible_columns`
+  builds its nested lists two or three times a frame (`arrange_area`,
+  `area_wants_one_column`); and `Moonglow::docked_instance_tabs` is
+  collected again with the other tab lists each frame. Each is a few
+  small allocations, not measured as a share of a frame. Kept by the
+  layout, the wide flag and whether Properties shows (and by the dock's
+  change, for the tab list) they would be made once. Left as beyond
+  what 5.1.0's review asked (it listed them, and settings.rs was
+  another task's file then). (S, measure first) (5.1.0's review, F1)
 
 ## Blueprint editors and inventories
 

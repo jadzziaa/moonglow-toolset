@@ -626,3 +626,30 @@ fn verify_s_words_without_a_box_stay_in_its_field() {
     assert!(!saved.contains("references:override") && !saved.contains("old-check"), "{saved}");
     assert!(saved.contains("verify_skip:[\"tilesets\",\"tdod_tiles01.hak\"]"), "{saved}");
 }
+
+/// One switch for the Workshop and the test (the owner's ruling of
+/// 2026-11-22): General's Testing has no Steam row of its own any more,
+/// and Folders' Read Steam Workshop content, ticked and set by OK, has a
+/// test start a Steam copy through Steam; unticked, without.
+#[test]
+fn read_steam_workshop_content_decides_how_a_test_starts() {
+    let mut h = options(Mode::Tabs, 1600.0, "General");
+    assert!(h.query_by_label("Minimize Toolset on test module").is_some(), "Testing shown");
+    assert!(
+        h.query_by_label("Start a Steam copy of the game through Steam for a test").is_none(),
+        "no Steam row on General"
+    );
+    assert!(!h.state().settings.test_through_steam(), "without Steam by default");
+    for on in [true, false] {
+        page_row(&h, "Folders").click();
+        settle(&mut h);
+        click_in_sight(&mut h, "Read Steam Workshop content");
+        settle(&mut h);
+        h.get_by_label("Options header").get_by_label("OK").click();
+        settle(&mut h);
+        let s = &h.state().settings;
+        assert_eq!((s.read_workshop, s.test_through_steam()), (on, on), "ticked: {on}");
+        h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+        settle(&mut h);
+    }
+}

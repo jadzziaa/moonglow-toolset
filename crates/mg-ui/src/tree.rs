@@ -786,6 +786,9 @@ pub(crate) fn contents_ui(
     commands: &[crate::plugins::PluginCommand],
     // The module tree's rows, or the Outliner's.
     look: Look,
+    // Whether the area is read-only here (another builder holds it): its
+    // menu leaves out Adjust Location…, as the area view's does.
+    read_only: bool,
 ) -> bool {
     let outliner = matches!(look, Look::Outliner { .. });
     let hide_empty = matches!(look, Look::Tree { hide_empty: true, .. });
@@ -957,14 +960,12 @@ pub(crate) fn contents_ui(
                     let r = if outliner {
                         // (Its name, and its tag weak after it, cut to the
                         // panel's width: `LightArea_crop_outl.png`.)
-                        let how = "Click to select it in the area, double-click to go to it. \
-                                   Right-click for more.";
+                        let how = "Click to select, double-click to go to it, triple-click for Properties.";
                         let label = object_label(&object.name, &object.tag);
                         let row = mg_uikit::TreeRow::new(name).second(&object.tag).label(label);
                         row.selected(is_marked).show(ui).on_hover_ui(tip(how))
                     } else {
-                        let how = "Click to select it in the area, double-click to go to it. \
-                                   Right-click for more.";
+                        let how = "Click to select, double-click to go to it, triple-click for Properties.";
                         // (The kit's row, its fill across the whole row.)
                         // With tags shown, its name and its tag dimmed
                         // after it, as the Outliner's (said `Name (tag)`,
@@ -985,6 +986,10 @@ pub(crate) fn contents_ui(
                         // Chosen with the others (after the rows are laid
                         // out: `tree_rows`).
                         *picked = Some((TreeAt::Object(area, *kind, index), command, shift));
+                    } else if r.triple_clicked() {
+                        // (The second click went to it; the third opens its
+                        // Properties, as its menu's Properties does.)
+                        *go = Some((area, *kind, index, Asked::Properties));
                     } else if r.double_clicked() {
                         *go = Some((area, *kind, index, Asked::Go));
                     } else if r.clicked() {
@@ -1018,6 +1023,9 @@ pub(crate) fn contents_ui(
                             ("Properties", Asked::Properties),
                         ] {
                             if asked == Asked::Preview && (several || !previewable(*kind)) {
+                                continue;
+                            }
+                            if asked == Asked::Adjust && read_only {
                                 continue;
                             }
                             if asked == Asked::Variables {
@@ -2378,6 +2386,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     }
                     if out {
                         let now = read_of(ws, k.resref);
+                        let access = ws.module.project_file.access(k.resref);
+                        let read_only = matches!(access, mg_module::claims::Access::ReadOnly(_));
                         match app.area_contents.get(&k.resref).filter(|c| c.0 == now) {
                             Some((_, contents)) => {
                                 let in_hand = app
@@ -2410,6 +2420,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     &mut keys,
                                     &menu_commands,
                                     Look::Tree { hide_empty, tags },
+                                    read_only,
                                 );
                                 picked = keys.picked.or(picked);
                                 together |= keys.together;
@@ -3039,11 +3050,11 @@ pub(crate) fn act_on_object(
         }
         Asked::Properties if targets.len() > 1 => {
             let paths = targets.iter().copied().map(path).collect();
-            app.actions.push(Action::OpenTab(Tab::Instances { area, paths }));
+            crate::properties_panel::pop_out(app, Tab::Instances { area, paths });
         }
         Asked::Properties => {
             let path = path((kind, index));
-            app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+            crate::properties_panel::pop_out(app, Tab::Instance { area, path });
         }
         Asked::Variables => crate::widgets::open_variables(app, git, path((kind, index))),
         Asked::Preview => {
