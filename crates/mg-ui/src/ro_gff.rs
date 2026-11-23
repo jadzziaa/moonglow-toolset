@@ -448,19 +448,23 @@ pub(crate) fn ui(
                 job.wrap = egui::text::TextWrapping::truncate_at_width(room.max(0.0));
                 let value_g = ui.fonts_mut(|f| f.layout_job(job));
                 p.galley(egui::pos2(value_x, mid(&value_g)), value_g.clone(), t.text);
-                let whole = match &meaning {
-                    Some(m) if value.is_empty() => m.clone(),
-                    Some(m) => format!("{value}  {m}"),
-                    None => value.clone(),
+                let whole = || -> std::borrow::Cow<'_, str> {
+                    match &meaning {
+                        Some(m) if value.is_empty() => std::borrow::Cow::Borrowed(m),
+                        Some(m) => std::borrow::Cow::Owned(format!("{value}  {m}")),
+                        None => std::borrow::Cow::Borrowed(&value),
+                    }
                 };
                 let r = match value_g.elided || name_g.elided {
-                    true => r.on_hover_text(format!("{name}: {whole}")),
+                    true => r.on_hover_ui(|ui| {
+                        ui.label(format!("{name}: {}", whole()));
+                    }),
                     false => r,
                 };
-                let said = format!("{kind}, {whole}");
                 r.widget_info(|| {
+                    let said = format!("{kind}, {}", whole());
                     let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Other, true, &name);
-                    info.current_text_value = Some(said.clone());
+                    info.current_text_value = Some(said);
                     info
                 });
                 if folds {

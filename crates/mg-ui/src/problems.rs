@@ -837,9 +837,9 @@ fn problem(
     };
     // (On the chosen fill, its words in its own color, as the tables'.)
     let (color, link) = if look.selected { (t.on_fill, t.on_fill) } else { (color, t.accent) };
-    let said = row_name(p);
     let selected = look.selected;
     row.widget_info(|| {
+        let said = row_name(p);
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &said)
     });
     if look.selected {
@@ -900,19 +900,27 @@ fn problem(
             }
             if let Some((_, check, n)) = look.all {
                 let all =
-                    ui.add(egui::Button::new(format!("Fix All ({n})")).small()).on_hover_text(
-                        format!("Fix every finding of {check} that has a fix, as one Undo step"),
-                    );
+                    ui.add(egui::Button::new(format!("Fix All ({n})")).small()).on_hover_ui(|ui| {
+                        ui.label(format!(
+                            "Fix every finding of {check} that has a fix, as one Undo step"
+                        ));
+                    });
                 did.fix_all = all.clicked();
             }
-            let resources: Vec<String> =
-                offer.fix.resources().iter().map(ToString::to_string).collect();
-            let hint = match &offer.fix.asks {
-                Some(a) => format!("Runs the plugin's command {} on it", a.command),
-                None => format!("Changes {} (one step to undo)", resources.join(", ")),
-            };
-            did.fix =
-                ui.add(egui::Button::new(&offer.fix.label).small()).on_hover_text(hint).clicked();
+            did.fix = ui
+                .add(egui::Button::new(&offer.fix.label).small())
+                .on_hover_ui(|ui| {
+                    let hint = match &offer.fix.asks {
+                        Some(a) => format!("Runs the plugin's command {} on it", a.command),
+                        None => {
+                            let resources: Vec<String> =
+                                offer.fix.resources().iter().map(ToString::to_string).collect();
+                            format!("Changes {} (one step to undo)", resources.join(", "))
+                        }
+                    };
+                    ui.label(hint);
+                })
+                .clicked();
         };
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             buttons(ui, &mut did);

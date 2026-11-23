@@ -1343,32 +1343,65 @@ fn columns(left: f32, width: f32) -> [std::ops::RangeInclusive<f32>; 4] {
     })
 }
 
+#[derive(Clone, Default)]
+struct CutStartCache {
+    font: u32,
+    width: i32,
+    map: std::collections::HashMap<String, String>,
+}
+
 /// `text` cut at its start to `width` (an ellipsis before the end kept):
 /// the board's Source, "…/test-output/screens-hak/mg_chair.mdl".
 fn cut_start(ui: &Ui, text: &str, font: &egui::FontId, width: f32) -> String {
+    let font_bits = font.size.to_bits();
+    let width_key = width.round() as i32;
+    let id = egui::Id::new("hak-cut-start-cache");
+    if let Some(cached) = ui.data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<CutStartCache>(id);
+        if cache.font == font_bits && cache.width == width_key {
+            cache.map.get(text).cloned()
+        } else {
+            None
+        }
+    }) {
+        return cached;
+    }
+
     let wide = |s: &str| {
         ui.fonts_mut(|f| f.layout_no_wrap(s.to_string(), font.clone(), egui::Color32::WHITE))
             .size()
             .x
     };
-    if wide(text) <= width {
-        return text.to_string();
-    }
-    // (Whole folders dropped first, the path's own separators kept:
-    // "…/data/hk/id_resources.hak", on Windows "…\data\hk\id_resources.hak".)
-    let windows = crate::shown_path::WINDOWS;
-    if let Some(s) = crate::shown_path::cut_folders(text, windows, |s| wide(s) <= width) {
-        return s;
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let (mut lo, mut hi) = (0, chars.len());
-    // (The fewest characters dropped from the start that fit.)
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let s: String = std::iter::once('…').chain(chars[mid..].iter().copied()).collect();
-        if wide(&s) <= width { hi = mid } else { lo = mid + 1 }
-    }
-    std::iter::once('…').chain(chars[lo..].iter().copied()).collect()
+    let result = if wide(text) <= width {
+        text.to_string()
+    } else {
+        // (Whole folders dropped first, the path's own separators kept:
+        // "…/data/hk/id_resources.hak", on Windows "…\data\hk\id_resources.hak".)
+        let windows = crate::shown_path::WINDOWS;
+        if let Some(s) = crate::shown_path::cut_folders(text, windows, |s| wide(s) <= width) {
+            s
+        } else {
+            let chars: Vec<char> = text.chars().collect();
+            let (mut lo, mut hi) = (0, chars.len());
+            // (The fewest characters dropped from the start that fit.)
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                let s: String = std::iter::once('…').chain(chars[mid..].iter().copied()).collect();
+                if wide(&s) <= width { hi = mid } else { lo = mid + 1 }
+            }
+            std::iter::once('…').chain(chars[lo..].iter().copied()).collect()
+        }
+    };
+    ui.data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<CutStartCache>(id);
+        if cache.font != font_bits || cache.width != width_key || cache.map.len() >= 256 {
+            cache.map.clear();
+            cache.font = font_bits;
+            cache.width = width_key;
+        }
+        cache.map.insert(text.to_string(), result.clone());
+    });
+    result
 }
 
 /// The hak whose table was given the keys last.
@@ -1547,7 +1580,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
             let selected = d.selected.contains(&key);
             let name = key.to_string();
             let words = kind_words(key.restype);
-            let value = format!("{words}, {}", size(item.size));
+            let size_str = size(item.size);
             resp.widget_info(|| {
                 let mut info = egui::WidgetInfo::selected(
                     egui::WidgetType::SelectableLabel,
@@ -1555,7 +1588,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
                     selected,
                     &name,
                 );
-                info.current_text_value = Some(value.clone());
+                info.current_text_value = Some(format!("{words}, {size_str}"));
                 info
             });
             let state = match (selected, resp.hovered()) {
@@ -1624,10 +1657,10 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
                 None => cut(name.clone(), mono.clone(), text, &xs[0], 16.0 + 8.0, false),
             }
             cut(words.to_string(), font.clone(), quiet, &xs[1], 0.0, false);
-            cut(size(item.size), font.clone(), text, &xs[2], 0.0, true);
+            cut(size_str, font.clone(), text, &xs[2], 0.0, true);
             if let Source::File(p) = &item.source {
                 let room = (xs[3].end() - xs[3].start() - 16.0).max(1.0);
-                let shown = cut_start(ui, &p.display().to_string(), &font, room);
+                let shown = cut_start(ui, &p.to_string_lossy(), &font, room);
                 cut(shown, font.clone(), quiet, &xs[3], 0.0, false);
             }
             if resp.clicked() {
@@ -1636,13 +1669,12 @@ fn table(app: &mut Moonglow, ui: &mut Ui, d: &mut HakDoc) -> RowAsked {
             if resp.double_clicked() {
                 asked.view = Some(key);
             }
-            let path = match &item.source {
-                Source::File(p) => Some(p.display().to_string()),
-                _ => None,
-            };
-            let resp = match path {
-                Some(p) => resp.on_hover_text(format!("{name}, added from {p}")),
-                None => resp,
+            let resp = if let Source::File(p) = &item.source {
+                resp.on_hover_ui(|ui| {
+                    ui.label(format!("{name}, added from {}", p.display()));
+                })
+            } else {
+                resp
             };
             mg_uikit::context_menu(&resp, |ui| {
                 if ui.button("View").clicked() {

@@ -1029,9 +1029,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .on_hover_text("Where the module and its haks' 2DAs name this line");
         }
     });
-    // (Which tables that run it are the module's own, to open.)
-    let own_tables: Vec<bool> =
-        app.references.run.iter().map(|r| ws.module.contains(&r.from)).collect();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // An area's objects are said to be in the area as the rest of the
         // window names it (Options › General: Show areas by name).
@@ -1045,18 +1042,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         };
         // (Only the rows in sight are named and laid out: a script that
         // thousands of creatures use is thousands of rows. The others
-        // take a row's room.)
+        // take one coalesced spacer.)
         // (A row each, 22 apart: a link or a label in a row as high as one.)
         mg_uikit::list_rows(ui);
         let row = mg_uikit::row_pitch(ui);
-        let out_of_sight = |ui: &mut Ui| {
-            let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
-            let hidden = !ui.is_rect_visible(room);
-            if hidden {
-                ui.add_space(row);
-            }
-            hidden
-        };
         // (Taken out while an area's name is looked up, which keeps it.)
         let usages = std::mem::take(&mut app.references.usages);
         if usages.is_empty() {
@@ -1064,13 +1053,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         } else {
             ui.label(format!("Used in {}:", places(usages.len())));
             let commands = app.plugin_menu_commands_cached();
-            for (i, u) in usages.iter().enumerate() {
-                if out_of_sight(ui) {
-                    continue;
-                }
+            virtual_rows(ui, usages.len(), row, |ui, i| {
+                let u = &usages[i];
                 let label = shown(app, u);
                 let r = ui.horizontal(|ui| ui.link(label)).inner;
-                let r = r.on_hover_text(format!("{} {}", u.from, u.path));
+                let r = r.on_hover_ui(|ui| {
+                    ui.label(format!("{} {}", u.from, u.path));
+                });
                 if r.clicked() {
                     go = Some(i);
                 }
@@ -1083,7 +1072,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         });
                     }
                 }
-            }
+            });
         }
         app.references.usages = usages;
         let refs = &app.references;
@@ -1093,13 +1082,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .on_hover_text(
                     "Cells of the 2DAs the game runs scripts from, as the module sees them",
                 );
-            for (r, own) in refs.run.iter().zip(&own_tables) {
-                if out_of_sight(ui) {
-                    continue;
-                }
+            virtual_rows(ui, refs.run.len(), row, |ui, i| {
+                let r = &refs.run[i];
+                let own = app.ws.as_ref().is_some_and(|ws| ws.module.contains(&r.from));
                 let text = format!("{} › {}", r.from, r.path);
                 ui.horizontal(|ui| {
-                    if *own {
+                    if own {
                         if ui.link(text).on_hover_text("Open the module's table").clicked() {
                             go_table = Some(r.from);
                         }
@@ -1107,18 +1095,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.label(text);
                     }
                 });
-            }
+            });
         }
         if !refs.hak_cells.is_empty() {
             ui.add_space(8.0);
             ui.label(format!("In the haks' 2DAs ({}):", refs.hak_cells.len()))
                 .on_hover_text("Cells of the haks' 2DAs in columns that hold a talk-table line");
-            for c in &refs.hak_cells {
-                if out_of_sight(ui) {
-                    continue;
-                }
-                ui.horizontal(|ui| ui.label(c.place()));
-            }
+            virtual_rows(ui, refs.hak_cells.len(), row, |ui, i| {
+                ui.horizontal(|ui| ui.label(refs.hak_cells[i].place()));
+            });
         }
         if let Some(glob) = &refs.marked {
             ui.add_space(8.0);
@@ -1129,15 +1114,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.add_space(8.0);
             ui.label(format!("Spelled out in scripts ({}):", refs.mentions.len()))
                 .on_hover_text("Strings in scripts with this name, which may or may not mean it");
-            for m in &refs.mentions {
-                if out_of_sight(ui) {
-                    continue;
-                }
+            virtual_rows(ui, refs.mentions.len(), row, |ui, i| {
+                let m = &refs.mentions[i];
                 let text = format!("{} line {}: {}", m.script, m.line, m.text);
                 if ui.horizontal(|ui| ui.link(text)).inner.clicked() {
                     go_line = Some((m.script, m.line));
                 }
-            }
+            });
         }
     });
     if let Some(i) = go {
@@ -1152,6 +1135,33 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if let Some(k) = rename_key {
         app.rename_dialog(k);
+    }
+}
+
+/// Draws only the slice of `count` fixed-`pitch` rows intersecting `ui.clip_rect()`,
+/// coalescing off-screen rows before and after into a single `ui.add_space`.
+fn virtual_rows(ui: &mut Ui, count: usize, pitch: f32, mut draw: impl FnMut(&mut Ui, usize)) {
+    if count == 0 {
+        return;
+    }
+    let top_y = ui.cursor().top();
+    let clip = ui.clip_rect();
+    let first = ((clip.top() - top_y) / pitch).floor().max(0.0) as usize;
+    let last = (((clip.bottom() - top_y) / pitch).ceil().max(0.0) as usize + 1).min(count);
+    let first = first.min(last);
+    if first == last {
+        ui.add_space(count as f32 * pitch);
+        return;
+    }
+    if first > 0 {
+        ui.add_space(first as f32 * pitch);
+    }
+    for i in first..last {
+        draw(ui, i);
+    }
+    let after = count - last;
+    if after > 0 {
+        ui.add_space(after as f32 * pitch);
     }
 }
 

@@ -149,19 +149,41 @@ impl SetFile {
     /// Sets a key's value: where it stands, else at the end of the section
     /// (the section is added if missing).
     pub fn set(&mut self, section: &str, key: &str, value: &str) {
+        let _ = self.set_in_place(section, key, value);
+    }
+
+    /// Sets `key` in `section` to `value` in place (adding `section` if
+    /// missing), returning `(at, now, old)` when the file changed: the `old`
+    /// lines replaced at `at..` by `now` lines afterward. Returns `None` when
+    /// `key` already had that exact written value.
+    pub fn set_in_place(
+        &mut self,
+        section: &str,
+        key: &str,
+        value: &str,
+    ) -> Option<(usize, usize, Vec<String>)> {
         if !self.has_section(section) {
-            self.add_section(section, &[]);
+            let at = self.add_section_index(section);
+            let before = self.lines.len();
+            self.insert_section(at, section, &[(key.to_string(), value.to_string())]);
+            return Some((at, self.lines.len() - before, Vec::new()));
         }
-        let (a, b) = self.body(section).expect("added");
-        for line in &mut self.lines[a..b] {
+        let (a, b) = self.body(section).expect("section exists");
+        for i in a..b {
+            let line = &self.lines[i];
             if key_of(line).is_some_and(|k| k.eq_ignore_ascii_case(key)) {
-                let written = line.split_once('=').map(|(k, _)| k).unwrap_or(key).to_string();
-                *line = format!("{written}={value}");
-                return;
+                let written = line.split_once('=').map(|(k, _)| k).unwrap_or(key);
+                let next = format!("{written}={value}");
+                if *line == next {
+                    return None;
+                }
+                let old = std::mem::replace(&mut self.lines[i], next);
+                return Some((i, 1, vec![old]));
             }
         }
         let at = self.end_of(a, b);
         self.lines.insert(at, format!("{key}={value}"));
+        Some((at, 1, Vec::new()))
     }
 
     /// Takes a key out of a section.
@@ -174,24 +196,27 @@ impl SetFile {
         }
     }
 
-    /// Adds a section after the last of its family (`[TILE12]` after the
-    /// last `[TILEn]`), else at the end, with a blank line before it.
-    pub fn add_section(&mut self, name: &str, entries: &[(String, String)]) {
+    fn add_section_index(&self, name: &str) -> usize {
         let fam = family(name);
         let last = self
             .lines
             .iter()
-            .enumerate()
-            .filter(|(_, l)| header(l).is_some_and(|h| family(h) == fam))
-            .map(|(i, l)| (i, header(l).unwrap_or_default().to_string()))
-            .next_back();
-        let at = match last {
-            Some((_, h)) => {
+            .filter_map(|l| header(l).filter(|h| family(h) == fam))
+            .next_back()
+            .map(str::to_string);
+        match last {
+            Some(h) => {
                 let (a, b) = self.body(&h).expect("found");
                 self.end_of(a, b)
             }
             None => self.end_of(0, self.lines.len()),
-        };
+        }
+    }
+
+    /// Adds a section after the last of its family (`[TILE12]` after the
+    /// last `[TILEn]`), else at the end, with a blank line before it.
+    pub fn add_section(&mut self, name: &str, entries: &[(String, String)]) {
+        let at = self.add_section_index(name);
         self.insert_section(at, name, entries);
     }
 
@@ -774,5 +799,36 @@ Type=1\r\n\r\n[TILE1]\r\nModel=b\r\nDoors=1869573190\r\n\r\n[TILE1DOOR0]\r\nType
             !f.has_section("TILE1") && !f.has_section("TILE1DOOR0") && !f.has_section("GROUP0")
         );
         assert_eq!(f.get("TILES", "Count"), Some("1"));
+    }
+
+    #[test]
+    fn set_in_place_matches_set_and_reports_exact_splice() {
+        let cases = [
+            // Existing key (case-preserving left-hand side)
+            ("GENERAL", "Name", "NEW01", false),
+            // Exact no-op
+            ("GENERAL", "Name", "ZZZ01", true),
+            // Missing key in existing section
+            ("TILE0", "PathNode", "pn0", false),
+            // Missing section inside existing family
+            ("TERRAIN1", "Name", "Water", false),
+            // Missing section in a brand-new family
+            ("BRANDNEW", "Key", "Value", false),
+        ];
+        for (section, key, value, noop) in cases {
+            let mut a = SetFile::parse(SAMPLE);
+            let mut b = a.clone();
+            let before = a.lines().to_vec();
+            a.set(section, key, value);
+            let patch = b.set_in_place(section, key, value);
+            assert_eq!(a.text(), b.text(), "[{section}] {key}={value}");
+            if noop {
+                assert!(patch.is_none(), "[{section}] {key} unchanged");
+                continue;
+            }
+            let (at, now, old) = patch.expect("changed");
+            b.splice_lines(at, now, old);
+            assert_eq!(b.lines(), before.as_slice(), "undo [{section}] {key}={value}");
+        }
     }
 }

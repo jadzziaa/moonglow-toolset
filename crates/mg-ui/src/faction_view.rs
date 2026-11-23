@@ -1513,9 +1513,18 @@ pub(crate) fn reactions_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&T
                     false => name(f, x).to_string(),
                     true => format!("From {}", name(f, p)),
                 };
+                r.widget_info(|| {
+                    let said = format!("{label}: {}", sentence(f, p, x, rep));
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::SelectableLabel,
+                        true,
+                        selected,
+                        &said,
+                    )
+                });
                 let cy = rect.center().y;
                 let mut job = egui::text::LayoutJob::simple_singleline(
-                    label.clone(),
+                    label,
                     body.clone(),
                     if from { weak } else { text },
                 );
@@ -1551,15 +1560,6 @@ pub(crate) fn reactions_panel(app: &mut Moonglow, ui: &mut Ui, editor: Option<&T
                     w,
                     weak,
                 );
-                let said = format!("{label}: {}", sentence(f, p, x, rep));
-                r.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        true,
-                        selected,
-                        &said,
-                    )
-                });
                 if focus && i == 0 && range.start == 0 {
                     r.request_focus();
                 }

@@ -69,6 +69,10 @@ pub struct TilesetDoc {
     /// lines from the first to find the section.
     read: std::cell::RefCell<Read>,
     saved: Option<usize>,
+    /// The terrain and crosser names as last read from or written to disk,
+    /// so Save updates `<tileset>palstd.itp` without re-reading and parsing
+    /// the `.set` from disk.
+    saved_names: Option<[Vec<String>; 2]>,
     pub page: Page,
     pub tile: Option<usize>,
     pub group: Option<usize>,
@@ -130,19 +134,25 @@ pub struct TilesetDoc {
 /// Outliner's groups open), kept for them.
 pub(crate) type Seen<K, R> = ((u64, K), Arc<Vec<R>>);
 
-/// What [`TilesetDoc`] keeps of the file as it is: sections' values, and
-/// tiles' doors.
+/// What [`TilesetDoc`] keeps of the file as it is: sections' values,
+/// tiles' doors, and cached terrain/crosser option lists.
 #[derive(Debug, Default)]
 struct Read {
     sections: HashMap<String, Arc<HashMap<String, String>>>,
     doors: HashMap<usize, Arc<Vec<(usize, String)>>>,
+    /// `[terrains, crossers, terrains_with_none, crossers_with_none]`.
+    names: [Option<Arc<Vec<String>>>; 4],
+}
+
+fn type_names(t: &Tileset) -> [Vec<String>; 2] {
+    let of = |l: &[mg_set::NamedType]| l.iter().map(|x| x.name.clone()).collect();
+    [of(&t.terrains), of(&t.crossers)]
 }
 
 /// A step of the tileset editor's undo: the lines it changed, as they
 /// were before it (`lines`, from line `at` on), in place of `now` lines
-/// of the file after it. A copy of the whole file was kept for every
-/// step: five hundred door hooks set in a tileset of 28,000 lines, five
-/// hundred copies of them.
+/// of the file after it. Single-key edits use `TilesetDoc::set_key` in
+/// place; structural edits diff via `TilesetDoc::change`.
 #[derive(Debug, Clone, PartialEq)]
 struct Step {
     at: usize,
@@ -193,8 +203,27 @@ impl TilesetDoc {
         read.doors.entry(tile).or_insert_with(|| Arc::new(self.file.doors(tile))).clone()
     }
 
+    /// Terrain (`crosser: false`) or crosser (`true`) names cached per
+    /// revision, optionally prefixed with `""` for `(none)`.
+    fn type_options(&self, crosser: bool, none: bool) -> Arc<Vec<String>> {
+        let slot = usize::from(crosser) + 2 * usize::from(none);
+        let mut read = self.read.borrow_mut();
+        read.names[slot]
+            .get_or_insert_with(|| {
+                let list = self.tileset().map(|t| if crosser { &t.crossers } else { &t.terrains });
+                let names: Vec<String> = none
+                    .then(String::new)
+                    .into_iter()
+                    .chain(list.into_iter().flatten().map(|x| x.name.clone()))
+                    .collect();
+                Arc::new(names)
+            })
+            .clone()
+    }
+
     fn new(id: u32, path: PathBuf, file: SetFile, disk: Option<u64>) -> TilesetDoc {
         let set = read(&file);
+        let saved_names = disk.and_then(|_| set.as_deref().ok().map(type_names));
         let seen = stat(&path);
         TilesetDoc {
             id,
@@ -205,6 +234,7 @@ impl TilesetDoc {
             redo: Vec::new(),
             read: Default::default(),
             saved: Some(0),
+            saved_names,
             page: Page::default(),
             tile: None,
             group: None,
@@ -271,10 +301,21 @@ impl TilesetDoc {
         if self.file == before {
             return;
         }
+        self.record_step(Step::back(&before, &self.file));
+    }
+
+    /// Sets one key in one section in place without cloning the file.
+    pub fn set_key(&mut self, section: &str, key: &str, value: &str) {
+        if let Some((at, now, lines)) = self.file.set_in_place(section, key, value) {
+            self.record_step(Step { at, now, lines });
+        }
+    }
+
+    fn record_step(&mut self, step: Step) {
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
-        self.undo.push(Step::back(&before, &self.file));
+        self.undo.push(step);
         self.redo.clear();
         self.reread();
     }
@@ -326,6 +367,7 @@ impl TilesetDoc {
         self.theirs = None;
         self.said = None;
         self.reread();
+        self.saved_names = self.tileset().map(type_names);
         let counts = self
             .tileset()
             .map(|t| [t.tiles.len(), t.groups.len(), t.terrains.len(), t.crossers.len()]);
@@ -378,15 +420,7 @@ impl TilesetDoc {
                 self.path.display()
             ));
         }
-        // (The names as the file on disk has them, by index.)
-        let names = |t: &Tileset| {
-            let of = |l: &[mg_set::NamedType]| l.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
-            [of(&t.terrains), of(&t.crossers)]
-        };
-        let was = std::fs::read(&self.path)
-            .ok()
-            .and_then(|d| Tileset::parse(&d, Codepage::default()).ok())
-            .map(|t| names(&t));
+        let was = self.saved_names.clone();
         // (Whole or not at all, as every file Moonglow keeps: the `.set`,
         // and the palette beside it below.)
         mg_module::write_replacing(&self.path, self.file.text().as_bytes())
@@ -396,7 +430,9 @@ impl TilesetDoc {
         self.disk = Some(crate::problems::fingerprint(self.file.text().as_bytes()));
         self.seen = stat(&self.path);
         self.said = None;
-        let (Some(was), Some(now)) = (was, self.tileset().map(names)) else { return Ok(None) };
+        let now = self.tileset().map(type_names);
+        self.saved_names = now.clone();
+        let (Some(was), Some(now)) = (was, now) else { return Ok(None) };
         let renamed: Vec<(&String, &String)> = (0..2)
             .flat_map(|k| was[k].iter().zip(&now[k]))
             .filter(|(a, b)| !a.eq_ignore_ascii_case(b))
@@ -1023,7 +1059,7 @@ fn text_key(
     let id = egui::Id::new(("set", d.id, section, key));
     let focus = focus_asked(ui, d, section, key, id);
     if let Some(v) = crate::widgets::commit_text(app, ui, id, &current, false, width) {
-        d.change(|f| f.set(section, key, v.trim()));
+        d.set_key(section, key, v.trim());
     }
     if focus {
         ui.scroll_to_cursor(Some(egui::Align::Center));
@@ -1033,7 +1069,7 @@ fn text_key(
 fn flag_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str, label: &str) {
     let mut on = d.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0) != 0;
     if ui.check_box(&mut on, label).changed() {
-        d.change(|f| f.set(section, key, if on { "1" } else { "0" }));
+        d.set_key(section, key, if on { "1" } else { "0" });
     }
 }
 
@@ -1046,65 +1082,58 @@ fn int_key(
 ) {
     let current = d.get(section, key).and_then(|v| v.trim().parse::<i32>().ok()).unwrap_or(0);
     if let Some(v) = crate::widgets::commit_number(ui, current, range) {
-        d.change(|f| f.set(section, key, &v.to_string()));
+        d.set_key(section, key, &v.to_string());
     }
 }
 
-/// A terrain or crosser name chosen from the tileset's (empty: none).
+/// A terrain or crosser name chosen from `options` (`TilesetDoc::type_options`).
 fn name_key(
     ui: &mut Ui,
     d: &mut TilesetDoc,
     section: &str,
     key: &str,
-    names: &[String],
+    options: &[String],
     none: bool,
 ) {
-    name_key_width(ui, d, section, key, names, none, None);
+    name_key_width(ui, d, section, key, options, none, None);
 }
 
-/// [`name_key`], its box `width` wide where given.
+/// [`name_key`], its box `width` wide where given. `options` is built by
+/// [`TilesetDoc::type_options`] (already prefixed with `""` when `none` is set).
 fn name_key_width(
     ui: &mut Ui,
     d: &mut TilesetDoc,
     section: &str,
     key: &str,
-    names: &[String],
+    options: &[String],
     none: bool,
     width: Option<f32>,
 ) {
     let current = d.get(section, key).unwrap_or_default();
     // (The tileset's own name for the one set, as it may be written in
     // another case.)
-    let named = names.iter().find(|n| n.eq_ignore_ascii_case(&current));
-    let was = named.cloned().unwrap_or_else(|| current.clone());
-    let options: Vec<String> =
-        none.then(String::new).into_iter().chain(names.iter().cloned()).collect();
+    let named = options.iter().skip(usize::from(none)).find(|n| n.eq_ignore_ascii_case(&current));
+    let was = named.unwrap_or(&current);
     let mut pick = was.clone();
     let mut dropdown = crate::widgets::dropdown(("set-name", d.id, section, key));
     if let Some(w) = width {
         dropdown = dropdown.width(w);
     }
-    dropdown
-        .selected_text(if current.is_empty() { "(none)".to_string() } else { current.clone() })
-        .show(
-            ui,
-            &mut pick,
-            &options,
-            |n| {
-                if n.is_empty() { "(none)".to_string() } else { n.clone() }
-            },
-        );
-    let chosen = (pick != was).then_some(pick);
-    if let Some(v) = chosen.filter(|v| *v != current) {
-        d.change(|f| f.set(section, key, &v));
+    dropdown.selected_text(if current.is_empty() { "(none)" } else { &current }).show(
+        ui,
+        &mut pick,
+        options,
+        |n| {
+            if n.is_empty() { "(none)".to_string() } else { n.clone() }
+        },
+    );
+    if pick != *was && pick != current {
+        d.set_key(section, key, &pick);
     }
 }
 
 fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
-    let terrains: Vec<String> = d
-        .tileset()
-        .map(|t| t.terrains.iter().map(|x| x.name.clone()).collect())
-        .unwrap_or_default();
+    let terrains = d.type_options(false, false);
     egui::Grid::new(("set-general", d.id)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (key, label) in [
             ("Name", "Name"),
@@ -1338,9 +1367,32 @@ fn rules(ui: &mut Ui, d: &mut TilesetDoc) {
         .show(ui, |ui| rules_in(ui, d));
 }
 
+fn rule_row(ui: &mut Ui, cols: [f32; 7], row_h: f32, mut cell: impl FnMut(&mut Ui, usize)) {
+    let gap_x = 10.0;
+    let total_w: f32 = cols.iter().sum::<f32>() + gap_x * (cols.len() - 1) as f32;
+    ui.allocate_ui_with_layout(
+        egui::vec2(total_w, row_h),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.spacing_mut().item_spacing.x = gap_x;
+            for (col, w) in cols.into_iter().enumerate() {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(w, row_h),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| cell(ui, col),
+                );
+            }
+        },
+    );
+}
+
 fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
+    const KEYS: [&str; 3] = ["Placed", "Adjacent", "Changed"];
+    const HEIGHT_KEYS: [&str; 3] = ["PlacedHeight", "AdjacentHeight", "ChangedHeight"];
+    const HEADS: [&str; 7] = ["", "Placed", "height", "Adjacent", "height", "Changed", "height"];
     let Ok(t) = d.set.clone() else { return };
-    let terrains: Vec<String> = t.terrains.iter().map(|x| x.name.clone()).collect();
+    let terrains = d.type_options(false, false);
+    let a11y = ui.ctx().accesskit_node_builder(ui.id(), |_| ()).is_some();
     let note = "Painting a corner Placed beside one Adjacent turns that one into Changed, each at \
                 its height. The terrain brush follows the primary rules.";
     ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
@@ -1353,29 +1405,72 @@ fn rules_in(ui: &mut Ui, d: &mut TilesetDoc) {
             ui,
             if secondary { "Secondary rules" } else { "Primary rules" },
         );
-        mg_uikit::with_table_rows(ui, |ui| {
-            egui::Grid::new(("set-rules", d.id, secondary))
-                .num_columns(7)
-                .spacing([10.0, mg_uikit::metrics::TABLE_RULE])
-                .show(ui, |ui| {
-                    for head in ["", "Placed", "height", "Adjacent", "height", "Changed", "height"]
-                    {
-                        crate::widgets::field_label(ui, head);
-                    }
-                    ui.end_row();
-                    for i in 0..list.len() {
-                        let section = format!("{each}{i}");
-                        ui.monospace(format!("{i:>3}"));
-                        for key in ["Placed", "Adjacent", "Changed"] {
-                            name_key(ui, d, &section, key, &terrains, false);
-                            int_key(ui, d, &section, &format!("{key}Height"), -1..=4);
-                        }
-                        ui.end_row();
-                    }
-                })
-        });
         if list.is_empty() {
+            mg_uikit::with_table_rows(ui, |ui| {
+                let row_h = ui.spacing().interact_size.y;
+                let combo_w = ui.spacing().combo_width;
+                let cols = [32.0, combo_w, 48.0, combo_w, 48.0, combo_w, 48.0];
+                rule_row(ui, cols, row_h, |ui, col| {
+                    crate::widgets::field_label(ui, HEADS[col]);
+                });
+            });
             ui.weak("None.");
+        } else {
+            mg_uikit::with_table_rows(ui, |ui| {
+                let gap = mg_uikit::metrics::TABLE_RULE;
+                ui.spacing_mut().item_spacing.y = gap;
+                let row_h = ui.spacing().interact_size.y;
+                let combo_w = ui.spacing().combo_width;
+                let cols = [32.0, combo_w, 48.0, combo_w, 48.0, combo_w, 48.0];
+                let total_w: f32 = cols.iter().sum::<f32>() + 10.0 * (cols.len() - 1) as f32;
+                let pitch = row_h + gap;
+                rule_row(ui, cols, row_h, |ui, col| {
+                    crate::widgets::field_label(ui, HEADS[col]);
+                });
+                let top_y = ui.cursor().top();
+                let (first, last) = if a11y {
+                    (0, list.len())
+                } else {
+                    let clip = ui.clip_rect();
+                    let first = ((clip.top() - top_y) / pitch).floor().max(0.0) as usize;
+                    let last = (((clip.bottom() - top_y) / pitch).ceil().max(0.0) as usize + 1)
+                        .min(list.len());
+                    (first.min(last), last)
+                };
+                if first == last {
+                    ui.allocate_space(egui::vec2(total_w, list.len() as f32 * pitch - gap));
+                } else {
+                    if first > 0 {
+                        ui.allocate_space(egui::vec2(total_w, first as f32 * pitch - gap));
+                    }
+                    for i in first..last {
+                        let section = format!("{each}{i}");
+                        rule_row(ui, cols, row_h, |ui, col| match col {
+                            0 => {
+                                ui.monospace(format!("{i:>3}"));
+                            }
+                            1 | 3 | 5 => {
+                                name_key_width(
+                                    ui,
+                                    d,
+                                    &section,
+                                    KEYS[(col - 1) / 2],
+                                    &terrains,
+                                    false,
+                                    Some(cols[col]),
+                                );
+                            }
+                            _ => {
+                                int_key(ui, d, &section, HEIGHT_KEYS[(col - 2) / 2], -1..=4);
+                            }
+                        });
+                    }
+                    let after = list.len() - last;
+                    if after > 0 {
+                        ui.allocate_space(egui::vec2(total_w, after as f32 * pitch - gap));
+                    }
+                }
+            });
         }
         ui.horizontal(|ui| {
             let first = terrains.first().cloned().unwrap_or_default();
@@ -1527,7 +1622,7 @@ fn float_key(ui: &mut Ui, d: &mut TilesetDoc, section: &str, key: &str) {
         if !text.contains('.') {
             text.push_str(".0");
         }
-        d.change(|f| f.set(section, key, &text));
+        d.set_key(section, key, &text);
     }
 }
 
@@ -1813,28 +1908,41 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
                 .allocate_exact_size(egui::vec2(ui.available_width(), pitch), egui::Sense::click());
             let selected = chosen == Some(i);
             let hole = tile_hole(t, i);
-            let corners: Vec<&str> = tile.corners.iter().map(|(c, _)| c.as_str()).collect();
-            let edges: Vec<&str> =
-                tile.edges.iter().map(|e| if e.is_empty() { "-" } else { e }).collect();
+            let mut edges = String::from("[");
+            for (k, e) in tile.edges.iter().enumerate() {
+                if k > 0 {
+                    edges.push('/');
+                }
+                edges.push_str(if e.is_empty() { "-" } else { e.as_str() });
+            }
+            edges.push(']');
             let (model, corners) = match &hole {
                 Some(why) => ("a hole".to_string(), why.clone()),
-                None => (tile.model.clone(), corners.join("/")),
+                None => {
+                    let mut c = String::new();
+                    for (k, (name, _)) in tile.corners.iter().enumerate() {
+                        if k > 0 {
+                            c.push('/');
+                        }
+                        c.push_str(name);
+                    }
+                    (tile.model.clone(), c)
+                }
             };
             // (Named by its number, a hole's words with it; its model,
             // corners and edges its value: a screen reader says both.)
-            let said = match &hole {
-                Some(why) => format!("Tile {i}, a hole: {why}"),
-                None => format!("Tile {i}"),
-            };
-            let value = format!("{model} {corners} [{}]", edges.join("/"));
             r.widget_info(|| {
+                let said = match &hole {
+                    Some(why) => format!("Tile {i}, a hole: {why}"),
+                    None => format!("Tile {i}"),
+                };
                 let mut info = egui::WidgetInfo::selected(
                     egui::WidgetType::SelectableLabel,
                     true,
                     selected,
                     &said,
                 );
-                info.current_text_value = Some(value.clone());
+                info.current_text_value = Some(format!("{model} {corners} {edges}"));
                 info
             });
             let state = match (selected, r.hovered()) {
@@ -1871,7 +1979,7 @@ fn tile_table(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset) 
             cut(i.to_string(), mono.clone(), quiet, &xs[0], true);
             cut(model, mono.clone(), words, &xs[1], false);
             cut(corners, font.clone(), words, &xs[2], false);
-            cut(format!("[{}]", edges.join("/")), mono.clone(), text, &xs[3], false);
+            cut(edges, mono.clone(), text, &xs[3], false);
             if r.clicked() {
                 clicked = Some(i);
             }
@@ -1926,8 +2034,8 @@ fn form_row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui, f32)) {
 /// corner's terrain and height, each edge's crosser; then its doors.
 fn tile_form(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset, i: usize) {
     let section = format!("TILE{i}");
-    let terrains: Vec<String> = t.terrains.iter().map(|x| x.name.clone()).collect();
-    let crossers: Vec<String> = t.crossers.iter().map(|x| x.name.clone()).collect();
+    let terrains = d.type_options(false, false);
+    let crossers = d.type_options(true, true);
     let tokens = mg_uikit::tokens(ui.ctx());
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(format!("Tile {i}")).strong().size(15.0).color(tokens.text));
@@ -1972,7 +2080,7 @@ fn tile_form(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset, i
             .show(ui, &mut chosen, &[0, 90, 180, 270], |a| format!("{a}°"));
         r.on_hover_text("Orientation, a quarter turn at a time");
         if chosen != current {
-            d.change(|f| f.set(&section, "Orientation", &chosen.to_string()));
+            d.set_key(&section, "Orientation", &chosen.to_string());
         }
     });
     ui.add_space(6.0);
@@ -2098,7 +2206,7 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
                     let current = g.tiles.get(k).copied().flatten().map_or(-1, |t| t as i64);
                     let last = t.tiles.len() as i64 - 1;
                     if let Some(v) = crate::widgets::commit_number(ui, current, -1..=last) {
-                        d.change(|f| f.set(&section, &format!("Tile{k}"), &v.to_string()));
+                        d.set_key(&section, &format!("Tile{k}"), &v.to_string());
                     }
                 }
             });
@@ -2343,6 +2451,38 @@ mod tests {
         assert!(file == before);
         again.take(&mut file);
         assert!(file == after);
+    }
+
+    #[test]
+    fn set_key_edits_in_place_and_undoes() {
+        let mut d = doc();
+        let before = d.file.text();
+        d.set_key("TILE0", "Model", "other");
+        assert_eq!(d.get("TILE0", "Model").as_deref(), Some("other"));
+        assert_eq!(d.undo.len(), 1);
+
+        // No-op repeat does not push a duplicate undo step.
+        d.set_key("TILE0", "Model", "other");
+        assert_eq!(d.undo.len(), 1);
+
+        // Missing key in existing section and brand-new section creation.
+        d.set_key("TILE1", "PathNode", "p1");
+        d.set_key("NEWSEC", "Foo", "Bar");
+        assert_eq!(d.undo.len(), 3);
+        let after = d.file.text();
+        assert_eq!(d.get("TILE1", "PathNode").as_deref(), Some("p1"));
+        assert_eq!(d.get("NEWSEC", "Foo").as_deref(), Some("Bar"));
+
+        while d.has_undo() {
+            d.undo();
+        }
+        assert_eq!(d.file.text(), before);
+        assert!(!d.is_dirty());
+
+        while d.has_redo() {
+            d.redo();
+        }
+        assert_eq!(d.file.text(), after);
     }
 
     #[test]
