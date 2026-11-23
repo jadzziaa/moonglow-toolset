@@ -306,6 +306,71 @@ impl Moonglow {
             places.len()
         ));
     }
+}
+
+/// Compiles `name` (an include file needs no `main`) against saved module overrides
+/// and loaded game resources for live error checking.
+fn compile_live_check(
+    name: &str,
+    source: Vec<u8>,
+    module_files: HashMap<String, Vec<u8>>,
+    game: Option<Arc<mg_rules::GameData>>,
+) -> Option<mg_script::CompileError> {
+    let root = name.to_owned();
+    let mut c = Compiler::new(move |n: &str, t: ResType| -> Option<Vec<u8>> {
+        if t == ResType::NSS && n.eq_ignore_ascii_case(&root) {
+            return Some(source.clone());
+        }
+        let k = ResKey::parse(n, t)?;
+        if t == ResType::NSS
+            && let Some(bytes) = module_files.get(&k.resref.to_lowercase().to_string())
+        {
+            return Some(bytes.clone());
+        }
+        game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned())
+    });
+    c.set_require_entry_point(false);
+    c.compile(name).err()
+}
+
+impl Moonglow {
+    fn apply_live_check(
+        &mut self,
+        key: ResKey,
+        h: u64,
+        error: Option<mg_script::CompileError>,
+        ctx: &egui::Context,
+        repaint_if_changed: bool,
+    ) {
+        let name = key.resref.to_lowercase().to_string();
+        let logged = self.log.entries.len();
+        let live = self.script_nav.live.entry(key).or_default();
+        if live.text != h {
+            return;
+        }
+        live.checked = Some(h);
+        if error.as_ref().map(|e| &e.message) != live.error.as_ref().map(|e| &e.1) {
+            live.logged = logged;
+        }
+        let new_include = error
+            .as_ref()
+            .and_then(|e| e.location())
+            .filter(|(file, _)| !file.trim_end_matches(".nss").eq_ignore_ascii_case(&name))
+            .map(|(file, line)| (file.trim_end_matches(".nss").to_string(), line));
+        let new_error = error.map(|e| {
+            let line = e
+                .location()
+                .filter(|(file, _)| file.trim_end_matches(".nss").eq_ignore_ascii_case(&name))
+                .map(|(_, line)| line.saturating_sub(1));
+            (line, e.message)
+        });
+        let changed = new_error != live.error || new_include != live.include;
+        live.include = new_include;
+        live.error = new_error;
+        if repaint_if_changed && changed {
+            ctx.request_repaint();
+        }
+    }
 
     /// Polls background live-check compilation results and applies the first
     /// error (if any) back onto [`Nav::live`].
@@ -328,38 +393,7 @@ impl Moonglow {
                     if job_gen != cur_gen {
                         continue;
                     }
-                    let name = key.resref.to_lowercase().to_string();
-                    let logged = self.log.entries.len();
-                    let live = self.script_nav.live.entry(key).or_default();
-                    if live.text != h {
-                        continue;
-                    }
-                    live.checked = Some(h);
-                    if error.as_ref().map(|e| &e.message) != live.error.as_ref().map(|e| &e.1) {
-                        live.logged = logged;
-                    }
-                    let new_include = error
-                        .as_ref()
-                        .and_then(|e| e.location())
-                        .filter(|(file, _)| {
-                            !file.trim_end_matches(".nss").eq_ignore_ascii_case(&name)
-                        })
-                        .map(|(file, line)| (file.trim_end_matches(".nss").to_string(), line));
-                    let new_error = error.map(|e| {
-                        let line = e
-                            .location()
-                            .filter(|(file, _)| {
-                                file.trim_end_matches(".nss").eq_ignore_ascii_case(&name)
-                            })
-                            .map(|(_, line)| line.saturating_sub(1));
-                        (line, e.message)
-                    });
-                    let changed = new_error != live.error || new_include != live.include;
-                    live.include = new_include;
-                    live.error = new_error;
-                    if repaint_if_changed && changed {
-                        ctx.request_repaint();
-                    }
+                    self.apply_live_check(key, h, error, ctx, repaint_if_changed);
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -370,7 +404,8 @@ impl Moonglow {
     }
 
     /// Checks a script a moment after typing stops: compiles its text (an
-    /// include file needs no `main`) on a worker thread and keeps the first error.
+    /// include file needs no `main`) on a worker thread when [`Self::background_jobs`]
+    /// is enabled (inline otherwise) and keeps the first error.
     pub(crate) fn live_check(&mut self, key: ResKey, h: u64, ctx: &egui::Context) {
         self.poll_live_check(ctx, true);
         let live = self.script_nav.live.entry(key).or_default();
@@ -406,24 +441,15 @@ impl Moonglow {
         let resman = self.game.as_deref().map(|g| &g.resman);
         let module_files = collect_module_includes(module, resman, &name, &source);
         let game = self.game.clone();
+        if !self.background_jobs {
+            let error = compile_live_check(&name, source, module_files, game);
+            self.apply_live_check(key, h, error, ctx, true);
+            return;
+        }
         let ctx_bg = ctx.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let root = name.clone();
-            let mut c = Compiler::new(move |n: &str, t: ResType| -> Option<Vec<u8>> {
-                if t == ResType::NSS && n.eq_ignore_ascii_case(&root) {
-                    return Some(source.clone());
-                }
-                let k = ResKey::parse(n, t)?;
-                if t == ResType::NSS
-                    && let Some(bytes) = module_files.get(&k.resref.to_lowercase().to_string())
-                {
-                    return Some(bytes.clone());
-                }
-                game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned())
-            });
-            c.set_require_entry_point(false);
-            let _ = tx.send(c.compile(&name).err());
+            let _ = tx.send(compile_live_check(&name, source, module_files, game));
             ctx_bg.request_repaint();
         });
         self.script_nav.pending_checks.insert(key, (h, cur_gen, rx));

@@ -747,7 +747,7 @@ impl ScriptTools {
     }
 
     /// UI variant of [`Self::symbols_for`] that offloads re-parsing huge scripts
-    /// (> 16 KiB) after an edit to a background worker thread.
+    /// (> 16 KiB) after an edit to a background worker thread when `background` is set.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn symbols_for_ui(
         &mut self,
@@ -758,9 +758,10 @@ impl ScriptTools {
         load_spec: impl FnOnce() -> Option<Spec>,
         source: &mut dyn FnMut(&str) -> Option<String>,
         ctx: &egui::Context,
+        background: bool,
     ) -> SymbolSet {
         self.poll_symbol_job(ctx, true);
-        self.symbols_for_inner(key, h, typing, text, load_spec, source, Some(ctx))
+        self.symbols_for_inner(key, h, typing, text, load_spec, source, background.then_some(ctx))
     }
 
     #[allow(clippy::too_many_arguments)]

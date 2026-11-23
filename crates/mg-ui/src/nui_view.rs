@@ -899,6 +899,16 @@ type Nothing = &'static str;
 /// What a page says where the module no longer holds the window.
 const GONE: Nothing = "This window is no longer in the module.";
 
+fn mutated_id() -> egui::Id {
+    egui::Id::new("nui-view-mutated")
+}
+
+/// Marks that a deferred `ctx` temp consumer mutated `work` this frame so
+/// [`end`] runs the diff even on a quiet frame.
+pub(super) fn mark_mutated(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(mutated_id(), true));
+}
+
 /// Designer `key`'s frame begins, or goes on (each of its parts calls it
 /// before it draws: its Layers, its panels, its editor): the window and its
 /// settings read and checked ([`check`]); once a frame, as its first part
@@ -1002,7 +1012,8 @@ fn end(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, state: &mut State, 
             || !state.reverted.is_empty()
             || state.source_draft.as_ref().is_some_and(|d| d.typed)
             || raw.is_some()
-            || config.is_some();
+            || config.is_some()
+            || ctx.data_mut(|d| d.remove_temp::<bool>(mutated_id())).is_some();
         if let Some(chosen) = picked.chosen {
             chosen.put(state);
             ctx.request_repaint();
@@ -2051,7 +2062,12 @@ fn changes(
     state: &mut State,
 ) -> Vec<Edit> {
     let mut edits = std::mem::take(&mut state.page_edits);
-    edits.extend(images::answer_from_disk(ctx, app));
+    if let Some(edit) = images::answer_from_disk(ctx, app) {
+        if let Some(work) = &mut state.work {
+            work.verified_clean = false;
+        }
+        edits.push(edit);
+    }
     edits.extend(written(app, key, (raw, config), state));
     edits
 }

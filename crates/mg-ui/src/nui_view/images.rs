@@ -113,6 +113,9 @@ fn asked() -> egui::Id {
 pub(super) fn from_disk(ui: &mut Ui) -> Option<String> {
     let field = ui.make_persistent_id("from-disk");
     let picked = ui.ctx().data_mut(|d| d.remove_temp::<String>(field));
+    if picked.is_some() {
+        super::mark_mutated(ui.ctx());
+    }
     if ui
         .button("From Disk…")
         .on_hover_text("Add a picture file to the module and use it")

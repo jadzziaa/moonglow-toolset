@@ -1174,6 +1174,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             },
             &mut source,
             &ctx,
+            app.background_jobs,
         )
     };
 

@@ -409,6 +409,9 @@ pub(crate) fn bindings(app: &mut Moonglow, ui: &mut Ui, editor: Option<&Tab>, ti
         close(app, o);
         return;
     };
+    if create {
+        work.verified_clean = false;
+    }
     let focus = o.focus;
     let scroll =
         egui::ScrollArea::vertical().id_salt(("nui-bindings-panel", o.key)).auto_shrink(false);
