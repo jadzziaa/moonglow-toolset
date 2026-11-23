@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-11-23
+* **Creation**: [Adversarial review: 5.1.0 performance, bugs, complexity and test speed](adversarial-review-5-1.md) — recorded the full-workspace review on branch `adversarial-review` (`7a65de0a..01263549`): native `3440×1400` 144 fps release benchmark results across all 6 perf binaries including TDoD shaders (`area woods`), bug fixes across waves, deduplication and zero-warning Clippy sweep, and the 3.4× everyday test-suite speedup (`5,019 passed; 0 failed` in `2m 28.869s`).
 * **New**: **An encounter's own outline color (5.1.0 task E)**, a builder's ask (2026-11-22: "if you could edit the color of the encounter line that is drawn it would probably save confusion with overlapping encounters"), per encounter by the owner's ruling ([Areas](manual/04-areas.md), [Blueprints](manual/05-blueprints.md), [Differences](manual/12-differences.md)).
   * **Stored** as `MG_OutlineColor` (DWORD 0x00BBGGRR) on the placed encounter, after `MG_Locked`: the game ignores it, Aurora drops it on save, no field means orange, Default removes the field. Unlike locks, a nasher project's JSON keeps it. Read in `mg_rules::placement::outline_color`, carried by `values::Object` and `AreaObject`, and in `PLACED_ONLY`: an edit of it re-reads no look.
   * **Drawn** by the overlay for the outline, the spawn posts and their arrows. Selected, an encounter with its own color keeps it, 2.5 points wide over the dark edge; one without keeps the selection's color as before.
