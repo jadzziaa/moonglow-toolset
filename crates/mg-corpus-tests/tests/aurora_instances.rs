@@ -19,7 +19,7 @@ use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
-use crate::aurora_common::{PLAIN, Shown, lines};
+use crate::aurora_common::{PLAIN, Shown, diff_lines, lines};
 
 /// How the GFFs are compared, as lines.
 const SHOWN: Shown<'static> = Shown { decimals: Some(5), ..PLAIN };
@@ -96,19 +96,12 @@ fn placed_objects_match_aurora() {
                     b.retain(|l| !l.trim_start().starts_with("Comment "));
                 }
                 if a != b {
-                    let diff: Vec<String> = a
-                        .iter()
-                        .zip(&b)
-                        .filter(|(x, y)| x != y)
-                        .map(|(x, y)| format!("  ours   {x}\n  aurora {y}"))
-                        .take(6)
-                        .collect();
                     failures.push(format!(
                         "{capture} {r}.{}: {} vs {} lines\n{}",
                         t.extension().unwrap_or_default(),
                         a.len(),
                         b.len(),
-                        diff.join("\n")
+                        diff_lines(&a, &b, 6)
                     ));
                 }
             }

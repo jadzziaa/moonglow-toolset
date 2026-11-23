@@ -58,3 +58,16 @@ fn add(s: &Struct, indent: &str, shown: Shown<'_>, out: &mut Vec<String>) {
         }
     }
 }
+
+/// First `max` line differences between `a` and `b` without truncating tail lines past the shorter slice.
+pub(crate) fn diff_lines(a: &[String], b: &[String], max: usize) -> String {
+    (0..a.len().max(b.len()))
+        .filter_map(|i| {
+            let x = a.get(i).map_or("<missing>", String::as_str);
+            let y = b.get(i).map_or("<missing>", String::as_str);
+            (x != y).then(|| format!("  ours   {x}\n  aurora {y}"))
+        })
+        .take(max)
+        .collect::<Vec<_>>()
+        .join("\n")
+}

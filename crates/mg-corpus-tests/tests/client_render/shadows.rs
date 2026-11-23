@@ -193,7 +193,8 @@ fn brightness(img: &Rgba, r: [f32; 4]) -> f32 {
 
 /// A picture's ratios: the shadowed floor's brightness over the lit
 /// floor's, the static face's over the dynamic one's, the floor in the
-/// creature's shadow over the lit floor beside it.
+/// creature's shadow over the lit floor beside it, and the floor in the
+/// lamp's shadow over the lit floor beside it.
 fn ratios(img: &Rgba) -> [f32; 4] {
     let over = |a: [f32; 4], b: [f32; 4]| brightness(img, a) / brightness(img, b).max(1e-3);
     [

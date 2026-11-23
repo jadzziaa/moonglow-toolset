@@ -491,7 +491,7 @@ fn a_disabled_kit_button_is_not_faded() {
         let t = h.ctx.tokens();
         let mut found = false;
         for clipped in &h.output().shapes {
-            visit(&clipped.shape, &mut |shape| {
+            crate::common::visit_shape(&clipped.shape, &mut |shape| {
                 if let egui::Shape::Text(text) = shape
                     && text.galley.text() == "Save"
                 {
@@ -508,13 +508,6 @@ fn a_disabled_kit_button_is_not_faded() {
             });
         }
         assert!(found, "no Save drawn");
-    }
-}
-
-fn visit(shape: &egui::Shape, f: &mut impl FnMut(&egui::Shape)) {
-    match shape {
-        egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| visit(s, f)),
-        s => f(s),
     }
 }
 
@@ -714,7 +707,7 @@ fn a_line_stands_before_more() {
         let line = h.ctx.tokens().line_soft;
         let mut count = 0;
         for clipped in &h.output().shapes {
-            visit(&clipped.shape, &mut |shape| {
+            crate::common::visit_shape(&clipped.shape, &mut |shape| {
                 if let egui::Shape::Rect(r) = shape
                     && r.fill == line
                     && r.rect.size() == vec2(1.0, 16.0)

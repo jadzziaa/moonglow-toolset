@@ -1,19 +1,11 @@
 //! What `apply` does to a context, and the form helpers with and without
 //! a theme.
 
-use egui::{Color32, TextStyle};
+use egui::TextStyle;
 use egui_kittest::Harness;
 use mg_uikit::{Theme, Tokens, TokensExt as _, fonts, metrics};
 
-/// The color a label with `text` was painted in, from a frame's shapes.
-fn text_color(h: &Harness<'_>, text: &str) -> Option<Color32> {
-    h.output().shapes.iter().find_map(|s| match &s.shape {
-        egui::Shape::Text(t) if t.galley.text() == text => {
-            Some(t.override_text_color.unwrap_or(t.galley.job.sections[0].format.color))
-        }
-        _ => None,
-    })
-}
+use crate::common::text_color;
 
 /// What it sets, in both of egui's styles, and the tokens following it.
 #[test]

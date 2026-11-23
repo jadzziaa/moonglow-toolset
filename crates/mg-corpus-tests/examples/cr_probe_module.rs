@@ -86,7 +86,7 @@ fn main() {
         let spec: Vec<Struct> = (0..*specials)
             .map(|i| {
                 let mut s = Struct::new(4);
-                s.set("Spell", Value::Word([58, 25, 88][i as usize])); // fireball, bless?, lightning
+                s.set("Spell", Value::Word([58, 25, 88][i as usize])); // fireball, cone of cold, lightning bolt
                 s.set("SpellCasterLevel", Value::Byte(5));
                 s.set("SpellFlags", Value::Byte(1));
                 s

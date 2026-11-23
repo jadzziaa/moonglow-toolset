@@ -313,9 +313,7 @@ fn the_same_bake_is_taken_again() {
     let hak: Vec<(&str, ResType, &[u8])> = together
         .files
         .iter()
-        .map(|(k, d)| {
-            (Box::leak(k.resref.to_string().into_boxed_str()) as &str, k.restype, d.as_slice())
-        })
+        .map(|(k, d)| (k.resref.as_str().unwrap(), k.restype, d.as_slice()))
         .collect();
     let rm = game(&hak);
     let again = plan(&rules, &together.rows, &rm, cp, &[request(0, 0.5, 30.0, 0.0)]).unwrap();

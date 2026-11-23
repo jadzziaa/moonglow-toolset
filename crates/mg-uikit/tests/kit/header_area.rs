@@ -13,18 +13,11 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::header::{self, EditorHeader, Item, Place};
 use mg_uikit::popover::{PopCheck, Popover};
-use mg_uikit::{Icon, KitButton, Theme, TokensExt as _};
+use mg_uikit::{Icon, KitButton, TokensExt as _};
+
+use crate::common::harness;
 
 const H: &str = "Area-like header";
-
-fn harness<'a>(size: egui::Vec2, app: impl FnMut(&mut egui::Ui) + 'a) -> Harness<'a> {
-    let mut app = app;
-    Harness::builder().with_size(size).build_ui(move |ui| {
-        mg_uikit::apply(ui.ctx(), Theme::Dark);
-        header::record_headers(ui.ctx());
-        app(ui);
-    })
-}
 
 fn place(h: &Harness<'_>, name: &str) -> Option<Place> {
     header::places(&h.ctx, H).iter().find(|(n, _)| n == name).map(|(_, p)| *p)

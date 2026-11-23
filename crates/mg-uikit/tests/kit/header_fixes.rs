@@ -12,23 +12,15 @@ use std::rc::Rc;
 
 use egui::accesskit::{Role, Toggled};
 use egui::{Rect, vec2};
-use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::header::{self, EditorHeader, Item, Joined, Place};
 use mg_uikit::popover::{Hang, PopAction, PopCheck, Popover};
 use mg_uikit::shelf::{Tool, ToolShelf};
-use mg_uikit::{Icon, KitButton, Theme};
+use mg_uikit::{Icon, KitButton};
+
+use crate::common::harness;
 
 const H: &str = "Fix header";
-
-fn harness<'a>(size: egui::Vec2, app: impl FnMut(&mut egui::Ui) + 'a) -> Harness<'a> {
-    let mut app = app;
-    Harness::builder().with_size(size).build_ui(move |ui| {
-        mg_uikit::apply(ui.ctx(), Theme::Dark);
-        header::record_headers(ui.ctx());
-        app(ui);
-    })
-}
 
 // ------------------------------------------------------------------ A1
 

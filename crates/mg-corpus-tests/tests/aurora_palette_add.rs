@@ -17,23 +17,14 @@ use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
-use crate::aurora_common::{PLAIN, Shown, lines};
+use crate::aurora_common::{PLAIN, Shown, diff_lines, lines};
 
 /// How the GFFs are compared, as lines.
 const SHOWN: Shown<'static> = Shown { decimals: Some(5), ..PLAIN };
 
 fn differences(what: &str, ours: &Struct, aurora: &Struct) -> Option<String> {
     let (a, b) = (lines(ours, SHOWN), lines(aurora, SHOWN));
-    (a != b).then(|| {
-        let diff: Vec<String> = a
-            .iter()
-            .zip(&b)
-            .filter(|(x, y)| x != y)
-            .map(|(x, y)| format!("  ours   {x}\n  aurora {y}"))
-            .take(6)
-            .collect();
-        format!("{what}: {} vs {} lines\n{}", a.len(), b.len(), diff.join("\n"))
-    })
+    (a != b).then(|| format!("{what}: {} vs {} lines\n{}", a.len(), b.len(), diff_lines(&a, &b, 6)))
 }
 
 #[test]
@@ -128,11 +119,9 @@ fn create_waypoint_and_set_match_aurora() {
     // Create Set renames it.
     let mut set = made;
     set.set("Tag", Value::String(mg_module::instances::set_tag("Patrol", &[]).into_bytes()));
-    assert!(
-        differences("the waypoint", &set, &captured).is_none(),
-        "{:?}",
-        differences("the waypoint", &set, &captured)
-    );
+    if let Some(diff) = differences("the waypoint", &set, &captured) {
+        panic!("{diff}");
+    }
     // Numbers continue past those in use.
     let tags = vec!["Patrol_01".to_string(), "PATROL_02".to_string()];
     assert_eq!(mg_module::instances::set_tag("Patrol", &tags), "Patrol_03");

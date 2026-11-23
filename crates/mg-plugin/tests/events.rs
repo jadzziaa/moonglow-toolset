@@ -4,35 +4,17 @@
 //! edits the host makes part of the user's own step), and the time budget
 //! of a handler that runs at once.
 
-use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use mg_core::ResRef;
 use mg_gff::{Gff, Struct, Value};
 use mg_module::Module;
-use mg_plugin::{
-    Answer, Event, EventKind, Host, Input, Level, Plugin, PluginError, Question, Selected, Target,
-    run_event,
-};
+use mg_plugin::{Event, EventKind, Input, Plugin, PluginError, Selected, Target, run_event};
 use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 
-#[derive(Default)]
-struct TestHost {
-    log: RefCell<Vec<String>>,
-}
-
-impl Host for TestHost {
-    fn log(&self, _: Level, text: &str) {
-        self.log.borrow_mut().push(text.to_string());
-    }
-
-    fn ask(&self, _: &Question) -> Option<Answer> {
-        None
-    }
-}
+use crate::common::TestHost;
 
 fn key(name: &str) -> ResKey {
     ResKey::from_filename(name).unwrap()
@@ -69,10 +51,6 @@ fn module(tag: &str) -> Module {
     m
 }
 
-fn scratch(name: &str) -> PathBuf {
-    mg_testkit::scratch_dir(&format!("mg-plugin-ev-{name}"))
-}
-
 fn manifest(api: &str, sections: &str) -> Result<mg_plugin::Manifest, String> {
     mg_plugin::Manifest::parse(&format!(
         "[plugin]\nid = \"test.ev\"\nname = \"Rules\"\nversion = \"1\"\napi = \"{api}\"\n\
@@ -81,7 +59,7 @@ fn manifest(api: &str, sections: &str) -> Result<mg_plugin::Manifest, String> {
 }
 
 fn written(name: &str, sections: &str, code: &str) -> Plugin {
-    let dir = scratch(name);
+    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-ev-{name}"));
     std::fs::write(
         dir.join("plugin.cfg"),
         format!(
@@ -198,7 +176,7 @@ fn a_resource_saving_s_handler_reads_warns_and_refuses() {
     let outcome = run_event(&plugin, "names", &event, input, host.clone()).unwrap();
     assert!(outcome.edits.is_empty());
     assert_eq!(
-        host.log.borrow().as_slice(),
+        host.log_texts(),
         [
             "resource-saving guard.utc creature of 2",
             "resource-saving tavern.are area of 2",
@@ -267,7 +245,7 @@ fn a_resource_saved_s_handler_reads_old_and_new() {
     let event = saving(EventKind::ResourceSaved, &old, &new);
     let host = Rc::new(TestHost::default());
     run_event(&plugin, "after", &event, Input::new(new.clone(), None), host.clone()).unwrap();
-    assert_eq!(host.log.borrow().as_slice(), ["tavern.are: TAVERN -> INN"]);
+    assert_eq!(host.log_texts(), ["tavern.are: TAVERN -> INN"]);
     let e = run_event(&plugin, "edits", &event, Input::new(new, None), host).unwrap_err();
     assert!(e.to_string().contains("only reads"), "{e}");
 }
@@ -293,10 +271,7 @@ fn a_saved_script_s_changed_lines_are_given() {
     let event = saving(EventKind::ResourceSaved, &old, &new);
     let host = Rc::new(TestHost::default());
     run_event(&plugin, "lines", &event, Input::new(new, None), host.clone()).unwrap();
-    assert_eq!(
-        host.log.borrow().as_slice(),
-        ["3: -     int a = 1;|3: +     int a = 2;|4: +     int b = 3;"]
-    );
+    assert_eq!(host.log_texts(), ["3: -     int a = 1;|3: +     int a = 2;|4: +     int b = 3;"]);
 }
 
 /// Objects pasted: the handler gets them (those of the kinds it is for)
@@ -329,7 +304,7 @@ fn an_object_pasted_s_handler_edits_the_new_objects() {
     let m = module("TAVERN");
     let outcome =
         run_event(&plugin, "retag", &event, Input::new(m.clone(), None), host.clone()).unwrap();
-    assert_eq!(host.log.borrow().as_slice(), ["1 in tavern"]);
+    assert_eq!(host.log_texts(), ["1 in tavern"]);
     assert_eq!(outcome.label, "Retag the paste");
     let mut ws = mg_edit::Workspace::new(m.clone());
     ws.apply(mg_edit::Command::new("x", outcome.edits)).unwrap();
@@ -370,7 +345,7 @@ fn a_resource_created_s_handler_edits_what_was_made() {
     let m = module("TAVERN");
     let outcome =
         run_event(&plugin, "land", &event, Input::new(m.clone(), None), host.clone()).unwrap();
-    assert_eq!(host.log.borrow().as_slice(), ["tavern.are area by wizard: tavern.are tavern.git"]);
+    assert_eq!(host.log_texts(), ["tavern.are area by wizard: tavern.are tavern.git"]);
     let mut ws = mg_edit::Workspace::new(m);
     ws.apply(mg_edit::Command::new("x", outcome.edits)).unwrap();
     let git = ws.doc(&key("tavern.git")).unwrap();

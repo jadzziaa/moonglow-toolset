@@ -32,7 +32,7 @@ use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 use mg_testkit::aurora_capture;
 
-use crate::aurora_common::{PLAIN, Shown, lines};
+use crate::aurora_common::{PLAIN, Shown, diff_lines, lines};
 
 /// Floats to 4 decimals, Aurora's denormal noise as 0.
 const SHOWN: Shown<'static> = Shown { decimals: Some(4), ..PLAIN };
@@ -146,16 +146,12 @@ fn step(
                 }
                 let (la, lb) = (lines(a, SHOWN), lines(b, SHOWN));
                 if la != lb {
-                    let diff: Vec<String> = (la.iter().zip(&lb))
-                        .filter(|(x, y)| x != y)
-                        .map(|(x, y)| format!("    ours {x}\n  aurora {y}"))
-                        .collect();
                     failures.push(format!(
                         "{after} {area} {kind:?}[{i}] {} ({} fields against {}):\n{}",
                         tag(a),
                         la.len(),
                         lb.len(),
-                        diff.join("\n")
+                        diff_lines(&la, &lb, usize::MAX)
                     ));
                 }
                 assert_eq!(a.id, b.id, "struct id");

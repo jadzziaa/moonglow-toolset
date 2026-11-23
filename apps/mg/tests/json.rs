@@ -22,7 +22,13 @@ struct JsonCase {
 
 impl JsonCase {
     fn new(name: &str) -> Option<Self> {
-        let root = mg_testkit::nwn_root()?;
+        let Some(root) = mg_testkit::nwn_root() else {
+            assert!(
+                !mg_testkit::corpus_required(),
+                "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+            );
+            return None;
+        };
         let dir = mg_testkit::scratch_dir(name);
         let user = dir.join("user");
         std::fs::create_dir_all(&user).unwrap();

@@ -8,6 +8,8 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mg_uikit::{Icon, Theme, Tokens};
 
+use crate::common::{rects, stroke_colors};
+
 #[test]
 fn an_icon_button_is_named_by_its_tooltip_and_clicks() {
     let clicks = Cell::new(0);
@@ -173,20 +175,6 @@ fn a_row_keeps_its_width_hovered_and_chosen() {
         h.run();
         assert_eq!(*widths.borrow().last().unwrap(), rest, "chosen (menu: {menu})");
     }
-}
-
-/// The rectangles drawn in a frame, with their fills and borders.
-fn rects(h: &Harness<'_>) -> Vec<egui::epaint::RectShape> {
-    fn add(shape: &egui::Shape, to: &mut Vec<egui::epaint::RectShape>) {
-        match shape {
-            egui::Shape::Rect(r) => to.push(r.clone()),
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
 }
 
 /// The check box: found by its words as a check box, toggled by a click
@@ -469,24 +457,6 @@ fn a_tooltip_has_its_own_fill() {
         let t = theme.tokens();
         assert!(rects(&h).iter().any(|r| r.fill == t.tooltip_bg), "{theme:?}");
     }
-}
-
-/// The colors of the strokes painted in a frame (an icon's lines).
-fn stroke_colors(h: &Harness<'_>) -> Vec<Color32> {
-    fn add(shape: &egui::Shape, to: &mut Vec<Color32>) {
-        match shape {
-            egui::Shape::Path(p) => {
-                if let egui::epaint::ColorMode::Solid(c) = p.stroke.color {
-                    to.push(c);
-                }
-            }
-            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| add(s, to)),
-            _ => {}
-        }
-    }
-    let mut all = Vec::new();
-    h.output().shapes.iter().for_each(|s| add(&s.shape, &mut all));
-    all
 }
 
 /// `IconButton` is named by its words however it is labelled (the icon
