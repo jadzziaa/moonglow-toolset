@@ -96,9 +96,20 @@ impl Needle {
         self.finds_in(&[folded])
     }
 
+    /// Whether it looks for a single word.
+    pub fn is_single_word(&self) -> bool {
+        self.words.len() == 1
+    }
+
     /// Whether every word is in one of `fields` (each already [`fold`]ed):
     /// a row found by its name, its ResRef and its tag together.
     pub fn finds_in(&self, fields: &[&str]) -> bool {
+        self.words.iter().all(|w| fields.iter().any(|f| self.holds(f, w)))
+    }
+
+    /// Same as [`Self::finds_in`] over owned `String` slices without
+    /// constructing an intermediate `&[&str]` slice.
+    pub fn finds_in_strings(&self, fields: &[String]) -> bool {
         self.words.iter().all(|w| fields.iter().any(|f| self.holds(f, w)))
     }
 

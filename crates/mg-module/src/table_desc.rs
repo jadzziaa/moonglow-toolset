@@ -1025,6 +1025,27 @@ impl Description {
         rows_of: &dyn Fn(&str) -> Option<usize>,
         tlk: TalkTables,
     ) -> Vec<CellFault> {
+        self.faults_in(t, 0..t.len(), rows_of, tlk)
+    }
+
+    /// Like [`Self::faults`], checking only the given row indices.
+    pub fn faults_rows(
+        &self,
+        t: &TwoDa,
+        rows: &[usize],
+        rows_of: &dyn Fn(&str) -> Option<usize>,
+        tlk: TalkTables,
+    ) -> Vec<CellFault> {
+        self.faults_in(t, rows.iter().copied().filter(|&r| r < t.len()), rows_of, tlk)
+    }
+
+    fn faults_in(
+        &self,
+        t: &TwoDa,
+        rows: impl Iterator<Item = usize> + Clone,
+        rows_of: &dyn Fn(&str) -> Option<usize>,
+        tlk: TalkTables,
+    ) -> Vec<CellFault> {
         let mut out = Vec::new();
         for (name, column) in &self.columns {
             let Some(at) = t.column(name) else { continue };
@@ -1032,7 +1053,7 @@ impl Description {
                 Kind::Row(table) => rows_of(table),
                 _ => None,
             };
-            for row in 0..t.len() {
+            for row in rows.clone() {
                 let Some(cell) = t.cell(row, at) else { continue };
                 if let Some(message) = cell_fault(&column.kind, cell, length, tlk) {
                     out.push(CellFault { row, column: at, message });
@@ -1045,7 +1066,7 @@ impl Description {
                 continue;
             };
             let kind = self.column(&rule.column).map(|c| &c.kind);
-            for row in 0..t.len() {
+            for row in rows.clone() {
                 let Some(cell) = t.cell(row, when) else { continue };
                 let named = kind.and_then(|k| k.named(cell));
                 let is = same(cell, &rule.is)
@@ -1060,7 +1081,10 @@ impl Description {
         if let Some(table) = &self.rows
             && let Some(length) = rows_of(table)
         {
-            for row in length..t.len() {
+            for row in rows {
+                if row < length {
+                    continue;
+                }
                 // (An empty row past the end is padding.)
                 if let Some(column) = (0..t.columns().len()).find(|c| t.cell(row, *c).is_some()) {
                     let message = format!(

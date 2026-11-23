@@ -763,7 +763,7 @@ pub struct Finding {
 
 /// What the doctor needs to know beyond the resources: how many strings the
 /// talk tables have.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TalkTables {
     /// `dialog.tlk`'s count.
     pub base: usize,
@@ -2639,12 +2639,37 @@ pub fn table_faults(
     tables: Option<&TableOf>,
     tlk: TalkTables,
 ) -> Vec<CellFault> {
+    table_faults_in(name, t, 0..t.len(), kinds, tables, tlk)
+}
+
+/// Like [`table_faults`], checking only the specified `rows` (in-bounds
+/// indices), sorted by row then column.
+pub fn table_faults_rows(
+    name: &str,
+    t: &TwoDa,
+    rows: &[usize],
+    kinds: &[(&'static str, ColumnKind)],
+    tables: Option<&TableOf>,
+    tlk: TalkTables,
+) -> Vec<CellFault> {
+    table_faults_in(name, t, rows.iter().copied().filter(|&r| r < t.len()), kinds, tables, tlk)
+}
+
+fn table_faults_in(
+    name: &str,
+    t: &TwoDa,
+    rows: impl Iterator<Item = usize> + Clone,
+    kinds: &[(&'static str, ColumnKind)],
+    tables: Option<&TableOf>,
+    tlk: TalkTables,
+) -> Vec<CellFault> {
     // (A table is there where it reads.)
     let there = |n: &str| tables.is_some_and(|read| read(n).is_some());
     let others = tables.map(|read| Others { read, there: &there });
-    let mut out: Vec<CellFault> = (cell_faults(name, t, kinds, others.as_ref(), tlk).into_iter())
-        .map(|f| CellFault { row: f.row, column: f.column, message: f.message })
-        .collect();
+    let mut out: Vec<CellFault> = (cell_faults_in_rows(name, t, rows, kinds, others.as_ref(), tlk)
+        .into_iter())
+    .map(|f| CellFault { row: f.row, column: f.column, message: f.message })
+    .collect();
     out.sort_by_key(|f| (f.row, f.column));
     out
 }
@@ -2681,10 +2706,21 @@ fn cell_faults(
     others: Option<&Others>,
     tlk: TalkTables,
 ) -> Vec<KindFault> {
+    cell_faults_in_rows(name, t, 0..t.len(), kinds, others, tlk)
+}
+
+fn cell_faults_in_rows(
+    name: &str,
+    t: &TwoDa,
+    rows: impl Iterator<Item = usize> + Clone,
+    kinds: &[(&'static str, ColumnKind)],
+    others: Option<&Others>,
+    tlk: TalkTables,
+) -> Vec<KindFault> {
     let mut out = Vec::new();
     for (column, kind) in kinds {
         let Some(at) = t.column(column) else { continue };
-        for row in 0..t.len() {
+        for row in rows.clone() {
             let Some(text) = t.cell(row, at) else { continue };
             let mut names = None;
             let message = match kind {

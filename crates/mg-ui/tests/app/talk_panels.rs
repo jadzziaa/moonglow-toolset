@@ -61,11 +61,12 @@ fn talk_window(mode: Mode, name: &str, width: f32) -> Harness<'static, Moonglow>
 /// long enough that Find looks through it over many frames.
 fn long_dialog() -> mg_tlk::Tlk {
     let mut tlk = our_dialog();
-    for n in 40..150_040 {
-        let text =
-            if n == 150_039 { "A needle in the hay".to_string() } else { format!("Hay {n}") };
-        tlk.entries.push(mg_tlk::TlkEntry::text(text.as_str()));
-    }
+    let filler = mg_tlk::TlkEntry::text(
+        "The watch patrols the outer gate until dusk and keeps an eye on passing wagons, \
+         merchants, and travelers arriving along the cobbled road from the east.",
+    );
+    tlk.entries.resize(150_039, filler);
+    tlk.entries.push(mg_tlk::TlkEntry::text("A needle in the hay"));
     tlk
 }
 

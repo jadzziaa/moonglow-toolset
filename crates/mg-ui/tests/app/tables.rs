@@ -1691,10 +1691,20 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
     let dir = mg_testkit::scratch_dir("ui-table-widths");
     let file = dir.join("loose.2da");
     std::fs::write(&file, SMALL_TABLE).unwrap();
+    let mut recorded = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
         .with_step_dt(1.0 / 60.0)
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+        .build_ui_state(
+            move |ui, app: &mut Moonglow| {
+                if !recorded {
+                    recorded = true;
+                    mg_uikit::header::record_headers(ui.ctx());
+                }
+                app.ui(ui)
+            },
+            app_with(Vec::new()),
+        );
     h.run_steps(2);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);

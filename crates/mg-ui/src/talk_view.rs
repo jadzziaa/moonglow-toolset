@@ -201,7 +201,11 @@ pub struct TalkView {
     /// Only the lines with text or a sound are listed.
     pub only_text: bool,
     /// Those lines, and the revision they are of.
-    texted: Option<(u64, Vec<usize>)>,
+    texted: Option<(u64, Arc<Vec<usize>>)>,
+    /// Unfiltered row index list `[0..len)` cached by table length.
+    all_rows: Option<(usize, Arc<Vec<usize>>)>,
+    /// Cached `ws.module.custom_tlk()` keyed by `(ws.identity(), ws.revision())`.
+    named_cache: Option<((u64, u64), Option<String>)>,
     /// The lines listed, for what they were made by (the revision, the
     /// table's length, what is looked for, and with Only Lines with Text
     /// the line selected).
@@ -260,13 +264,12 @@ struct Sweep {
 }
 
 /// How long Find looks a frame: a long table (`dialog.tlk`'s 112,228
-/// lines, each read and lowered) is looked through over several, the
-/// window going on.
-const SWEEP_BUDGET: std::time::Duration = std::time::Duration::from_millis(3);
+/// lines, each scanned without heap allocations for ASCII queries) is
+/// looked through over several frames while keeping under the frame budget.
+const SWEEP_BUDGET: std::time::Duration = std::time::Duration::from_micros(800);
 
-/// How many lines Find looks through between two looks at the clock: few
-/// enough that a slow machine does not run far past [`SWEEP_BUDGET`].
-const SWEEP_SLICE: usize = 64;
+/// How many lines Find looks through between two looks at the clock.
+const SWEEP_SLICE: usize = 256;
 
 /// Whether a line has text or a sound (Only Lines with Text lists it): not
 /// blank, as its entry's flags and bytes say (no line read as text).
@@ -322,7 +325,10 @@ impl TalkView {
         if let Some((of, texted)) = &mut self.texted
             && *of == before
         {
-            keep_row(texted, row, has_text(t, row));
+            let should_keep = has_text(t, row);
+            if texted.binary_search(&row).is_ok() != should_keep {
+                keep_row(Arc::make_mut(texted), row, should_keep);
+            }
             *of = self.revision;
         }
         if let Some((query, of, found)) = &mut self.found
@@ -349,12 +355,6 @@ impl TalkView {
         self.revision += 1;
         self.edit = None;
     }
-
-    /// How far Find has looked, in hundredths, while it looks.
-    pub(crate) fn sweep_done(&self, len: usize) -> Option<usize> {
-        let s = self.sweep.as_ref()?;
-        Some(s.next * 100 / len.max(1))
-    }
 }
 
 /// Whether the module's nasher project keeps its table in more than one
@@ -363,9 +363,19 @@ pub(crate) fn several_languages(app: &Moonglow) -> bool {
     !app.talk_view.languages.is_empty()
 }
 
-/// The name the module gives its talk table, if any.
-fn named(app: &Moonglow) -> Option<String> {
-    app.ws.as_ref()?.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty())
+/// The name the module gives its talk table, if any (cached per workspace
+/// revision so panels do not re-parse `module.ifo` on every frame).
+fn named(app: &mut Moonglow) -> Option<String> {
+    let ws = app.ws.as_ref()?;
+    let key = (ws.identity(), ws.revision());
+    if let Some((was, cached)) = &app.talk_view.named_cache
+        && *was == key
+    {
+        return cached.clone();
+    }
+    let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
+    app.talk_view.named_cache = Some((key, name.clone()));
+    name
 }
 
 /// Opens the module's talk table for editing, if it names one the game
@@ -437,8 +447,9 @@ fn open(app: &mut Moonglow, name: &str) {
     let (found, feminine) = (shipped(found), feminine.map(shipped));
     match Table::open(name, found, feminine) {
         Ok(t) => {
+            let named_cache = std::mem::take(&mut app.talk_view.named_cache);
             app.talk = Some(t);
-            app.talk_view = TalkView { languages, ..TalkView::default() };
+            app.talk_view = TalkView { languages, named_cache, ..TalkView::default() };
         }
         Err(e) => {
             app.log.error(format!("Talk table {name}: {e}"));
@@ -1167,10 +1178,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, which: Which) {
     list(app, ui, which);
 }
 
-/// Each frame, for each talk table: Find References taken in where it has
-/// ended (stopped where its line is no longer chosen), and Find looking on
-/// through the lines, whether its tab and panels are drawn or not (a tab
-/// behind another, a panel folded): the window's work comes to an end.
+/// Each frame, for each talk table: Find References is polled when active,
+/// and active Find sweeps continue only while the Talk Table tab is in front
+/// and showing that table (otherwise `sweep` is cleared and resumes when shown
+/// again).
 pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
     // (The game's table let go of with its tab, its look stopped.)
@@ -1310,40 +1321,61 @@ fn focus_asked(app: &mut Moonglow, ctx: &egui::Context, which: Which) {
 /// While Find looks through a long table, those found so far.
 fn rows(t: &Table, v: &mut TalkView) -> Arc<Vec<usize>> {
     let query = v.filter.trim().to_string();
-    if v.only_text && v.texted.as_ref().is_none_or(|(r, _)| *r != v.revision) {
-        v.texted = Some((v.revision, (0..t.len()).filter(|row| has_text(t, *row)).collect()));
-    }
-    // (The line chosen counts only where it is listed for being chosen: a
-    // line with text is listed anyway, and choosing it makes no new list.)
-    let texted = v.texted.as_ref().map(|(_, rows)| rows);
-    let kept = v.selected.filter(|s| texted.is_some_and(|t| t.binary_search(s).is_err()));
+    let kept =
+        if v.only_text { v.selected.filter(|s| !has_text(t, *s) && *s < t.len()) } else { None };
     let mark = (v.revision, t.len(), query.clone(), v.only_text.then_some(kept));
     if let Some((of, rows)) = &v.shown
         && *of == mark
     {
         return rows.clone();
     }
-    let rows: Vec<usize> = if query.is_empty() {
+    if query.is_empty() {
         v.sweep = None;
-        (0..t.len()).collect()
-    } else {
-        let done = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
-        if !done {
-            // (Looking on: what is listed meanwhile, appended to, shared.)
-            if let Some(listed) = sweep(t, v, &query) {
-                return listed;
+        let rows = if v.only_text {
+            if v.texted.as_ref().is_none_or(|(r, _)| *r != v.revision) {
+                v.texted = Some((
+                    v.revision,
+                    Arc::new((0..t.len()).filter(|row| has_text(t, *row)).collect()),
+                ));
             }
+            let texted = v.texted.as_ref().expect("set above").1.clone();
+            match kept {
+                None => texted,
+                Some(sel) => {
+                    let mut rows = (*texted).clone();
+                    keep_row(&mut rows, sel, true);
+                    Arc::new(rows)
+                }
+            }
+        } else {
+            let all = match &v.all_rows {
+                Some((len, rows)) if *len == t.len() => rows.clone(),
+                _ => {
+                    let rows: Arc<Vec<usize>> = Arc::new((0..t.len()).collect());
+                    v.all_rows = Some((t.len(), rows.clone()));
+                    rows
+                }
+            };
+            all
+        };
+        v.shown = Some((mark, rows.clone()));
+        return rows;
+    }
+    let done = v.found.as_ref().is_some_and(|(q, r, _)| *q == query && *r == v.revision);
+    if !done {
+        // (Looking on: what is listed meanwhile, appended to, shared.)
+        if let Some(listed) = sweep(t, v, &query) {
+            return listed;
         }
-        v.sweep = None;
-        v.found.as_ref().map(|f| f.2.clone()).unwrap_or_default()
-    };
-    let rows: Vec<usize> = match v.texted.as_ref().filter(|_| v.only_text) {
-        // (The selected line stays listed while it is being written.)
-        Some((_, texted)) => rows
-            .into_iter()
-            .filter(|r| texted.binary_search(r).is_ok() || v.selected == Some(*r))
-            .collect(),
-        None => rows,
+    }
+    v.sweep = None;
+    let found = v.found.as_ref().map(|f| &f.2);
+    let rows: Vec<usize> = match (found, v.only_text) {
+        (Some(found), true) => {
+            found.iter().copied().filter(|r| has_text(t, *r) || v.selected == Some(*r)).collect()
+        }
+        (Some(found), false) => found.clone(),
+        (None, _) => Vec::new(),
     };
     let rows = Arc::new(rows);
     v.shown = Some((mark, rows.clone()));
@@ -1356,7 +1388,7 @@ fn rows(t: &Table, v: &mut TalkView) -> Arc<Vec<usize>> {
 /// once it has, what it found kept in `found`). A query, the table or Only
 /// lines with text changed begins it again.
 fn sweep(t: &Table, v: &mut TalkView, query: &str) -> Option<Arc<Vec<usize>>> {
-    let TalkView { sweep, found, texted, revision, only_text, .. } = v;
+    let TalkView { sweep, found, revision, only_text, .. } = v;
     let fresh = sweep
         .as_ref()
         .is_some_and(|s| s.query == query && s.revision == *revision && s.only_text == *only_text);
@@ -1371,17 +1403,16 @@ fn sweep(t: &Table, v: &mut TalkView, query: &str) -> Option<Arc<Vec<usize>>> {
         });
     }
     let s = sweep.as_mut().expect("set");
-    let texted = texted.as_ref().map(|(_, rows)| rows).filter(|_| s.only_text);
+    let filter_only = s.only_text;
     let began = std::time::Instant::now();
     while s.next < t.len() {
         let end = (s.next + SWEEP_SLICE).min(t.len());
         let new = t.find_in(s.next..end, query);
         let listed = Arc::make_mut(&mut s.listed);
-        match texted {
-            Some(texted) => {
-                listed.extend(new.iter().copied().filter(|r| texted.binary_search(r).is_ok()))
-            }
-            None => listed.extend_from_slice(&new),
+        if filter_only {
+            listed.extend(new.iter().copied().filter(|r| has_text(t, *r)));
+        } else {
+            listed.extend_from_slice(&new);
         }
         s.found.extend(new);
         s.next = end;
@@ -1466,29 +1497,34 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
     let text_width = if feminine { text_width / 2.0 } else { text_width };
     let columns = |left: f32| {
         let mut x = left;
-        let mut out = Vec::new();
-        let mut push = |w: f32| {
-            out.push(x..=x + w);
+        let mut out = [0.0..=0.0, 0.0..=0.0, 0.0..=0.0, 0.0..=0.0];
+        let mut push = |idx: usize, w: f32| {
+            out[idx] = x..=x + w;
             x += w;
         };
-        push(STRREF_WIDTH);
-        push(text_width);
+        push(0, STRREF_WIDTH);
+        push(1, text_width);
         if feminine {
-            push(text_width);
+            push(2, text_width);
+            push(3, SOUND_WIDTH);
+            (out, 4)
+        } else {
+            push(2, SOUND_WIDTH);
+            (out, 3)
         }
-        push(SOUND_WIDTH);
-        out
     };
     crate::table_view::look::header_cell(ui, head);
-    let words = match feminine {
-        true => vec!["StrRef", "Text (masculine)", "Feminine", "Sound"],
-        false => vec!["StrRef", "Text", "Sound"],
+    let words: &[&str] = match feminine {
+        true => &["StrRef", "Text (masculine)", "Feminine", "Sound"],
+        false => &["StrRef", "Text", "Sound"],
     };
     let font = egui::TextStyle::Body.resolve(ui.style());
-    for (i, (x, words)) in columns(head.left()).into_iter().zip(words).enumerate() {
-        let cell = egui::Rect::from_x_y_ranges(x, head.y_range()).shrink2(egui::vec2(8.0, 0.0));
+    let (head_cols, head_len) = columns(head.left());
+    for (i, (x, words)) in head_cols[..head_len].iter().zip(words).enumerate() {
+        let cell =
+            egui::Rect::from_x_y_ranges(x.clone(), head.y_range()).shrink2(egui::vec2(8.0, 0.0));
         let galley =
-            ui.painter().layout(words.to_string(), font.clone(), tokens.text, cell.width());
+            ui.painter().layout((*words).to_string(), font.clone(), tokens.text, cell.width());
         // (The StrRef's heading at its right, over the numbers.)
         let at = match i {
             0 => egui::pos2(
@@ -1522,7 +1558,9 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
                 .allocate_exact_size(egui::vec2(ui.available_width(), pitch), egui::Sense::click());
             let strref = which.strref(row);
             let line = t.line(row);
-            let first = |s: &str| s.lines().next().unwrap_or_default().to_string();
+            fn first(s: &str) -> &str {
+                s.lines().next().unwrap_or_default()
+            }
             // (Named by its StrRef, its text its value: a screen reader
             // says both.)
             r.widget_info(|| {
@@ -1532,7 +1570,7 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
                     v.selected == Some(row),
                     strref.to_string(),
                 );
-                info.current_text_value = Some(first(&line.text));
+                info.current_text_value = Some(first(&line.text).to_string());
                 info
             });
             let selected = v.selected == Some(row);
@@ -1549,30 +1587,34 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
                 true => (tokens.on_fill, tokens.on_fill, tokens.on_fill),
                 false => (tokens.text_2, tokens.text, tokens.text_3),
             };
-            let xs = columns(rect.left());
-            let cut = |s: String,
+            let (xs, xs_len) = columns(rect.left());
+            let cut = |s: &str,
                        f: egui::FontId,
                        c: egui::Color32,
                        x: &std::ops::RangeInclusive<f32>,
                        right: bool| {
+                if s.is_empty() {
+                    return;
+                }
                 let cell = egui::Rect::from_x_y_ranges(x.clone(), rect.y_range());
                 let inner = match right {
                     true => cell.with_max_x(cell.right() - 12.0).with_min_x(cell.left() + 8.0),
                     false => cell.shrink2(egui::vec2(8.0, 0.0)),
                 };
-                let mut job = egui::text::LayoutJob::simple_singleline(s, f, c);
+                let mut job = egui::text::LayoutJob::simple_singleline(s.to_owned(), f, c);
                 job.wrap = egui::text::TextWrapping::truncate_at_width(inner.width().max(1.0));
                 let galley = ui.painter().layout_job(job);
                 let y = cell.center().y - galley.size().y / 2.0;
                 let x = if right { inner.right() - galley.size().x } else { inner.left() };
                 ui.painter().galley(egui::pos2(x, y), galley, c);
             };
-            cut(strref.to_string(), mono.clone(), number, &xs[0], true);
+            let strref_text = strref.to_string();
+            cut(&strref_text, mono.clone(), number, &xs[0], true);
             cut(first(&line.text), font.clone(), text, &xs[1], false);
             if let Some(f) = &line.feminine {
                 cut(first(f), font.clone(), text, &xs[2], false);
             }
-            cut(line.sound.clone(), mono.clone(), quiet, xs.last().expect("columns"), false);
+            cut(&line.sound, mono.clone(), quiet, &xs[xs_len - 1], false);
             let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
             if r.clicked() || r.double_clicked() {
                 clicked = Some((row, r.double_clicked()));
@@ -1589,10 +1631,9 @@ fn list(app: &mut Moonglow, ui: &mut Ui, which: Which) {
     if rows.is_empty() && !v.filter.trim().is_empty() && !v.sweeping() {
         ui.weak("No line has that.");
     }
-    if let Some(done) = v.sweep_done(t.len()) {
+    if v.sweeping() {
         // (Looking on at the next frame: the window goes on meanwhile.)
         ui.ctx().request_repaint();
-        let _ = done;
     }
     if to_text {
         v.to_text = Some(ui.ctx().cumulative_pass_nr());
@@ -1822,7 +1863,7 @@ mod tests {
             let listed = std::sync::Arc::new(all.clone());
             let mut v = TalkView {
                 revision: 7,
-                texted: Some((7, texted(&t))),
+                texted: Some((7, std::sync::Arc::new(texted(&t)))),
                 found: Some((query.to_string(), 7, t.find(query))),
                 shown: Some(((7, t.len(), String::new(), None), listed.clone())),
                 ..Default::default()
@@ -1834,7 +1875,7 @@ mod tests {
                 t.set_line(row, &line(text), Some(0)).unwrap();
                 v.line_changed(&t, row);
                 let (of, kept) = v.texted.as_ref().unwrap();
-                assert_eq!((*of, kept), (v.revision, &texted(&t)), "{query:?}, {row}: {text:?}");
+                assert_eq!((*of, &**kept), (v.revision, &texted(&t)), "{query:?}, {row}: {text:?}");
                 let (_, of, found) = v.found.as_ref().unwrap();
                 assert_eq!((*of, found), (v.revision, &t.find(query)), "{query:?}, {row}: {text}");
                 // (Every line listed: the same list, not one made again.)
@@ -1846,9 +1887,9 @@ mod tests {
             }
             // (What was kept of an older table is left for the next frame
             // to make again.)
-            v.texted = Some((1, Vec::new()));
+            v.texted = Some((1, Default::default()));
             v.line_changed(&t, 0);
-            assert_eq!(v.texted, Some((1, Vec::new())));
+            assert_eq!(v.texted, Some((1, Default::default())));
         }
         assert!(t.finds(0, "gate") && !t.finds(2, "gate") && !t.finds(99, ""));
     }
