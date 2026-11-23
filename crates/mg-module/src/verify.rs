@@ -603,20 +603,47 @@ pub fn script_columns(module: &Module, key: &ResKey) -> Vec<String> {
     out
 }
 
+const STRING_REF_KINDS: [RefKind; 11] = {
+    let mut kinds = [RefKind::Script; 11];
+    kinds[1] = RefKind::Conversation;
+    let mut i = 0;
+    while i < 9 {
+        kinds[i + 2] = RefKind::Blueprint(ObjectKind::ALL[i].restype());
+        i += 1;
+    }
+    kinds
+};
+
+const STRING_REF_TYPES: [ResType; 11] = {
+    let mut types = [ResType::NSS; 11];
+    types[1] = ResType::DLG;
+    let mut i = 0;
+    while i < 9 {
+        types[i + 2] = ObjectKind::ALL[i].restype();
+        i += 1;
+    }
+    types
+};
+
+fn module_script_strings(module: &Module) -> Vec<(mg_core::ResRef, Vec<mg_core::ResRef>)> {
+    use rayon::prelude::*;
+    let keys: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    keys.par_iter()
+        .map(|k| (k.resref, crate::refs::script_strings(module.get(k).unwrap_or_default())))
+        .collect()
+}
+
 /// What a script's strings may name, as references (`string`): a
 /// script, a conversation, a blueprint of any type.
 fn string_references(from: ResKey, source: &[u8]) -> Vec<Reference> {
-    let kinds = std::iter::once(RefKind::Script)
-        .chain(std::iter::once(RefKind::Conversation))
-        .chain(ObjectKind::ALL.iter().map(|k| RefKind::Blueprint(k.restype())));
-    let kinds: Vec<RefKind> = kinds.collect();
-    let mut out = Vec::new();
-    for target in crate::refs::script_strings(source) {
+    let strings = crate::refs::script_strings(source);
+    let mut out = Vec::with_capacity(strings.len() * STRING_REF_KINDS.len());
+    for target in strings {
         if target == from.resref {
             continue;
         }
-        for kind in &kinds {
-            out.push(Reference { from, path: Location::String, kind: *kind, target });
+        for kind in STRING_REF_KINDS {
+            out.push(Reference { from, path: Location::String, kind, target });
         }
     }
     out
@@ -633,19 +660,44 @@ pub fn outside_references(
     references: &[Reference],
     rm: &ResMan,
 ) -> Vec<Reference> {
+    let script_strings = module_script_strings(module);
+    outside_references_with_strings(module, references, rm, &script_strings)
+}
+
+fn outside_references_with_strings(
+    module: &Module,
+    references: &[Reference],
+    rm: &ResMan,
+    script_strings: &[(mg_core::ResRef, Vec<mg_core::ResRef>)],
+) -> Vec<Reference> {
     let mut seen: HashSet<ResKey> = HashSet::new();
     let mut queue: Vec<ResKey> = Vec::new();
-    let mut reach = |refs: &[Reference], queue: &mut Vec<ResKey>| {
-        for k in refs.iter().flat_map(Reference::candidates) {
-            let followed = k.restype.is_gff() || k.restype == ResType::NSS;
-            if followed && !module.contains(&k) && seen.insert(k) && rm.contains(&k) {
+    let reach = |refs: &[Reference], seen: &mut HashSet<ResKey>, queue: &mut Vec<ResKey>| {
+        for r in refs {
+            r.each_candidate(|k| {
+                let followed = k.restype.is_gff() || k.restype == ResType::NSS;
+                if followed && !module.contains(&k) && seen.insert(k) && rm.contains(&k) {
+                    queue.push(k);
+                }
+            });
+        }
+    };
+    reach(references, &mut seen, &mut queue);
+    let mut unique_targets: HashSet<mg_core::ResRef> = HashSet::new();
+    for (from, strings) in script_strings {
+        for &target in strings {
+            if target != *from {
+                unique_targets.insert(target);
+            }
+        }
+    }
+    for target in unique_targets {
+        for t in STRING_REF_TYPES {
+            let k = ResKey::new(target, t);
+            if !module.contains(&k) && seen.insert(k) && rm.contains(&k) {
                 queue.push(k);
             }
         }
-    };
-    reach(references, &mut queue);
-    for k in module.keys_of(ResType::NSS) {
-        reach(&string_references(*k, module.get(k).unwrap_or_default()), &mut queue);
     }
     let mut out = Vec::new();
     while let Some(k) = queue.pop() {
@@ -654,7 +706,7 @@ pub fn outside_references(
         if k.restype == ResType::NSS {
             found.extend(string_references(k, &data));
         }
-        reach(&found, &mut queue);
+        reach(&found, &mut seen, &mut queue);
         out.extend(found);
     }
     out
@@ -667,13 +719,31 @@ pub fn outside_references(
 /// ([`outside_references`]), by `rm` (the game, the haks and the module
 /// stacked).
 pub fn also_used(module: &Module, references: &[Reference], rm: &ResMan) -> Vec<Reference> {
+    let script_strings = module_script_strings(module);
+    also_used_with_strings(module, references, rm, &script_strings)
+}
+
+fn also_used_with_strings(
+    module: &Module,
+    references: &[Reference],
+    rm: &ResMan,
+    script_strings: &[(mg_core::ResRef, Vec<mg_core::ResRef>)],
+) -> Vec<Reference> {
     let mut also = table_scripts_in(rm);
     also.extend(described_scripts(module, Some(rm)));
     // (From the scripts the tables run too: the game's Dirge, x0_s0_dirge,
     // names its area of effect's scripts, x0_s0_dirgeen...)
     let from: Vec<Reference> = references.iter().chain(&also).cloned().collect();
-    also.extend(outside_references(module, &from, rm));
+    also.extend(outside_references_with_strings(module, &from, rm, script_strings));
     also
+}
+
+/// Computes `also_used` and `unused_of` in a single pass, scanning `.nss`
+/// string literals once in parallel across cores.
+pub fn unused_in(module: &Module, references: &[Reference], rm: &ResMan) -> Vec<Unused> {
+    let script_strings = module_script_strings(module);
+    let also = also_used_with_strings(module, references, rm, &script_strings);
+    unused_of_with_strings(module, references, &also, &script_strings)
 }
 
 /// Module resources of the given kinds that nothing in the module
@@ -693,11 +763,21 @@ pub fn unused(module: &Module) -> Vec<Unused> {
 /// scripts the game's tables run as the module sees them
 /// ([`table_scripts`]) counted as used.
 pub fn unused_of(module: &Module, references: &[Reference], tables: &[Reference]) -> Vec<Unused> {
+    let script_strings = module_script_strings(module);
+    unused_of_with_strings(module, references, tables, &script_strings)
+}
+
+fn unused_of_with_strings(
+    module: &Module,
+    references: &[Reference],
+    tables: &[Reference],
+    script_strings: &[(mg_core::ResRef, Vec<mg_core::ResRef>)],
+) -> Vec<Unused> {
     let mut used: HashSet<(mg_core::ResRef, ResType)> = HashSet::new();
     for r in references.iter().chain(tables) {
-        for k in r.candidates() {
+        r.each_candidate(|k| {
             used.insert((k.resref, k.restype));
-        }
+        });
     }
     let checked = [
         ResType::UTC,
@@ -719,14 +799,13 @@ pub fn unused_of(module: &Module, references: &[Reference], tables: &[Reference]
     // conversation's.
     let names: HashSet<mg_core::ResRef> =
         module.keys().filter(|k| checked.contains(&k.restype)).map(|k| k.resref).collect();
-    for k in module.keys_of(ResType::NSS) {
-        let Some(src) = module.get(k) else { continue };
-        for name in crate::refs::script_strings(src) {
+    for (from, strings) in script_strings {
+        for &name in strings {
             if !names.contains(&name) {
                 continue;
             }
             for t in checked {
-                if name != k.resref || !matches!(t, ResType::NSS | ResType::NCS) {
+                if name != *from || !matches!(t, ResType::NSS | ResType::NCS) {
                     used.insert((name, t));
                 }
             }

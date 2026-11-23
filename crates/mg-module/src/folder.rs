@@ -3,9 +3,10 @@
 //! a file copied in): those are read again rather than written over, as
 //! a nasher project's are.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use mg_resman::ResKey;
 
@@ -17,9 +18,9 @@ use crate::outside::{Known, OutsideFound, OutsideScan, Stamp, stamp};
 pub struct FolderFiles {
     dir: PathBuf,
     files: HashMap<ResKey, (PathBuf, Arc<[u8]>)>,
-    /// Each file's time and size when it was last looked at and found as
-    /// it was read: a file with the same is not read again.
-    stamps: HashMap<PathBuf, Stamp>,
+    /// Each file's time, size, and observation wall time when last found as
+    /// read: a settled file with matching time and size is not read again.
+    stamps: HashMap<PathBuf, (Stamp, SystemTime)>,
     /// What there is to say of the folder as it was read (a resource
     /// under two spellings): for whoever opened it to show, and take.
     pub warnings: Vec<String>,
@@ -36,7 +37,22 @@ impl FolderFiles {
 
     /// Notes a file as read or written with these bytes.
     pub(crate) fn note(&mut self, key: ResKey, path: PathBuf, bytes: Arc<[u8]>) {
-        self.stamps.extend(stamp(&path).map(|s| (path.clone(), s)));
+        self.note_stamped(key, path, bytes, None, SystemTime::now());
+    }
+
+    /// Notes a file with an already-observed stamp and timestamp to avoid
+    /// repeating `stat()` across unchanged files during [`crate::Module::write_folder`].
+    pub(crate) fn note_stamped(
+        &mut self,
+        key: ResKey,
+        path: PathBuf,
+        bytes: Arc<[u8]>,
+        known_stamp: Option<Stamp>,
+        noted_at: SystemTime,
+    ) {
+        if let Some(s) = known_stamp.or_else(|| stamp(&path)) {
+            self.stamps.insert(path.clone(), (s, noted_at));
+        }
         self.files.insert(key, (path, bytes));
     }
 
@@ -66,6 +82,20 @@ impl FolderFiles {
         self.files.get(key).map(|(_, b)| &b[..])
     }
 
+    pub(crate) fn as_read_arc(&self, key: &ResKey) -> Option<&Arc<[u8]>> {
+        self.files.get(key).map(|(_, b)| b)
+    }
+
+    /// If `path` has a settled stamp (`>= 2s` older than when it was noted) and
+    /// still has the exact same `(mtime, size)`, returns that stamp without reading
+    /// the file.
+    pub(crate) fn settled_stamp_matches(&self, path: &Path) -> Option<Stamp> {
+        let &(was, noted_at) = self.stamps.get(path)?;
+        noted_at.duration_since(was.0).ok().filter(|d| *d >= Duration::from_secs(2))?;
+        let now = stamp(path)?;
+        (now == was).then_some(now)
+    }
+
     /// The files changed, added or deleted outside Moonglow since they
     /// were read or written. Each is named again every time until it is
     /// taken ([`FolderFiles::took`]) or is as it was again. Files whose
@@ -89,7 +119,7 @@ impl FolderFiles {
             path: path.into(),
             form: crate::nasher::Form::Plain,
             file: file.clone(),
-            stamp: self.stamps.get(path).copied(),
+            stamp: self.stamps.get(path).map(|(s, _)| *s),
         }
     }
 
@@ -108,11 +138,12 @@ impl FolderFiles {
         if found.project || found.archive.is_some() {
             return (Vec::new(), Vec::new());
         }
+        let settled_at = SystemTime::now();
         for (key, was, s) in found.settled {
             if let Some((path, file)) = self.files.get(&key)
                 && Arc::ptr_eq(file, &was)
             {
-                self.stamps.insert(path.clone(), s);
+                self.stamps.insert(path.clone(), (s, settled_at));
             }
         }
         let mut changes = found.changes;
@@ -128,8 +159,9 @@ impl FolderFiles {
             Some(bytes) => {
                 // (Its time when it was read: a write since is still to
                 // be found.)
+                let now = SystemTime::now();
                 match change.stamp() {
-                    Some(s) => self.stamps.insert(change.path.clone(), s),
+                    Some(s) => self.stamps.insert(change.path.clone(), (s, now)),
                     None => self.stamps.remove(&change.path),
                 };
                 self.files.insert(change.key, (change.path.clone(), bytes.clone()));
@@ -151,6 +183,9 @@ pub fn beside_mod(path: &Path) -> Option<PathBuf> {
     }
     let stem = path.file_stem()?.to_string_lossy().into_owned();
     let holds_module = |dir: &Path| {
+        if dir.join("module.ifo").is_file() {
+            return true;
+        }
         std::fs::read_dir(dir).ok().is_some_and(|entries| {
             entries
                 .flatten()
@@ -205,6 +240,7 @@ pub(crate) fn scan(
     only: Option<&std::collections::HashSet<PathBuf>>,
 ) -> OutsideFound {
     let mut found = OutsideFound::default();
+    let mut missing = HashSet::new();
     for k in files {
         if only.is_some_and(|o| !o.contains(&*k.path)) {
             continue;
@@ -217,7 +253,8 @@ pub(crate) fn scan(
         let was = Some(k.file.clone());
         match std::fs::read(&k.path) {
             Err(_) => {
-                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), None, was, None))
+                missing.insert(k.key);
+                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), None, was, None));
             }
             Ok(bytes) if bytes[..] == k.file[..] => {
                 found.settled.extend(now.map(|s| (k.key, k.file.clone(), s)));
@@ -228,8 +265,10 @@ pub(crate) fn scan(
             }
         }
     }
-    // Files that are new to the folder.
-    let known: std::collections::HashSet<ResKey> = files.iter().map(|k| k.key).collect();
+    // Files that are new to the folder (including case-renamed replacements whose
+    // old path is no longer present on disk).
+    let mut known: HashSet<ResKey> =
+        files.iter().map(|k| k.key).filter(|k| !missing.contains(k)).collect();
     let listed: std::io::Result<Vec<PathBuf>> = match only {
         // (Those of the files named that are in the folder itself.)
         Some(only) => {
@@ -243,20 +282,24 @@ pub(crate) fn scan(
     match listed {
         Err(e) => found.problems.push(format!("{}: {e}", dir.display())),
         Ok(entries) => {
-            let mut added: Vec<Outside> = Vec::new();
             for path in entries.into_iter().filter(|p| p.is_file()) {
                 let name = path.file_name().and_then(|n| n.to_str());
                 let Some(key) = name.and_then(crate::folder_key) else { continue };
                 // (Moonglow's own file being written, and what it knows.)
-                if known.contains(&key) || added.iter().any(|a| a.key == key) {
+                if !known.insert(key) {
                     continue;
                 }
                 let now = stamp(&path);
                 if let Ok(bytes) = std::fs::read(&path) {
-                    added.push(Outside::plain(key, path, Some(Arc::from(bytes)), None, now));
+                    found.changes.push(Outside::plain(
+                        key,
+                        path,
+                        Some(Arc::from(bytes)),
+                        None,
+                        now,
+                    ));
                 }
             }
-            found.changes.extend(added);
         }
     }
     found.changes.sort_by(|a, b| a.path.cmp(&b.path));

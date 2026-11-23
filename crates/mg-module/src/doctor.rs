@@ -864,6 +864,8 @@ struct Doctor<'a> {
     /// a persistent world's 17,000-row appearance.2da parsed hundreds of
     /// times, ten times the run's whole time).
     tables_read: TablesRead,
+    /// Models this doctor has checked in front of [`Doctor::models_read`].
+    models: HashMap<ResKey, Option<String>>,
     /// Why each model an object names couldn't be read (`None`: it was,
     /// or it is the game's own), read once a run: shared by the doctors
     /// beside this one, which look at the module's objects on other cores.
@@ -892,6 +894,7 @@ impl<'a> Doctor<'a> {
             out: Vec::new(),
             tables: HashMap::new(),
             tables_read: self.tables_read.clone(),
+            models: HashMap::new(),
             models_read: self.models_read.clone(),
         }
     }
@@ -964,8 +967,12 @@ impl<'a> Doctor<'a> {
     /// not again while its archive is as it was.
     fn unreadable(&mut self, name: &str) -> Option<String> {
         let key = ResKey::parse(name, ResType::MDL)?;
+        if let Some(known) = self.models.get(&key) {
+            return known.clone();
+        }
         let known = self.models_read.lock().ok().and_then(|read| read.get(&key).cloned());
         if let Some(known) = known {
+            self.models.insert(key, known.clone());
             return known;
         }
         let why = self.rm.find(&key).and_then(|layer| {
@@ -980,7 +987,7 @@ impl<'a> Doctor<'a> {
             if let Some(Err(e)) = facts.and_then(|f| f.faces.clone()) {
                 return Some(e);
             }
-            let data = self.rm.get(&key).ok()?;
+            let data = l.container.read(&key).ok()?;
             let read = mg_mdl::Model::read(&data).err().map(|e| e.to_string());
             self.learn(layer, key, Facts { read: Some(read.clone()), ..Facts::default() });
             read
@@ -988,6 +995,7 @@ impl<'a> Doctor<'a> {
         if let Ok(mut read) = self.models_read.lock() {
             read.insert(key, why.clone());
         }
+        self.models.insert(key, why.clone());
         why
     }
 
@@ -1048,26 +1056,28 @@ pub fn examine_groups(
         out: Vec::new(),
         tables: HashMap::new(),
         tables_read: TablesRead::default(),
+        models: HashMap::new(),
         models_read: ModelsRead::default(),
     };
-    // (Looked up in parallel: a module with a hundred haks has hundreds of
-    // thousands, each looked for in the layers above its own. A hak left
-    // out, or a resource, isn't examined.)
     let custom = timings.time("the custom resources", || {
         let mut custom: BTreeMap<ResKey, usize> = BTreeMap::new();
+        let mut seen: HashSet<ResKey> = HashSet::new();
         for (i, layer) in layers.iter().enumerate() {
-            if !is_custom(layer) || skip.source(&layer.label) {
+            if layer.label == crate::bake::PENDING_LABEL {
                 continue;
             }
-            let keys: Vec<ResKey> = layer.container.keys().collect();
-            let won: Vec<ResKey> = (keys.into_par_iter())
-                // (The copy the game reads: the pending baked rows' layer
-                // is over the haks, and is not one.)
-                .filter(|key| {
-                    !skip.resource(key) && crate::bake::layer_read(resman, key) == Some(i)
-                })
-                .collect();
-            custom.extend(won.into_iter().map(|key| (key, i)));
+            let keep_layer = is_custom(layer) && !skip.source(&layer.label);
+            for key in layer.container.keys() {
+                if !matches!(
+                    key.restype,
+                    ResType::SET | ResType::TWODA | ResType::MTR | ResType::MDL | ResType::SHD
+                ) {
+                    continue;
+                }
+                if seen.insert(key) && keep_layer && !skip.resource(&key) {
+                    custom.insert(key, i);
+                }
+            }
         }
         custom
     });
@@ -1117,13 +1127,14 @@ pub fn examine_groups(
                 out: Vec::new(),
                 tables: std::mem::take(tables),
                 tables_read: tables_read.clone(),
+                models: HashMap::new(),
                 models_read: ModelsRead::default(),
             };
             let source = &layers[layer].label;
             match key.restype {
-                ResType::SET => tileset(&mut d, source, *key),
+                ResType::SET => tileset(&mut d, source, *key, layer),
                 ResType::TWODA => two_da(&mut d, source, *key, layer),
-                ResType::MTR => material(&mut d, source, *key),
+                ResType::MTR => material(&mut d, source, *key, layer),
                 ResType::MDL => model_text(&mut d, source, *key, layer),
                 _ => {}
             }
@@ -1539,8 +1550,8 @@ fn past_read_limit(d: &mut Doctor, layer: &Layer) {
 
 /// Tilesets: section counts, models, groups, doors (Aurora's "Range Check
 /// Error" and access violations when opening or painting an area).
-fn tileset(d: &mut Doctor, source: &str, key: ResKey) {
-    let Ok(data) = d.rm.get(&key) else { return };
+fn tileset(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
     let data = data.into_owned();
     tileset_data(d, source, key, &data);
 }
@@ -1558,6 +1569,7 @@ pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding
         out: Vec::new(),
         tables: HashMap::new(),
         tables_read: TablesRead::default(),
+        models: HashMap::new(),
         models_read: ModelsRead::default(),
     };
     tileset_data(&mut d, "tileset", key, data);
@@ -1906,7 +1918,7 @@ fn tile_model(d: &mut Doctor, name: &str) {
     let faces = match d.known(layer, &key).and_then(|f| f.faces.clone()) {
         Some(faces) => faces,
         None => {
-            let Ok(data) = d.rm.get(&key) else { return };
+            let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
             let faces = mg_mdl::faces_over(&data, 10_000).map_err(|e| e.to_string());
             d.learn(layer, key, Facts { faces: Some(faces.clone()), ..Facts::default() });
             faces
@@ -1941,7 +1953,7 @@ fn model_text(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     let found = match d.known(layer, &key).and_then(|f| f.text.clone()) {
         Some(found) => found,
         None => {
-            let found = model_text_found(d.rm, &key);
+            let found = model_text_found(d.rm, &key, layer);
             if let Some(found) = &found {
                 d.learn(layer, key, Facts { text: Some(found.clone()), ..Facts::default() });
             }
@@ -1955,14 +1967,15 @@ fn model_text(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
 
 /// [`model_text`]'s findings of a model: `Some(None)` for a compiled one,
 /// `None` for one that can't be read.
-fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
+fn model_text_found(rm: &ResMan, key: &ResKey, layer: usize) -> Option<Option<Vec<Noted>>> {
     const WARNINGS: usize = 5;
     // (Told by its first bytes: the haks' compiled models are gigabytes.)
-    let start = rm.get_start(key, 12).ok()?;
+    let container = &rm.layers()[layer].container;
+    let start = container.read_start(key, 12).ok()?;
     if mg_mdl::is_binary(&start) {
         return Some(None);
     }
-    let data = rm.get(key).ok()?;
+    let data = container.read(key).ok()?;
     let text = String::from_utf8_lossy(&data);
     let mut warnings = 0;
     let mut out = Vec::new();
@@ -1998,8 +2011,8 @@ fn model_text_found(rm: &ResMan, key: &ResKey) -> Option<Option<Vec<Noted>>> {
 /// (`null` names none), which the game draws without (a builder's report:
 /// a hak's 149 materials named textures a build step had renamed, and
 /// Verify said nothing).
-fn material(d: &mut Doctor, source: &str, key: ResKey) {
-    let Ok(data) = d.rm.get(&key) else { return };
+fn material(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
+    let Ok(data) = d.rm.layers()[layer].container.read(&key) else { return };
     let mtr = mg_image::mtr::Mtr::parse(&data);
     let held = |t: &str| {
         mg_core::ResRef::cut(t).is_some_and(|r| {
@@ -2839,11 +2852,13 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         );
     }
     let base = below.last().map(|(_, _, t)| t);
+    let base_cols: Option<Vec<Option<usize>>> =
+        base.map(|b| table.columns().iter().map(|c| b.column(c)).collect());
     let changed = |row: usize| -> bool {
-        let Some(base) = base else { return true };
-        let mine: Vec<Option<&str>> = table.columns().iter().map(|c| table.get(row, c)).collect();
-        let theirs: Vec<Option<&str>> = table.columns().iter().map(|c| base.get(row, c)).collect();
-        row >= base.len() || mine != theirs
+        let (Some(b), Some(cols)) = (base, base_cols.as_deref()) else { return true };
+        row >= b.len()
+            || (0..table.columns().len())
+                .any(|c| table.cell(row, c) != cols[c].and_then(|bc| b.cell(row, bc)))
     };
     // What its columns hold: its own, and those it has as a table that a
     // class, a race, a package or an item property names (by that column,
@@ -2862,6 +2877,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         cell_faults(&name, &table, &kinds, Some(&others), tlk)
     };
     // (Of the rows it adds or changes alone.)
+    let mut game_copies: HashMap<String, Option<TwoDa>> = HashMap::new();
     for f in found.into_iter().filter(|f| changed(f.row)) {
         let at = format!("row {}, {}", f.row, f.label);
         match f.kind {
@@ -2874,10 +2890,19 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
                 // own tables too, is the game's: appearance's
                 // FOOTSTEPTYPE 30.)
                 let kept = base.is_some_and(|b| b.get(f.row, f.label) == table.get(f.row, f.label));
-                let the_game_s = |(target, named): (&str, usize)| {
-                    game_copy(rm, target).is_some_and(|g| row_fault(&g, target, named).is_some())
-                };
-                if kept && f.names.is_some_and(the_game_s) {
+                if kept
+                    && let Some((target, named)) = f.names
+                    && {
+                        let g = match game_copies.get(target) {
+                            Some(g) => g.as_ref(),
+                            None => game_copies
+                                .entry(target.to_string())
+                                .or_insert_with(|| game_copy(rm, target))
+                                .as_ref(),
+                        };
+                        g.is_some_and(|g| row_fault(g, target, named).is_some())
+                    }
+                {
                     continue;
                 }
                 d.push(Warning, Check::TwoDaRef, source, key, at, f.message);
@@ -3307,6 +3332,7 @@ struct OfOne {
 #[derive(Default)]
 struct KeptOnce<'a> {
     tables: HashMap<String, Option<std::sync::Arc<TwoDa>>>,
+    models: HashMap<ResKey, Option<String>>,
     replaced: HashMap<String, bool>,
     choices: HashMap<String, crate::var_desc::Choices>,
     lookup: Option<crate::var_desc::ModuleLookup<'a>>,
@@ -3387,6 +3413,7 @@ fn resources_once(
             took[Once::ALL.len()] = reading.elapsed();
             let mut w = beside.beside();
             w.tables = std::mem::take(&mut kept.tables);
+            w.models = std::mem::take(&mut kept.models);
             // (Timed where it runs.)
             let mut run = |o: Once, check: &mut dyn FnMut()| {
                 if asked(o, t) {
@@ -3433,6 +3460,7 @@ fn resources_once(
             });
             run(Once::Read, &mut || variables_read(&mut w, module, key, &gff, variables, reads));
             kept.tables = std::mem::take(&mut w.tables);
+            kept.models = std::mem::take(&mut w.models);
             Some(OfOne { key, first, after: w.out, unlisted, tags, learned: w.learned, took })
         })
         .collect();
@@ -4825,6 +4853,7 @@ mod tests {
             out: Vec::new(),
             tables: HashMap::new(),
             tables_read: TablesRead::default(),
+            models: HashMap::new(),
             models_read: ModelsRead::default(),
         };
         let (mut one, mut two) = (d.beside(), d.beside());

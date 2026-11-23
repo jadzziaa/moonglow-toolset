@@ -788,17 +788,45 @@ impl Workspace {
         // tries it again.)
         let bytes =
             gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-        let holds = |data: &[u8]| data == &bytes[..] || Gff::read(data).is_ok_and(|g| g == *gff);
-        if let Some(saved) = self.saved.get(key).filter(|d| holds(d)) {
-            if self.module.get(key) != Some(saved) {
-                let saved = saved.to_vec();
-                self.module.set(*key, saved);
+        let saved = self.saved.shared(key);
+        let matches_saved = match saved {
+            Some(s) if &s[..] == &bytes[..] => true,
+            Some(_) => self.parsed_saved(key).is_some_and(|parsed| *parsed == *gff),
+            None => false,
+        };
+        if matches_saved {
+            let saved = saved.expect("matched above");
+            let current = self.module.shared(key);
+            if !current.is_some_and(|c| std::sync::Arc::ptr_eq(c, saved) || &c[..] == &saved[..]) {
+                self.module.set(*key, saved.to_vec());
             }
-        } else if !self.module.get(key).is_some_and(holds) {
-            self.module.set(*key, bytes);
+        } else {
+            match self.module.shared(key) {
+                Some(cur) if &cur[..] == &bytes[..] => {}
+                Some(cur) if saved.is_some_and(|s| std::sync::Arc::ptr_eq(cur, s)) => {
+                    self.module.set(*key, bytes);
+                }
+                Some(cur) if Gff::read(cur).is_ok_and(|g| g == *gff) => {}
+                _ => {
+                    self.module.set(*key, bytes);
+                }
+            }
         }
         self.edited.remove(key);
         Ok(())
+    }
+
+    fn parsed_saved(&self, key: &ResKey) -> Option<std::sync::Arc<Gff>> {
+        let saved = self.saved.shared(key)?;
+        let Ok(mut read) = self.saved_read.lock() else { return None };
+        match read.get(key) {
+            Some((was, g)) if std::sync::Arc::ptr_eq(was, saved) => Some(g.clone()),
+            _ => {
+                let g = std::sync::Arc::new(Gff::read(saved).ok()?);
+                read.insert(*key, (saved.clone(), g.clone()));
+                Some(g)
+            }
+        }
     }
 
     /// Whether resource `key` differs from the module as opened or last
@@ -819,20 +847,11 @@ impl Workspace {
         if let Some(differs) = self.differs_from_saved_at_once(key) {
             return differs;
         }
-        let (Some(gff), Some(saved)) = (self.docs.get(key), self.saved.shared(key)) else {
+        let Some(gff) = self.docs.get(key) else {
             return true;
         };
-        let Ok(mut read) = self.saved_read.lock() else { return true };
-        let parsed = match read.get(key) {
-            Some((was, g)) if std::sync::Arc::ptr_eq(was, saved) => g.clone(),
-            _ => match Gff::read(saved) {
-                Ok(g) => {
-                    let g = std::sync::Arc::new(g);
-                    read.insert(*key, (saved.clone(), g.clone()));
-                    g
-                }
-                Err(_) => return true,
-            },
+        let Some(parsed) = self.parsed_saved(key) else {
+            return true;
         };
         *parsed != *gff
     }

@@ -5728,10 +5728,7 @@ fn verify(
     // (The scripts the game's tables run, as the module sees them, count
     // as used, and what the module reaches in its haks and the game names.)
     let unused = match &references {
-        Some(references) => {
-            let also = mg_module::verify::also_used(&m, references, &rm);
-            mg_module::verify::unused_of(&m, references, &also)
-        }
+        Some(references) => mg_module::verify::unused_in(&m, references, &rm),
         None => Vec::new(),
     };
     let read_tlk = |data: Vec<u8>| mg_tlk::Tlk::read(&data).ok();

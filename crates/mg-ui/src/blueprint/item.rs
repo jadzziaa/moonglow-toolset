@@ -1061,7 +1061,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let (mut chosen, mut chosen_sub, mut selected): (Option<u16>, Option<u16>, Option<usize>) =
         ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
     selected = selected.filter(|&i| i < assigned.len());
-    let available = game.available_properties(base);
+    let available = game.available_property_list(base);
     let mut add: Option<(PropertyType, Option<u16>)> = None;
     let (mut remove, mut give) = (None, None);
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
@@ -1085,7 +1085,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 |ui| {
                     mg_uikit::list_rows(ui);
                     let mut found = 0;
-                    for t in &available {
+                    for t in &*available {
                         // A kind's choices by name, as Aurora's tree has
                         // them (Specific Alignment's Chaotic Evil first,
                         // where its table begins with Lawful Good).
@@ -1247,7 +1247,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
 /// `property`.
 fn takes(game: &GameData, t: &lists::Target, property: u16) -> bool {
     let base = t.at.integer("BaseItem").unwrap_or(0).max(0) as u32;
-    game.available_properties(base).iter().any(|a| a.row == property)
+    game.available_property_list(base).iter().any(|a| a.row == property)
 }
 
 /// An assigned property's parameters (Aurora's Select Property

@@ -733,10 +733,24 @@ impl Module {
         // Whether a resource's file (under its own name) is already the
         // module's, where it was read here: not read again to be written.
         let mut on_disk: std::collections::HashMap<ResKey, bool> = Default::default();
+        let now_time = std::time::SystemTime::now();
+        let mut reuse_stamps: std::collections::HashMap<ResKey, outside::Stamp> =
+            Default::default();
         if let Some(known) = known {
             for (k, v) in &self.resources {
                 match (known.as_read(k), known.path(k)) {
                     (Some(read), Some(path)) => {
+                        if let Some(st) = known.settled_stamp_matches(path) {
+                            if k.path_in(dir).is_ok_and(|own| own == path) {
+                                let eq_v = known.as_read_arc(k).is_some_and(|r| Arc::ptr_eq(r, v))
+                                    || read == &v[..];
+                                on_disk.insert(*k, eq_v);
+                                if eq_v {
+                                    reuse_stamps.insert(*k, st);
+                                }
+                            }
+                            continue;
+                        }
                         let now = disk(path);
                         if k.path_in(dir).is_ok_and(|own| own == path) {
                             on_disk.insert(*k, now.as_deref() == Some(&v[..]));
@@ -819,8 +833,10 @@ impl Module {
         for (k, v) in &self.resources {
             if left.contains(k) {
                 // (As it was read: still to be taken.)
-                if let Some((known, path)) = known.and_then(|f| Some((f.as_read(k)?, f.path(k)?))) {
-                    files.note_as(*k, path.to_path_buf(), Arc::from(known));
+                if let Some((known, path)) =
+                    known.and_then(|f| Some((f.as_read_arc(k)?, f.path(k)?)))
+                {
+                    files.note_as(*k, path.to_path_buf(), known.clone());
                 }
                 continue;
             }
@@ -833,8 +849,12 @@ impl Module {
             };
             if !same {
                 write_replacing_one_of_many(&p, &v[..]).map_err(io(&p))?;
+                files.note(*k, p, v.clone());
+            } else if let Some(st) = reuse_stamps.remove(k) {
+                files.note_stamped(*k, p, v.clone(), Some(st), now_time);
+            } else {
+                files.note(*k, p, v.clone());
             }
-            files.note(*k, p, v.clone());
         }
         Ok(files)
     }

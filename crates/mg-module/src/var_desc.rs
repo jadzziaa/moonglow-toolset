@@ -51,7 +51,10 @@
 //! require = "tdod_store"
 //! ```
 
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use mg_2da::TwoDa;
 use mg_core::{Codepage, ResRef, ResType};
@@ -261,6 +264,14 @@ impl PartialEq for Described {
 pub trait Lookup {
     fn script(&self, name: &str) -> Option<Vec<u8>>;
     fn table(&self, name: &str) -> Option<TwoDa>;
+
+    fn script_shared(&self, name: &str) -> Option<Arc<[u8]>> {
+        self.script(name).map(Arc::from)
+    }
+
+    fn table_shared(&self, name: &str) -> Option<Arc<TwoDa>> {
+        self.table(name).map(Arc::new)
+    }
 }
 
 /// A description's values, as [`Described::choices`] reads them.
@@ -392,24 +403,25 @@ impl Described {
     /// table's rows.
     pub fn choices(&self, lookup: &dyn Lookup) -> Choices {
         let mut c = Choices { list: self.values.clone(), ..Default::default() };
+        let mut seen: HashSet<String> = c.list.iter().map(|x| x.value.clone()).collect();
         match &self.source {
             None => {}
-            Some(Source::Constants { script, prefix }) => match lookup.script(script) {
+            Some(Source::Constants { script, prefix }) => match lookup.script_shared(script) {
                 None => c.problem = Some(format!("the script {script} was not found")),
                 Some(source) => {
                     let text = self.var_type == Some(VarType::String);
-                    let script = |name: &str| lookup.script(name);
+                    let script = |name: &str| lookup.script_shared(name);
                     let (found, _) =
                         crate::table_desc::constants_in(&source, prefix, text, &script);
                     for e in found {
                         let crate::table_desc::Entry { name, value } = e;
-                        if !c.list.iter().any(|x| x.value == value) {
+                        if seen.insert(value.clone()) {
                             c.list.push(Choice { value, note: Some(name) });
                         }
                     }
                 }
             },
-            Some(Source::Rows { table, column }) => match lookup.table(table) {
+            Some(Source::Rows { table, column }) => match lookup.table_shared(table) {
                 None => c.problem = Some(format!("the table {table}.2da was not found")),
                 Some(t) => {
                     let label = column.clone().or_else(|| {
@@ -430,23 +442,26 @@ impl Described {
                                  column's cells (column = \"…\")"
                             ));
                         }
-                        Some(col) if !t.columns().iter().any(|x| x.eq_ignore_ascii_case(col)) => {
-                            c.problem = Some(format!("{table}.2da has no column {col}"));
-                        }
-                        Some(col) => {
-                            for row in 0..t.len() {
-                                if let Some(v) = t.get(row, col)
-                                    && !c.list.iter().any(|x| x.value == v)
-                                {
-                                    let note = Some(format!("row {row}"));
-                                    c.list.push(Choice { value: v.to_string(), note });
+                        Some(col) => match t.column(col) {
+                            None => {
+                                c.problem = Some(format!("{table}.2da has no column {col}"));
+                            }
+                            Some(col_idx) => {
+                                for row in 0..t.len() {
+                                    if let Some(v) = t.cell(row, col_idx)
+                                        && seen.insert(v.to_string())
+                                    {
+                                        let note = Some(format!("row {row}"));
+                                        c.list.push(Choice { value: v.to_string(), note });
+                                    }
                                 }
                             }
-                        }
+                        },
                         None => {
                             c.rows = Some(t.len());
+                            let label_idx = label.as_deref().and_then(|l| t.column(l));
                             for row in 0..t.len() {
-                                let note = label.as_deref().and_then(|l| t.get(row, l));
+                                let note = label_idx.and_then(|idx| t.cell(row, idx));
                                 if let Some(note) = note {
                                     c.list.push(Choice {
                                         value: row.to_string(),
@@ -1260,6 +1275,8 @@ pub struct ModuleLookup<'a> {
     pub module: &'a Module,
     pub resman: Option<&'a ResMan>,
     files: Option<crate::table_desc::Beside>,
+    scripts: RefCell<HashMap<String, Option<Arc<[u8]>>>>,
+    tables: RefCell<HashMap<String, Option<Arc<TwoDa>>>>,
 }
 
 impl std::fmt::Debug for ModuleLookup<'_> {
@@ -1272,27 +1289,57 @@ impl<'a> ModuleLookup<'a> {
     pub fn new(module: &'a Module, resman: Option<&'a ResMan>) -> ModuleLookup<'a> {
         let root = module.location.as_ref().and_then(crate::project_file::ProjectFile::root_of);
         let files = root.map(crate::table_desc::Beside::of);
-        ModuleLookup { module, resman, files }
+        ModuleLookup {
+            module,
+            resman,
+            files,
+            scripts: RefCell::new(HashMap::new()),
+            tables: RefCell::new(HashMap::new()),
+        }
     }
 
-    fn get(&self, name: &str, t: ResType) -> Option<Vec<u8>> {
+    fn get_shared(&self, name: &str, t: ResType) -> Option<Arc<[u8]>> {
         let key = ResKey::new(ResRef::from_str(name).ok()?, t);
-        if let Some(b) = self.module.get(&key) {
-            return Some(b.to_vec());
+        if let Some(b) = self.module.shared(&key) {
+            return Some(b.clone());
         }
-        self.resman?.get(&key).ok().map(|b| b.into_owned())
+        self.resman?.get(&key).ok().map(|b| Arc::from(b.as_ref()))
     }
 }
 
 impl Lookup for ModuleLookup<'_> {
     fn script(&self, name: &str) -> Option<Vec<u8>> {
-        let own = self.files.as_ref().and_then(|f| f.script(name));
-        own.or_else(|| self.get(name, ResType::NSS))
+        self.script_shared(name).map(|b| b.to_vec())
     }
 
     fn table(&self, name: &str) -> Option<TwoDa> {
+        self.table_shared(name).map(|t| (*t).clone())
+    }
+
+    fn script_shared(&self, name: &str) -> Option<Arc<[u8]>> {
+        let k = name.trim().to_ascii_lowercase();
+        if let Some(cached) = self.scripts.borrow().get(&k) {
+            return cached.clone();
+        }
+        let own = self.files.as_ref().and_then(|f| f.script(name)).map(Arc::from);
+        let found = own.or_else(|| self.get_shared(name, ResType::NSS));
+        self.scripts.borrow_mut().insert(k, found.clone());
+        found
+    }
+
+    fn table_shared(&self, name: &str) -> Option<Arc<TwoDa>> {
+        let k = name.trim().to_ascii_lowercase();
+        if let Some(cached) = self.tables.borrow().get(&k) {
+            return cached.clone();
+        }
         let own = self.files.as_ref().and_then(|f| f.table(name, Codepage::default()));
-        own.or_else(|| TwoDa::parse(&self.get(name, ResType::TWODA)?, Codepage::default()).ok())
+        let found = own
+            .or_else(|| {
+                TwoDa::parse(&self.get_shared(name, ResType::TWODA)?, Codepage::default()).ok()
+            })
+            .map(Arc::new);
+        self.tables.borrow_mut().insert(k, found.clone());
+        found
     }
 }
 

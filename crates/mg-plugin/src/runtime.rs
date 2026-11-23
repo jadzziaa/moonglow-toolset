@@ -1548,11 +1548,13 @@ fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
 /// `described()`, every description, in the file's order.
 fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     use mg_module::var_desc::{Described, ModuleLookup};
-    fn table(lua: &Lua, sh: &Shared, d: &Described) -> mlua::Result<Table> {
-        let ws = sh.ws.borrow();
-        let module = &ws.module;
-        let lookup = ModuleLookup::new(module, sh.game.as_deref().map(|g| &g.resman));
-        let choices = d.choices(&lookup);
+    fn table(
+        lua: &Lua,
+        module: &mg_module::Module,
+        lookup: &ModuleLookup<'_>,
+        d: &Described,
+    ) -> mlua::Result<Table> {
+        let choices = d.choices(lookup);
         let t = lua.create_table()?;
         t.set("name", d.name.as_str())?;
         t.set("pattern", d.is_pattern())?;
@@ -1585,16 +1587,27 @@ fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     api.set(
         "describe",
         lua.create_function(move |lua, name: String| {
-            let d = s.ws.borrow().module.project_file.variables.describe(&name).cloned();
-            d.map(|d| table(lua, &s, &d)).transpose()
+            let ws = s.ws.borrow();
+            let Some(d) = ws.module.project_file.variables.describe(&name) else {
+                return Ok(None);
+            };
+            let lookup = ModuleLookup::new(&ws.module, s.game.as_deref().map(|g| &g.resman));
+            table(lua, &ws.module, &lookup, d).map(Some)
         })?,
     )?;
     let s = sh.clone();
     api.set(
         "described",
         lua.create_function(move |lua, ()| {
-            let all = s.ws.borrow().module.project_file.variables.described.clone();
-            all.iter().map(|d| table(lua, &s, d)).collect::<mlua::Result<Vec<_>>>()
+            let ws = s.ws.borrow();
+            let lookup = ModuleLookup::new(&ws.module, s.game.as_deref().map(|g| &g.resman));
+            ws.module
+                .project_file
+                .variables
+                .described
+                .iter()
+                .map(|d| table(lua, &ws.module, &lookup, d))
+                .collect::<mlua::Result<Vec<_>>>()
         })?,
     )?;
     Ok(api)

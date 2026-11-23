@@ -89,15 +89,28 @@ pub fn attach_on(
     findings: Vec<Finding>,
     plugins: &[Found],
 ) -> Vec<Found> {
+    let mut by_key: HashMap<(&str, ResKey, &str), Vec<usize>> = HashMap::new();
+    for (i, p) in plugins.iter().enumerate() {
+        if p.fix.is_some() {
+            by_key
+                .entry((p.finding.check.as_ref(), p.finding.resource, p.finding.at.as_str()))
+                .or_default()
+                .push(i);
+        }
+    }
     let mut used = vec![false; plugins.len()];
     let mut seen = Seen { rm, ..Seen::default() };
     findings
         .into_iter()
         .map(|finding| {
-            let theirs = plugins
-                .iter()
-                .enumerate()
-                .find(|(i, p)| !used[*i] && p.fix.is_some() && p.finding == finding);
+            let key = (finding.check.as_ref(), finding.resource, finding.at.as_str());
+            let theirs = by_key.get(&key).and_then(|indices| {
+                indices
+                    .iter()
+                    .copied()
+                    .find(|&i| !used[i] && plugins[i].finding == finding)
+                    .map(|i| (i, &plugins[i]))
+            });
             let fix = match theirs {
                 Some((i, p)) => {
                     used[i] = true;
@@ -135,6 +148,17 @@ struct Seen<'a> {
     /// `transition-hidden`'s findings of the order made fixes of with no
     /// ground, by place.
     ordered: HashMap<(ResKey, String), usize>,
+    /// Parsed GFFs reused across findings on the same resource.
+    gffs: HashMap<ResKey, Option<mg_gff::Gff>>,
+    /// Duplicate tags indexed by `(first resource, described places)` for O(1) lookup.
+    dups_whole: Option<HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)>>,
+    dups_areas: Option<HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)>>,
+}
+
+impl Seen<'_> {
+    fn gff(&mut self, module: &Module, key: ResKey) -> Option<&mg_gff::Gff> {
+        self.gffs.entry(key).or_insert_with(|| module.gff(&key).and_then(Result::ok)).as_ref()
+    }
 }
 
 fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen<'_>) -> Option<Fix> {
@@ -145,13 +169,10 @@ fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen<'_>) -> Option<
     let nth = *said;
     *said += 1;
     match f.check.as_ref() {
-        "tag-unique" => {
-            let index = seen.tags.get_or_insert_with(|| TagIndex::of_module(module));
-            retag_fix(index, f)
-        }
-        "area-variables" => move_variables_fix(module, f.resource),
-        "var-runtime" => remove_variable_fix(module, f, nth),
-        "static-transform" => untransform_fix(module, f, nth),
+        "tag-unique" => retag_fix(module, seen, f),
+        "area-variables" => move_variables_fix(module, seen, f.resource),
+        "var-runtime" => remove_variable_fix(module, seen, f, nth),
+        "static-transform" => untransform_fix(module, seen, f, nth),
         "transition-hidden" => outline_fix(module, f, nth, seen),
         _ => None,
     }
@@ -168,11 +189,16 @@ pub const TAKE_TRANSFORM_OFF: &str = "Take the transform off";
 
 /// `var-runtime`: the variable out of its `VarTable` (the `nth` of those
 /// the finding's place names, as the doctor found them).
-fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
-    let gff = module.gff(&f.resource)?.ok()?;
-    let found = mg_module::var_desc::variables_of(f.resource, &gff).into_iter().filter(|v| {
+fn remove_variable_fix(
+    module: &Module,
+    seen: &mut Seen<'_>,
+    f: &Finding,
+    nth: usize,
+) -> Option<Fix> {
+    let gff = seen.gff(module, f.resource)?;
+    let found = mg_module::var_desc::variables_of(f.resource, gff).into_iter().filter(|v| {
         let table = mg_module::var_desc::table_path(&v.path);
-        let place = mg_module::rename::describe(f.resource, Some(&gff), &table);
+        let place = mg_module::rename::describe(f.resource, Some(gff), &table);
         format!("{place} › {}", v.name) == f.at
     });
     let v = found.into_iter().nth(nth)?;
@@ -184,16 +210,16 @@ fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> 
 /// ticking Static takes it off ([`mg_module::areas::static_fields`]): the
 /// `nth` of those the finding's place names (placeables of one tag are
 /// said alike).
-fn untransform_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
+fn untransform_fix(module: &Module, seen: &mut Seen<'_>, f: &Finding, nth: usize) -> Option<Fix> {
     if f.resource.restype != ResType::GIT {
         return None;
     }
-    let gff = module.gff(&f.resource)?.ok()?;
+    let gff = seen.gff(module, f.resource)?;
     let list = gff.root.list("Placeable List")?;
     let at = (0..list.len())
         .filter(|i| {
             let path = GffPath::root().item("Placeable List", *i).field("Static");
-            mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
+            mg_module::rename::describe(f.resource, Some(gff), &path) == f.at
         })
         .nth(nth)?;
     let path = GffPath::root().item("Placeable List", at);
@@ -236,12 +262,12 @@ fn outline_fix(module: &Module, f: &Finding, nth: usize, seen: &mut Seen<'_>) ->
         }
         None => return None,
     };
-    let gff = module.gff(&f.resource)?.ok()?;
+    let gff = seen.gff(module, f.resource)?;
     let list = gff.root.list("TriggerList")?;
     let at = (0..list.len())
         .filter(|&i| {
             let path = GffPath::root().item("TriggerList", i).field("Geometry");
-            mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
+            mg_module::rename::describe(f.resource, Some(gff), &path) == f.at
                 && list[i].integer("Type") == Some(1)
                 && mg_module::doctor::hidden_transition(&list[i], ground.as_ref()).is_some()
         })
@@ -262,19 +288,37 @@ fn outline_fix(module: &Module, f: &Finding, nth: usize, seen: &mut Seen<'_>) ->
     (!edits.is_empty()).then(|| Fix { label: PUT_OUTLINE_RIGHT.into(), edits, asks: None })
 }
 
+fn index_duplicates<'a, T: AsRef<[Tagged]>>(
+    list: Vec<(&'a [u8], T)>,
+) -> HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)> {
+    let mut map = HashMap::with_capacity(list.len());
+    for (tag, places) in list {
+        let places = places.as_ref();
+        let Some(first) = places.first() else { continue };
+        let at = places.iter().map(|p| p.describe()).collect::<Vec<_>>().join(", ");
+        map.entry((first.key(), at)).or_insert_with(|| (tag.to_vec(), places.to_vec()));
+    }
+    map
+}
+
 /// `tag-unique`: the places of the tag the finding is about (found as the
 /// doctor found them: its first place is the finding's resource, and `at`
 /// lists them all: the module's, or of one area where the project wants
 /// the tag unique in each), each but one given a tag of its own.
-fn retag_fix(index: &TagIndex, f: &Finding) -> Option<Fix> {
-    let said = |places: &[Tagged]| {
-        places[0].key() == f.resource
-            && places.iter().map(|p| p.describe()).collect::<Vec<_>>().join(", ") == f.at
-    };
-    let whole = index.duplicates().into_iter().find(|(_, places)| said(places));
+fn retag_fix(module: &Module, seen: &mut Seen<'_>, f: &Finding) -> Option<Fix> {
+    let index = seen.tags.get_or_insert_with(|| TagIndex::of_module(module));
+    let key = (f.resource, f.at.clone());
+    let whole =
+        seen.dups_whole.get_or_insert_with(|| index_duplicates(index.duplicates())).get(&key);
     let (tag, places): (&[u8], Vec<Tagged>) = match whole {
-        Some((tag, places)) => (tag, places.to_vec()),
-        None => index.duplicates_in_areas().into_iter().find(|(_, places)| said(places))?,
+        Some((tag, places)) => (tag, places.clone()),
+        None => {
+            let areas = seen
+                .dups_areas
+                .get_or_insert_with(|| index_duplicates(index.duplicates_in_areas()));
+            let (tag, places) = areas.get(&key)?;
+            (tag, places.clone())
+        }
     };
     // (Tags are written as bytes: one that is not plain text is left to
     // the builder.)
@@ -324,19 +368,18 @@ pub fn variables_moved(git: &[Struct], are: &[Struct]) -> Vec<Struct> {
 
 /// `area-variables`: the area's variables into its GIT, and none left in
 /// its ARE.
-fn move_variables_fix(module: &Module, are: ResKey) -> Option<Fix> {
+fn move_variables_fix(module: &Module, seen: &mut Seen<'_>, are: ResKey) -> Option<Fix> {
     if are.restype != ResType::ARE {
         return None;
     }
     let git = ResKey::new(are.resref, ResType::GIT);
-    let list = |key: &ResKey| -> Option<Vec<Struct>> {
-        let gff = module.gff(key)?.ok()?;
-        Some(gff.root.list("VarTable").map(<[_]>::to_vec).unwrap_or_default())
-    };
-    let (in_are, in_git) = (list(&are)?, list(&git)?);
+    let in_are =
+        seen.gff(module, are)?.root.list("VarTable").map(<[_]>::to_vec).unwrap_or_default();
     if in_are.is_empty() {
         return None;
     }
+    let in_git =
+        seen.gff(module, git)?.root.list("VarTable").map(<[_]>::to_vec).unwrap_or_default();
     let set = |key: ResKey, value: Option<Value>| Edit::SetField {
         key,
         path: GffPath::root(),
