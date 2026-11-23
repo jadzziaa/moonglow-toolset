@@ -540,33 +540,35 @@ fn level_row(ui: &mut Ui, level: &mut Option<usize>) {
 const SPELL_LEVEL_COL_W: f32 = 44.0;
 const SPELL_CAST_COL_W: f32 = 54.0;
 
-fn filtered_spell_indices(
-    ctx: &egui::Context,
+struct SpellFilter<'a> {
     cache_id: egui::Id,
     load_order: u64,
-    game: &GameData,
-    spells: &Arc<Vec<(usize, String, usize)>>,
+    game: &'a GameData,
+    spells: &'a Arc<Vec<(usize, String, usize)>>,
     level: Option<usize>,
-    needle: &mg_core::text::Needle,
+    needle: &'a mg_core::text::Needle,
     category: Option<i32>,
-) -> Arc<Vec<usize>> {
+}
+
+fn filtered_spell_indices(ctx: &egui::Context, f: &SpellFilter<'_>) -> Arc<Vec<usize>> {
     super::kept_for(
         ctx,
-        cache_id,
-        spells,
-        &(load_order, level, needle.as_str().to_owned(), category),
+        f.cache_id,
+        f.spells,
+        &(f.load_order, f.level, f.needle.as_str().to_owned(), f.category),
         || {
-            let innate = game.table("spells").ok();
+            let innate = f.game.table("spells").ok();
             let in_category = |row: usize| {
-                category.is_none_or(|c| {
+                f.category.is_none_or(|c| {
                     innate.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c)
                 })
             };
-            let out: Vec<usize> = spells
+            let out: Vec<usize> = f
+                .spells
                 .iter()
                 .enumerate()
                 .filter(|(_, (row, name, l))| {
-                    level.is_none_or(|x| x == *l) && needle.finds(name) && in_category(*row)
+                    f.level.is_none_or(|x| x == *l) && f.needle.finds(name) && in_category(*row)
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -734,13 +736,15 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         .inner;
     let shown = filtered_spell_indices(
         ui.ctx(),
-        id.with(("spells-shown", which)),
-        f.app.load_order,
-        game,
-        &spells,
-        level,
-        &needle,
-        category,
+        &SpellFilter {
+            cache_id: id.with(("spells-shown", which)),
+            load_order: f.app.load_order,
+            game,
+            spells: &spells,
+            level,
+            needle: &needle,
+            category,
+        },
     );
     let path = base.item("ClassList", index);
     // What the page changes: (what, edits), one command.
@@ -749,10 +753,10 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         std::collections::HashMap::new();
     for (l, list) in lists.iter().enumerate() {
         for (i, s) in list.iter().enumerate() {
-            if !prepares || s.integer("SpellMetaMagic").unwrap_or(0) == i64::from(metamagic) {
-                if let Some(spell) = s.integer("Spell").and_then(|v| usize::try_from(v).ok()) {
-                    present_map.entry((l, spell)).or_default().push(i);
-                }
+            if (!prepares || s.integer("SpellMetaMagic").unwrap_or(0) == i64::from(metamagic))
+                && let Some(spell) = s.integer("Spell").and_then(|v| usize::try_from(v).ok())
+            {
+                present_map.entry((l, spell)).or_default().push(i);
             }
         }
     }
@@ -1167,13 +1171,15 @@ fn spells_together(f: &mut Form<'_>, ui: &mut Ui) {
         .inner;
     let shown = filtered_spell_indices(
         ui.ctx(),
-        id.with(("spells-together-shown", which)),
-        f.app.load_order,
-        game,
-        &spells,
-        level,
-        &needle,
-        category,
+        &SpellFilter {
+            cache_id: id.with(("spells-together-shown", which)),
+            load_order: f.app.load_order,
+            game,
+            spells: &spells,
+            level,
+            needle: &needle,
+            category,
+        },
     );
     let list_of = |l: usize| casters[0].slots.list(l);
     // How many entries of `k` a creature's list of level `l` has.

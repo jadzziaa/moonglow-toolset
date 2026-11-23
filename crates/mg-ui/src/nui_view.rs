@@ -1637,17 +1637,11 @@ fn header(
         };
         Item::custom(BUILD_STATE, built_width, add)
     });
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(crate::blueprint::OK_CANCEL_TIPS[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(crate::blueprint::OK_CANCEL_TIPS[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
     let mut header = EditorHeader::new(NUI_HEADER);
     if let Some(item) = built_item {
         header = header.right(item);
     }
-    let out = header
+    let header = header
         .more_after(EXPORT)
         .left(Item::custom(PAGE, switch_width, switch).more(switch_width, switch).primary())
         .left(Item::separator())
@@ -1686,21 +1680,9 @@ fn header(
         .right(
             Item::popover(None, view)
                 .tip("Layout, UI scale, state, zoom, resources, clean view and screen"),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::blueprint::OK_CANCEL_TIPS);
     (mode, scale, shown_state, screen) =
         (mode_c.get(), scale_c.get(), state_c.get(), screen_c.get());
     // (Interact turned on or off, Reset: a new simulation, from the start,
@@ -1819,10 +1801,9 @@ fn how_to_open(ui: &mut Ui, name: &str, state: &mut State) {
         });
     if let Some(footed) = &footed {
         if footed.pressed.main() {
-            ui.ctx().copy_text(code.clone());
+            ui.ctx().copy_text(code);
             state.how_to_open = false;
-        }
-        if footed.pressed.cancelled() {
+        } else if footed.pressed.cancelled() {
             state.how_to_open = false;
         }
     }

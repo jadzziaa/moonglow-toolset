@@ -40,22 +40,20 @@ pub(crate) struct ClaimsState {
     let_through: Vec<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
-    /// The Claims Table tab (Edit › Claims Table…; a window before U28).
+    /// The Claims Table tab.
     pub(crate) table: Option<TableTab>,
     /// Counted up as the listing is made again: the table's order follows.
     pub(crate) listed_revision: u64,
     /// The Claims Table's listing, kept while the claims, workspace
     /// `(identity, revision)`, and module's areas match ([`listing`]).
-    listed: Option<(
-        ClaimsNow,
-        Option<(u64, u64)>,
-        Vec<ResRef>,
-        std::sync::Arc<Vec<mg_module::claims::Listed>>,
-    )>,
+    listed: Option<ListedClaims>,
 }
 
-/// The Claims Table tab (M4's U28; a window before): what is being
-/// answered in it, and its table's sort and row chosen.
+type ListedClaims =
+    (ClaimsNow, Option<(u64, u64)>, Vec<ResRef>, std::sync::Arc<Vec<mg_module::claims::Listed>>);
+
+/// The Claims Table tab: what is being answered in it, and its table's sort
+/// and row chosen.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TableTab {
     /// An area being handed on, and the code typed for whom.

@@ -99,10 +99,9 @@ fn simplify_level(px: f32) -> u8 {
 /// `icon`'s strokes simplified to `level` ([`simplify_level`]), worked out
 /// once a size (the set is the program's own: a cache of it alone).
 fn simplified(icon: Icon, level: u8) -> std::rc::Rc<Vec<Painted>> {
+    type SimplifiedCache = std::collections::HashMap<(Icon, u8), std::rc::Rc<Vec<Painted>>>;
     thread_local! {
-        static CACHE: std::cell::RefCell<
-            std::collections::HashMap<(Icon, u8), std::rc::Rc<Vec<Painted>>>,
-        > = Default::default();
+        static CACHE: std::cell::RefCell<SimplifiedCache> = Default::default();
     }
     CACHE.with(|cache| {
         if let Some(found) = cache.borrow().get(&(icon, level)) {

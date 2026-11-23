@@ -1262,7 +1262,7 @@ pub(crate) fn panel(app: &mut Moonglow, ui: &mut egui::Ui, editor: Option<&crate
                 // (The kit's small cells, as many across as the panel is
                 // wide, 6 apart.)
                 let id = egui::Id::new(("tile-variants", props.area));
-                if let Some(p) = variant_pictures(app, ui, id, &variants, props.variant, side) {
+                if let Some(p) = variant_pictures(app, ui, id, variants, props.variant, side) {
                     picked = Some(p);
                 }
             }

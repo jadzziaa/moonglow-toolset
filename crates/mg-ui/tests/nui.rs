@@ -2831,7 +2831,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
     let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
     for scale in [1.0, 2.0] {
         let options = Options { scale, ..Default::default() };
-        let picture = render(&gpu, &window, &options).unwrap();
+        let picture = render(gpu, &window, &options).unwrap();
         let laid = layout(&window, &options).unwrap();
         assert_eq!(picture.layout, laid);
         let size = ((420.0 * scale) as u32, (300.0 * scale) as u32);
@@ -2860,10 +2860,10 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), picture.width);
     }
 
-    let plain = render(&gpu, &window, &Options::default()).unwrap();
+    let plain = render(gpu, &window, &Options::default()).unwrap();
     let o =
         Options { states: [(Some("cancel".to_owned()), Look::Hover)].into(), ..Default::default() };
-    let hovered = render(&gpu, &window, &o).unwrap();
+    let hovered = render(gpu, &window, &o).unwrap();
     assert_eq!(hovered.layout, layout(&window, &o).unwrap());
     let cancel =
         hovered.layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
@@ -2889,7 +2889,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
         states: [(Some("read".to_owned()), Look::Hover)].into(),
         ..Default::default()
     };
-    let picture = render(&gpu, &window, &o).unwrap();
+    let picture = render(gpu, &window, &o).unwrap();
     assert_eq!(picture.layout, layout(&window, &o).unwrap());
     let pixel = |x: f32, y: f32| {
         let i = ((y as u32 * picture.width + x as u32) * 4) as usize;
@@ -2909,7 +2909,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
     }
     // The variant: drawn as laid out too.
     let o = Options { variants: vec!["details".into()], states: Default::default(), ..o };
-    let picture = render(&gpu, &window, &o).unwrap();
+    let picture = render(gpu, &window, &o).unwrap();
     assert_eq!(picture.layout, layout(&window, &o).unwrap());
 }
 

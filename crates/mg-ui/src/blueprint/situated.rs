@@ -596,19 +596,18 @@ fn destinations_in(ws: &mg_edit::Workspace, game: Option<&mg_rules::GameData>) -
     let each = unread.len().div_ceil(threads).max(1);
     let of = &of;
     let read: Vec<Vec<Destination>> = std::thread::scope(|s| {
-        let readers: Vec<_> = (unread.chunks(each))
-            .map(|some| {
-                s.spawn(move || {
-                    let mut out = Vec::new();
-                    for (key, data) in some {
-                        if let Ok(g) = mg_gff::Gff::read(data) {
-                            out.extend(of(key, &g.root));
-                        }
+        let mut readers = Vec::new();
+        for some in unread.chunks(each) {
+            readers.push(s.spawn(move || {
+                let mut out = Vec::new();
+                for (key, data) in some {
+                    if let Ok(g) = mg_gff::Gff::read(data) {
+                        out.extend(of(key, &g.root));
                     }
-                    out
-                })
-            })
-            .collect();
+                }
+                out
+            }));
+        }
         readers.into_iter().map(|r| r.join().unwrap_or_default()).collect()
     });
     out.extend(read.into_iter().flatten());

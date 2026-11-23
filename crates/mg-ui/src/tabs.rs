@@ -233,9 +233,8 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
-            // (The canvas and the header whole: its Components, Properties
-            // and Bindings at its right and its Layers at its left are
-            // added where it opens in a window, M4's U18,
+            // (Room for the canvas and header: Components, Properties,
+            // Bindings, and Layers docks are added when opening a window in
             // `Moonglow::open_window`.)
             Tab::Nui(_) => (760.0, 792.0),
             // (Its source group alone in a window, dragged out of its
@@ -245,14 +244,13 @@ impl Tab {
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
-            // (The Talk board's list, its header whole beside it: M4's U17.)
+            // (The Talk board's list, its header whole beside it.)
             Tab::TalkTable => (980.0, 700.0),
             Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal => (780.0, 632.0),
             Tab::Gff(_) => (780.0, 600.0),
             // (Room for the page list's 150 points and a page's margins
-            // beside the form as wide as the 760 before it gave: the hak
-            // list's commands on one row; M4's U9.)
+            // beside the form: keeps the hak list's commands on one row.)
             Tab::ModuleProperties | Tab::AreaProperties(_) | Tab::AreasProperties(_) => {
                 (930.0, 612.0)
             }
@@ -279,20 +277,7 @@ impl Tab {
     /// style: [`FORMS_TALLER`] for a window that is mostly a form,
     /// [`ROWS_TALLER`] for one that is mostly rows.
     pub(crate) fn taller(&self) -> f32 {
-        match self {
-            Tab::ModuleProperties
-            | Tab::AreaProperties(_)
-            | Tab::AreasProperties(_)
-            | Tab::Options
-            | Tab::Blueprint(_)
-            | Tab::Blueprints(_)
-            | Tab::Instance { .. }
-            | Tab::Instances { .. }
-            | Tab::Factions
-            | Tab::AdvancedSearch
-            | Tab::PluginPanel { .. } => FORMS_TALLER,
-            _ => ROWS_TALLER,
-        }
+        Self::taller_of_kind(self.kind()).unwrap_or(ROWS_TALLER)
     }
 
     /// [`Tab::taller`] of the tabs whose [`Tab::kind`] is `kind`, as a
@@ -300,11 +285,10 @@ impl Tab {
     /// kind that never has a window of its own (an area, the Welcome
     /// page) or one this version does not know.
     pub(crate) fn taller_of_kind(kind: &str) -> Option<f32> {
-        const FORMS: [&str; 10] = [
+        const FORMS: [&str; 9] = [
             "module-properties",
             "area-properties",
             "options",
-            "tile-properties",
             "blueprint",
             "blueprints",
             "instance",

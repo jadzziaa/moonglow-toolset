@@ -320,14 +320,11 @@ pub(crate) enum Pressed {
     Cancel,
 }
 
-/// OK and Cancel under a window, as Aurora's has: OK closes it (what was
-/// changed is the module's already); Cancel sets back what the window
-/// changed since it was opened, as one step, and closes it
-/// ([`close_window`], once the page is drawn: a field typed in sets its
-/// text as the press takes the keyboard from it, and that is among what
-/// Cancel sets back). The game's blueprint, shown to look at, has Close
-/// alone. Drawn before the window's pages, of whose room it takes the
-/// foot.
+/// OK and Cancel footer strip used by the standalone GFF editor (`gff_view`);
+/// Properties windows use [`ok_cancel_header`] at the top instead. OK closes
+/// the window (changes are already in the module); Cancel reverts everything
+/// changed since opening as one undo step and closes it. Read-only blueprints
+/// show Close alone.
 pub(crate) fn ok_cancel(ui: &mut Ui, first: &(ResKey, GffPath), viewed: bool) -> Option<Pressed> {
     ok_cancel_saying(ui, egui::Id::new(first), viewed, OK_CANCEL_TIPS)
 }
@@ -381,11 +378,9 @@ pub(crate) struct Title<'t> {
     pub sub: &'t str,
 }
 
-/// [`ok_cancel_saying`]'s `in_header` form (the proposal's M4 Part 2,
-/// decision 4): the window's header row (`mg_uikit::header`, 30 px of
-/// `bar`) with its title at the left and OK and Cancel (Close alone where
-/// only looked at) in its end slot, at the right end; the same tips and
-/// the same [`Pressed`]. Drawn first, at the window's top.
+/// Header-bar variant of [`ok_cancel_saying`]: title on the left and OK/Cancel
+/// (or Close when read-only) on the right, with the same tips and [`Pressed`]
+/// result.
 pub(crate) fn ok_cancel_header(
     ui: &mut Ui,
     title: &Title<'_>,
@@ -425,8 +420,7 @@ fn ok_cancel_header_with(
         }
     }
     let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
-        + gap * (buttons.len() as f32 - 1.0).max(0.0);
+    let end_width = crate::widgets::buttons_end_width(ui, &buttons);
     // The title yields where the row is short (the style guide's
     // ellipsis): the resref first, then the name cut short, the icon kept;
     // its accessible name the whole of it.
@@ -1021,6 +1015,11 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
     mg_uikit::tokens(ui.ctx()).info
 }
 
+fn borrowed_label(ui: &mut Ui, from: &str, why: &str, color: egui::Color32) {
+    let text = egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
+    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+}
+
 impl Form<'_> {
     /// A table's rows as a dropdown's choices: each row's name (its StrRef
     /// column `name`), else its `label`. None without the game's data or
@@ -1555,11 +1554,40 @@ impl Form<'_> {
         self.locstring_then(ui, what, label, |_, _| {});
     }
 
+    fn finish_loc_edit(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        current: &mg_core::LocString,
+        shown: &str,
+        typed: Option<String>,
+    ) {
+        if let Some(v) = typed {
+            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
+        }
+        let held = current.clone();
+        self.hold_text(ui, what, label, shown, true, move |text| {
+            Value::LocString(with_edited_text(held.clone(), &text))
+        });
+    }
+
+    fn open_loc_edit_on_click(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        current: &mg_core::LocString,
+    ) {
+        if crate::widgets::languages_button(ui) {
+            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, current));
+        }
+    }
+
     /// A [`locstring`](Self::locstring) and `after` (a creature's Random
     /// Name) after its `…`. In a narrow form the text takes the field's
-    /// whole width, and whose it is ("StrRef 5763") stands on the row
-    /// under it with the buttons (the owner's ruling on U30's #1: a name
-    /// beside its strref in a 280 panel was cut to four letters).
+    /// whole width, and any external source badge ("StrRef 5763") moves onto
+    /// the row under it with the buttons so short panels do not clip names.
     pub(crate) fn locstring_then(
         &mut self,
         ui: &mut Ui,
@@ -1606,13 +1634,7 @@ impl Form<'_> {
                     typed
                 })
                 .inner;
-            if let Some(v) = typed {
-                self.set_typed(
-                    what,
-                    label,
-                    Value::LocString(with_edited_text(current.clone(), &v)),
-                );
-            }
+            self.finish_loc_edit(ui, what, label, &current, &shown, typed);
             if let Some((from, why, w)) = keys {
                 let h = ui.spacing().interact_size.y;
                 let field = egui::Rect::from_min_size(at, egui::vec2(width, h));
@@ -1625,17 +1647,9 @@ impl Form<'_> {
                         .max_rect(rect)
                         .layout(egui::Layout::right_to_left(egui::Align::Center)),
                 );
-                let text =
-                    egui::RichText::new(from).size(mg_uikit::metrics::SMALL_SIZE).color(color);
-                inside.add(egui::Label::new(text).selectable(false)).on_hover_text(why);
+                borrowed_label(&mut inside, &from, why, color);
             }
-            let held = current.clone();
-            self.hold_text(ui, what, label, &shown, true, move |text| {
-                Value::LocString(with_edited_text(held.clone(), &text))
-            });
-            if crate::widgets::languages_button(ui) {
-                self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-            }
+            self.open_loc_edit_on_click(ui, what, label, &current);
             after(self, ui);
         });
     }
@@ -1664,28 +1678,12 @@ impl Form<'_> {
                     crate::widgets::commit_loc_text(self.app, ui, id, &shown, false, width)
                 })
                 .inner;
-            if let Some(v) = typed {
-                self.set_typed(
-                    what,
-                    label,
-                    Value::LocString(with_edited_text(current.clone(), &v)),
-                );
-            }
-            let held = current.clone();
-            self.hold_text(ui, what, label, &shown, true, move |text| {
-                Value::LocString(with_edited_text(held.clone(), &text))
-            });
+            self.finish_loc_edit(ui, what, label, &current, &shown, typed);
             ui.horizontal_wrapped(|ui| {
                 if let Some((from, why)) = &borrowed {
-                    let text = egui::RichText::new(from.as_str())
-                        .size(mg_uikit::metrics::SMALL_SIZE)
-                        .color(color);
-                    ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                    borrowed_label(ui, from, why, color);
                 }
-                if crate::widgets::languages_button(ui) {
-                    let edit = LocStringEdit::new(self.target(label), what, &current);
-                    self.app.loc_edit = Some(edit);
-                }
+                self.open_loc_edit_on_click(ui, what, label, &current);
                 after(self, ui);
             });
         });
@@ -1723,13 +1721,8 @@ impl Form<'_> {
         let rows = Some(if in_panel_scroll { 3 } else { 6 });
         let id = self.id(label);
         let typed = crate::widgets::loc_text(self.app, ui, id, &current, rows, f32::INFINITY);
-        if let Some(v) = typed {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(current.clone(), &text))
-        });
+        self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
     /// [`locstring_memo`](Self::locstring_memo) as the Journal board's
@@ -1746,10 +1739,7 @@ impl Form<'_> {
         mg_uikit::form::section_heading_with(ui, what, Some(language), |ui| {
             languages = crate::widgets::languages_button(ui);
             if let Some((from, why)) = &borrowed {
-                let text = egui::RichText::new(from.as_str())
-                    .size(mg_uikit::metrics::SMALL_SIZE)
-                    .color(color);
-                ui.add(egui::Label::new(text).selectable(false)).on_hover_text(*why);
+                borrowed_label(ui, from, why, color);
             }
         });
         if languages {
@@ -1775,12 +1765,7 @@ impl Form<'_> {
                 )
             })
             .inner;
-        if let Some(v) = typed {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(current.clone(), &text))
-        });
+        self.finish_loc_edit(ui, what, label, &current, &shown, typed);
     }
 
     /// [`memo`](Self::memo) reaching down to `bottom` (the room its panel
@@ -1827,16 +1812,8 @@ impl Form<'_> {
         if let Some((from, why)) = &borrowed {
             field.response.on_hover_text(format!("{from}: {why}"));
         }
-        if let Some(v) = field.inner {
-            self.set_typed(what, label, Value::LocString(with_edited_text(current.clone(), &v)));
-        }
-        let held = current.clone();
-        self.hold_text(ui, what, label, &shown, true, move |text| {
-            Value::LocString(with_edited_text(held.clone(), &text))
-        });
-        if crate::widgets::languages_button(ui) {
-            self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
-        }
+        self.finish_loc_edit(ui, what, label, &current, &shown, field.inner);
+        self.open_loc_edit_on_click(ui, what, label, &current);
     }
 
     /// Sets several fields in one command.
@@ -3001,8 +2978,7 @@ pub(crate) fn edit_many(
     if popped_in {
         app.actions.push(Action::PopInProperties(tab.clone()));
     }
-    // (Every page, of several too: their lists are edited on each,
-    // `docs/lists-together-proposal.md`.)
+    // Multi-selection edits all targets' lists together.
     let pages: Vec<&str> =
         if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     let page_key = (key, path.clone());

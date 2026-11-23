@@ -902,19 +902,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, which: Which, s: &HeaderState) -> Ask
             ui.close();
         }
     };
-    let buttons: Vec<mg_uikit::KitButton> = match s.editable {
-        false => vec![mg_uikit::KitButton::new(None, "Close").tip("Close the window")],
-        true => {
-            let tips = crate::side_doc::OK_CANCEL_TIPS;
-            vec![
-                mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-                mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-            ]
-        }
-    };
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
-        + gap * (buttons.len().saturating_sub(1)) as f32;
+    let close_tip = (!s.editable).then_some("Close the window");
     let mut h = EditorHeader::new(TALK_HEADER)
         .more_words(true)
         .left(
@@ -986,20 +974,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, which: Which, s: &HeaderState) -> Ask
             },
         ));
     }
-    let out = h.show_with_end(ui, end_width, |ui| {
-        ui.spacing_mut().item_spacing.x = gap;
-        let mut pressed = None;
-        for b in buttons {
-            let words = b.accessible_name().to_string();
-            if ui.add(b).clicked() {
-                pressed = Some(match words.as_str() {
-                    "Cancel" => crate::blueprint::Pressed::Cancel,
-                    _ => crate::blueprint::Pressed::Ok,
-                });
-            }
-        }
-        pressed
-    });
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, h, close_tip, crate::side_doc::OK_CANCEL_TIPS);
     if let Some((_, v)) = parts(app, which) {
         v.filter = filter.into_inner();
         v.go_to = go_to.into_inner();
@@ -1190,7 +1166,7 @@ pub(crate) fn follow(app: &mut Moonglow, ctx: &egui::Context) {
     if app.game_talk.is_some() && app.dock.find_tab(&Tab::TalkTable).is_none() && !opening {
         app.game_talk = None;
     }
-    // (Another line chosen: the burst of typing ends, M4's U17 review.)
+    // Another line chosen: end any in-flight typing burst cleanly.
     if app.talk_view.seen_line != app.talk_view.selected {
         app.talk_view.seen_line = app.talk_view.selected;
         if let Some(t) = app.talk.as_mut() {
@@ -1348,15 +1324,14 @@ fn rows(t: &Table, v: &mut TalkView) -> Arc<Vec<usize>> {
                 }
             }
         } else {
-            let all = match &v.all_rows {
+            match &v.all_rows {
                 Some((len, rows)) if *len == t.len() => rows.clone(),
                 _ => {
                     let rows: Arc<Vec<usize>> = Arc::new((0..t.len()).collect());
                     v.all_rows = Some((t.len(), rows.clone()));
                     rows
                 }
-            };
-            all
+            }
         };
         v.shown = Some((mark, rows.clone()));
         return rows;

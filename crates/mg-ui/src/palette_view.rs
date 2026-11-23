@@ -2912,7 +2912,7 @@ impl Tree<'_> {
         // The plugins' commands for its kind, run on every blueprint of
         // the category (and those under it).
         let plugins = self.has_plugin_menu;
-        let kinds = self.plugin_kind.as_ref().map_or(&[][..], std::slice::from_ref);
+        let kinds = self.plugin_kind.as_slice();
         if !custom {
             if plugins {
                 mg_uikit::context_menu(&shown.header_response, |ui| {

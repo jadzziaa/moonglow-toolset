@@ -4335,17 +4335,12 @@ pub(crate) fn chosen_size(kept: Option<u32>, default: f32) -> f32 {
     kept.map_or(default, |s| s as f32)
 }
 
-/// Each dock's sizes at first, (tree, Right Dock, log), that versions
-/// before this one kept as though chosen while nothing was dragged: the
-/// module tree's 260 (this branch, M3 T5 to T13: its default stored on
-/// the first frame the dock was drawn) or 240 (every release to 4.2.0:
-/// the default its egui panel kept, which this branch then stored in
-/// place of its own); the Right Dock's 320 (this branch alone: no release
-/// had it); the log's 180 (this branch) or 120 (every release). Each was
-/// written apart, where the dock was drawn on that first frame, so an
-/// untouched file holds any of them in any mix, (240, 320, 180) and (260,
-/// 320, 120) among them, or one alone (the tree folded, no area open for
-/// the Right Dock, and since M3 T7 a new installation's log closed).
+/// Each dock's legacy default sizes, `(tree, Right Dock, log)`, that
+/// older versions stored as if user-chosen before edge drags were tracked:
+/// the module tree's `260` or `240` (legacy 4.2.0 default), the Right
+/// Dock's `320`, and the log's `180` or `120`. Because each dock wrote its
+/// size on first draw, an untouched settings file may hold any mix of
+/// these values, or only a subset if another dock stayed folded or closed.
 const SIZES_AT_FIRST: [&[u32]; 3] = [&[260, 240], &[320], &[180, 120]];
 
 /// Once for good (`Settings::dock_sizes_taken`), on the first frame: the
@@ -6049,75 +6044,53 @@ pub(crate) fn panel_body(
         // wider than the dock never widens it, which would push its edge
         // past the window's and draw the editor area over it.)
         let room = ui.available_rect_before_wrap();
+        let child = |ui: &mut Ui, salt: &'static str| -> egui::Ui {
+            let builder = LateSlot::salted(egui::UiBuilder::new().max_rect(room), host, salt, pane);
+            let mut body = ui.new_child(builder);
+            body.set_clip_rect(room.intersect(ui.clip_rect()));
+            body
+        };
         match panel {
             Panel::Palette => {
                 let mut body = ui.new_child(egui::UiBuilder::new().max_rect(room));
                 body.set_clip_rect(room.intersect(ui.clip_rect()));
                 crate::palette_view::ui(app, &mut body);
             }
-            // (Drawn here, where it comes in Tab's order after the tab
-            // bar; where an editor's tab may show the same model, after
-            // the editor area in this room, so that the tab keeps its
-            // view.)
-            // (A tileset's: its tile's diagram, the door sentence and the
-            // model, M4's U20.)
+            // Drawn in Tab order after the tab bar; where an editor tab may show
+            // the same model, after the editor area so that the tab keeps its view.
             Panel::Preview
                 if room.is_positive() && crate::tileset_view::tileset_of(editor).is_some() =>
             {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, "tileset-preview", pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, "tileset-preview");
                 crate::tileset_view::preview(app, &mut body, editor);
             }
-            // (The Appearance Gallery's: the row chosen, M4's U26.)
             Panel::Preview
                 if room.is_positive() && crate::appearance_gallery::is_gallery(editor) =>
             {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, "gallery-preview", pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, "gallery-preview");
                 crate::appearance_gallery::preview(app, &mut body, editor);
             }
             Panel::Appearance => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 crate::appearance_gallery::facts(app, &mut body, editor);
             }
-            // (A hak's: the resource chosen, M4's U21.)
             Panel::Preview if room.is_positive() && crate::hak_view::hak_of(editor).is_some() => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, "hak-preview", pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, "hak-preview");
                 crate::hak_view::preview(app, &mut body, editor);
             }
             Panel::Details => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 crate::hak_view::details(app, &mut body, editor);
             }
-            // (A journal's and the faction editor's, M4's U22.)
             Panel::Entry | Panel::Category => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Entry => crate::journal_view::entry_panel(app, &mut body, editor),
                     _ => crate::journal_view::category_panel(app, &mut body, editor),
                 }
             }
             Panel::Faction | Panel::Reaction | Panel::Reactions => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Faction => crate::faction_view::faction_panel(app, &mut body, editor),
                     Panel::Reaction => crate::faction_view::reaction_panel(app, &mut body, editor),
@@ -6125,10 +6098,7 @@ pub(crate) fn panel_body(
                 }
             }
             Panel::Textures => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 crate::tileset_view::textures(app, &mut body, editor);
             }
             Panel::Preview if room.is_positive() => {
@@ -6139,36 +6109,23 @@ pub(crate) fn panel_body(
                 if let Some(source) = own {
                     // (Drawn in its place: its form draws no model, and
                     // where its model has a tab of its own, it says so.)
-                    let builder = egui::UiBuilder::new().max_rect(room);
-                    let builder = LateSlot::salted(builder, host, "preview-panel", pane);
-                    let mut body = ui.new_child(builder);
-                    body.set_clip_rect(room.intersect(ui.clip_rect()));
+                    let mut body = child(ui, "preview-panel");
                     crate::area_tools::own_preview_body(app, &mut body, room, source, titled);
                 } else if chosen.is_some_and(|s| crate::model_view::a_tab_may_show(app, &s)) {
                     let layer = ui.layer_id();
                     let editor = editor.cloned();
                     app.late_slots.push(LateSlot { panel, rect: room, layer, pane, host, editor });
                 } else {
-                    let builder = egui::UiBuilder::new().max_rect(room);
-                    let builder = LateSlot::salted(builder, host, "preview-panel", pane);
-                    let mut body = ui.new_child(builder);
-                    body.set_clip_rect(room.intersect(ui.clip_rect()));
+                    let mut body = child(ui, "preview-panel");
                     crate::area_tools::preview_body(app, &mut body, room);
                 }
             }
             Panel::TileProperties => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, "tile-properties", pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, "tile-properties");
                 crate::tile_select::panel(app, &mut body, editor);
             }
             Panel::Properties => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, "properties", pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
-                // (A NUI designer's, M4's U18.)
+                let mut body = child(ui, "properties");
                 match crate::nui_view::panels::nui_of(editor) {
                     Some(_) => crate::nui_view::panels::properties(app, &mut body, editor, titled),
                     None => {
@@ -6177,20 +6134,12 @@ pub(crate) fn panel_body(
                     }
                 }
             }
-            // (The area editor's tools, M4's U29.)
             Panel::AreasTogether | Panel::LightMaker | Panel::Bake => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 crate::tool_sections::body(app, &mut body, panel, titled);
             }
-            // (A NUI designer's, M4's U18.)
             Panel::Components | Panel::Bindings => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Components => {
                         crate::nui_view::panels::components(app, &mut body, editor)
@@ -6199,35 +6148,23 @@ pub(crate) fn panel_body(
                 }
             }
             Panel::Reference | Panel::Help => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Reference => crate::script_reference::reference(app, &mut body, editor),
                     _ => crate::script_reference::help(app, &mut body, editor),
                 }
             }
-            // (A conversation's, M4's U14.)
             Panel::NodeData | Panel::NodeSearch | Panel::Conversation => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::NodeData => crate::dialog_view::node_data(app, &mut body, editor),
                     Panel::NodeSearch => crate::dialog_view::node_search(app, &mut body, editor),
                     _ => crate::dialog_view::conversation_panel(app, &mut body, editor, titled),
                 }
             }
-            // (A table's, M4's U16.)
             Panel::Cell | Panel::References | Panel::String | Panel::TalkFile => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
-                // (A talk table's, M4's U17: its References too.)
                 let talk = talk_of(app, editor).is_some();
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Cell => crate::table_view::panels::cell(app, &mut body, editor),
                     Panel::References if talk => {
@@ -6238,7 +6175,7 @@ pub(crate) fn panel_body(
                     _ => crate::table_view::panels::references(app, &mut body, editor),
                 }
             }
-            // (The Bottom Dock's, or a script's window's bottom pane's.)
+            // Panels hosted in the Bottom Dock or a script window's bottom pane.
             Panel::Compiler
             | Panel::Bookmarks
             | Panel::SearchResults
@@ -6247,10 +6184,7 @@ pub(crate) fn panel_body(
             | Panel::HakConflicts
             | Panel::ResourcesUsed
             | Panel::ClaimsTable => {
-                let builder = egui::UiBuilder::new().max_rect(room);
-                let builder = LateSlot::salted(builder, host, panel.name(), pane);
-                let mut body = ui.new_child(builder);
-                body.set_clip_rect(room.intersect(ui.clip_rect()));
+                let mut body = child(ui, panel.name());
                 match panel {
                     Panel::Compiler => crate::script_panels::compiler(app, &mut body, editor),
                     Panel::Bookmarks => crate::script_panels::bookmarks(app, &mut body, editor),
@@ -6261,10 +6195,9 @@ pub(crate) fn panel_body(
                     Panel::ClaimsTable => crate::dock_reports::claims_body(app, &mut body),
                     _ => crate::search_results::body(app, &mut body),
                 }
-                // (U28's tabs, whose forms and headers are over their rows:
-                // where nothing is listed yet, what they drew ends. Not
-                // Problems', whose empty state fills its room, nor a
-                // script's panels', which hold the dock to nothing.)
+                // Report panels' forms and headers draw over their rows: when
+                // empty, keep drawn-height tight rather than filling room like
+                // Problems or script panels.
                 let formed = matches!(
                     panel,
                     Panel::SearchResults

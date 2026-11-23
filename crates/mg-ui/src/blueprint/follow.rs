@@ -714,10 +714,13 @@ pub(crate) fn retarget(app: &mut Moonglow, moved: Followed) {
     // The Variables pages of what moved, and of where it went: read anew
     // from their objects. (Kept by its place, one typed in was taken for
     // the page of the object that came to stand there.)
-    let moved_from = app.var_pages.keys().filter(|(k, p)| now(k, p).is_some()).cloned();
-    let moved_to = (moved.places.values().flatten())
-        .map(|(area, p)| (ResKey::new(*area, ResType::GIT), p.clone()));
-    for place in moved_from.chain(moved_to).collect::<Vec<_>>() {
+    app.var_pages.retain(|(k, p), _| now(k, p).is_none());
+    for place in moved
+        .places
+        .values()
+        .flatten()
+        .map(|(area, p)| (ResKey::new(*area, ResType::GIT), p.clone()))
+    {
         app.var_pages.remove(&place);
     }
     // The Variables window and String Edit, with their objects.

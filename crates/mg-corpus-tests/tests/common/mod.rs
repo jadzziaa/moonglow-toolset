@@ -286,7 +286,6 @@ pub(crate) fn repo() -> PathBuf {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub(crate) fn client_lock() -> std::sync::MutexGuard<'static, ()> {
     static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
     ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner)

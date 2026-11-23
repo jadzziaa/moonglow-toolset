@@ -103,12 +103,14 @@ pub struct PaintState {
     /// Cached `row_to` result while pointer/settings stay fixed.
     row_cache: Option<(RowKey, (Vec<Painted>, Vec3))>,
     /// Cached built ghost `AreaObject`s, counts, and stamp.
-    ghosts_cache: Option<(GhostBuildKey, Arc<[AreaObject]>, usize, usize, u64)>,
+    ghosts_cache: Option<GhostsCache>,
     /// Cached 64-point ground circle in `overlay`.
     circle_cache: Option<(CircleKey, Vec<Vec3>)>,
     /// Cached eraser hit indices in `overlay`.
     eraser_cache: Option<(EraserKey, Vec<usize>)>,
 }
+
+type GhostsCache = (GhostBuildKey, Arc<[AreaObject]>, usize, usize, u64);
 
 #[derive(Debug, Clone, PartialEq)]
 struct RowKey {

@@ -1255,6 +1255,8 @@ fn place_shown(app: &mut Moonglow, h: &mg_module::search::Hit) -> String {
     h.place.replacen(&h.key.resref.to_lowercase().to_string(), &name, 1)
 }
 
+type TogetherGroups = (std::sync::Arc<Vec<Together>>, std::sync::Arc<Vec<ResRef>>);
+
 /// Cached summary derived from the current hit list and tick vector so idle
 /// frames do not scan 8,800+ hits or rebuild `together` when collapsed.
 #[derive(Clone, Default)]
@@ -1262,7 +1264,7 @@ struct SearchUiCache {
     sig: (usize, usize, Option<u64>, Option<ResKey>, Option<ResKey>, u64),
     ticked_count: usize,
     outside_count: usize,
-    together: Option<(std::sync::Arc<Vec<Together>>, std::sync::Arc<Vec<ResRef>>)>,
+    together: Option<TogetherGroups>,
     ticked_fits: Option<((usize, usize), bool)>,
 }
 

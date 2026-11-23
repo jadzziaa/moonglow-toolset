@@ -1138,7 +1138,7 @@ fn drop_ui(app: &mut Moonglow, ctx: &egui::Context) {
         Some((p, o, to)) if *p == paths && *o == open => to.clone(),
         _ => {
             let to = dropped_to(&paths, open);
-            app.welcome.drag = Some((paths.clone(), open, to.clone()));
+            app.welcome.drag = Some((paths, open, to.clone()));
             to
         }
     };

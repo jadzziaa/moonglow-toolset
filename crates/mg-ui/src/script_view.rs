@@ -1796,7 +1796,6 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
     let width = words.size().x.ceil() + 2.0;
     let t3 = mg_uikit::tokens(&ctx).text_3;
     let shown = {
-        let small = small.clone();
         let codepage = codepage.clone();
         move |ui: &mut Ui| {
             let words = egui::RichText::new(codepage).font(small.clone()).color(t3);
@@ -1808,16 +1807,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
         next if next.is_empty() => tip("Find text in the script", Cmd::Find),
         next => format!("{}, the next match ({next})", tip("Find text in the script", Cmd::Find)),
     };
-    let name = codepage.clone();
-    // OK and Cancel at the end, with the tips they had at the foot.
-    let tips = crate::side_doc::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(SCRIPT_HEADER)
+    let name = codepage;
+    let header = EditorHeader::new(SCRIPT_HEADER)
         .left(
             Item::button(icon::SAVE, "Save")
                 .primary()
@@ -1870,21 +1861,9 @@ fn header(app: &mut Moonglow, ui: &mut Ui, key: ResKey, dirty: bool) -> Asked {
         )
         .left(Item::icon(crate::icons::TO_SCRATCH, "To Scratch").tip(scratch).in_more())
         .right(Item::custom(name, width, shown).more(width, shown_more))
-        .right(Item::separator())
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        .right(Item::separator());
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::side_doc::OK_CANCEL_TIPS);
     if out.clicked("Print…") {
         let text = app.scripts[&key].text.clone();
         let html = print_html(&format!("{}.nss", key.resref), &text, &app.settings.script_style);

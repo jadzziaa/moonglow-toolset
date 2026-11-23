@@ -24,8 +24,8 @@ pub struct FieldTarget {
     pub label: String,
     /// More structs that take the same value (several objects or
     /// blueprints edited at once): each document and path. Shared, not
-    /// copied, by each field of a form (M4's U29: three thousand areas
-    /// edited together were copied for each field, each frame).
+    /// copied, by each field of a form so editing thousands of objects
+    /// together does not clone them per field every frame.
     pub also: Also,
 }
 
@@ -6404,6 +6404,47 @@ pub(crate) fn edit_script_button(
         r.on_hover_text(format!("There is no script '{name}': Edit creates it in the module"))
     };
     r.clicked().then_some(name)
+}
+
+/// Width required for a row of header trailing [`KitButton`](mg_uikit::KitButton)s
+/// separated by [`HEADER_GAP`](mg_uikit::header::HEADER_GAP).
+pub(crate) fn buttons_end_width(ui: &Ui, buttons: &[mg_uikit::KitButton]) -> f32 {
+    let gap = mg_uikit::header::HEADER_GAP;
+    buttons.iter().map(|b| b.width(ui)).sum::<f32>()
+        + gap * (buttons.len().saturating_sub(1)) as f32
+}
+
+/// Shows `header` with trailing OK and Cancel (or Close when `close_tip` is
+/// `Some`) buttons, returning any [`Pressed`](crate::blueprint::Pressed) click.
+pub(crate) fn header_with_ok_cancel<'a>(
+    ui: &mut Ui,
+    header: mg_uikit::header::EditorHeader<'a>,
+    close_tip: Option<&str>,
+    tips: [&str; 2],
+) -> mg_uikit::header::HeaderOutput<Option<crate::blueprint::Pressed>> {
+    let buttons: Vec<mg_uikit::KitButton> = match close_tip {
+        Some(tip) => vec![mg_uikit::KitButton::new(None, "Close").tip(tip)],
+        None => vec![
+            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
+            mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
+        ],
+    };
+    let end_width = buttons_end_width(ui, &buttons);
+    let gap = mg_uikit::header::HEADER_GAP;
+    header.show_with_end(ui, end_width, |ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        let mut pressed = None;
+        for b in buttons {
+            let words = b.accessible_name().to_string();
+            if ui.add(b).clicked() {
+                pressed = Some(match words.as_str() {
+                    "Cancel" => crate::blueprint::Pressed::Cancel,
+                    _ => crate::blueprint::Pressed::Ok,
+                });
+            }
+        }
+        pressed
+    })
 }
 
 #[cfg(test)]

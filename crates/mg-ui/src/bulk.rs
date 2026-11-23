@@ -657,7 +657,7 @@ pub(crate) fn go_to_hit(app: &mut Moonglow, at: usize) {
     let usage = mg_module::rename::Usage {
         from: hit.key,
         path: mg_module::refs::Location::Gff(hit.field()),
-        place: hit.place.clone(),
+        place: hit.place,
     };
     app.go_to_usage(&usage);
 }

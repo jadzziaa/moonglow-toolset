@@ -304,14 +304,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         });
         if let Some(f) = footed {
             if f.pressed.main() {
-                app.actions.push(Action::SaveThen(Box::new(pending.clone())));
+                app.actions.push(Action::SaveThen(Box::new(pending)));
                 app.confirm_discard = None;
-            }
-            if f.pressed.clicked("Don't Save") {
-                app.actions.push(Action::Proceed(Box::new(pending.clone())));
+            } else if f.pressed.clicked("Don't Save") {
+                app.actions.push(Action::Proceed(Box::new(pending)));
                 app.confirm_discard = None;
-            }
-            if f.pressed.cancelled() {
+            } else if f.pressed.cancelled() {
                 app.confirm_discard = None;
             }
         }

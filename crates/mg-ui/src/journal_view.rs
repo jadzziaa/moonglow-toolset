@@ -433,14 +433,7 @@ fn header(ui: &mut Ui, view: &JournalView, copy: &Seen) -> Asked {
         (Some(Clip::Category(_)), _) | (Some(Clip::Entry(_)), Some(_))
     );
     let any = !copy.seen.is_empty();
-    let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(JOURNAL_HEADER)
+    let header = EditorHeader::new(JOURNAL_HEADER)
         .left(
             Item::button(icon::ADD, "Add")
                 .enabled(can_add)
@@ -458,21 +451,9 @@ fn header(ui: &mut Ui, view: &JournalView, copy: &Seen) -> Asked {
         .left(Item::icon(icon::EXPAND_ALL, "Expand All").enabled(any).tip("Open every category"))
         .left(
             Item::icon(icon::COLLAPSE_ALL, "Collapse All").enabled(any).tip("Close every category"),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::blueprint::OK_CANCEL_TIPS);
     Asked {
         add: out.clicked("Add"),
         copy: out.clicked("Copy"),

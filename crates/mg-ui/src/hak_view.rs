@@ -1156,14 +1156,7 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
         true => "Save: a hak of the game is saved with Save As…",
         false => "Save: write the hak to its file",
     };
-    let tips = crate::side_doc::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(HAK_HEADER)
+    let header = EditorHeader::new(HAK_HEADER)
         .left(Item::icon(Icon::Import, ADD_FILES).tip("Add Files…: add files to the hak"))
         .left(
             Item::icon(Icon::FolderOpen, ADD_FOLDER)
@@ -1241,21 +1234,9 @@ fn header(ui: &mut Ui, d: &mut HakDoc, in_game: bool) -> HeaderAsked {
                 .in_more()
                 .enabled(table)
                 .tip("Edit the selected 2DA in the 2DA editor. The hak's Save writes it."),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::side_doc::OK_CANCEL_TIPS);
     d.filter = filter.into_inner();
     HeaderAsked {
         add_files: out.clicked(ADD_FILES),

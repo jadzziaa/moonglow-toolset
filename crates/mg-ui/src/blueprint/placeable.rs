@@ -1,6 +1,6 @@
-//! Placeable Object Properties (`TdlgPlaceableEdit`): Basic, Lock, Trap,
-//! Scripts, Advanced, Description, Comments; and the placeable's inventory
-//! (Aurora's Inventory… dialog) as its own page.
+//! Placeable Object Properties (`TdlgPlaceableEdit`): Basic, Inventory
+//! (Aurora's Inventory… dialog), Lock, Trap, Scripts, Advanced, Variables,
+//! Visuals, Description, Comments.
 
 use egui::Ui;
 use mg_gff::{FieldType, Struct};

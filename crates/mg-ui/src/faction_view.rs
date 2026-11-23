@@ -408,15 +408,8 @@ fn header(ui: &mut Ui, advanced: &mut bool, custom: bool) -> Asked {
         });
         mode.set(chosen);
     };
-    let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
     let not_standard = "A standard faction can't be renamed or removed";
-    let out = EditorHeader::new(FACTION_HEADER)
+    let header = EditorHeader::new(FACTION_HEADER)
         .left(Item::custom(MODE, switch_width, switch).more(switch_width, switch).primary())
         .left(Item::separator())
         .left(
@@ -430,21 +423,9 @@ fn header(ui: &mut Ui, advanced: &mut bool, custom: bool) -> Asked {
         .left(Item::button(Icon::Rename, "Change Name…").enabled(custom).tip(match custom {
             true => "Change the selected faction's name (not a standard one)",
             false => not_standard,
-        }))
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        }));
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::blueprint::OK_CANCEL_TIPS);
     *advanced = mode.get();
     Asked {
         add: out.clicked("Add Faction…"),
@@ -1172,7 +1153,7 @@ fn chart(app: &mut Moonglow, ui: &mut Ui, f: &Factions) -> Option<(String, Facti
                             };
                             let head = ui.add_sized(
                                 [160.0, mg_uikit::metrics::CONTROL_HEIGHT],
-                                egui::Button::new(label.clone()).frame(false).truncate(),
+                                egui::Button::new(label).frame(false).truncate(),
                             );
                             if head.clicked() && !from {
                                 chosen = Some(target);

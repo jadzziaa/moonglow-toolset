@@ -506,11 +506,9 @@ pub(crate) fn matches(part: &Part, within: Option<&[u32]>, q: &Query) -> Vec<u32
     matches_with_scores(part, within, q).0
 }
 
-fn matches_with_scores(
-    part: &Part,
-    within: Option<&[u32]>,
-    q: &Query,
-) -> (Vec<u32>, Option<Vec<Option<(Tier, Field)>>>) {
+type MatchScores = (Vec<u32>, Option<Vec<Option<(Tier, Field)>>>);
+
+fn matches_with_scores(part: &Part, within: Option<&[u32]>, q: &Query) -> MatchScores {
     if let Some(within) = within {
         let found = within.iter().copied().filter(|&i| part.finds(i as usize, q)).collect();
         return (found, None);

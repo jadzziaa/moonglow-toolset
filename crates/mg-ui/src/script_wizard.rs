@@ -388,7 +388,6 @@ fn pick_list(
 
 /// Two lists with -> and <- between them (Feats, Skills, Race): moves rows
 /// between `chosen` and the rest of `all`.
-#[allow(clippy::too_many_arguments)]
 #[derive(Clone)]
 struct CachedMoveLists {
     key: (usize, u64, String),
@@ -396,20 +395,24 @@ struct CachedMoveLists {
     right: Vec<usize>,
 }
 
+struct MoveLists<'a> {
+    id: &'a str,
+    all: &'a [Entry],
+    titles: [&'a str; 2],
+    lists: [u8; 2],
+    filter: Option<&'a str>,
+    height: f32,
+}
+
 fn move_lists(
     ui: &mut Ui,
-    id: &str,
-    all: &[Entry],
+    spec: MoveLists<'_>,
     chosen: &mut Vec<usize>,
-    titles: [&str; 2],
     selected: &mut Option<(u8, usize)>,
-    lists: [u8; 2],
-    filter: Option<&str>,
-    height: f32,
 ) {
-    let filter_str = filter.unwrap_or_default();
-    let cache_id = egui::Id::new(("wizard-move-lists", id));
-    let key = (all.len(), egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
+    let filter_str = spec.filter.unwrap_or_default();
+    let cache_id = egui::Id::new(("wizard-move-lists", spec.id));
+    let key = (spec.all.len(), egui::epaint::util::hash(chosen.as_slice()), filter_str.to_string());
     let cached = ui.ctx().data_mut(|d| {
         let slot = d.get_temp_mut_or_insert_with(cache_id, || CachedMoveLists {
             key: (usize::MAX, 0, String::new()),
@@ -421,7 +424,7 @@ fn move_lists(
             let chosen_set: std::collections::HashSet<usize> = chosen.iter().copied().collect();
             slot.left.clear();
             slot.right.clear();
-            for (i, e) in all.iter().enumerate() {
+            for (i, e) in spec.all.iter().enumerate() {
                 if chosen_set.contains(&e.row) {
                     slot.right.push(i);
                 } else if needle.finds(&e.name) {
@@ -433,41 +436,51 @@ fn move_lists(
         slot.clone()
     });
     let left: Vec<(usize, &str)> =
-        cached.left.iter().map(|&i| (all[i].row, all[i].name.as_str())).collect();
+        cached.left.iter().map(|&i| (spec.all[i].row, spec.all[i].name.as_str())).collect();
     let right: Vec<(usize, &str)> =
-        cached.right.iter().map(|&i| (all[i].row, all[i].name.as_str())).collect();
+        cached.right.iter().map(|&i| (spec.all[i].row, spec.all[i].name.as_str())).collect();
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.label(titles[0]);
-            if let Some(row) =
-                pick_list(ui, &format!("{id}-l"), &left, lists[0], selected, [200.0, height])
-            {
+            ui.label(spec.titles[0]);
+            if let Some(row) = pick_list(
+                ui,
+                &format!("{}-l", spec.id),
+                &left,
+                spec.lists[0],
+                selected,
+                [200.0, spec.height],
+            ) {
                 chosen.push(row);
             }
         });
         ui.vertical(|ui| {
             ui.add_space(40.0);
-            let to = format!("Move to {}", titles[1]);
+            let to = format!("Move to {}", spec.titles[1]);
             if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronRight, &to, "").clicked()
                 && let Some((l, row)) = *selected
-                && l == lists[0]
+                && l == spec.lists[0]
                 && !chosen.contains(&row)
             {
                 chosen.push(row);
             }
-            let to = format!("Move to {}", titles[0]);
+            let to = format!("Move to {}", spec.titles[0]);
             if crate::widgets::icon_button(ui, mg_uikit::Icon::ChevronLeft, &to, "").clicked()
                 && let Some((l, row)) = *selected
-                && l == lists[1]
+                && l == spec.lists[1]
             {
                 chosen.retain(|&r| r != row);
             }
         });
         ui.vertical(|ui| {
-            ui.label(titles[1]);
-            if let Some(row) =
-                pick_list(ui, &format!("{id}-r"), &right, lists[1], selected, [200.0, height])
-            {
+            ui.label(spec.titles[1]);
+            if let Some(row) = pick_list(
+                ui,
+                &format!("{}-r", spec.id),
+                &right,
+                spec.lists[1],
+                selected,
+                [200.0, spec.height],
+            ) {
                 chosen.retain(|&r| r != row);
             }
         });
@@ -704,14 +717,16 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 let titles = ["Rejected", "Accepted"];
                 move_lists(
                     ui,
-                    &format!("wiz-race-{title}"),
-                    list,
+                    MoveLists {
+                        id: &format!("wiz-race-{title}"),
+                        all: list,
+                        titles,
+                        lists: ids,
+                        filter: None,
+                        height: 95.0,
+                    },
                     &mut w.races,
-                    titles,
                     &mut w.selected,
-                    ids,
-                    None,
-                    95.0,
                 );
             }
         }
@@ -738,27 +753,31 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             });
             move_lists(
                 ui,
-                "wiz-feats",
-                &lists.feats,
+                MoveLists {
+                    id: "wiz-feats",
+                    all: &lists.feats,
+                    titles: ["All Feats", "Required Feats"],
+                    lists: [0, 1],
+                    filter: Some(&w.filter),
+                    height: 200.0,
+                },
                 &mut w.feats,
-                ["All Feats", "Required Feats"],
                 &mut w.selected,
-                [0, 1],
-                Some(&w.filter),
-                200.0,
             );
         }
         6 => {
             move_lists(
                 ui,
-                "wiz-skills",
-                &lists.skills_by_name(),
+                MoveLists {
+                    id: "wiz-skills",
+                    all: &lists.skills_by_name(),
+                    titles: ["All Skills", "Required Skills"],
+                    lists: [0, 1],
+                    filter: None,
+                    height: 220.0,
+                },
                 &mut w.skills,
-                ["All Skills", "Required Skills"],
                 &mut w.selected,
-                [0, 1],
-                None,
-                220.0,
             );
         }
         7 => {

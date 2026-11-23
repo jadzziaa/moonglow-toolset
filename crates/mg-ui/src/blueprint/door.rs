@@ -1,5 +1,5 @@
 //! Door Properties (`TdlgDoorEdit`): Basic, Lock, Trap, Area Transition,
-//! Scripts, Advanced, Description, Comments.
+//! Scripts, Advanced, Variables, Visuals, Description, Comments.
 
 use egui::Ui;
 use mg_gff::FieldType;

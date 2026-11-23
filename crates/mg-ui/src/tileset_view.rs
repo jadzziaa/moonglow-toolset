@@ -918,13 +918,7 @@ fn header(app: &Moonglow, ui: &mut Ui, d: &TilesetDoc) -> HeaderAsked {
         true => "Save each tile's minimap picture (ImageMap2D), seen from above, beside the .set",
         false => "Rendering needs a GPU",
     };
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(crate::side_doc::OK_CANCEL_TIPS[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(crate::side_doc::OK_CANCEL_TIPS[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
-    let out = EditorHeader::new(TILESET_HEADER)
+    let header = EditorHeader::new(TILESET_HEADER)
         .left(Item::custom(PAGE, switch_width, switch).more(switch_width, switch).primary())
         .left(Item::separator())
         .left(
@@ -942,21 +936,11 @@ fn header(app: &Moonglow, ui: &mut Ui, d: &TilesetDoc) -> HeaderAsked {
                 .enabled(readable)
                 .tip("The content doctor's checks of tilesets: what they find goes to Problems"),
         )
-        .left(Item::button(Icon::Minimap, RENDER_MINIMAPS).enabled(gpu && readable).tip(render_tip))
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        .left(
+            Item::button(Icon::Minimap, RENDER_MINIMAPS).enabled(gpu && readable).tip(render_tip),
+        );
+    let out =
+        crate::widgets::header_with_ok_cancel(ui, header, None, crate::side_doc::OK_CANCEL_TIPS);
     HeaderAsked {
         page: page.get().filter(|p| Some(*p) != shown),
         save: out.clicked("Save"),

@@ -4292,7 +4292,7 @@ impl Moonglow {
                     if let Some(aim) = track.aim.take()
                         && (aim - panes.min).length() > 0.5
                     {
-                        again.push((tab.clone(), track.put));
+                        again.push((tab, track.put));
                         continue;
                     }
                     *track.first.insert(panes)
@@ -7363,10 +7363,12 @@ impl Moonglow {
     /// Makes every fix offered of check `check` (that edits), as one step
     /// of Undo.
     fn apply_fixes_of(&mut self, check: &str) {
-        let lines: Vec<usize> = (self.log.fixes.iter())
-            .filter(|o| o.check == check && !o.made && o.fix.asks.is_none())
-            .map(|o| o.line)
-            .collect();
+        let mut lines = Vec::new();
+        for o in &self.log.fixes {
+            if o.check == check && !o.made && o.fix.asks.is_none() {
+                lines.push(o.line);
+            }
+        }
         let made: Vec<usize> = lines.into_iter().filter(|l| self.make_fix(*l)).collect();
         let Some(ws) = self.ws.as_mut() else { return };
         if made.len() > 1 && ws.join_last(made.len(), format!("Fix All: {check}")) {

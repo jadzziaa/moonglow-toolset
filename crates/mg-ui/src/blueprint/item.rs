@@ -1,8 +1,8 @@
 //! Item Properties (`TdlgItemEdit`): General (name, costs, the base item's
 //! statistics), Appearance (by the base item's model type: one model,
-//! three weapon parts, or armor parts and colours), Properties (the item
+//! three weapon parts, or armor parts and colors), Properties (the item
 //! properties its base item offers, with their parameters: Aurora's
-//! `TdlgPropEdit` inline), Description, Comments.
+//! `TdlgPropEdit` inline), Variables, Visuals, Description, Comments.
 //!
 //! Every change also stores the item's recomputed `Cost` (in the same
 //! undoable command), as Aurora does on OK.

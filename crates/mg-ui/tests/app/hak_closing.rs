@@ -983,7 +983,8 @@ fn every_way_of_closing_a_hak_with_a_file_added() {
     let started = std::time::Instant::now();
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let results: std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>)>> =
+    type CellResult = (usize, String, Option<String>, Option<String>);
+    let results: std::sync::Mutex<Vec<CellResult>> =
         std::sync::Mutex::new(Vec::with_capacity(cells.len()));
     std::thread::scope(|scope| {
         for _ in 0..workers {

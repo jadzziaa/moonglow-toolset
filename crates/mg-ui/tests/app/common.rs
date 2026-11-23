@@ -1935,10 +1935,8 @@ fn area_app_with(
     let rs = if with_gpu { Some(gpu()?) } else { None };
     let install = mg_resman::GameInstall::new(&root, user.clone(), "en");
     let game = shared_game_data(&root, user.clone());
-    static STARTER: mg_testkit::Shared<
-        (std::path::PathBuf, String, Option<i32>, u32),
-        (ResRef, Module),
-    > = mg_testkit::Shared::new();
+    type StarterKey = (std::path::PathBuf, String, Option<i32>, u32);
+    static STARTER: mg_testkit::Shared<StarterKey, (ResRef, Module)> = mg_testkit::Shared::new();
     let build = || {
         let mut rng = fastrand::Rng::with_seed(7);
         let mut m = new_module(&game, "Area View", &mut rng).unwrap();

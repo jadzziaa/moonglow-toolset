@@ -120,8 +120,10 @@ pub struct DialogView {
     /// Where its tree's rows end on the right, as last drawn.
     rows_right: f32,
     /// Cached flattened open tree rows keyed by `(gff_ptr, seen_fp, collapsed_sig)`.
-    flat: Option<((usize, Option<u64>, u64), std::sync::Arc<Vec<FlatRow>>)>,
+    flat: Option<FlatCache>,
 }
+
+type FlatCache = ((usize, Option<u64>, u64), std::sync::Arc<Vec<FlatRow>>);
 
 /// Flattened descriptor of one visible row in the conversation tree.
 #[derive(Debug, Clone, Copy)]
@@ -1038,7 +1040,7 @@ fn row_fields(key: ResKey, row: Row, (kind, index): (Kind, u32)) -> ([egui::Id; 
 /// what was typed, the text's cursor and the keyboard's focus move to its
 /// new ones (`after`), and typing goes on there; where it is gone (no
 /// `after`), what was typed goes with it. Never set on the line that took
-/// its number (M4's U14: the Node panel's ids follow its line). Only the
+/// its number (the Node panel's ids follow its line). Only the
 /// line chosen's fields are drawn, so only theirs hold what is typed.
 fn follow_typed(
     app: &mut Moonglow,
@@ -1060,10 +1062,15 @@ fn follow_typed(
     // is being typed, and the field drops what it kept there unset when it
     // is drawn again without the keyboard.)
     type Pairs = Vec<(String, String)>;
-    let pairs: Vec<Option<Pairs>> = params
-        .iter()
-        .map(|id| ctx.and_then(|c| c.data_mut(|d| d.remove_temp::<Pairs>(*id))))
-        .collect();
+    let pairs: Option<Vec<Option<Pairs>>> = ctx.map(|c| {
+        c.data_mut(|d| {
+            let mut removed = Vec::with_capacity(params.len());
+            for id in &params {
+                removed.push(d.remove_temp::<Pairs>(*id));
+            }
+            removed
+        })
+    });
     let Some((typed_to, params_to)) = to else { return };
     for ((from, (text, state)), to) in typed.iter().zip(moved).zip(typed_to) {
         if let Some(text) = text {
@@ -1076,9 +1083,11 @@ fn follow_typed(
             ctx.memory_mut(|m| m.request_focus(to));
         }
     }
-    for (pairs, to) in pairs.into_iter().zip(params_to) {
-        if let (Some(pairs), Some(ctx)) = (pairs, ctx) {
-            ctx.data_mut(|d| d.insert_temp(to, pairs));
+    if let (Some(pairs), Some(ctx)) = (pairs, ctx) {
+        for (pairs, to) in pairs.into_iter().zip(params_to) {
+            if let Some(pairs) = pairs {
+                ctx.data_mut(|d| d.insert_temp(to, pairs));
+            }
         }
     }
 }
@@ -1398,20 +1407,9 @@ fn header(
             }
         }
     };
-    // OK and Cancel at the end, with the tips they had at the foot; Close
-    // alone for a conversation only looked at.
     let tips = crate::blueprint::OK_CANCEL_TIPS;
-    let buttons: Vec<mg_uikit::KitButton> = match can.viewed {
-        true => vec![mg_uikit::KitButton::new(None, "Close").tip("Close the conversation")],
-        false => vec![
-            mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-            mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-        ],
-    };
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>()
-        + gap * (buttons.len().saturating_sub(1)) as f32;
-    let out = EditorHeader::new(CONVERSATION_HEADER)
+    let close_tip = can.viewed.then_some("Close the conversation");
+    let header = EditorHeader::new(CONVERSATION_HEADER)
         .left(Item::button(icon::ADD, "Add").primary().enabled(edits && can.add).tip(add_tip))
         .left(
             Item::icon(icon::COPY, "Copy")
@@ -1467,21 +1465,8 @@ fn header(
                 .enabled(edits)
                 .tip("Read back the text, speakers and comments of a CSV export"),
         )
-        .right(Item::button(mg_uikit::Icon::Test, "Test").tip(TEST_TIP))
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        .right(Item::button(mg_uikit::Icon::Test, "Test").tip(TEST_TIP));
+    let out = crate::widgets::header_with_ok_cancel(ui, header, close_tip, tips);
     if scripts == app.settings.dialog_hide_scripts {
         app.settings.dialog_hide_scripts = !scripts;
     }
@@ -3803,7 +3788,7 @@ fn script_with_params(
                             ui.spacing_mut().item_spacing.y = 0.0;
                             let mut numbers = String::new();
                             let mut visible = String::new();
-                            for (pos, idx) in range.clone().enumerate() {
+                            for (pos, idx) in range.enumerate() {
                                 if pos > 0 {
                                     numbers.push('\n');
                                     visible.push('\n');
@@ -3838,9 +3823,6 @@ fn script_with_params(
 }
 
 fn split_line_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
-    if text.is_empty() {
-        return vec![0..0];
-    }
     let mut out = Vec::new();
     let mut start = 0usize;
     let bytes = text.as_bytes();
@@ -3868,12 +3850,14 @@ fn fast_bytes_hash(bytes: &[u8]) -> u64 {
     h.finish()
 }
 
+type ScriptPreview = (std::sync::Arc<String>, std::sync::Arc<Vec<std::ops::Range<usize>>>);
+
 fn script_preview_cached(
     app: &Moonglow,
     ctx: &egui::Context,
     salt: &str,
     current: ResRef,
-) -> Option<(std::sync::Arc<String>, std::sync::Arc<Vec<std::ops::Range<usize>>>)> {
+) -> Option<ScriptPreview> {
     let script_key = ResKey::new(current, ResType::NSS);
     let open_sig =
         app.scripts.get(&script_key).map(|b| (b.text.len(), fast_bytes_hash(b.text.as_bytes())));

@@ -1158,6 +1158,8 @@ fn talk_tables(app: &Moonglow) -> TalkTables {
     TalkTables { base, custom }
 }
 
+type BaseFaults = (TwoDa, std::collections::HashSet<(usize, usize)>);
+
 /// Returns the game's base copy of `name` and its own fault coordinates, cached
 /// on `doc.base_faults` per `(name, load_order, talk_tables)`.
 fn base_faults_for(
@@ -1167,7 +1169,7 @@ fn base_faults_for(
     kinds: &[(&'static str, ColumnKind)],
     load_order: u64,
     tlk: TalkTables,
-) -> Option<Arc<(TwoDa, std::collections::HashSet<(usize, usize)>)>> {
+) -> Option<Arc<BaseFaults>> {
     let key = (name.to_ascii_lowercase(), load_order, tlk);
     if let Some((was, cached)) = &doc.base_faults
         && *was == key
@@ -1207,31 +1209,38 @@ fn filter_base_faults(
     });
 }
 
+struct DescFaultsCtx<'a> {
+    app: &'a Moonglow,
+    doc: &'a TableDoc,
+    described: &'a Described,
+    description: &'a Description,
+    name: &'a str,
+    tlk: TalkTables,
+    base: Option<&'a TwoDa>,
+}
+
 fn description_faults_append(
     found: &mut Vec<CellFault>,
-    app: &Moonglow,
-    doc: &TableDoc,
-    d: &Described,
-    description: &Description,
-    name: &str,
+    ctx: &DescFaultsCtx<'_>,
     rows: Option<&[usize]>,
-    tlk: TalkTables,
-    base: Option<&TwoDa>,
 ) {
-    let table = doc.edit.table();
-    let read = |n: &str| app.game.as_deref().and_then(|g| g.table(n).ok());
-    let rows_of = |n: &str| match n.eq_ignore_ascii_case(name) {
+    let table = ctx.doc.edit.table();
+    let read = |n: &str| ctx.app.game.as_deref().and_then(|g| g.table(n).ok());
+    let rows_of = |n: &str| match n.eq_ignore_ascii_case(ctx.name) {
         true => Some(table.len()),
-        false => project_table(app, d, n).map(|t| t.len()).or_else(|| read(n).map(|t| t.len())),
+        false => project_table(ctx.app, ctx.described, n)
+            .map(|t| t.len())
+            .or_else(|| read(n).map(|t| t.len())),
     };
     let desc_faults = match rows {
-        Some(rows) => description.faults_rows(table, rows, &rows_of, tlk),
-        None => description.faults(table, &rows_of, tlk),
+        Some(rows) => ctx.description.faults_rows(table, rows, &rows_of, ctx.tlk),
+        None => ctx.description.faults(table, &rows_of, ctx.tlk),
     };
     let mut said = cells_of(found);
     for f in desc_faults {
         let column = &table.columns()[f.column];
-        let the_game_s = base.is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
+        let the_game_s =
+            ctx.base.is_some_and(|b| b.get(f.row, column) == table.cell(f.row, f.column));
         if !the_game_s && said.insert((f.row, f.column)) {
             found.push(f);
         }
@@ -1315,17 +1324,8 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
             && let Ok(description) = &d.read
         {
             let base = if d.path.is_none() { base_pair.as_ref().map(|p| &p.0) } else { None };
-            description_faults_append(
-                &mut touched_faults,
-                app,
-                doc,
-                d,
-                description,
-                &name,
-                Some(&touched),
-                tlk,
-                base,
-            );
+            let ctx = DescFaultsCtx { app, doc, described: d, description, name: &name, tlk, base };
+            description_faults_append(&mut touched_faults, &ctx, Some(&touched));
         }
         touched_faults.sort_by_key(|f| (f.row, f.column));
         let unchanged = touched.iter().all(|&r| {
@@ -1388,7 +1388,8 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
         && let Ok(description) = &d.read
     {
         let base = if d.path.is_none() { base_pair.as_ref().map(|p| &p.0) } else { None };
-        description_faults_append(&mut found, app, doc, d, description, &name, None, tlk, base);
+        let ctx = DescFaultsCtx { app, doc, described: d, description, name: &name, tlk, base };
+        description_faults_append(&mut found, &ctx, None);
     }
     // (By row, then column, always: the grid takes each row's with
     // `row_faults`.)
@@ -1929,14 +1930,6 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
         }
         false => format!("Hidden from view: {}", hidden_names.join(", ")),
     };
-    // OK and Cancel at the end, with the tips they had at the foot.
-    let tips = crate::side_doc::OK_CANCEL_TIPS;
-    let buttons = [
-        mg_uikit::KitButton::new(None, "OK").tip(tips[0]),
-        mg_uikit::KitButton::new(None, "Cancel").tip(tips[1]),
-    ];
-    let gap = mg_uikit::header::HEADER_GAP;
-    let end_width = buttons.iter().map(|b| b.width(ui)).sum::<f32>() + gap;
     let mut h = EditorHeader::new(TABLE_HEADER)
         .more_words(true)
         .left(Item::button(Icon::Save, "Save").primary().enabled(dirty).tip("Save the table"))
@@ -2002,7 +1995,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
             }
         }));
     }
-    let out = h
+    let h = h
         .right(Item::joined(HOW_CELLS_SHOW, how))
         .right(
             Item::button(Icon::SaveAs, SAVE_AS_FILE)
@@ -2031,21 +2024,8 @@ fn header(app: &mut Moonglow, ui: &mut Ui, at: usize, has_copies: bool, wrong: u
             Item::button(Icon::Column, RESET_ALL_WIDTHS)
                 .in_more()
                 .tip("Every column of this table back to its first width"),
-        )
-        .show_with_end(ui, end_width, |ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            let mut pressed = None;
-            for b in buttons {
-                let words = b.accessible_name().to_string();
-                if ui.add(b).clicked() {
-                    pressed = Some(match words.as_str() {
-                        "Cancel" => crate::blueprint::Pressed::Cancel,
-                        _ => crate::blueprint::Pressed::Ok,
-                    });
-                }
-            }
-            pressed
-        });
+        );
+    let out = crate::widgets::header_with_ok_cancel(ui, h, None, crate::side_doc::OK_CANCEL_TIPS);
     let widths_key = app.tables[at].widths_key(app);
     let doc = &mut app.tables[at];
     doc.filter = filter.into_inner();

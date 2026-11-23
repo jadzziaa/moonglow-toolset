@@ -12672,11 +12672,9 @@ fn board_narrow() {
     shoot(&mut h, &board_dir(), "board_narrow");
 }
 
-/// WideArea.png at 3440 by 1440: the script in a second editor group at
-/// the area's right (Split Editor), the focus back on the area. Today the
-/// wide layout's second column holds the Preview, not the board's
-/// Properties column; the area's group as wide as the board's (the
-/// split's share set), its header's popovers unfolded into its row.
+/// Area editor alongside a split script editor at 3440 by 1440, focus back
+/// on the area: area group sized like the wide layout with header popovers
+/// unfolded into the header row.
 #[test]
 #[ignore]
 fn board_wide() {

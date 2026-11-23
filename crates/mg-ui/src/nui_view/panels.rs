@@ -98,8 +98,8 @@ fn close(app: &mut Moonglow, opened: Opened) {
 /// and top, 4 at its right before the scroll bar, 8 at its foot).
 const BODY: egui::Margin = egui::Margin { left: 8, right: 10, top: 8, bottom: 8 };
 
-/// The palette's components live in `super::design::COMPONENTS` so panel chips
-/// and layer/check titles share a single catalog.
+// The palette's components live in `super::design::COMPONENTS` so panel chips
+// and layer/check titles share a single catalog.
 
 /// The Components panel (the board's top section): Find a control…, then
 /// each group's heading and its components as buttons that wrap. A click
@@ -485,17 +485,19 @@ fn chosen_control_index(rows: &[Row], selected: &str, edit_view: Option<&str>) -
     })
 }
 
+type LayerRowsKey = (
+    Option<[Held; 2]>,
+    std::collections::BTreeSet<String>,
+    String,
+    Option<String>,
+    Option<std::rc::Rc<[mg_nui::Diagnostic]>>,
+);
+
 /// Layers' rows, made again only where what they are made of changed
 /// ([`LayerRows::of`]): a window of hundreds of controls is not walked, and
 /// each row's words not written, every frame.
 pub(super) struct LayerRows {
-    of: (
-        Option<[Held; 2]>,
-        std::collections::BTreeSet<String>,
-        String,
-        Option<String>,
-        Option<std::rc::Rc<[mg_nui::Diagnostic]>>,
-    ),
+    of: LayerRowsKey,
     rows: std::sync::Arc<[Row]>,
 }
 

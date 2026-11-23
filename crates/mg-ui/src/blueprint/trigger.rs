@@ -1,6 +1,6 @@
 //! Trigger Properties (`TdlgTriggerEdit`): Basic, Area Transition, Trap,
-//! Scripts, Advanced, Comments. The Area Transition and Trap pages apply to
-//! those trigger types.
+//! Scripts, Advanced, Variables, Visuals, Comments. The Area Transition and
+//! Trap pages apply to those trigger types.
 
 use egui::Ui;
 use mg_gff::FieldType;

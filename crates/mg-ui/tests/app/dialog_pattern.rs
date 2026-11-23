@@ -207,9 +207,7 @@ pub(crate) const SHARED_MAKERS: &[(&str, &str, &[&str])] = &[
         &[
             "blueprint/mod.rs:locstring_memo#1",
             "blueprint/mod.rs:locstring_memo_to#1",
-            "blueprint/mod.rs:locstring_then#1",
-            "blueprint/mod.rs:locstring_whole#1",
-            "blueprint/mod.rs:narrow_locstring#1",
+            "blueprint/mod.rs:open_loc_edit_on_click#1",
             "dialog_view.rs:text_panel#1",
         ],
     ),

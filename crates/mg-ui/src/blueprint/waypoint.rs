@@ -1,5 +1,5 @@
-//! Waypoint Properties (`TdlgWaypointEdit`): Basic, Advanced, Description,
-//! Comments.
+//! Waypoint Properties (`TdlgWaypointEdit`): Basic, Advanced, Variables,
+//! Description, Comments.
 
 use egui::Ui;
 use mg_module::palette::BlueprintKind;

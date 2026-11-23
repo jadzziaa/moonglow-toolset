@@ -352,7 +352,6 @@ impl OptionsDraft {
         }
     }
 
-    /// The settings with these options.
     /// The settings with these options: what the draft changed since it
     /// was opened, written over the settings as they are now. An option
     /// left as it was found keeps what it is now: set meanwhile from

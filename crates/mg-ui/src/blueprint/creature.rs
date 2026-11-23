@@ -1,6 +1,6 @@
 //! Creature Properties (`TdlgCreatureEdit`): Basic, Statistics, Appearance,
-//! Classes, Skills, Feats, Spells, Special Abilities, the inventory, Scripts,
-//! Advanced, Comments.
+//! Classes, Skills, Feats, Spells, Special Abilities, Inventory, Scripts,
+//! Advanced, Variables, Visuals, Comments.
 //!
 //! Every change also stores the creature's recomputed `MaxHitPoints` and
 //! `ChallengeRating` (in the same undoable command), as Aurora does on OK.

@@ -256,8 +256,9 @@ fn changed_hashed(
     make_text: impl FnOnce() -> String,
 ) {
     let trace_gen = GEN.load(Ordering::Relaxed);
+    type TraceKeys = (u64, HashMap<(u64, u64), u64>);
     thread_local! {
-        static KEYS: RefCell<(u64, HashMap<(u64, u64), u64>)> = RefCell::new((0, HashMap::new()));
+        static KEYS: RefCell<TraceKeys> = RefCell::new((0, HashMap::new()));
     }
     let unchanged = KEYS.with(|cell| {
         let mut guard = cell.borrow_mut();

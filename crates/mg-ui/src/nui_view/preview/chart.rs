@@ -61,7 +61,9 @@ fn downsample_samples(
     points
 }
 
-fn line_series(data: &[Value], step: f32, pixels: f32) -> Option<(f64, f64, Vec<(usize, f64)>)> {
+type LineSeries = (f64, f64, Vec<(usize, f64)>);
+
+fn line_series(data: &[Value], step: f32, pixels: f32) -> Option<LineSeries> {
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     let samples = downsample_samples(data, step, pixels, |v| {
