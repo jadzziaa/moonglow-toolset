@@ -202,14 +202,26 @@ fn same(a: &Path, b: &Path) -> bool {
 /// The server's name for a module: what `-module` takes, and the file in
 /// `modules`. (Lower case, the letters a resource name may have.)
 pub(crate) fn module_name(module: &Path) -> String {
-    let path = match module.file_name() {
-        Some(n) if n == "nasher.cfg" => module.parent().unwrap_or(module),
-        _ => module,
+    let is_nasher = module.file_name().is_some_and(|n| n == "nasher.cfg");
+    let dir_or_file = if is_nasher {
+        module.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
+    } else {
+        module
     };
-    let stem = match path.is_dir() {
-        true => path.file_name(),
-        false => path.file_stem(),
+    let resolved = if dir_or_file.file_name().is_none() {
+        dir_or_file.canonicalize().ok().or_else(|| {
+            let cur = std::env::current_dir().ok()?;
+            if dir_or_file.as_os_str().is_empty() || dir_or_file == Path::new(".") {
+                Some(cur)
+            } else {
+                cur.join(dir_or_file).canonicalize().ok()
+            }
+        })
+    } else {
+        None
     };
+    let path = resolved.as_deref().unwrap_or(dir_or_file);
+    let stem = if path.is_dir() || is_nasher { path.file_name() } else { path.file_stem() };
     let name: String = stem
         .map(|n| n.to_string_lossy().to_lowercase())
         .unwrap_or_default()
@@ -267,15 +279,22 @@ pub(crate) fn prepare(
     // language): the server finds no other.
     let language = mg_core::Language::from_short_code(&gi.language);
     // (Or the project's an archive was built from, `mg watch`'s.)
-    let own_tlk = match (&tlk, m.project.as_deref(), project) {
-        (Some(name), Some(p), _) => mg_module::nasher::in_language(p.talk_tables(name)?, language),
-        (Some(name), None, Some(root)) if mg_module::nasher::Package::is_package(root) => {
-            let package = mg_module::nasher::Package::read(root)?;
-            let settings = mg_module::nasher::Settings::read(root);
-            let tables = mg_module::nasher::talk_tables(&package, &settings, name)?;
-            mg_module::nasher::in_language(tables, language)
-        }
-        _ => None,
+    let project_tlk = |table_name: &str| -> Result<_> {
+        Ok(match (m.project.as_deref(), project) {
+            (Some(p), _) => mg_module::nasher::in_language(p.talk_tables(table_name)?, language),
+            (None, Some(root)) if mg_module::nasher::Package::is_package(root) => {
+                let package = mg_module::nasher::Package::read(root)?;
+                let settings = mg_module::nasher::Settings::read(root);
+                let tables = mg_module::nasher::talk_tables(&package, &settings, table_name)?;
+                mg_module::nasher::in_language(tables, language)
+            }
+            _ => None,
+        })
+    };
+    let own_tlk = tlk.as_deref().map(&project_tlk).transpose()?.flatten();
+    let own_fem_tlk = match tlk.as_deref().filter(|t| mg_resman::named_file(t, "tlk").is_some()) {
+        Some(t) => project_tlk(&mg_module::talk::feminine(t))?,
+        None => None,
     };
     if matches!(m.location, Some(ModuleLocation::Archive(_))) {
         if !same(module, &target) {
@@ -289,7 +308,10 @@ pub(crate) fn prepare(
         // packed without them loads and does nothing). The folder or
         // project itself is not written.
         let mut rm = mg_resman::ResMan::for_game(gi)?;
-        let _ = m.stack_onto(&mut rm, gi);
+        let (_, wrong) = m.stack_onto(&mut rm, gi);
+        if let Some(e) = wrong {
+            return Err(e.into());
+        }
         let made_with = mg_module::build::made_with(Some(module), None, Some(&gi.root), &rm);
         let changed = mg_module::build::changed(&m, &crate::remembered(module, made_with), false);
         if !changed.is_empty() {
@@ -327,26 +349,44 @@ pub(crate) fn prepare(
         }
     }
     if let Some(tlk) = tlk {
-        let Some(file) = mg_resman::named_file(&tlk, "tlk") else {
-            notes.push(format!("warning: talk table {tlk} not found: {}", mg_resman::NO_FILE_NAME));
-            return Ok((name, notes));
-        };
-        let to = dir.join("tlk").join(&file);
-        if let Some(own) = own_tlk {
-            let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
-            if !std::fs::read(&to).is_ok_and(|had| had == bytes) {
-                // (Not through a link to the player's own folder.)
-                let _ = std::fs::remove_file(&to);
-                std::fs::write(&to, bytes).with_context(|| to.display().to_string())?;
+        let mut place_tlk = |table_name: &str,
+                             own: Option<mg_module::nasher::TalkTable>,
+                             required: bool|
+         -> Result<()> {
+            let Some(file) = mg_resman::named_file(table_name, "tlk") else {
+                if required {
+                    notes.push(format!(
+                        "warning: talk table {table_name} not found: {}",
+                        mg_resman::NO_FILE_NAME
+                    ));
+                }
+                return Ok(());
+            };
+            let to = dir.join("tlk").join(&file);
+            if let Some(own) = own {
+                let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
+                if !std::fs::read(&to).is_ok_and(|had| had == bytes) {
+                    // (Not through a link to the player's own folder.)
+                    let _ = std::fs::remove_file(&to);
+                    std::fs::write(&to, bytes).with_context(|| to.display().to_string())?;
+                }
+                notes.push(format!("talk table {table_name} made from {}", own.path.display()));
+                return Ok(());
             }
-            notes.push(format!("talk table {tlk} made from {}", own.path.display()));
-            return Ok((name, notes));
-        }
-        match gi.tlk_dirs().iter().map(|d| d.join(&file)).find(|p| p.is_file()) {
-            Some(from) if !same(&from, &to) => place(&from, &to)?,
-            Some(_) => {}
-            None if to.is_file() => {}
-            None => notes.push(format!("warning: talk table {tlk} not found")),
+            match gi.tlk_dirs().iter().map(|d| d.join(&file)).find(|p| p.is_file()) {
+                Some(from) if !same(&from, &to) => place(&from, &to)?,
+                Some(_) => {}
+                None if to.is_file() => {}
+                None if required => {
+                    notes.push(format!("warning: talk table {table_name} not found"));
+                }
+                None => {}
+            }
+            Ok(())
+        };
+        place_tlk(&tlk, own_tlk, true)?;
+        if mg_resman::named_file(&tlk, "tlk").is_some() {
+            place_tlk(&mg_module::talk::feminine(&tlk), own_fem_tlk, false)?;
         }
     }
     Ok((name, notes))
@@ -590,6 +630,9 @@ pub(crate) fn serve(
                     failed |= line.contains("Unable to load module");
                     each(&Event::Console(line));
                 }
+                for line in engine.more().into_iter().filter(grave) {
+                    each(&Event::Engine(line));
+                }
                 for line in log.more() {
                     each(&Event::Log(line));
                 }
@@ -807,5 +850,97 @@ mod tests {
         let first = a.dir.clone();
         drop((a, again));
         assert_eq!(run_dir("serve", &module("/x")).dir, first);
+    }
+
+    #[test]
+    fn module_name_handles_dot_and_bare_nasher_cfg() {
+        let cwd = std::env::current_dir().unwrap();
+        let expected: String = cwd
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+            .collect();
+        assert_eq!(module_name(Path::new(".")), expected);
+        assert_eq!(module_name(Path::new("nasher.cfg")), expected);
+    }
+
+    #[test]
+    fn prepare_places_optional_feminine_tlk_and_propagates_corrupt_hak() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let dir = mg_testkit::scratch_dir("mg-serve-fem-and-hak");
+        let _ = std::fs::remove_dir_all(&dir);
+        let user = dir.join("user");
+        for sub in ["tlk", "hak"] {
+            std::fs::create_dir_all(user.join(sub)).unwrap();
+        }
+        let gi = GameInstall::new(&root, Some(user.clone()), "en");
+
+        // Project JSON primary + feminine TLK.
+        let mut m = mg_module::Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
+        m.set_info(&info).unwrap();
+        let project = dir.join("project");
+        m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+            .unwrap();
+        let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+        cfg.push_str(
+            "\n[target]\nname = \"tlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  include = \"src/tlk/*.json\"\n\
+             \n[target]\nname = \"tlkf\"\nfile = \"mytlkf.tlk\"\n  [target.sources]\n  include = \"src/tlk/*.json\"\n",
+        );
+        std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+        std::fs::create_dir_all(project.join("src/tlk")).unwrap();
+        std::fs::write(
+            project.join("src/tlk/mytlk.tlk.json"),
+            r#"{"language":0,"entries":[{"id":0,"text":"Ours"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("src/tlk/mytlkf.tlk.json"),
+            r#"{"language":0,"entries":[{"id":0,"text":"Fem"}]}"#,
+        )
+        .unwrap();
+        let server = dir.join("server_proj");
+        prepare(&gi, &project, &server, None).unwrap();
+        let fem =
+            mg_tlk::Tlk::read(&std::fs::read(server.join("tlk/mytlkf.tlk")).unwrap()).unwrap();
+        assert_eq!(fem.entries[0].text, b"Fem");
+
+        // Loose TLK files: copies <tlk>f.tlk when present, no warning when absent.
+        std::fs::write(user.join("tlk/loose.tlk"), b"male").unwrap();
+        std::fs::write(user.join("tlk/loosef.tlk"), b"female").unwrap();
+        let loose_mod = dir.join("loose.mod");
+        let mut lm = mg_module::Module::new();
+        let mut linfo = mg_gff::Gff::new(*b"IFO ");
+        linfo.root.set("Mod_CustomTlk", mg_gff::Value::String(b"loose".to_vec()));
+        lm.set_info(&linfo).unwrap();
+        lm.save_as(&ModuleLocation::Archive(loose_mod.clone())).unwrap();
+        let server2 = dir.join("server_loose");
+        let (_, notes) = prepare(&gi, &loose_mod, &server2, None).unwrap();
+        assert_eq!(std::fs::read(server2.join("tlk/loosef.tlk")).unwrap(), b"female");
+        assert!(!notes.iter().any(|n| n.contains("not found")), "{notes:?}");
+
+        std::fs::write(user.join("tlk/onlymale.tlk"), b"male").unwrap();
+        linfo.root.set("Mod_CustomTlk", mg_gff::Value::String(b"onlymale".to_vec()));
+        lm.set_info(&linfo).unwrap();
+        let male_mod = dir.join("male.mod");
+        lm.save_as(&ModuleLocation::Archive(male_mod.clone())).unwrap();
+        let (_, notes) = prepare(&gi, &male_mod, &dir.join("server_male"), None).unwrap();
+        assert!(!notes.iter().any(|n| n.contains("not found")), "{notes:?}");
+
+        // Module folder referencing a corrupt hak surfaces ResError.
+        std::fs::write(user.join("hak/corrupt.hak"), b"not an erf").unwrap();
+        let bad_dir = dir.join("bad_folder");
+        let mut bm = mg_module::Module::new();
+        let mut binfo = mg_gff::Gff::new(*b"IFO ");
+        let mut hak = mg_gff::Struct::new(8);
+        hak.set("Mod_Hak", mg_gff::Value::String(b"corrupt".to_vec()));
+        binfo.root.set("Mod_HakList", mg_gff::Value::List(vec![hak]));
+        bm.set_info(&binfo).unwrap();
+        bm.save_as(&ModuleLocation::Folder(bad_dir.clone())).unwrap();
+        assert!(prepare(&gi, &bad_dir, &dir.join("server_bad"), None).is_err());
     }
 }

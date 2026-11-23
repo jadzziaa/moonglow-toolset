@@ -35,4 +35,18 @@ fn replace_lists_then_changes_the_modules_text() {
     let saved = Module::open(&path).unwrap();
     assert!(find(&saved, word, o, &TextKind::PLAYERS).is_empty());
     assert!(!find(&saved, "victor", o, &TextKind::PLAYERS).is_empty());
+
+    // Zero matches: no save and no .mod.bak created.
+    let bak = dir.join("contest.mod.bak");
+    let _ = std::fs::remove_file(&bak);
+    let after_bytes = std::fs::read(&path).unwrap();
+    let noop = crate::mg_on(&root, None)
+        .args(["replace", "--whole-word"])
+        .arg(&path)
+        .args(["zzznomatch", "victor"])
+        .output()
+        .unwrap();
+    assert!(noop.status.success(), "{}", String::from_utf8_lossy(&noop.stderr));
+    assert!(!bak.exists(), "no-op replace should not create .mod.bak");
+    assert_eq!(std::fs::read(&path).unwrap(), after_bytes);
 }

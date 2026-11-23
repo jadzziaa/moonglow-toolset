@@ -41,9 +41,14 @@ fn a_second_compile_passes_over_what_is_unchanged() {
     assert!(kept[0].to_string_lossy().contains("compiled"), "{kept:?}");
     assert!(!walk(&at).iter().any(|p| is_json(p)));
 
-    // As they were: none compiled. Named another way, the same module.
+    // As they were: none compiled, and the module is not saved or backed up anew.
+    let bak = at.join("chess.mod.bak");
+    let _ = std::fs::remove_file(&bak);
+    let saved_bytes = std::fs::read(&chess).unwrap();
     let again = compile(&root, &dir, &at.join("../module/chess.mod"), &[]);
     assert!(again["scripts"] == 0 && again["unchanged"] == scripts, "{again}");
+    assert!(!bak.exists(), "no-op compile should not create .mod.bak");
+    assert_eq!(std::fs::read(&chess).unwrap(), saved_bytes);
 
     // One script changed: it alone, unless others include it.
     let mut m = mg_module::Module::open(&chess).unwrap();

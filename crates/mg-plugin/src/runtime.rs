@@ -1102,7 +1102,12 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
     // Its tag, and what a placed object was made from, where it is.
     let facts = |g: &Gff| {
         let at = path.get(&g.root)?;
-        Some((at.string("Tag").map(<[u8]>::to_vec), at.resref("TemplateResRef")))
+        let field = match path.0.first() {
+            Some(mg_edit::Step::Item(list, _)) => mg_rules::ObjectKind::from_list(list)
+                .map_or("TemplateResRef", mg_rules::ObjectKind::resref_field),
+            _ => "TemplateResRef",
+        };
+        Some((at.string("Tag").map(<[u8]>::to_vec), at.resref(field)))
     };
     let read = match s {
         Selected::Resource(_) => None,
@@ -2733,5 +2738,28 @@ mod tests {
         assert!(!sh.out_of_time());
         let left = sh.deadline.get().unwrap() - std::time::Instant::now();
         assert!(left > std::time::Duration::from_millis(100), "{left:?}");
+    }
+
+    #[test]
+    fn placed_store_selection_exposes_store_resref_field() {
+        let area = ResRef::from_str("area001").unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut store = Struct::new(0);
+        store.set("Tag", Value::String(b"SHOP_1".to_vec()));
+        store.set("ResRef", Value::resref(ResRef::from_str("my_shop").unwrap()));
+        git.root.set(mg_rules::ObjectKind::Store.list(), Value::List(vec![store]));
+        let mut module = mg_module::Module::new();
+        module.set_gff(ResKey::new(area, mg_core::ResType::GIT), &git).unwrap();
+        let mut input = Input::new(module, None);
+        input.selection.selected =
+            vec![Selected::Object { area, kind: mg_rules::ObjectKind::Store, index: 0 }];
+        let host: Rc<dyn Host> = Rc::new(Nobody);
+        let sh = shared_in(Source::Nothing, "", input, &host);
+        let lua = start(None, &sh).unwrap();
+        let ctx = context(&lua, &sh, ["", "", ""]).unwrap();
+        let chosen: Table = ctx.get("selection").unwrap();
+        let entry: Table = chosen.get(1).unwrap();
+        assert_eq!(entry.get::<String>("tag").unwrap(), "SHOP_1");
+        assert_eq!(entry.get::<String>("resref").unwrap(), "my_shop");
     }
 }

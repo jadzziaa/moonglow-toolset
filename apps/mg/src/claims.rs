@@ -31,26 +31,26 @@ pub(crate) enum Action {
     Merged,
 }
 
-/// A project's root, from its folder or its nasher.cfg.
-fn root_of(project: &Path) -> Result<&Path> {
-    let root = match project.file_name() {
-        Some(n) if n == "nasher.cfg" => project.parent().unwrap_or(Path::new(".")),
-        _ => project,
-    };
-    if !root.is_dir() {
-        bail!("{}: not a project's folder", root.display());
-    }
-    Ok(root)
-}
-
-/// The claims table's text as it is (none yet: empty), to try a command's
-/// changes on before any is written.
-fn table_text(table: &Path) -> Result<String> {
+/// The claims table's text as it is (none yet: empty, UTF-8), plus whether
+/// it read as valid UTF-8 (`false`: Windows-1252).
+fn table_text(table: &Path) -> Result<(String, bool)> {
     match std::fs::read(table) {
-        Ok(bytes) => Ok(claims::decode(&bytes).0.into_owned()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Ok(bytes) => {
+            let (text, utf8) = claims::decode(&bytes);
+            Ok((text.into_owned(), utf8))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((String::new(), true)),
         Err(e) => bail!("{}: {e}", table.display()),
     }
+}
+
+fn write_table(table: &Path, text: String, utf8: bool) -> Result<()> {
+    let bytes =
+        if utf8 { text.into_bytes() } else { mg_core::Codepage::WINDOWS_1252.encode_lossy(&text) };
+    if let Some(dir) = table.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    crate::write_bytes_whole(table, &bytes)
 }
 
 pub(crate) fn run(
@@ -60,8 +60,8 @@ pub(crate) fn run(
     force: bool,
     to: Option<&str>,
 ) -> Result<Output> {
-    let root = root_of(project)?;
-    let p = ProjectFile::read(root);
+    let root = crate::project_root(project)?;
+    let p = ProjectFile::read(&root);
     let Some(table) = p.claims_path() else {
         bail!(
             "{}: its moonglow.toml names no claims table ([claims] file = \"builders/claims.2da\")",
@@ -78,7 +78,7 @@ pub(crate) fn run(
     let mut out = Output::default();
     let code = p.user.builder_code.clone();
     match action {
-        Action::List => return Ok(list(root, &p)),
+        Action::List => return Ok(list(&root, &p)),
         Action::Claim | Action::Release | Action::Hand => {
             let Some(code) = code.as_deref() else {
                 bail!(
@@ -102,23 +102,20 @@ pub(crate) fn run(
                 Action::Release => (Change::Release(code), format!("released by {code}")),
                 _ => (Change::Hand { from: code, to: &to }, format!("handed to {to}")),
             };
-            // All of them or none: each is tried on the table's text
-            // before any is written (one held by another builder would
-            // otherwise end the command with those before it claimed, and
-            // only the error said).
+            // All of them or none: every change is applied in memory before a single atomic write.
             let today = mg_core::time::today();
-            let mut tried = table_text(&table)?;
+            let (mut tried, utf8) = table_text(&table)?;
             for area in &areas {
                 tried = claims::change(&tried, *area, how, &today, force)
                     .map_err(anyhow::Error::msg)?;
             }
+            write_table(&table, tried, utf8)?;
             for area in &areas {
-                claims::write_change(&table, *area, how, force).map_err(anyhow::Error::msg)?;
                 out.line(format!("{area}: {done}"));
             }
         }
         Action::Merged => {
-            let m = crate::open_module(root)?;
+            let m = crate::open_module(&root)?;
             // (All of them or none, as above.)
             let mut tags = Vec::new();
             for area in &areas {
@@ -130,17 +127,17 @@ pub(crate) fn run(
                 tags.push(tag.into_owned());
             }
             let today = mg_core::time::today();
-            let mut tried = table_text(&table)?;
+            let (mut tried, utf8) = table_text(&table)?;
             for (area, tag) in areas.iter().zip(&tags) {
                 tried = claims::merged(&tried, *area, tag, &today).map_err(anyhow::Error::msg)?;
             }
+            write_table(&table, tried, utf8)?;
             for (area, tag) in areas.iter().zip(&tags) {
-                claims::write_merged(&table, *area, tag).map_err(anyhow::Error::msg)?;
                 out.line(format!("{area}: merged, as {tag}"));
             }
         }
     }
-    let rel = table.strip_prefix(root).unwrap_or(&table).display().to_string();
+    let rel = table.strip_prefix(&root).unwrap_or(&table).display().to_string();
     out.note(format!("{rel} written: commit it, so the others see it"));
     out.json =
         json!({ "file": rel, "areas": areas.iter().map(|a| a.to_string()).collect::<Vec<_>>() });

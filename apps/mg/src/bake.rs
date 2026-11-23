@@ -57,8 +57,14 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         label: "Appearance".into(),
         value: Some(Value::Dword(row)),
     };
+    let mut objects = Vec::with_capacity(a.objects.len());
+    for &n in a.objects {
+        if !objects.contains(&n) {
+            objects.push(n);
+        }
+    }
     if a.unbake {
-        for &n in a.objects {
+        for &n in &objects {
             let was = appearance(object(n)?);
             let row = bake::unbaked_row(&rows, was).map_err(|e| anyhow!("--object {n}: {e}"))?;
             edits.push(set(n, row));
@@ -87,7 +93,7 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
     }
     let rm = crate::module_resman(&gi, &m, &mut notes)?;
     let mut requests = Vec::new();
-    for &n in a.objects {
+    for &n in &objects {
         let s = object(n)?;
         let t = bake::transform_of(s).map_err(|e| anyhow!("--object {n}: not baked: {e}"))?;
         let matrix = mg_preview::visual_matrix(t.scale[0], t.rotate, t.translate);
@@ -98,7 +104,7 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         });
     }
     let plan = bake::plan(&rules, &rows, &rm, codepage, &requests).map_err(|e| anyhow!("{e}"))?;
-    for (&n, b) in a.objects.iter().zip(&plan.each) {
+    for (&n, b) in objects.iter().zip(&plan.each) {
         let b = b.as_ref().map_err(|e| anyhow!("--object {n}: not baked: {e}"))?;
         if appearance(object(n)?) != b.row {
             edits.push(set(n, b.row));
@@ -130,31 +136,33 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         .join(format!("{}.hak", plan.hak));
     let mut lines: Vec<String> = plan.describe().lines().map(str::to_string).collect();
     let cmd = Command::new("Bake Walkmesh to Transform", edits);
-    // The edits are tried and the plugins asked before anything is
-    // written: a save they refuse (or edits that do not apply) would leave
-    // the baked model in the hak and its row in the rows file, with the
-    // placeables still at their old rows.
-    if !a.dry_run {
-        let tried = Workspace::new(m.clone());
-        crate::edits::run(tried, cmd.clone(), true, None, false, codepage, guard.as_ref(), None)?;
-    }
-    if !a.dry_run {
+    let edits_empty = cmd.edits.is_empty();
+    if !a.dry_run && !edits_empty {
         if !plan.files.is_empty() {
-            let files = (plan.files.iter())
-                .map(|(k, d)| (*k, mg_module::hak_edit::Source::Bytes(d.as_slice().into())))
-                .collect();
-            if let Some(dir) = hak_path.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            mg_module::hak_edit::write_into(&hak_path, files).map_err(|e| anyhow!("{e}"))?;
             lines.push(format!("Written into {}", hak_path.display()));
         }
         if plan.rows_changed {
-            plan.rows.write(&rows_path).map_err(|e| anyhow!("{e}"))?;
             lines.push(format!("Written {}", rows_path.display()));
         }
     }
-    let mut out = crate::edits::run(
+    let backups: std::cell::RefCell<Vec<(std::path::PathBuf, Option<std::path::PathBuf>)>> =
+        std::cell::RefCell::new(Vec::new());
+    let backup = |target: &std::path::Path| -> Result<()> {
+        if target.exists() {
+            let mut name = target.file_name().unwrap_or_default().to_os_string();
+            name.push(".mg-bake-bak");
+            let bak = target.with_file_name(name);
+            let _ = std::fs::remove_file(&bak);
+            if std::fs::hard_link(target, &bak).is_err() {
+                std::fs::copy(target, &bak)?;
+            }
+            backups.borrow_mut().push((target.to_path_buf(), Some(bak)));
+        } else {
+            backups.borrow_mut().push((target.to_path_buf(), None));
+        }
+        Ok(())
+    };
+    let mut out = crate::edits::run_with_before_save(
         Workspace::new(m),
         cmd,
         a.dry_run,
@@ -163,7 +171,45 @@ pub(crate) fn run(cli: &Cli, a: &Asked) -> Result<Output> {
         codepage,
         guard.as_ref(),
         Some(&gi),
+        || {
+            if !plan.files.is_empty() {
+                backup(&hak_path)?;
+                let files = (plan.files.iter())
+                    .map(|(k, d)| (*k, mg_module::hak_edit::Source::Bytes(d.as_slice().into())))
+                    .collect();
+                if let Some(dir) = hak_path.parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                mg_module::hak_edit::write_into(&hak_path, files).map_err(|e| anyhow!("{e}"))?;
+            }
+            if plan.rows_changed {
+                backup(&rows_path)?;
+                plan.rows.write(&rows_path).map_err(|e| anyhow!("{e}"))?;
+            }
+            Ok(())
+        },
+        || {
+            for (target, bak) in backups.borrow_mut().drain(..).rev() {
+                match bak {
+                    Some(bak) => {
+                        if bak.exists() {
+                            let _ = std::fs::rename(&bak, &target)
+                                .or_else(|_| std::fs::copy(&bak, &target).map(|_| ()));
+                            let _ = std::fs::remove_file(&bak);
+                        }
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(&target);
+                    }
+                }
+            }
+        },
     )?;
+    for (_, bak) in backups.borrow_mut().drain(..) {
+        if let Some(bak) = bak {
+            let _ = std::fs::remove_file(bak);
+        }
+    }
     if let serde_json::Value::Object(o) = &mut out.json {
         o.insert("baked".into(), each.into());
         o.insert("hak".into(), hak_path.display().to_string().into());

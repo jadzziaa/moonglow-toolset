@@ -137,6 +137,9 @@ pub(crate) struct Watcher {
     /// Tells which of the project's files changed (else walks them).
     watch: Watch,
     looked: Instant,
+    /// Whether the last pass hit a transient read error and should re-poll even
+    /// if the OS watcher delivers no further event.
+    retry: bool,
     /// Debug files (`.ndb`) are made with the compiled scripts.
     debug: bool,
 }
@@ -194,7 +197,9 @@ pub(crate) fn open(project: &Path, target: Option<&str>) -> Result<Module> {
         return crate::open_module(project).with_context(|| project.display().to_string());
     };
     let root = match project.file_name() {
-        Some(n) if n == "nasher.cfg" => project.parent().unwrap_or(project),
+        Some(n) if n == "nasher.cfg" => {
+            project.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        }
         _ => project,
     };
     if !mg_module::nasher::Package::is_package(root) {
@@ -234,6 +239,7 @@ impl Watcher {
             module,
             watch,
             looked: Instant::now(),
+            retry: false,
         };
         // (Its first word is "look at all", and all was just read.)
         let _ = w.watch.take();
@@ -278,7 +284,9 @@ impl Watcher {
     pub(crate) fn look(&mut self, rm: &ResMan) -> Result<Option<Step>> {
         let files = match self.watch.take() {
             Some(heard) => heard.files(),
-            None if self.watch.dead() && self.looked.elapsed() >= Duration::from_millis(400) => {
+            None if (self.watch.dead() || self.retry)
+                && self.looked.elapsed() >= Duration::from_millis(400) =>
+            {
                 None
             }
             None => return Ok(None),
@@ -298,6 +306,7 @@ impl Watcher {
     /// all of them): only they are read, and only what changed is
     /// compiled or put out.
     fn step_of(&mut self, files: Option<Vec<PathBuf>>, rm: &ResMan) -> Result<Step> {
+        self.retry = false;
         let mut step = Step::default();
         let (_, config) = place(&self.module, &self.project);
         let config_now = file_stamp(config.as_deref());
@@ -314,6 +323,9 @@ impl Watcher {
             Some(scan) => self.module.outside_found(scan.run()),
             None => (Vec::new(), Vec::new()),
         };
+        if !problems.is_empty() {
+            self.retry = true;
+        }
         // (A file half written, say: the next look reads it whole.)
         step.errors.extend(problems);
         let (mut changed, mut removed): (Vec<ResKey>, Vec<ResKey>) = (Vec::new(), Vec::new());
@@ -365,6 +377,7 @@ impl Watcher {
                 Err(e) => {
                     step.errors.push(format!("{}: {e:#}", self.project.display()));
                     self.config = None;
+                    self.retry = true;
                     return Ok(step);
                 }
             }
@@ -430,8 +443,10 @@ impl Watcher {
             written.insert(name.clone());
             step.written.push(name);
         }
-        let list: String = written.iter().map(|n| format!("{n}\n")).collect();
-        crate::write_bytes_whole(&self.dev_dir.join(WRITTEN), list.as_bytes())?;
+        if !files.is_empty() {
+            let list: String = written.iter().map(|n| format!("{n}\n")).collect();
+            crate::write_bytes_whole(&self.dev_dir.join(WRITTEN), list.as_bytes())?;
+        }
         // (For the next build, too.)
         self.build()?;
         Ok(step)
@@ -706,5 +721,60 @@ mod tests {
         assert!(step.warnings[0].ends_with("(in 2 scripts)"));
         assert!(step.text(&root).contains(&step.warnings[0]));
         assert_eq!(step.json()["warnings"][0], step.warnings[0].as_str());
+    }
+
+    #[test]
+    fn reread_error_retries_and_failed_recompile_keeps_dev_ncs() {
+        let dir = mg_testkit::scratch_dir("mg-watch-stale-and-retry");
+        let _ = std::fs::remove_dir_all(&dir);
+        let project = dir.join("project");
+        let dev = dir.join("dev");
+        std::fs::create_dir_all(&dev).unwrap();
+
+        let mut m = Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        let nss = ResKey::parse("hello", ResType::NSS).unwrap();
+        m.set(nss, b"void main() {}\n".to_vec());
+        m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+            .unwrap();
+        let m = open(&project, None).unwrap();
+        let nss_path = m.file_of(&nss).unwrap().to_path_buf();
+        let root = mg_testkit::corpus!();
+        let rm = ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+        let (mut w, _) = Watcher::start(m, &project, None, &dev, None, true, &rm).unwrap();
+
+        // First compile writes hello.ncs and hello.ndb on an edit.
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&nss_path, "void main() { int a = 1; }\n").unwrap();
+        let step = w.step(&rm).unwrap();
+        assert_eq!(step.compiled, ["hello"], "{step:?}");
+        assert!(dev.join("hello.ncs").is_file());
+        assert!(dev.join("hello.ndb").is_file());
+        let prev_ncs = std::fs::read(dev.join("hello.ncs")).unwrap();
+
+        // Breaking hello.nss drops in-memory NCS/NDB from the module while keeping dev_dir's copy.
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&nss_path, "void main() { int a = ; }\n").unwrap();
+        let step = w.step(&rm).unwrap();
+        assert_eq!(step.errors.len(), 1);
+        assert!(!w.module().contains(&ResKey::new(nss.resref, ResType::NCS)));
+        assert!(!w.module().contains(&ResKey::new(nss.resref, ResType::NDB)));
+        assert_eq!(std::fs::read(dev.join("hello.ncs")).unwrap(), prev_ncs);
+        assert!(dev.join(WRITTEN).exists());
+
+        // Broken nasher.cfg sets retry=true so look() retries once restored without an FS event.
+        let orig_cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+        std::fs::write(&nss_path, "void main() {}\n").unwrap();
+        std::fs::write(project.join("nasher.cfg"), "[broken\n").unwrap();
+        let err_step = w.step(&rm).unwrap();
+        assert!(!err_step.errors.is_empty());
+        assert!(w.retry);
+        let _ = w.watch.take();
+        std::fs::write(project.join("nasher.cfg"), &orig_cfg).unwrap();
+        let _ = w.watch.take();
+        w.looked = Instant::now() - Duration::from_millis(500);
+        let recovered = w.look(&rm).unwrap().expect("retried on look");
+        assert!(recovered.errors.is_empty(), "{:?}", recovered.errors);
+        assert!(!w.retry);
     }
 }

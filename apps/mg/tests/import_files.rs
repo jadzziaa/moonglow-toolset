@@ -87,4 +87,14 @@ fn files_and_folders_are_imported() {
     // A path not there: an error.
     let (ok, gone) = run(&[files.join("gone.nss").to_str().unwrap()]);
     assert!(!ok && gone["error"].as_str().unwrap().contains("no such file"), "{gone}");
+
+    // All skipped without --overwrite: module untouched and no .mod.bak created.
+    let bak = dir.join("town.mod.bak");
+    let _ = std::fs::remove_file(&bak);
+    let before_bytes = std::fs::read(&path).unwrap();
+    let (ok, skipped) = run(&[files.join("hello.nss").to_str().unwrap()]);
+    assert!(ok, "{skipped}");
+    assert_eq!(names(&skipped["skipped"]), ["hello.nss"]);
+    assert!(!bak.exists(), "no-op import should not create .mod.bak");
+    assert_eq!(std::fs::read(&path).unwrap(), before_bytes);
 }

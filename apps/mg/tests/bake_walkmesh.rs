@@ -214,3 +214,107 @@ fn a_refused_bake_writes_no_hak_and_no_rows() {
     assert!(!dir.join("baked_rows.toml").exists(), "the rows file was written");
     assert_eq!(appearances(&dir, area), before);
 }
+
+#[test]
+fn bake_dedups_repeated_objects_skips_noop_and_runs_save_plugins_once() {
+    let root = mg_testkit::corpus!();
+    let game = crate::shared_game(&root);
+    let scratch = mg_testkit::scratch_dir("mg-bake-dedup-noop");
+    let _ = std::fs::remove_dir_all(&scratch);
+    let (dir, user) = (scratch.join("bake"), scratch.join("user"));
+    let (counter, refuser) = (scratch.join("counter"), scratch.join("refuser"));
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&counter).unwrap();
+    std::fs::write(
+        counter.join("plugin.cfg"),
+        "[plugin]\nid = \"test.counter\"\nname = \"Counter\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"MIT\"\n\n[event]\nid = \"warn\"\non = \"resource-saving\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        counter.join("main.luau"),
+        "local mg = require(\"@moonglow\")\n\
+         mg.on(\"warn\", function(ctx) ctx.event:warn(\"checked\") end)\n",
+    )
+    .unwrap();
+    crate::plugins::refuser(&refuser);
+
+    let area = module(&dir, &game, Some(RULES));
+    let before = appearances(&dir, area);
+
+    // Refused on initial bake: creates neither hak nor rows file.
+    let (ok, refused) = crate::json_out(
+        crate::mg_on(&root, Some(&user))
+            .arg("--json")
+            .arg("bake-walkmesh")
+            .arg(&dir)
+            .args(["--area", &area.to_string(), "--object", "0", "--plugins"])
+            .arg(&refuser),
+    );
+    assert!(!ok, "{refused}");
+    let hak_path = user.join("hak/mybaked.hak");
+    let rows_path = dir.join("baked_rows.toml");
+    assert!(!hak_path.exists() && !rows_path.exists());
+    assert_eq!(appearances(&dir, area), before);
+
+    // Repeated --object 0 --object 0 deduplicates to one item and invokes resource-saving once.
+    let (ok, json) = crate::json_out(
+        crate::mg_on(&root, Some(&user))
+            .arg("--json")
+            .arg("bake-walkmesh")
+            .arg(&dir)
+            .args(["--area", &area.to_string(), "--object", "0", "--object", "0", "--plugins"])
+            .arg(&counter),
+    );
+    assert!(ok, "{json}");
+    assert_eq!(json["baked"].as_array().unwrap().len(), 1, "{json}");
+    assert_eq!(json["edits"], 2, "{json}");
+    let said = json["said"].as_array().unwrap();
+    let resources: Vec<_> = said.iter().map(|s| s["resource"].as_str().unwrap()).collect();
+    assert_eq!(resources, ["module.ifo", "yard.git"], "{json}");
+    assert!(said.iter().all(|s| s["text"] == "checked"), "{json}");
+
+    let hak_bytes = std::fs::read(&hak_path).unwrap();
+    let rows_bytes = std::fs::read(&rows_path).unwrap();
+    let hak_mtime = std::fs::metadata(&hak_path).unwrap().modified().unwrap();
+    let rows_mtime = std::fs::metadata(&rows_path).unwrap().modified().unwrap();
+
+    // No-op re-run: zero edits, no "Written" line, hak and rows untouched.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let (ok, noop) = crate::json_out(
+        crate::mg_on(&root, Some(&user)).arg("--json").arg("bake-walkmesh").arg(&dir).args([
+            "--area",
+            &area.to_string(),
+            "--object",
+            "0",
+        ]),
+    );
+    assert!(ok, "{noop}");
+    assert_eq!(noop["edits"], 0, "{noop}");
+    let text_out = crate::mg_on(&root, Some(&user))
+        .arg("bake-walkmesh")
+        .arg(&dir)
+        .args(["--area", &area.to_string(), "--object", "0"])
+        .output()
+        .unwrap();
+    assert!(text_out.status.success());
+    let stdout = String::from_utf8_lossy(&text_out.stdout);
+    assert!(!stdout.contains("Written"), "{stdout}");
+    assert_eq!(std::fs::read(&hak_path).unwrap(), hak_bytes);
+    assert_eq!(std::fs::read(&rows_path).unwrap(), rows_bytes);
+    assert_eq!(std::fs::metadata(&hak_path).unwrap().modified().unwrap(), hak_mtime);
+    assert_eq!(std::fs::metadata(&rows_path).unwrap().modified().unwrap(), rows_mtime);
+
+    // Refused later bake leaves existing hak and rows untouched too.
+    let (ok, refused2) = crate::json_out(
+        crate::mg_on(&root, Some(&user))
+            .arg("--json")
+            .arg("bake-walkmesh")
+            .arg(&dir)
+            .args(["--area", &area.to_string(), "--object", "1", "--plugins"])
+            .arg(&refuser),
+    );
+    assert!(!ok, "{refused2}");
+    assert_eq!(std::fs::read(&hak_path).unwrap(), hak_bytes);
+    assert_eq!(std::fs::read(&rows_path).unwrap(), rows_bytes);
+}

@@ -9,7 +9,7 @@
 //! resources (its scripts and `nwscript.nss`). A game script opened by Go to
 //! Definition is written to a cache folder, read-only.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -99,7 +99,10 @@ fn script_name(path: &Path) -> Option<String> {
 
 /// A byte offset's LSP position (line, UTF-16 column).
 fn position(text: &str, offset: usize) -> Value {
-    let offset = offset.min(text.len());
+    let mut offset = offset.min(text.len());
+    while !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
     let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
     let line = mg_core::text::line_of(text.as_bytes(), offset) - 1;
     let character: usize = text[line_start..offset].chars().map(char::len_utf16).sum();
@@ -208,8 +211,48 @@ impl Server {
         out
     }
 
+    fn indexed_text(&self, name: &str) -> Option<Arc<str>> {
+        self.index.text(name).cloned().or_else(|| self.text(name).map(Arc::from))
+    }
+
+    fn all_files(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut files = Vec::new();
+        for name in self.files.keys().chain(self.open.keys()) {
+            if seen.insert(name.as_str()) {
+                files.push(name.clone());
+            }
+        }
+        files
+    }
+
+    fn file_entry<'a>(
+        &self,
+        cache: &'a mut HashMap<String, Option<(String, Arc<str>)>>,
+        file: &str,
+    ) -> Option<&'a (String, Arc<str>)> {
+        if !cache.contains_key(file) {
+            let entry = (|| Some((self.uri(file)?, self.indexed_text(file)?)))();
+            cache.insert(file.to_string(), entry);
+        }
+        cache.get(file).and_then(Option::as_ref)
+    }
+
+    fn cached_location(
+        &self,
+        cache: &mut HashMap<String, Option<(String, Arc<str>)>>,
+        file: &str,
+        span: &std::ops::Range<usize>,
+    ) -> Option<Value> {
+        let (uri, text) = self.file_entry(cache, file)?;
+        Some(json!({
+            "uri": uri,
+            "range": { "start": position(text, span.start), "end": position(text, span.end) },
+        }))
+    }
+
     fn location(&self, file: &str, span: &std::ops::Range<usize>) -> Option<Value> {
-        let text = self.text(file)?;
+        let text = self.indexed_text(file)?;
         Some(json!({
             "uri": self.uri(file)?,
             "range": { "start": position(&text, span.start), "end": position(&text, span.end) },
@@ -263,7 +306,9 @@ impl Server {
         };
         let line = e
             .location()
-            .filter(|(f, _)| f.trim_end_matches(".nss").eq_ignore_ascii_case(name))
+            .filter(|(f, _)| {
+                mg_core::text::strip_suffix_ascii_ci(f, ".nss").eq_ignore_ascii_case(name)
+            })
             .map_or(0, |(_, l)| l.saturating_sub(1));
         vec![diagnostic(line, 1, &e.message)]
     }
@@ -347,30 +392,31 @@ impl Server {
             },
             "textDocument/references" => {
                 let Some(d) = self.declaration(params) else { return Ok(Some(Value::Null)) };
-                let files: Vec<String> =
-                    self.files.keys().chain(self.open.keys()).cloned().collect();
+                let files = self.all_files();
                 let refs = self.with_index(|idx, src| idx.references(&d, &files, src));
                 let with_decl = params["context"]["includeDeclaration"].as_bool().unwrap_or(true);
+                let mut cache = HashMap::new();
                 Value::Array(
                     refs.iter()
                         .filter(|r| with_decl || r.file != d.at.file || r.span != d.at.span)
-                        .filter_map(|r| self.location(&r.file, &r.span))
+                        .filter_map(|r| self.cached_location(&mut cache, &r.file, &r.span))
                         .collect(),
                 )
             }
             "textDocument/rename" => {
                 let Some(d) = self.declaration(params) else { return Ok(Some(Value::Null)) };
                 let new = params["newName"].as_str().unwrap_or_default().to_string();
-                let files: Vec<String> =
-                    self.files.keys().chain(self.open.keys()).cloned().collect();
+                let files = self.all_files();
                 match self.with_index(|idx, src| idx.rename(&d, &new, &files, src)) {
                     Ok(places) => {
                         let mut changes: serde_json::Map<String, Value> = serde_json::Map::new();
+                        let mut cache = HashMap::new();
                         for p in places {
-                            let (Some(uri), Some(text)) = (self.uri(&p.file), self.text(&p.file))
-                            else {
+                            let Some((uri, text)) = self.file_entry(&mut cache, &p.file) else {
                                 continue;
                             };
+                            let uri = uri.clone();
+                            let text = Arc::clone(text);
                             let edit = json!({
                                 "range": { "start": position(&text, p.span.start), "end": position(&text, p.span.end) },
                                 "newText": new,
@@ -407,6 +453,7 @@ impl Server {
                     return Ok(Some(Value::Null));
                 };
                 let symbols = self.with_index(|idx, src| idx.symbols(&name, src));
+                let mut cache = HashMap::new();
                 Value::Array(
                     symbols
                         .iter()
@@ -414,7 +461,7 @@ impl Server {
                             Some(json!({
                                 "name": d.name,
                                 "kind": kind(d.kind),
-                                "location": self.location(&d.at.file, &d.at.span)?,
+                                "location": self.cached_location(&mut cache, &d.at.file, &d.at.span)?,
                                 "containerName": d.signature,
                             }))
                         })
@@ -531,5 +578,82 @@ mod tests {
             assert_eq!(path_uri(p), "file:///C:/my%20mod/a.nss");
             assert_eq!(uri_path(&path_uri(p)).unwrap(), Path::new("C:/my mod/a.nss"));
         }
+    }
+
+    #[test]
+    fn utf8_boundary_position_and_open_scanned_dedup() {
+        // Offset 2 lands inside 'é' (bytes 1..3); position clamps to char boundary 1 without panicking.
+        assert_eq!(position("aé\nb", 2), position("aé\nb", 1));
+        assert_eq!(position("aé\nb", 2), json!({"line": 0, "character": 1}));
+
+        let dir = mg_testkit::scratch_dir("mg-lsp-dedup-cache");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let disk_path = dir.join("foo.nss");
+        std::fs::write(&disk_path, "void Foo() {}\nvoid main() { Foo(); }\n").unwrap();
+
+        let mut server = Server {
+            root: Some(dir.clone()),
+            files: HashMap::new(),
+            open: HashMap::new(),
+            index: Index::new(),
+            game: None,
+            codepage: Codepage::WINDOWS_1252,
+            cache: None,
+        };
+        server.scan();
+        assert!(server.files.contains_key("foo"));
+
+        let uri = path_uri(&disk_path);
+        let open_src = "void Foo() {}\nvoid main() { Foo(); Foo(); }\n";
+        let mut out = Vec::new();
+        server
+            .handle(
+                "textDocument/didOpen",
+                &json!({ "textDocument": { "uri": uri, "text": open_src } }),
+                &mut out,
+            )
+            .unwrap();
+        assert_eq!(server.all_files(), vec!["foo".to_string()]);
+
+        let refs = server
+            .handle(
+                "textDocument/references",
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 0, "character": 5 },
+                    "context": { "includeDeclaration": true },
+                }),
+                &mut out,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(refs.as_array().unwrap().len(), 3, "{refs}");
+
+        let renamed = server
+            .handle(
+                "textDocument/rename",
+                &json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 0, "character": 5 },
+                    "newName": "Bar",
+                }),
+                &mut out,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(renamed["changes"][&uri].as_array().unwrap().len(), 3, "{renamed}");
+
+        let syms = server
+            .handle(
+                "textDocument/documentSymbol",
+                &json!({ "textDocument": { "uri": uri } }),
+                &mut out,
+            )
+            .unwrap()
+            .unwrap();
+        let names: Vec<_> =
+            syms.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["Foo", "main"]);
     }
 }

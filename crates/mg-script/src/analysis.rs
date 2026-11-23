@@ -232,7 +232,10 @@ impl File {
     fn local(&self, name: &str, at: usize) -> Option<&Local> {
         self.locals
             .iter()
-            .filter(|l| l.name == name && l.decl.start <= at && l.scope.contains(&at))
+            .filter(|l| {
+                l.name == name
+                    && (l.decl.contains(&at) || (l.decl.start <= at && l.scope.contains(&at)))
+            })
             .max_by_key(|l| l.decl.start)
     }
 
@@ -427,6 +430,11 @@ impl Index {
     /// Forgets a file (it is read again from the sources when needed).
     pub fn forget(&mut self, name: &str) {
         self.files.remove(&name.to_ascii_lowercase());
+    }
+
+    /// The indexed source text for `name`, if cached and readable.
+    pub fn text(&self, name: &str) -> Option<&Arc<str>> {
+        self.files.get(&name.to_ascii_lowercase())?.as_ref().map(|f| &f.text)
     }
 
     fn file(&mut self, name: &str, sources: &mut dyn Sources) -> Option<&File> {
@@ -1219,5 +1227,25 @@ mod tests {
         for n in ["Twice", "LIMIT", "Pair", "GetSelf", "TRUE"] {
             assert!(names.contains(&n.to_string()), "{n}");
         }
+    }
+
+    #[test]
+    fn parameter_declaration_resolves_references_and_renames() {
+        const PARAM_SRC: &str = "void Foo(int nBar)\n{\n    int x = nBar + 1;\n}\n";
+        const FILES: &[(&str, &str)] = &[("p", PARAM_SRC)];
+        let mut src = sources(FILES);
+        let mut idx = Index::new();
+        let all = vec!["p".to_string()];
+        let decl_at = at(PARAM_SRC, "nBar)", 0);
+        let decl = idx.declaration_at("p", decl_at, &mut src).expect("param decl");
+        assert_eq!(decl.kind, DeclKind::Parameter);
+        assert_eq!(decl.at.span.start, decl_at);
+        let refs = idx.references(&decl, &all, &mut src);
+        assert_eq!(refs.len(), 2, "{refs:?}");
+        assert_eq!(refs[0].span.start, decl_at);
+        assert_eq!(refs[1].span.start, at(PARAM_SRC, "nBar + 1", 0));
+        let renamed = idx.rename(&decl, "nBaz", &all, &mut src).unwrap();
+        assert_eq!(renamed.len(), 2);
+        assert_eq!(idx.text("p").map(|t| t.as_ref()), Some(PARAM_SRC));
     }
 }

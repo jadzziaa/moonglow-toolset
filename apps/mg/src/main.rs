@@ -2406,11 +2406,32 @@ pub(crate) fn write_bytes_whole(path: &Path, bytes: &[u8]) -> Result<()> {
     mg_module::write_replacing(path, bytes).with_context(|| path_text(path))
 }
 
+/// A project's root folder, from its folder or its `nasher.cfg`.
+pub(crate) fn project_root(path: &Path) -> Result<PathBuf> {
+    let root = match path.file_name() {
+        Some(n) if n == "nasher.cfg" => {
+            path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        }
+        _ => path,
+    };
+    if !root.is_dir() {
+        bail!("{}: not a project's folder", root.display());
+    }
+    Ok(root.to_path_buf())
+}
+
 /// [`write_bytes_whole`] for one of the many files a command writes into
 /// a folder (an archive unpacked, a picture an area): whole or not at
 /// all, but not flushed to the disk file by file.
 fn write_one_of_many(path: &Path, bytes: &[u8]) -> Result<()> {
     mg_module::write_replacing_one_of_many(path, bytes).with_context(|| path_text(path))
+}
+
+fn module_changed(before: &mg_module::Module, after: &mg_module::Module) -> bool {
+    before.file_type != after.file_type
+        || before.description != after.description
+        || before.len() != after.len()
+        || before.keys().any(|k| mg_edit::resource_differs(before, after, k))
 }
 
 /// Compile results: errors as lines and as JSON; warnings as notes, each
@@ -2893,13 +2914,8 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::BuilderCode { project, code, clear } => {
             use mg_module::project_file::{DEFAULT_PATTERN, ProjectFile};
-            let root = match project.file_name() {
-                Some(n) if n == "nasher.cfg" => project.parent().unwrap_or(Path::new(".")),
-                _ => project.as_path(),
-            };
-            if !root.is_dir() {
-                bail!("{}: not a project's folder", root.display());
-            }
+            let root = project_root(project)?;
+            let root = root.as_path();
             // (A code that holds claims in the team's table, not yours
             // before: said.)
             let taken = code.as_deref().and_then(|c| {
@@ -3086,7 +3102,9 @@ fn run(cli: &Cli) -> Result<Output> {
             });
             let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
             out.json = compiled(&mut out, &pass.results);
-            save_asked(cli, &was, &mut m, &mut out)?;
+            if module_changed(&was, &m) {
+                save_asked(cli, &was, &mut m, &mut out)?;
+            }
             remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
             // (What compiled is saved, and the exit says that not all did:
@@ -3498,10 +3516,14 @@ fn run(cli: &Cli) -> Result<Output> {
                 };
                 say(step.json(), step.text(&dev_dir));
                 tested(&w, &step);
+                if let Err(e) = also(&w) {
+                    wrong = Some(e);
+                    return serve::Flow::Stop;
+                }
                 if step.rebuild.is_empty() {
                     return serve::Flow::Continue;
                 }
-                match resman(w.module()).and_then(|new| also(&w).map(|()| new)) {
+                match resman(w.module()) {
                     Ok(new) => rm = new,
                     Err(e) => {
                         wrong = Some(e);
@@ -3724,6 +3746,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let output = Path::new(output);
             let m = crate::open_module(module)?;
             let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
+            if key.restype != ResType::DLG {
+                bail!("{dialog}: not a conversation (.dlg)");
+            }
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
             csv_only(f)?;
@@ -3927,7 +3952,6 @@ fn run(cli: &Cli) -> Result<Output> {
                     }
                 }
             } else {
-                let opened = m.clone();
                 let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
                 for e in &errors {
                     out.note(format!("warning: {e}"));
@@ -3935,8 +3959,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 for w in edits::objects_made_twice(&m, &tags) {
                     out.note(w);
                 }
-                keep_palettes(install(cli).ok().as_ref(), &mut m, &opened, &mut out);
-                save_asked(cli, &was, &mut m, &mut out)?;
+                if n > 0 && module_changed(&was, &m) {
+                    keep_palettes(install(cli).ok().as_ref(), &mut m, &was, &mut out);
+                    save_asked(cli, &was, &mut m, &mut out)?;
+                }
                 replaced = n;
                 out.note(format!("replaced {n} times in {} strings", hits.len() - errors.len()));
             }
@@ -4555,7 +4581,6 @@ fn run(cli: &Cli) -> Result<Output> {
             if let Some(w) = &base_warning {
                 out.note(format!("warning: {w}"));
             }
-            let opened = m.clone();
             let s = mg_module::transfer::import_incoming(&mut m, &incoming, |_| *overwrite)?;
             // Scripts that came without their compiled scripts, and those
             // that include them: compiled (with a debug file where the
@@ -4573,9 +4598,11 @@ fn run(cli: &Cli) -> Result<Output> {
                     out.note(format!("warning: {} doesn't compile: {e}", r.script));
                 }
             }
-            keep_palettes(Some(&gi), &mut m, &opened, &mut out);
-            if !dry_run {
-                save_asked(cli, &was, &mut m, &mut out)?;
+            if module_changed(&was, &m) {
+                keep_palettes(Some(&gi), &mut m, &was, &mut out);
+                if !dry_run {
+                    save_asked(cli, &was, &mut m, &mut out)?;
+                }
             }
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
             out.json = json!({

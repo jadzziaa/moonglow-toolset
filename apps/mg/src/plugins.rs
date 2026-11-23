@@ -247,14 +247,7 @@ impl CliHost {
 /// A project's root, from what names it: a module folder, a nasher
 /// project's folder or its `nasher.cfg`.
 pub(crate) fn project_root(path: &Path) -> Result<PathBuf> {
-    let root = match path.file_name() {
-        Some(n) if n == "nasher.cfg" => path.parent().unwrap_or(Path::new(".")),
-        _ => path,
-    };
-    if !root.is_dir() {
-        bail!("{}: not a project's folder", root.display());
-    }
-    Ok(root.to_path_buf())
+    crate::project_root(path)
 }
 
 /// What the user answered about projects' own plugins, as Moonglow keeps

@@ -282,6 +282,23 @@ fn said_twice(clashes: &[mg_module::tags::Clash]) -> Vec<String> {
 /// changed ([`crate::keep_palettes`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
+    ws: Workspace,
+    cmd: Command,
+    dry_run: bool,
+    lines: Option<Vec<String>>,
+    show: bool,
+    codepage: Codepage,
+    guard: Option<&SaveGuard>,
+    gi: Option<&GameInstall>,
+) -> Result<Output> {
+    run_with_before_save(ws, cmd, dry_run, lines, show, codepage, guard, gi, || Ok(()), || {})
+}
+
+/// Like [`run`], running `before_save` right after `guard.before` accepts
+/// and before palettes/module saving, and invoking `rollback` if `before_save`,
+/// palette updates, or saving fails.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_with_before_save(
     mut ws: Workspace,
     cmd: Command,
     dry_run: bool,
@@ -290,6 +307,8 @@ pub(crate) fn run(
     codepage: Codepage,
     guard: Option<&SaveGuard>,
     gi: Option<&GameInstall>,
+    before_save: impl FnOnce() -> Result<()>,
+    rollback: impl FnOnce(),
 ) -> Result<Output> {
     let mut resources: Vec<ResKey> = Vec::new();
     for e in &cmd.edits {
@@ -320,11 +339,18 @@ pub(crate) fn run(
         said = g.before(was, &ws.module, &mut notes)?;
     }
     if !dry_run && count > 0 {
-        // The custom palettes follow the blueprints changed, as a save in
-        // the window brings them up to date.
-        let opened = ws.saved().clone();
-        ws.derive(|m| crate::keep_palettes(gi, m, &opened, &mut notes))?;
-        ws.save()?;
+        if let Err(err) = (|| -> Result<()> {
+            before_save()?;
+            // The custom palettes follow the blueprints changed, as a save in
+            // the window brings them up to date.
+            let opened = ws.saved().clone();
+            ws.derive(|m| crate::keep_palettes(gi, m, &opened, &mut notes))?;
+            ws.save()?;
+            Ok(())
+        })() {
+            rollback();
+            return Err(err);
+        }
         if let (Some(g), Some(was)) = (guard, &was) {
             g.after(was, &ws.module, &mut notes);
         }
