@@ -793,15 +793,9 @@ fn a_stock_interior_looks_alike_with_the_shaders_on_and_off() {
             h.run_steps(3);
         }
         let r = h.state().area_views[&area].rect;
+        let ppp = h.ctx.pixels_per_point();
         let img = h.render().expect("render");
-        let img = image::imageops::crop_imm(
-            &img,
-            r.min.x as u32 + 8,
-            r.min.y as u32 + 8,
-            r.width() as u32 - 16,
-            r.height() as u32 - 16,
-        )
-        .to_image();
+        let img = crop_rect(&img, r, ppp, 8.0);
         img.save(dir.join(if on { "on.png" } else { "off.png" })).unwrap();
         img
     };
@@ -903,15 +897,9 @@ fn a_builders_area_in_the_view_draws_as_the_comparison() {
             }
             h.run_steps(frames);
             let r = h.state().area_views[&area].rect;
+            let ppp = h.ctx.pixels_per_point();
             let img = h.render().expect("render");
-            let img = image::imageops::crop_imm(
-                &img,
-                r.min.x as u32,
-                r.min.y as u32,
-                r.width() as u32,
-                r.height() as u32,
-            )
-            .to_image();
+            let img = crop_rect(&img, r, ppp, 0.0);
             img.save(dir.join(format!("{name}_{}.png", if on { "on" } else { "off" }))).unwrap();
             pictures.push(img);
         }
@@ -1760,10 +1748,14 @@ fn grass_covers_the_whole_view() {
             );
             // (Close, a square of a few meters: grass grows in clumps, and
             // one of 40 pixels may fall between two.)
-            let half = if name == "close" { 80 } else { 20 };
-            let (x0, y0) = (at.x as u32 - half, at.y as u32 - half);
-            let changed = (x0..x0 + 2 * half)
-                .flat_map(|x| (y0..y0 + 2 * half).map(move |y| (x, y)))
+            let ppp = h.ctx.pixels_per_point();
+            let half = ((if name == "close" { 80.0 } else { 20.0 }) * ppp).round() as u32;
+            let (cx, cy) = pos_to_pixel(at, ppp);
+            let (x0, y0) = (cx.saturating_sub(half), cy.saturating_sub(half));
+            let x1 = (cx + half).min(shots[0].width());
+            let y1 = (cy + half).min(shots[0].height());
+            let changed = (x0..x1)
+                .flat_map(|x| (y0..y1).map(move |y| (x, y)))
                 .filter(|&(x, y)| {
                     let (a, b) = (shots[0].get_pixel(x, y), shots[1].get_pixel(x, y));
                     (0..3).any(|c| a[c].abs_diff(b[c]) > 12)

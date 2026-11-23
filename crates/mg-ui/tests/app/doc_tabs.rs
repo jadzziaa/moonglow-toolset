@@ -49,16 +49,6 @@ fn line_over(h: &Harness<'_, Moonglow>, tab: &Tab) -> Option<egui::Color32> {
 }
 
 /// Frames until `done` says so, for ten seconds at most (the window's
-/// frames as they come: a dot compared once its document has rested, a
-/// tip after its delay), failing with `what`.
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 10, "never: {what}");
-        h.step();
-    }
-}
-
 /// A script's tab, an area's and a side editor's (a 2DA's) and the talk
 /// table's show the modified dot where their document has unsaved
 /// changes, said "Modified" to a screen reader, never as a star in the

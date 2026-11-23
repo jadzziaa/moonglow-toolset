@@ -170,7 +170,8 @@ fn nui_tool<'t>(h: &'t mut Harness<'_, Moonglow>, name: &'t str) -> egui_kittest
     let records = header::records(&h.ctx, header_name);
     let rec = records.into_iter().next().expect("the designer's header");
     let place = rec.places.iter().find(|(n, _)| n == name).map(|(_, p)| *p);
-    let more: &'static str = Box::leak(header::more_name(header_name).into_boxed_str());
+    static MORE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let more = MORE.get_or_init(|| header::more_name(header_name)).as_str();
     if place == Some(Place::More) && h.query_by_label(more).is_none() {
         h.get_by_label(header_name).get_by_label(header::MORE).click();
         h.run();

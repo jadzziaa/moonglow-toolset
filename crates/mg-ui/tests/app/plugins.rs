@@ -39,10 +39,12 @@ fn a_plugin_s_command_runs_on_the_objects_selected_in_the_area() {
     let properties = h.get_all_by_label("Properties").last().unwrap().rect();
     assert!(command.bottom() <= properties.top(), "{command:?} {properties:?}");
     assert!(h.query_by_label("Count Objects").is_none(), "that one is for areas");
-    let img = h.render().expect("render");
-    let picture = mg_testkit::scratch_dir("ui-area-plugin-menu").join("menu.png");
-    img.save(&picture).unwrap();
-    eprintln!("the menu: {}", picture.display());
+    if let Some(dir) = shot_dir("ui-area-plugin-menu") {
+        let img = h.render().expect("render");
+        let picture = dir.join("menu.png");
+        img.save(&picture).unwrap();
+        eprintln!("the menu: {}", picture.display());
+    }
     h.state_mut().plugins.answers.push_back(set_local_answer());
     h.get_by_label("Set Local Variable…").click();
     h.run_steps(3);

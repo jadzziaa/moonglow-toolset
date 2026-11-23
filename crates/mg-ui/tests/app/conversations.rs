@@ -2278,10 +2278,12 @@ fn select_token_and_conversation_test_resize_from_the_corner_dragged() {
     let title = format!("Conversation Test: {key}");
     drag(&mut h, &title, egui::vec2(80.0, 100.0));
     // (A picture to look at, where there is a GPU.)
-    if adapter() {
+    if let Some(dir) = shot_dir("ui-dialog-resize")
+        && adapter()
+    {
         mg_testkit::gpu::hold();
         let img = h.render().expect("render");
-        img.save(mg_testkit::output_dir("ui-dialog-resize").join("conversation-test.png")).unwrap();
+        img.save(dir.join("conversation-test.png")).unwrap();
     }
 }
 

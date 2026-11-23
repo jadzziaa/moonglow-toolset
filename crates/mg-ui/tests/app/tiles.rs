@@ -286,8 +286,10 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     assert!(named > 100, "{named}");
     h.get_by_label("Terrains and Crossers").click();
     h.run_steps(3);
-    let shots = mg_testkit::scratch_dir("ui-tileset-rename-shots");
-    h.render().unwrap().save(shots.join("before.png")).unwrap();
+    let shots = shot_dir("ui-tileset-rename-shots");
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("before.png")).unwrap();
+    }
     // Rename…: the field; a name taken, then one with a space, refused.
     h.get_all_by_label("Rename…").nth(grass).expect("its row's button").click();
     h.run_steps(3);
@@ -301,14 +303,18 @@ fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
     }
     h.state_mut().tilesets[0].renaming.as_mut().unwrap().2 = "Meadow".into();
     h.run_steps(3);
-    h.render().unwrap().save(shots.join("renaming.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("renaming.png")).unwrap();
+    }
     h.get_by_label("Rename").click();
     h.run_steps(3);
     let t = h.state().tilesets[0].tileset().unwrap().clone();
     assert_eq!(t.terrains[grass].name, "Meadow");
     assert_eq!((corners(&t, "Meadow"), corners(&t, "Grass")), (named, 0), "every tile followed");
     assert!(t.warnings.is_empty(), "nothing undeclared: {:?}", t.warnings);
-    h.render().unwrap().save(shots.join("after.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("after.png")).unwrap();
+    }
     tileset_tool(&mut h, "Check").click();
     h.run_steps(3);
     let findings = tileset_problems(&h, &path);
@@ -731,7 +737,9 @@ fn tile_properties_choose_a_variant_by_picture() {
     assert_eq!(cell, (1, 1));
     let now = props.variant.unwrap();
     assert!(variants.len() > 1 && variants.iter().any(|(p, _)| *p == now), "{variants:?}");
-    h.render().unwrap().save(mg_testkit::scratch_dir("ui-tile-variants").join("a.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-tile-variants") {
+        h.render().unwrap().save(dir.join("a.png")).unwrap();
+    }
     let other = variants.iter().find(|(p, _)| p.tile != now.tile).unwrap();
     h.get_by_label_contains(&format!("Variant ({} fit here)", variants.len()));
     let before_undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
@@ -939,8 +947,10 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
         assert!(node.accesskit_node().is_disabled());
         assert_eq!(node.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
     }
-    let dir = mg_testkit::scratch_dir("ui-tile-lights");
-    h.render().unwrap().save(dir.join("one-light.png")).unwrap();
+    let dir = shot_dir("ui-tile-lights");
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("one-light.png")).unwrap();
+    }
     h.state_mut().tile_props = None;
     h.run_steps(2);
 
@@ -951,7 +961,9 @@ fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
     assert_eq!((props.has_main, props.has_source), ([true, true], [false, false]));
     assert_eq!(props.has_loops, [true; 3]);
     assert!(!h.get_by_label("Animation loop 3").accesskit_node().is_disabled());
-    h.render().unwrap().save(dir.join("lights-and-loops.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("lights-and-loops.png")).unwrap();
+    }
     h.state_mut().tile_props = None;
     h.run_steps(2);
 
@@ -1045,7 +1057,9 @@ fn groups_and_features_change_only_whole() {
     whole.sort();
     assert_eq!(red, whole);
     // (The cursor over it is red, as Aurora's outline turns.)
-    h.render().unwrap().save(mg_testkit::scratch_dir("ui-group-locked").join("over.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-group-locked") {
+        h.render().unwrap().save(dir.join("over.png")).unwrap();
+    }
     // (The groups closed: the tools above in view.)
     click_in_sight(&mut h, "Groups");
     h.run_steps(2);
@@ -2067,8 +2081,9 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
     let ground = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, ground);
     let items = menu_items(&h, "Set Start Location Here");
-    let dir = mg_testkit::scratch_dir("ui-tile-menu-ground");
-    h.render().unwrap().save(dir.join("ground.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-tile-menu-ground") {
+        h.render().unwrap().save(dir.join("ground.png")).unwrap();
+    }
     assert_eq!(
         items[..4],
         ["Next Tile Appearance", "Previous Tile Appearance", "Rotate Tile", "Tile Properties"],
@@ -2110,8 +2125,9 @@ fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
         ]
     );
     assert!(h.state().palette.tile_brush.is_some(), "the brush kept");
-    let dir = mg_testkit::scratch_dir("ui-tile-menu");
-    h.render().unwrap().save(dir.join("painting.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-tile-menu") {
+        h.render().unwrap().save(dir.join("painting.png")).unwrap();
+    }
     h.get_by_label("Put Down Grass").click();
     h.run_steps(2);
     assert!(h.state().palette.tile_brush.is_none());
@@ -2304,10 +2320,12 @@ fn palette_tile_tools_step_the_selected_tiles() {
         h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
         h.run_steps(3);
     };
-    let shots = mg_testkit::scratch_dir("ui-tile-tools-selected");
+    let shots = shot_dir("ui-tile-tools-selected");
     let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
         h.run_steps(10);
-        h.render().unwrap().save(shots.join(format!("{name}.png"))).unwrap();
+        if let Some(ref shots) = shots {
+            h.render().unwrap().save(shots.join(format!("{name}.png"))).unwrap();
+        }
     };
     show_palette(h.state_mut());
     h.run_steps(3);
@@ -2501,7 +2519,7 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
         h.key_press_modifiers(m, k);
         h.run_steps(3);
     };
-    let shots = mg_testkit::scratch_dir("ui-tile-tools-keys");
+    let shots = shot_dir("ui-tile-tools-keys");
     show_palette(h.state_mut());
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
@@ -2586,7 +2604,9 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     red.sort();
     assert_eq!(red, [(1, 1), (1, 2), (2, 1), (2, 2)], "the barn in red");
     h.run_steps(10);
-    h.render().unwrap().save(shots.join("refused.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("refused.png")).unwrap();
+    }
     let erased = |h: &mut Harness<'_, Moonglow>| {
         let g = grid(h);
         [(1, 1), (2, 1), (1, 2), (2, 2)].iter().all(|&(x, y)| !index.is_grouped(g.tile(x, y).tile))
@@ -2619,7 +2639,9 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
         // (Its row in the palette shows it chosen.)
         if brush == mg_area::terrain::Brush::Eraser {
             h.run_steps(5);
-            h.render().unwrap().save(shots.join("eraser-chosen.png")).unwrap();
+            if let Some(ref shots) = shots {
+                h.render().unwrap().save(shots.join("eraser-chosen.png")).unwrap();
+            }
         }
     }
     key(&mut h, egui::Modifiers::NONE, egui::Key::N);
@@ -2706,8 +2728,10 @@ fn tile_variant_pictures_take_the_size_set() {
     };
     assert!(fits(&h, 200.0), "200 points and the gap: {}", apart(&h));
     h.get_by_label("Size");
-    let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
-    h.render().unwrap().save(dir.join("large.png")).unwrap();
+    let dir = shot_dir("ui-tile-variant-size");
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("large.png")).unwrap();
+    }
     // The usual size, unless set.
     h.state_mut().settings.tile_variant_side = None;
     h.run_steps(3);
@@ -2731,8 +2755,9 @@ fn tile_variant_pictures_take_the_size_set() {
     for tip in tips {
         assert!(!tip.intersects(cell), "the enlargement {tip:?} over its cell {cell:?}");
     }
-    h.render().unwrap().save(dir.join("hovered.png")).unwrap();
-    h.render().unwrap().save(dir.join("usual.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("hovered.png")).unwrap();
+    }
 }
 
 /// The model of tile `tile` of the test area's tileset (Rural): its
@@ -2815,7 +2840,8 @@ fn a_tile_chosen_in_the_gallery_is_painted_along_a_drag() {
 /// The area view as it is now, and seen from the south-west, a little
 /// above: saved as `path` (`-top.png` and `-angled.png`), the camera put
 /// back after.
-fn area_shots(h: &mut Harness<'_, Moonglow>, area: ResRef, path: &std::path::Path) {
+fn area_shots(h: &mut Harness<'_, Moonglow>, area: ResRef, path: Option<std::path::PathBuf>) {
+    let Some(path) = path else { return };
     h.hover_at(egui::pos2(960.0, 610.0));
     h.run_steps(20);
     h.render().unwrap().save(path.with_extension("top.png")).unwrap();
@@ -2918,7 +2944,7 @@ fn an_exact_tile_goes_in_alone() {
         })
         .first()
         .expect("Rural has wall ends");
-    let shots = mg_testkit::scratch_dir("ui-exact-tile");
+    let shots = shot_dir("ui-exact-tile");
     let away = egui::pos2(960.0, 610.0);
     show_palette(h.state_mut());
     h.run_steps(3);
@@ -2941,15 +2967,19 @@ fn an_exact_tile_goes_in_alone() {
     h.run_steps(2);
     h.hover_at(away);
     h.run_steps(30);
-    h.render().unwrap().save(shots.join("palette.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("palette.png")).unwrap();
+    }
     let before = grid(&mut h);
     let list = tile_list(&mut h, area);
-    area_shots(&mut h, area, &shots.join("before"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("before")));
     // A click in tile (1, 1): that tile there, its neighbors untouched.
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
     h.run_steps(2);
-    h.render().unwrap().save(shots.join("preview.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("preview.png")).unwrap();
+    }
     // (The preview shows that tile alone.)
     let view = &h.state().area_views[&area];
     let shown = view.tile_preview.clone();
@@ -2967,7 +2997,7 @@ fn an_exact_tile_goes_in_alone() {
         h.state().ws.as_ref().unwrap().can_undo(),
         Some(format!("Exact Tile {picture}").as_str())
     );
-    area_shots(&mut h, area, &shots.join("after"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("after")));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "one step");
@@ -3023,8 +3053,8 @@ fn tile_properties_raise_one_tile_alone() {
         let w = git.root.list("WaypointList").unwrap();
         w.iter().map(|s| s.float("ZPosition").unwrap_or(0.0)).collect()
     };
-    let shots = mg_testkit::scratch_dir("ui-tile-height");
-    area_shots(&mut h, area, &shots.join("before"));
+    let shots = shot_dir("ui-tile-height");
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("before")));
     // Tile (2, 2), under the waypoint at (20, 20); the one at (30, 20) is
     // on its neighbor.
     tile_properties_of(&mut h, area, &[Vec3::new(25.0, 25.0, 0.0)]);
@@ -3037,7 +3067,9 @@ fn tile_properties_raise_one_tile_alone() {
     h.get_by_label("Raise Height").click();
     h.run_steps(2);
     assert_eq!(h.state().tile_props.as_ref().unwrap().height, Some(was + 2));
-    h.render().unwrap().save(shots.join("window.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("window.png")).unwrap();
+    }
     h.get_by_label("Lower Height").click();
     h.run_steps(2);
     h.get_by_label("Raise Height").click();
@@ -3051,10 +3083,10 @@ fn tile_properties_raise_one_tile_alone() {
     assert_eq!(shown.position.z, (was + 2) as f32 * step, "drawn at its height");
     assert_eq!(waypoints(&mut h), [2.0 * step, 0.0], "what stands on it rises with it");
     area_click(&mut h, "Select Tiles");
-    area_shots(&mut h, area, &shots.join("after"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("after")));
     // Its walkmesh with it: the ground the game walks on (green).
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = true;
-    area_shots(&mut h, area, &shots.join("walkmesh"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("walkmesh")));
     h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = false;
     area_click(&mut h, "Select Tiles");
     h.run_steps(2);
@@ -3110,8 +3142,9 @@ fn tile_properties_put_any_tile_alone() {
     let start = std::time::Instant::now();
     h.run_steps(20);
     eprintln!("20 frames of every tile's pictures: {:?}", start.elapsed());
-    let shots = mg_testkit::scratch_dir("ui-tile-all");
-    h.render().unwrap().save(shots.join("all-tiles.png")).unwrap();
+    if let Some(shots) = shot_dir("ui-tile-all") {
+        h.render().unwrap().save(shots.join("all-tiles.png")).unwrap();
+    }
     // A tile in sight that doesn't fit there, clicked by its picture.
     let props = h.state().tile_props.clone().unwrap();
     let (id, model) = props
@@ -3162,7 +3195,7 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let all = every.len();
     h.get_by_label(&format!("All tiles ({all} in the tileset)"));
-    let shots = mg_testkit::scratch_dir("ui-tile-all-search");
+    let shots = shot_dir("ui-tile-all-search");
     // A model's name, in part: those tiles alone.
     type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "a04");
     h.run_steps(20);
@@ -3175,10 +3208,11 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
         // (Not the window's own lines: the tile's, its model's textures.)
         .filter(|l| !l.starts_with("Tile ") && !l.starts_with("Textures of "))
         .collect();
-    h.render().unwrap().save(shots.join("found.png")).unwrap();
     assert!(!shown.is_empty());
     assert!(shown.iter().all(|l| l.contains("a04")), "only the tiles found: {shown:?}");
-    h.render().unwrap().save(shots.join("found.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("found.png")).unwrap();
+    }
     // One found, put in by its picture.
     let (id, model) = found[0].clone();
     let at = h.get_all_by_label(&model).next().expect("its picture").rect().center();
@@ -3271,15 +3305,19 @@ fn tile_properties_all_tiles_on_a_large_hak_tileset() {
     let each: Vec<String> =
         frames.iter().map(|d| format!("{:.1}", d.as_secs_f64() * 1e3)).collect();
     eprintln!("  each frame (ms): {}", each.join(" "));
-    let shots = mg_testkit::scratch_dir("ui-tile-all-hak");
-    h.render().unwrap().save(shots.join("all.png")).unwrap();
+    let shots = shot_dir("ui-tile-all-hak");
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("all.png")).unwrap();
+    }
     type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "tkc02_a01");
     h.run_steps(10);
     let every = h.state().tile_props.as_ref().unwrap().every.clone();
     let found = every.iter().filter(|(_, m)| m.to_lowercase().contains("tkc02_a01")).count();
     assert!(found > 0 && found < all, "{found} of {all}");
     h.get_by_label(&format!("All tiles ({found} of {all})"));
-    h.render().unwrap().save(shots.join("found.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("found.png")).unwrap();
+    }
 }
 
 /// The area's GIT root, as the workspace has it.
@@ -3302,8 +3340,9 @@ fn shots_beside(
     h: &mut Harness<'_, Moonglow>,
     area: ResRef,
     at: glam::Vec3,
-    path: &std::path::Path,
+    path: Option<std::path::PathBuf>,
 ) {
+    let Some(path) = path else { return };
     h.hover_at(egui::pos2(960.0, 610.0));
     h.run_steps(20);
     h.render().unwrap().save(path.with_extension("top.png")).unwrap();
@@ -3335,13 +3374,18 @@ fn tile_properties_changes_show_at_once() {
     use glam::Vec3;
     let Some((mut h, area)) = area_harness("tile-live") else { return };
     let (list, git, before) = (tile_list(&mut h, area), git_root(&mut h, area), undo_label(&h));
-    let shots = mg_testkit::scratch_dir("ui-tile-live");
+    let shots = shot_dir("ui-tile-live");
     // Tile (2, 2), index 10, under the waypoint at (20, 20).
     tile_properties_of(&mut h, area, &[Vec3::new(25.0, 25.0, 0.0)]);
     let props = h.state().tile_props.clone().expect("the window is open");
     let was = props.height.expect("one tile: its height");
     props_aside(&mut h);
-    shots_beside(&mut h, area, glam::Vec3::new(25.0, 25.0, 0.0), &shots.join("height-before"));
+    shots_beside(
+        &mut h,
+        area,
+        glam::Vec3::new(25.0, 25.0, 0.0),
+        shots.as_deref().map(|d| d.join("height-before")),
+    );
     h.get_by_label("Raise Height").click();
     h.run_steps(2);
     // At once: in the area's file and in its view.
@@ -3359,7 +3403,12 @@ fn tile_properties_changes_show_at_once() {
     };
     assert_eq!(point(&mut h), [step, 0.0], "what stands on it with it");
     assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
-    shots_beside(&mut h, area, glam::Vec3::new(25.0, 25.0, 0.0), &shots.join("height-raised"));
+    shots_beside(
+        &mut h,
+        area,
+        glam::Vec3::new(25.0, 25.0, 0.0),
+        shots.as_deref().map(|d| d.join("height-raised")),
+    );
     // More: raised again, then a height typed frame by frame, and a light
     // chosen.
     h.get_by_label("Raise Height").click();
@@ -3446,8 +3495,10 @@ fn tile_properties_read_the_tiles_again_after_an_undo() {
     assert_eq!(tile_list(&mut h, area)[10].integer("Tile_Height"), Some(i64::from(was + 1)));
     assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
     props_aside(&mut h);
-    let shots = mg_testkit::scratch_dir("ui-tile-live-undo");
-    h.render().unwrap().save(shots.join("changed.png")).unwrap();
+    let shots = shot_dir("ui-tile-live-undo");
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("changed.png")).unwrap();
+    }
 
     // Ctrl+Z: the light taken back, the height still raised (each change
     // a step of its own); again: the tiles as they were, and the panel
@@ -3462,7 +3513,9 @@ fn tile_properties_read_the_tiles_again_after_an_undo() {
     assert!(!p.draft().set.iter().any(|s| *s) && p.draft().height.is_none(), "nothing set");
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "and wrote nothing again");
-    h.render().unwrap().save(shots.join("undone.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().unwrap().save(shots.join("undone.png")).unwrap();
+    }
 
     // A light chosen now: that light alone, the height left as it is.
     let other = (light + 9) % 32;
@@ -3510,7 +3563,7 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     set_tile_id(&mut h, area, 5, 0);
     let list = tile_list(&mut h, area);
     let before = undo_label(&h);
-    let shots = mg_testkit::scratch_dir("ui-tile-live-turn");
+    let shots = shot_dir("ui-tile-live-turn");
     tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
     h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
     h.run_steps(3);
@@ -3519,7 +3572,12 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     let to = (o + 2) % 4;
     let name = ["0°", "↺90°", "↺180°", "↺270°"][to as usize];
     props_aside(&mut h);
-    shots_beside(&mut h, area, glam::Vec3::new(15.0, 15.0, 0.0), &shots.join("turn-before"));
+    shots_beside(
+        &mut h,
+        area,
+        glam::Vec3::new(15.0, 15.0, 0.0),
+        shots.as_deref().map(|d| d.join("turn-before")),
+    );
     h.get_by_label_contains("in the tileset)").scroll_to_me();
     h.get_by_label(name).click();
     h.run_steps(3);
@@ -3536,7 +3594,12 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     let p = h.state().tile_props.clone().expect("the window stays");
     assert!(p.all_tiles && i64::from(p.turn) == to, "the pictures turned so");
     assert!(h.query_all_by_label_contains(&format!(" {name}")).next().is_some(), "shown so");
-    shots_beside(&mut h, area, glam::Vec3::new(15.0, 15.0, 0.0), &shots.join("turn-after"));
+    shots_beside(
+        &mut h,
+        area,
+        glam::Vec3::new(15.0, 15.0, 0.0),
+        shots.as_deref().map(|d| d.join("turn-after")),
+    );
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "one step");
@@ -3601,18 +3664,20 @@ fn the_tile_selection_s_outline_follows_a_cliff_tile() {
     let (low, high) = cliff.iter().fold((f32::MAX, f32::MIN), |(l, h), p| (l.min(p.z), h.max(p.z)));
     assert!(high - low > 3.0, "down the cliff: {low} to {high}");
     assert_eq!(view.tile_outline(0.0, 0.0, 0.0).len(), 4, "a flat tile");
-    let shots = mg_testkit::scratch_dir("ui-tile-outline-cliff");
-    let was = h.state().area_views[&area].orbit;
-    for yaw in [-120, -30, 60, 150] {
-        if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
-            o.target = Vec3::new(15.0, 15.0, 0.0);
-            (o.distance, o.pitch, o.yaw) = (30.0, 0.55, (yaw as f32).to_radians());
+    if let Some(shots) = shot_dir("ui-tile-outline-cliff") {
+        let was = h.state().area_views[&area].orbit;
+        for yaw in [-120, -30, 60, 150] {
+            if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut())
+            {
+                o.target = Vec3::new(15.0, 15.0, 0.0);
+                (o.distance, o.pitch, o.yaw) = (30.0, 0.55, (yaw as f32).to_radians());
+            }
+            h.hover_at(egui::pos2(960.0, 610.0));
+            h.run_steps(20);
+            h.render().unwrap().save(shots.join(format!("yaw{yaw}.png"))).unwrap();
         }
-        h.hover_at(egui::pos2(960.0, 610.0));
-        h.run_steps(20);
-        h.render().unwrap().save(shots.join(format!("yaw{yaw}.png"))).unwrap();
+        h.state_mut().area_views.get_mut(&area).unwrap().orbit = was;
     }
-    h.state_mut().area_views.get_mut(&area).unwrap().orbit = was;
 }
 
 /// Refine Tile dragged: the first tile steps to the next that fits, and
@@ -4291,12 +4356,16 @@ fn a_tile_s_emitters_burn_from_the_first_frame() {
     });
     h.run_steps(2);
     let first = h.state().area_views[&area].particles_shown;
-    let dir = mg_testkit::scratch_dir("ui-tile-emitters");
-    h.render().expect("render").save(dir.join("first.png")).unwrap();
+    let dir = shot_dir("ui-tile-emitters");
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("first.png")).unwrap();
+    }
     // (Eight seconds on: the fire as it burns.)
     h.run_steps(8 * 60);
     let going = h.state().area_views[&area].particles_shown;
-    h.render().expect("render").save(dir.join("going.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("going.png")).unwrap();
+    }
     assert!(going > 20, "the forge burns: {going} particles");
     assert!(first * 10 >= going * 8, "at first {first} particles, going {going}");
 }
@@ -4425,8 +4494,9 @@ fn an_area_of_a_tileset_with_holes_draws_its_other_tiles() {
         return;
     };
     h.run_steps(10);
-    let dir = mg_testkit::output_dir("tileset-holes");
-    h.render().expect("render").save(dir.join("area.png")).unwrap();
+    if let Some(dir) = shot_dir("tileset-holes") {
+        h.render().expect("render").save(dir.join("area.png")).unwrap();
+    }
     let view = &h.state().area_views[&area];
     let model = view.model.as_ref().unwrap();
     let models: Vec<Option<&str>> = model.tiles.iter().map(|t| t.model.as_deref()).collect();
@@ -4560,8 +4630,9 @@ fn a_tile_s_textures_show_where_the_tile_is_looked_at() {
     let tip = tip_at(&mut h, gone).expect("its tip");
     assert!(tip.contains("Missing: no DDS, TGA or PLT of the name in the load order"), "{tip}");
     assert!(tip.contains("diffuse of sign"), "{tip}");
-    let shots = mg_testkit::scratch_dir("ui-tile-textures");
-    h.render().unwrap().save(shots.join("tileset-editor.png")).unwrap();
+    if let Some(shots) = shot_dir("ui-tile-textures") {
+        h.render().unwrap().save(shots.join("tileset-editor.png")).unwrap();
+    }
 }
 
 /// A 4 by 4 tms01 area whose tile 5 (tile 0 of the tileset) is the game's
@@ -4620,11 +4691,13 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         are.root.list("Tile_List").unwrap()[i].clone()
     };
     let replace = |h: &mut Harness<'_, Moonglow>, i: usize| tile(h, i).integer("Tile_ReplaceTex");
-    let dir = mg_testkit::scratch_dir("ui-tile-replace");
+    let dir = shot_dir("ui-tile-replace");
     let (one, two) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
     tile_properties_of(&mut h, area, &[one]);
     h.run_steps(20);
-    h.render().unwrap().save(dir.join("tile-properties.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("tile-properties.png")).unwrap();
+    }
     // Value 2: row 1, shown; the table's rows offered, each written as its
     // number plus one.
     let props = h.state().tile_props.clone().expect("the window is open");
@@ -4640,7 +4713,9 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
     h.run_steps(2);
     assert_eq!(replace(&mut h, 5), Some(3), "Defaults leaves it as it is");
     h.run_steps(20);
-    h.render().unwrap().save(dir.join("row-2-chosen.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("row-2-chosen.png")).unwrap();
+    }
     // The row chosen and Defaults each a step of their own (Defaults one
     // where the tile has lights or loops to set): undone, row 1 again.
     for _ in 0..2 {
@@ -4690,7 +4765,9 @@ fn tile_properties_set_a_tile_s_replacement_texture() {
         tile_properties_of(&mut h, area, &[one]);
         h.get_by_value(&format!("{bad}: no row"));
         h.get_by_label("crashes the game as the area loads");
-        if bad == 0 {
+        if bad == 0
+            && let Some(ref dir) = dir
+        {
             h.render().unwrap().save(dir.join("crash-value.png")).unwrap();
         }
         h.run_steps(2);
@@ -4951,11 +5028,11 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         mg_area::terrain::grid(&are.root, &index).unwrap()
     };
-    let shots = mg_testkit::scratch_dir("ui-exact-group");
+    let shots = shot_dir("ui-exact-group");
     let before = grid(&mut h);
     assert_eq!(before.tile(1, 1).tile, up);
     let list = tile_list(&mut h, area);
-    area_shots(&mut h, area, &shots.join("before"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("before")));
     show_palette(h.state_mut());
     h.run_steps(3);
     palette_type(&mut h, "Tiles");
@@ -4994,7 +5071,7 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
         h.state().ws.as_ref().unwrap().can_undo(),
         Some(format!("Exact {up_name}").as_str())
     );
-    area_shots(&mut h, area, &shots.join("placed"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("placed")));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(tile_list(&mut h, area), list, "one step");
@@ -5004,7 +5081,7 @@ fn an_exact_group_goes_in_as_it_is_and_replaces_a_staircase() {
     let after = grid(&mut h);
     assert_eq!(after.tile(1, 1).tile, down);
     only_changed(&list, &tile_list(&mut h, area), &[5]);
-    area_shots(&mut h, area, &shots.join("replaced"));
+    area_shots(&mut h, area, shots.as_deref().map(|d| d.join("replaced")));
     // Off: the group is placed by the fit rules, which refuse it here.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
@@ -5248,10 +5325,12 @@ fn press_on_an_object_picks_it(hand: Hand) {
     use glam::Vec3;
     use mg_area::ObjectKind::Placeable;
     let Some((mut h, area, in_hand)) = brush_chest_harness("brush-press", hand) else { return };
-    let shots = mg_testkit::output_dir("brush-press");
+    let shots = shot_dir("brush-press");
     let shot = |h: &mut Harness<'_, Moonglow>, what: &str| {
-        let path = shots.join(format!("{}-{what}.png", hand.name()));
-        h.render().unwrap().save(path).unwrap();
+        if let Some(ref shots) = shots {
+            let path = shots.join(format!("{}-{what}.png", hand.name()));
+            h.render().unwrap().save(path).unwrap();
+        }
     };
     let list = tile_list(&mut h, area);
     let chest = chest_at(&h, area, 0);
@@ -5607,9 +5686,11 @@ fn several_and_handles(hand: Hand) {
     let from = screen(&h, area, ring(0.0));
     h.hover_at(from);
     h.run_steps(2);
-    if hand == Hand::ExactTile {
+    if hand == Hand::ExactTile
+        && let Some(shots) = shot_dir("brush-press")
+    {
         let shot = h.render().unwrap();
-        shot.save(mg_testkit::output_dir("brush-press").join("handles.png")).unwrap();
+        shot.save(shots.join("handles.png")).unwrap();
     }
     press(&h, from, true, egui::Modifiers::NONE);
     h.run_steps(1);

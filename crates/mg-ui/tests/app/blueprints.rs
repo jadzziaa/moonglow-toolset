@@ -874,8 +874,10 @@ fn an_item_s_and_a_body_s_parts_without_models_are_said() {
     app.palette_dock = false;
     let mut h = harness(app, 1100.0, 700.0);
     h.run_steps(3);
-    let shots = mg_testkit::scratch_dir("ui-bp-part-no-model-shot");
-    h.render().expect("render").save(shots.join("item.png")).unwrap();
+    let shots = shot_dir("ui-bp-part-no-model-shot");
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("item.png")).unwrap();
+    }
     let said = |piece: &str, field: &str| {
         format!("No model: {piece} (its {field}) isn't in the module, its haks or the game")
     };
@@ -884,7 +886,9 @@ fn an_item_s_and_a_body_s_parts_without_models_are_said() {
     assert!(h.query_by_label_contains("wswls_b_").is_none(), "its hilt is there");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(man_key)));
     h.run_steps(3);
-    h.render().expect("render").save(shots.join("creature.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("creature.png")).unwrap();
+    }
     assert!(
         h.query_by_label(&said("pmh0_shinl249", "BodyPart_LShin")).is_some(),
         "the shin under the appearance"
@@ -936,8 +940,10 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
         w.set_position(egui::pos2(40.0, 40.0)).set_size(size);
     }
     h.run_steps(3);
-    let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
-    h.render().expect("render").save(shots.join("chest.png")).unwrap();
+    let shots = shot_dir("ui-bp-no-model-shot");
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("chest.png")).unwrap();
+    }
     let warning = "No model: ";
     assert!(h.query_by_label_contains(warning).is_none(), "the chest has its model");
 
@@ -959,14 +965,18 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
     h.run_steps(2);
     // The list marks the row with no model (dansen9191's report).
-    h.render().expect("render").save(shots.join("list.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("list.png")).unwrap();
+    }
     let marked = format!("Missing_Thing{}", mg_rules::appearance::NO_MODEL);
     let choice = h.get_by_label(&marked).rect().center();
     h.hover_at(choice);
     press(&h, choice, true, egui::Modifiers::NONE);
     press(&h, choice, false, egui::Modifiers::NONE);
     h.run_steps(3);
-    h.render().expect("render").save(shots.join("no-model.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("no-model.png")).unwrap();
+    }
     assert_eq!(field(&mut h, &key).integer("Appearance"), Some(row as i64));
     let said = format!(
         "No model: plc_x99 (placeables.2da row {row}, ModelName) isn't in the module, its haks \
@@ -999,7 +1009,9 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     h.run_steps(3);
     h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Missing_Thing".into();
     h.run_steps(10);
-    h.render().expect("render").save(shots.join("gallery.png")).unwrap();
+    if let Some(ref shots) = shots {
+        h.render().expect("render").save(shots.join("gallery.png")).unwrap();
+    }
     let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
     assert!(h.get_all_by_label("Missing_Thing").any(|n| tile(&n)), "its picture in the gallery");
 }
@@ -3856,9 +3868,11 @@ fn portraits_are_chosen_from_their_pictures() {
     h.get_by_label("Portraits…").click();
     h.run();
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
+    if let Some(dir) = shot_dir("ui-portraits") {
+        mg_testkit::gpu::hold();
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join("select.png"));
+        }
     }
     // Escape is the picker's Cancel, no more: the Properties window it was
     // opened from stays open (an `egui::Modal`, the picker let the window
@@ -3879,9 +3893,12 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     h.run();
     h.get_by_label("Icon");
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::output_dir("ui-item-icons").join("gem.png"));
+    let icons_dir = shot_dir("ui-item-icons");
+    if let Some(ref dir) = icons_dir {
+        mg_testkit::gpu::hold();
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join("gem.png"));
+        }
     }
     // The grid offers each model by its icon; a click takes it.
     let before = field(&mut h, &key).integer("ModelPart1").unwrap();
@@ -3897,7 +3914,6 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     let n: i64 = other.trim_start_matches("Appearance ").parse().unwrap();
     assert_eq!(field(&mut h, &key).integer("ModelPart1"), Some(n));
     // A look at a weapon's and an armor's icons.
-    let dir = mg_testkit::output_dir("ui-item-icons");
     for (bp, name) in [("nw_wswls001", "sword"), ("nw_aarcl001", "armor"), ("nw_arhe001", "helm")] {
         let Some((mut h, _)) = blueprint_harness(bp, &format!("icon_{name}"), ResType::UTI) else {
             return;
@@ -3906,7 +3922,9 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
         page(&mut h, "Appearance");
         h.run();
         h.get_by_label("Icon");
-        if let Ok(img) = h.render() {
+        if let Some(ref dir) = icons_dir
+            && let Ok(img) = h.render()
+        {
             let _ = img.save(dir.join(format!("{name}.png")));
         }
     }
@@ -3928,9 +3946,11 @@ fn colours_are_chosen_from_palette_swatches() {
         .click();
     h.run();
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::scratch_dir("ui-colours").join("swatches.png"));
+    if let Some(dir) = shot_dir("ui-colours") {
+        mg_testkit::gpu::hold();
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join("swatches.png"));
+        }
     }
     let pick = if cloth == 5 { 6 } else { 5 };
     h.get_by_label(&format!("Cloth 1 {pick}")).click();
@@ -4090,9 +4110,11 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     settle(&mut h);
     page(&mut h, "Appearance");
     // (Rendering opens a GPU device.)
-    mg_testkit::gpu::hold();
-    if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::scratch_dir("ui-part-colors").join("page.png"));
+    if let Some(dir) = shot_dir("ui-part-colors") {
+        mg_testkit::gpu::hold();
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join("page.png"));
+        }
     }
     // The torso (shown first) has none of its own: each channel shows the
     // armor's. Its Cloth 1 is given one.
@@ -4331,8 +4353,10 @@ fn a_placeable_s_appearance_is_chosen_from_pictures() {
         let at = all.iter().position(|c| c.row as i64 == was).unwrap();
         all[at + 1].clone()
     };
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-appearances").join("appearances.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-appearances") {
+        let img = h.render().expect("render");
+        img.save(dir.join("appearances.png")).unwrap();
+    }
     let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
     h.get_all_by_label(&next.text).find(tile).expect("the next appearance's picture").click();
     h.run_steps(3);

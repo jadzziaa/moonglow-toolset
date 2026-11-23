@@ -56,20 +56,6 @@ fn module_name(h: &mut Harness<'_, Moonglow>) -> LocString {
     ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.read(&ifo::MOD_NAME)
 }
 
-/// Types `to` over the text field that shows `from`, and leaves it.
-fn retype(h: &mut Harness<'_, Moonglow>, from: &str, to: &str) {
-    let input =
-        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
-    h.get_all_by_value(from).find(input).expect("the field").click();
-    h.run();
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.run();
-    h.event(egui::Event::Text(to.into()));
-    h.run();
-    h.key_press(egui::Key::Tab);
-    settle(h);
-}
-
 fn english(ls: &LocString) -> Option<&[u8]> {
     ls.get(Language::ENGLISH, Gender::Male)
 }

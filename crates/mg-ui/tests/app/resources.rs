@@ -1988,7 +1988,9 @@ fn a_model_of_a_hak_the_game_doesn_t_read_is_drawn() {
     };
     let shown = view(&mut h);
     h.run_steps(10);
-    h.render().expect("render").save(dir.join("drawn.png")).unwrap();
+    if std::env::var_os("MG_SHOT").is_some() {
+        h.render().expect("render").save(dir.join("drawn.png")).unwrap();
+    }
     assert_eq!(shown, Some("model"));
     assert!(h.query_by_label_contains("not found or not readable").is_none(), "drawn");
     // Its supermodel's animation, from the hak, is among its animations.
@@ -2014,7 +2016,9 @@ fn a_model_of_a_hak_the_game_doesn_t_read_is_drawn() {
     h.run_steps(2);
     assert_eq!(view(&mut h), Some("model"));
     assert!(h.state().haks[0].hak.is_dirty());
-    h.render().expect("render").save(dir.join("changed.png")).unwrap();
+    if std::env::var_os("MG_SHOT").is_some() {
+        h.render().expect("render").save(dir.join("changed.png")).unwrap();
+    }
 }
 
 /// Export as Files and Copy to Scratch Folder: a script goes out with its

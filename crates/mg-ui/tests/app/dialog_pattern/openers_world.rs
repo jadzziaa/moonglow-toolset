@@ -171,14 +171,6 @@ pub(crate) fn openers() -> Vec<Opener> {
             press(h, at, true, egui::Modifiers::COMMAND);
             press(h, at, false, egui::Modifiers::COMMAND);
             settle(h);
-            eprintln!(
-                "SEL {:?} PROPS {} {:?}",
-                h.state().area_views[&area].tile_selection,
-                h.state().tile_props.is_some(),
-                h.query_all_by_label_contains("light")
-                    .map(|n| n.accesskit_node().label())
-                    .collect::<Vec<_>>()
-            );
             // (The tile menu's Tile Properties shows the panel in whatever room there is.)
             right_click(h, at);
             popup_item(h, "Tile Properties").click();
@@ -211,7 +203,8 @@ pub(crate) fn openers() -> Vec<Opener> {
     ]
 }
 
-const RULES: &str = "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
+pub(crate) const RULES: &str =
+    "[bake]\nrows = \"50000-50099\"\nhak = \"mg_baked\"\nnames = \"mgbk_\"\n";
 
 /// The area's two armoires (`plc_armoire`, model `plc_a01`): at (15, 15)
 /// at Scale 0.5 turned 40 (dynamic), and plain at (27, 15); and at
@@ -270,7 +263,7 @@ pub(crate) fn bake_harness(
 
 /// [`bake_harness`], `more` done in the project's folder (given the area)
 /// before it opens.
-fn bake_harness_with(
+pub(crate) fn bake_harness_with(
     name: &str,
     rules: Option<&str>,
     more: &dyn Fn(&std::path::Path, ResRef),

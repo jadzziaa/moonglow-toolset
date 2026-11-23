@@ -267,6 +267,9 @@ pub(crate) fn game_data_in(
     root: &std::path::Path,
     user: Option<std::path::PathBuf>,
 ) -> mg_rules::GameData {
+    if user.is_none() {
+        return shared_game_data(root, None);
+    }
     mg_rules::GameData::open(&mg_resman::GameInstall::new(root, user, "en")).unwrap()
 }
 
@@ -2899,10 +2902,193 @@ pub(crate) fn page(h: &mut Harness<'_, Moonglow>, name: &str) {
 /// The page `name` of the form in front, as drawn on its one scroll (a
 /// group named "Basic page"): what a test looks for on that page alone,
 /// the pages beside it in view too.
+#[track_caller]
 pub(crate) fn in_page<'t>(h: &'t Harness<'_, Moonglow>, name: &str) -> egui_kittest::Node<'t> {
-    // (Leaked: a query holds its label as long as what it finds.)
-    let group: &'static str = format!("{name}{}", mg_uikit::pages::PAGE_GROUP).leak();
-    h.get_all_by_label(group).last().unwrap_or_else(|| panic!("no {group} drawn"))
+    let group = format!("{name}{}", mg_uikit::pages::PAGE_GROUP);
+    h.query_all_by(move |n| n.label().as_deref() == Some(group.as_str()))
+        .last()
+        .unwrap_or_else(|| panic!("no {name}{} drawn", mg_uikit::pages::PAGE_GROUP))
+}
+
+pub(crate) fn shot_dir(name: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os("MG_SHOT").map(|_| mg_testkit::scratch_dir(name))
+}
+
+pub(crate) fn pos_to_pixel(pos: egui::Pos2, ppp: f32) -> (u32, u32) {
+    ((pos.x * ppp).round().max(0.0) as u32, (pos.y * ppp).round().max(0.0) as u32)
+}
+
+pub(crate) fn crop_rect(
+    img: &image::RgbaImage,
+    rect: egui::Rect,
+    ppp: f32,
+    inset: f32,
+) -> image::RgbaImage {
+    let r = rect.shrink(inset);
+    let x = ((r.min.x * ppp).round().max(0.0) as u32).min(img.width());
+    let y = ((r.min.y * ppp).round().max(0.0) as u32).min(img.height());
+    let w = ((r.width() * ppp).round().max(0.0) as u32).min(img.width().saturating_sub(x));
+    let h = ((r.height() * ppp).round().max(0.0) as u32).min(img.height().saturating_sub(y));
+    image::imageops::crop_imm(img, x, y, w, h).to_image()
+}
+
+/// Frames until `done` holds, for twenty seconds at most, failing with `what`.
+#[track_caller]
+pub(crate) fn until(
+    h: &mut Harness<'_, Moonglow>,
+    what: &str,
+    done: impl Fn(&Harness<'_, Moonglow>) -> bool,
+) {
+    let started = std::time::Instant::now();
+    while !done(h) {
+        assert!(started.elapsed().as_secs() < 20, "never: {what}");
+        h.step();
+    }
+}
+
+/// Frames until the Status Bar says each of `what` (drawn) and none of `not`.
+#[track_caller]
+pub(crate) fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
+    let started = std::time::Instant::now();
+    loop {
+        let now = h.state().status_said();
+        let has = |w: &&str| now.iter().any(|s| s == w);
+        let drawn = |w: &&str| h.get_by_label("Status Bar").query_by_label(w).is_some();
+        if what.iter().all(has) && !not.iter().any(has) && what.iter().all(drawn) {
+            return;
+        }
+        let missing: Vec<&&str> = what.iter().filter(|w| !drawn(w)).collect();
+        assert!(
+            started.elapsed().as_secs() < 10,
+            "never said {what:?} without {not:?}: it says {now:?}; not drawn: {missing:?}"
+        );
+        h.step();
+    }
+}
+
+/// Asserts that no widget in `dock` exceeds its right edge and no one-line field truncates its value.
+#[track_caller]
+pub(crate) fn fits_dock(
+    h: &Harness<'_, Moonglow>,
+    dock: egui::Rect,
+    what: &str,
+    font: egui::FontId,
+    skip_scrollbar: bool,
+) {
+    let in_sight = |n: &egui_kittest::Node<'_>| {
+        let r = n.rect();
+        r.left() >= dock.left() - 0.5
+            && r.top() >= dock.top() - 0.5
+            && r.bottom() <= dock.bottom()
+            && r.width() > 0.0
+    };
+    let past: Vec<String> = h
+        .get_all_by(|n| n.bounding_box().is_some())
+        .filter(in_sight)
+        .filter(|n| n.rect().right() > dock.right() + 0.5)
+        .filter(|n| {
+            !skip_scrollbar || n.accesskit_node().role() != egui::accesskit::Role::ScrollBar
+        })
+        .map(|n| {
+            let a = n.accesskit_node();
+            format!("{:?} {:?} {:?} {:?}", a.role(), a.label(), a.value(), n.rect())
+        })
+        .collect();
+    assert!(past.is_empty(), "{what}: past the edge {past:?}");
+    let margins = {
+        let m = mg_uikit::controls::FIELD_MARGIN;
+        f32::from(m.left) + f32::from(m.right)
+    };
+    let cut: Vec<String> = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter(in_sight)
+        .filter_map(|n| {
+            let value = n.accesskit_node().value()?;
+            let words = h.ctx.fonts_mut(|f| {
+                f.layout_no_wrap(value.clone(), font.clone(), egui::Color32::WHITE).size().x
+            });
+            (n.rect().width() + 0.5 < words + margins)
+                .then(|| format!("{value:?}: {} for {}", n.rect().width(), words + margins))
+        })
+        .collect();
+    assert!(cut.is_empty(), "{what}: cut short in their fields {cut:?}");
+}
+
+/// Types `to` over the text field showing `from`, and leaves it with Tab.
+#[track_caller]
+pub(crate) fn retype(h: &mut Harness<'_, Moonglow>, from: &str, to: &str) {
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(from).find(is_input).expect("the field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(from).find(is_input).unwrap().type_text(to);
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(3);
+}
+
+/// Sweeps `settings.right_dock_width` across `270..=480` with coarse stride 12
+/// and 1px refinement across height transitions to verify monotonic panel height.
+#[track_caller]
+pub(crate) fn sweep_dock_heights(
+    h: &mut Harness<'_, Moonglow>,
+    label: &str,
+    height_of: impl Fn(&Harness<'_, Moonglow>) -> f32,
+    check_jitter: bool,
+) {
+    let measure = |h: &mut Harness<'_, Moonglow>, w: u32| -> f32 {
+        h.state_mut().settings.right_dock_width = Some(w);
+        settle(h);
+        height_of(h)
+    };
+    let mut prev: Option<(u32, f32)> = None;
+    let mut least: Option<(u32, f32)> = None;
+    let mut changes = Vec::new();
+    let coarse: Vec<u32> = (270..480).step_by(12).chain(std::iter::once(480)).collect();
+    for w in coarse {
+        let high = measure(h, w);
+        if let Some((pw, ph)) = prev
+            && (high - ph).abs() > 0.5
+        {
+            let mut inner_prev = ph;
+            for rw in (pw + 1)..w {
+                let rh = measure(h, rw);
+                if let Some((at, low)) = least {
+                    assert!(rh <= low + 0.5, "{label}: {low} at {at}, {rh} at {rw}");
+                }
+                if (rh - inner_prev).abs() > 0.5 {
+                    changes.push(rw);
+                }
+                if least.is_none_or(|(_, low)| rh < low) {
+                    least = Some((rw, rh));
+                }
+                inner_prev = rh;
+            }
+            if (high - inner_prev).abs() > 0.5 {
+                changes.push(w);
+            }
+        }
+        if let Some((at, low)) = least {
+            assert!(high <= low + 0.5, "{label}: {low} at {at}, {high} at {w}");
+        }
+        if least.is_none_or(|(_, low)| high < low) {
+            least = Some((w, high));
+        }
+        prev = Some((w, high));
+    }
+    if check_jitter {
+        for w in changes {
+            for at in w.saturating_sub(2)..=w + 2 {
+                h.state_mut().settings.right_dock_width = Some(at);
+                for high in (700..=900).step_by(20) {
+                    h.set_size(egui::vec2(1600.0, high as f32));
+                    settle(h);
+                }
+            }
+            h.set_size(egui::vec2(1600.0, 900.0));
+        }
+    }
 }
 
 /// The Top Bar's menu `name` ("Edit"), not a control of the same name a

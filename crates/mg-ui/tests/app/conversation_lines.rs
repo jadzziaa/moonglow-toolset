@@ -7,7 +7,7 @@
 //! Command Palette and the Status Bar's hints.
 
 use crate::common::*;
-use crate::conversation_outliner::{branching_window, chosen, guides_drawn, says, window_with};
+use crate::conversation_outliner::{branching_window, chosen, guides_drawn, window_with};
 use crate::conversation_panels::{at, tree_key};
 use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
 use mg_ui::dialog_view::Row;

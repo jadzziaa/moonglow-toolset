@@ -30,7 +30,7 @@ mod openers_editors;
 mod openers_module;
 pub(crate) mod openers_shared;
 mod openers_wizards;
-mod openers_world;
+pub(crate) mod openers_world;
 pub(crate) mod table;
 
 /// A state of a dialog beyond the one it opens in (a wizard's later page):

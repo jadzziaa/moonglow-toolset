@@ -66,7 +66,7 @@ fn walk(
 /// tooltip, enabled or not (an icon alone, grayed, says least).
 #[test]
 fn every_icon_only_button_has_a_name_and_a_tooltip() {
-    let Some((mut h, _area)) = area_harness("icon-tips") else { return };
+    let Some((mut h, _area)) = area_ui_harness("icon-tips") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     settle(&mut h);

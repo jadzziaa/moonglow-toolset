@@ -469,7 +469,7 @@ fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     // (The window at the size it opens at, its form and the list of what
-    // it found under it: a screen of 800 by 600 has room for the form.)
+    // it found under it: a screen of 1280 by 900 has room for the form.)
     let mut h = harness(app, 1280.0, 900.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
@@ -697,7 +697,7 @@ fn advanced_search_lays_out_the_rows_in_sight() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     // (The window at the size it opens at, its form and the list of what
-    // it found under it: a screen of 800 by 600 has room for the form.)
+    // it found under it: a screen of 1280 by 900 has room for the form.)
     let mut h = harness(app, 1280.0, 900.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
     h.run_steps(2);
@@ -820,7 +820,7 @@ fn advanced_search_adds_and_removes_list_entries_on_what_it_found() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     // (The window at the size it opens at, its form and the list of what
-    // it found under it: a screen of 800 by 600 has room for the form.)
+    // it found under it: a screen of 1280 by 900 has room for the form.)
     let mut h = harness(app, 1280.0, 900.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
@@ -912,7 +912,7 @@ fn advanced_search_leaves_out_a_condition_and_finds_any_of_them() {
     let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
     app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
     // (The window at the size it opens at, its form and the list of what
-    // it found under it: a screen of 800 by 600 has room for the form.)
+    // it found under it: a screen of 1280 by 900 has room for the form.)
     let mut h = harness(app, 1280.0, 900.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));

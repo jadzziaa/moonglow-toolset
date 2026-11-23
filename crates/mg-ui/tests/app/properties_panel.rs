@@ -153,17 +153,6 @@ fn page_controls(h: &Harness<'_, Moonglow>, page: &str) -> usize {
     h.query_all(egui_kittest::kittest::by()).filter(under).count()
 }
 
-/// Types `text` over the text field showing `value`, and leaves it (Tab).
-fn retype(h: &mut Harness<'_, Moonglow>, value: &str, text: &str) {
-    h.get_all_by_value(value).find(is_input).expect("the field").click();
-    h.run_steps(2);
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
-    h.get_all_by_value(value).find(is_input).unwrap().type_text(text);
-    h.run_steps(2);
-    h.key_press(egui::Key::Tab);
-    h.run_steps(3);
-}
-
 /// The panel follows the selection: with nothing selected it says how to
 /// choose; one placeable, its kind in the header ("Properties,
 /// Placeable"), its pages as the rail's buttons, Basic in front, its
@@ -905,8 +894,6 @@ fn the_rail_s_pages_by_up_and_down() {
     assert!(on(&h, "Inventory") && focused(&h, "Inventory"), "Up: back");
 }
 
-/// A double click on an object's row in the Outliner (as on the object in
-/// the view, the coordinator's ruling at U6's review) selects it and
 /// A single click on an Outliner row selects the object without moving the
 /// camera, and a double click goes to (focuses) it; no window opens (5.1.0).
 #[test]

@@ -11,16 +11,6 @@ use crate::common::*;
 use egui::accesskit::Toggled;
 use mg_area::ObjectKind;
 
-/// Frames until `done`, for ten seconds at most (an area's view asks for
-/// frames as it draws, so `settle` may not end beside one).
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 10, "never: {what}");
-        h.step();
-    }
-}
-
 /// Frames until the Outliner's rows stop moving (a row brought into sight
 /// scrolls there over a few frames): the last kind's row in the same place
 /// three frames running.

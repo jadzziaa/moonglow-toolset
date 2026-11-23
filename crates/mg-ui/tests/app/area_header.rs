@@ -451,7 +451,7 @@ fn the_overlays_switch_hides_its_five_and_gives_them_back() {
 /// icon toggles.
 #[test]
 fn the_wide_row_unfolds_the_popovers_with_their_words() {
-    let Some((mut h, _)) = area_harness("header-wide") else { return };
+    let Some((mut h, _)) = area_ui_harness("header-wide") else { return };
     h.set_size(egui::vec2(3000.0, 800.0));
     settle(&mut h);
     for name in ["Lighting", "Overlays", "Audio"] {

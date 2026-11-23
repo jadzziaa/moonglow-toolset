@@ -1434,7 +1434,7 @@ fn print_opens_a_highlighted_page_of_the_script() {
 /// does) and opens it; the module's and the game's open as they are.
 #[test]
 fn edit_beside_a_script_s_name_creates_a_missing_script() {
-    let Some((mut h, _)) = area_harness("edit-script") else { return };
+    let Some((mut h, _)) = area_ui_harness("edit-script") else { return };
     let name = ResRef::from_str("fresh_one").unwrap();
     let key = ResKey::new(name, ResType::NSS);
     let has = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.contains(&key);
@@ -1469,7 +1469,7 @@ fn edit_beside_a_script_s_name_creates_a_missing_script() {
 #[cfg(unix)]
 #[test]
 fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
-    let Some((mut h, _)) = area_harness("script-external") else { return };
+    let Some((mut h, _)) = area_ui_harness("script-external") else { return };
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
@@ -1508,7 +1508,7 @@ fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
 #[cfg(unix)]
 #[test]
 fn the_script_editor_s_openers_go_to_the_external_editor_too() {
-    let Some((mut h, _)) = area_harness("script-external-openers") else { return };
+    let Some((mut h, _)) = area_ui_harness("script-external-openers") else { return };
     h.state_mut().settings.tree_stays = true;
     let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
     let edits = [nss("hello"), nss("other_one")]
@@ -1564,7 +1564,7 @@ fn the_script_editor_s_openers_go_to_the_external_editor_too() {
 /// were left out.
 #[test]
 fn compile_and_the_live_check_read_an_include_as_saved() {
-    let Some((mut h, _)) = area_harness("include-as-saved") else { return };
+    let Some((mut h, _)) = area_ui_harness("include-as-saved") else { return };
     let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
     let edits = vec![
         mg_edit::Edit::SetResource {
@@ -1908,7 +1908,7 @@ fn a_script_is_copied_with_its_compiled_script() {
 /// only a script's own Save that did).
 #[test]
 fn saving_the_module_compiles_edited_scripts_when_asked() {
-    let Some((mut h, _)) = area_harness("save-compiles") else { return };
+    let Some((mut h, _)) = area_ui_harness("save-compiles") else { return };
     let (nss, ncs) = (
         ResKey::parse("hello", ResType::NSS).unwrap(),
         ResKey::parse("hello", ResType::NCS).unwrap(),
@@ -2081,7 +2081,7 @@ fn many_scripts_saved_outside_are_compiled_a_few_a_frame() {
 /// include it are compiled again.
 #[test]
 fn compile_all_compiles_only_what_changed() {
-    let Some((mut h, _)) = area_harness("compile-changed") else { return };
+    let Some((mut h, _)) = area_ui_harness("compile-changed") else { return };
     let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
     let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
         let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
@@ -2158,7 +2158,7 @@ fn compile_all_compiles_only_what_changed() {
 /// scripts.
 #[test]
 fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
-    let Some((mut h, _)) = area_harness("compile-on-its-own") else { return };
+    let Some((mut h, _)) = area_ui_harness("compile-on-its-own") else { return };
     let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
     let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
         let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
@@ -2231,7 +2231,7 @@ fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
 /// the log names them; a script that includes nothing changed is not.
 #[test]
 fn an_include_s_includers_are_compiled_with_it() {
-    let Some((mut h, _)) = area_harness("compile-includers") else { return };
+    let Some((mut h, _)) = area_ui_harness("compile-includers") else { return };
     let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
     let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
         let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
@@ -2289,7 +2289,7 @@ fn an_include_s_includers_are_compiled_with_it() {
 /// name is typed, and Enter opens the one chosen (the first, unmoved).
 #[test]
 fn open_script_s_arrows_choose_among_those_listed() {
-    let Some((mut h, _)) = area_harness("open-script-keys") else { return };
+    let Some((mut h, _)) = area_ui_harness("open-script-keys") else { return };
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key: hello, data: Some(b"void main() { }\n".to_vec()) };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
@@ -2326,7 +2326,7 @@ fn open_script_s_arrows_choose_among_those_listed() {
 /// it too.
 #[test]
 fn open_script_s_escape_clears_the_name_then_closes() {
-    let Some((mut h, _)) = area_harness("open-script-escape") else { return };
+    let Some((mut h, _)) = area_ui_harness("open-script-escape") else { return };
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key: hello, data: Some(b"void main() { }\n".to_vec()) };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
@@ -2362,7 +2362,7 @@ fn open_script_s_escape_clears_the_name_then_closes() {
 /// open to be read.
 #[test]
 fn a_script_editor_opens_other_scripts() {
-    let Some((mut h, _)) = area_harness("open-script") else { return };
+    let Some((mut h, _)) = area_ui_harness("open-script") else { return };
     // (The module tree kept still: opened at a script, its rows would
     // have the scripts' names too.)
     h.state_mut().settings.tree_stays = true;

@@ -533,8 +533,10 @@ fn area_viewer_selects_moves_and_deletes() {
     press(&h, second, true, egui::Modifiers::NONE);
     press(&h, second, false, egui::Modifiers::NONE);
     h.run_steps(2);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-move").join("area_view.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-move") {
+        let img = h.render().expect("render");
+        img.save(dir.join("area_view.png")).unwrap();
+    }
 }
 
 /// The placeable brush (Paint): two placeables chosen in the palette,
@@ -666,8 +668,10 @@ fn area_viewer_paints_placeables() {
     h.run_steps(2);
     h.hover_at(screen(&h, area, Vec3::new(28.0, 28.0, 0.0)));
     h.run_steps(2);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-paint").join("area_view.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-paint") {
+        let img = h.render().expect("render");
+        img.save(dir.join("area_view.png")).unwrap();
+    }
     // Escape: Paint goes off; the placeables stay chosen.
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
@@ -867,7 +871,7 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
     assert_eq!(of(&placeables(&mut h), tree), trees, "one Undo brings them back");
     // A look, from nearer and lower: the eraser's circle over the trees,
     // each it would take out marked.
-    let dir = mg_testkit::output_dir("ui-area-paint-erase");
+    let dir = shot_dir("ui-area-paint-erase");
     let orbit = h.state().area_views[&area].orbit;
     if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
         (o.target, o.distance, o.pitch) = (Vec3::new(20.0, 22.0, 0.0), 18.0, 0.8);
@@ -875,7 +879,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
     h.run_steps(2);
     h.hover_at(screen(&h, area, spot));
     h.run_steps(2);
-    h.render().expect("render").save(dir.join("erase.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("erase.png")).unwrap();
+    }
     h.state_mut().area_views.get_mut(&area).unwrap().orbit = orbit;
     h.run_steps(2);
     // The locked shrubs, chosen: the eraser passes them by.
@@ -921,7 +927,9 @@ fn area_viewer_erases_locks_and_goes_on_from_a_row() {
     h.run_steps(2);
     h.hover_at(screen(&h, area, Vec3::new(10.0, 38.0, 0.0)));
     h.run_steps(2);
-    h.render().expect("render").save(dir.join("row-legs.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("row-legs.png")).unwrap();
+    }
 }
 
 #[test]
@@ -1094,8 +1102,10 @@ fn area_viewer_places_draws_boxes_and_turns() {
         assert_eq!(before[i].float("XPosition"), after[i].float("XPosition"));
         assert_ne!(before[i].float("XOrientation"), after[i].float("XOrientation"), "turned");
     }
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-place").join("area_view.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-place") {
+        let img = h.render().expect("render");
+        img.save(dir.join("area_view.png")).unwrap();
+    }
 }
 
 #[test]
@@ -1649,8 +1659,10 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     assert_eq!(spawns[0].id, 2);
     assert!((spawns[0].float("X").unwrap() - 21.0).abs() < 0.1);
     assert!((spawns[0].float("Y").unwrap() - 31.0).abs() < 0.1);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-menu").join("area_view.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-menu") {
+        let img = h.render().expect("render");
+        img.save(dir.join("area_view.png")).unwrap();
+    }
 }
 
 #[test]
@@ -2400,8 +2412,10 @@ fn a_sound_s_random_range_is_drawn_its_ranges_wide() {
         (o.pitch, o.yaw, o.distance) = (25f32.to_radians(), -90f32.to_radians(), 40.0);
     }
     h.run_steps(4);
-    let image = h.render().expect("render");
-    image.save(mg_testkit::output_dir("sound-range").join(format!("{name}-pitched.png"))).unwrap();
+    if let Some(dir) = shot_dir("sound-range") {
+        let image = h.render().expect("render");
+        image.save(dir.join(format!("{name}-pitched.png"))).unwrap();
+    }
 }
 
 /// Sound Ranges' rings follow the area's sounds as they change, though
@@ -2786,15 +2800,19 @@ fn a_trigger_s_turning_ring_in_a_picture() {
     assert!(pivot.distance(glam::Vec3::new(22.0, 20.75, 5.0)) < 1e-3, "{pivot}");
     let to_first = glam::Vec2::new(18.0 - 22.0, 20.0 - 20.75);
     assert!((mark - to_first.y.atan2(to_first.x)).abs() < 1e-3, "{mark}");
-    let dir = mg_testkit::output_dir("ring-trigger");
-    h.render().unwrap().save(dir.join("before-turn.png")).unwrap();
+    let dir = shot_dir("ring-trigger");
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("before-turn.png")).unwrap();
+    }
     // (The keys are the view's with the pointer over it.)
     h.hover_at(egui::pos2(700.0, 560.0));
     h.run_steps(2);
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
     h.run_steps(6);
     rest_turn_keys(&mut h, area);
-    h.render().unwrap().save(dir.join("after-turn.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().unwrap().save(dir.join("after-turn.png")).unwrap();
+    }
     // Turned, the mark has gone round with the outline.
     let turned = h.state().area_views[&area].ring_places()[0].1;
     assert!((turned - mark).abs() > 1.0, "{mark} then {turned}");
@@ -3012,8 +3030,10 @@ fn the_turning_ring_spins_the_selection() {
         h.hover_at(at);
     }
     h.run_steps(1);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-turn-ring").join("turn_ring.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-turn-ring") {
+        let img = h.render().expect("render");
+        img.save(dir.join("turn_ring.png")).unwrap();
+    }
     press(&h, at, false, none);
     h.run_steps(3);
     let after = facing(&mut h);
@@ -3107,9 +3127,9 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
             h.hover_at(at);
         }
         h.run_steps(1);
-        if shot {
+        if shot && let Some(dir) = shot_dir("ui-area-tilt-ring") {
             let img = h.render().expect("render");
-            img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("tilt_ring.png")).unwrap();
+            img.save(dir.join("tilt_ring.png")).unwrap();
         }
         h.event(left(at, false));
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
@@ -3191,8 +3211,10 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
         h.hover_at(at);
     }
     h.run_steps(1);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("height_arrow.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-tilt-ring") {
+        let img = h.render().expect("render");
+        img.save(dir.join("height_arrow.png")).unwrap();
+    }
     h.event(left(at, false));
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(3);
@@ -3215,16 +3237,20 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     let mut at = screen(&h, area, head);
     h.hover_at(at);
     h.run_steps(2);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-shift-tools").join("shift_tools.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-shift-tools") {
+        let img = h.render().expect("render");
+        img.save(dir.join("shift_tools.png")).unwrap();
+    }
     h.event(left(at, true));
     for k in 1..=5 {
         at = screen(&h, area, head + Vec3::Y * (2.0 * k as f32 / 5.0));
         h.hover_at(at);
     }
     h.run_steps(1);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("axis_arrow.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-tilt-ring") {
+        let img = h.render().expect("render");
+        img.save(dir.join("axis_arrow.png")).unwrap();
+    }
     h.event(left(at, false));
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(3);
@@ -3629,8 +3655,10 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     assert!(note.starts_with("This placeable is static"), "{note}");
     assert!(note.contains("which the game doesn't draw"), "{note}");
     assert!(h.query_by_label(&note).is_some(), "the window says so");
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-adjust-static").join("window.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-adjust-static") {
+        let img = h.render().expect("render");
+        img.save(dir.join("window.png")).unwrap();
+    }
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(visual(&mut h, 1), Some(mirror), "its file's transform is kept");
@@ -3694,8 +3722,10 @@ fn adjust_location_says_an_uneven_scale_is_kept() {
     let note = mg_ui::area_tools::scale_note(h.state().adjust.as_ref().unwrap()).expect("a note");
     assert!(note.starts_with("Its file has ScaleX 0.5, ScaleY 1.5 and ScaleZ 1"), "{note}");
     assert!(h.query_by_label(&note).is_some(), "the window says so");
-    let dir = mg_testkit::scratch_dir("ui-adjust-uneven");
-    h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    let dir = shot_dir("ui-adjust-uneven");
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    }
     // A turn alone: ScaleY and ScaleZ kept.
     let a = h.state_mut().adjust.as_mut().unwrap();
     a.visual.rotate.x = 30.0;
@@ -3709,7 +3739,9 @@ fn adjust_location_says_an_uneven_scale_is_kept() {
     drag(&mut h, scale, scale + egui::vec2(10.0, 0.0));
     h.run_steps(2);
     assert!(h.query_by_label(&note).is_none(), "the note goes");
-    h.render().expect("render").save(dir.join("scaled.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("scaled.png")).unwrap();
+    }
     h.get_by_label("OK").click();
     h.run_steps(3);
     let v = visual(&mut h).unwrap();
@@ -3809,9 +3841,10 @@ fn adjust_location_shows_speed_lerps_and_other_scopes() {
         assert!(h.query_by_label(note).is_some(), "the window says so: {note}");
     }
     h.get_by_label("Animation speed");
-    let dir = mg_testkit::output_dir("ui-adjust-kept");
-    let _ = std::fs::remove_file(dir.join("noted.png"));
-    h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-adjust-kept") {
+        let _ = std::fs::remove_file(dir.join("noted.png"));
+        h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    }
     // The speed alone: set, the lerp kept.
     let a = h.state_mut().adjust.as_mut().unwrap();
     a.speed = 0.5;
@@ -3939,8 +3972,10 @@ fn static_ticked_takes_the_visual_transform_off() {
     h.get_by_label("Static").click();
     h.run_steps(3);
     assert_eq!(chests(&mut h), [(Some(1), None); 2], "static, and their transforms gone");
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-static-ticked").join("properties.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-static-ticked") {
+        let img = h.render().expect("render");
+        img.save(dir.join("properties.png")).unwrap();
+    }
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Static"));
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
@@ -4341,10 +4376,9 @@ fn the_palette_s_start_location_is_placed_with_a_click() {
     h.run_steps(2);
     h.hover_at(at);
     h.run_steps(3);
-    h.render()
-        .expect("render")
-        .save(mg_testkit::output_dir("ui-area-start-palette").join("placing.png"))
-        .unwrap();
+    if let Some(dir) = shot_dir("ui-area-start-palette") {
+        h.render().expect("render").save(dir.join("placing.png")).unwrap();
+    }
     click_pos(&h, at);
     h.run_steps(3);
     let (in_area, x, y) = entry(&mut h);
@@ -5489,9 +5523,10 @@ fn a_creature_s_head_scope_is_drawn_on_its_head() {
     };
     set_orbit(&mut h, area, orbit);
     h.run_steps(5);
-    let out = mg_testkit::output_dir("ui-area-head-scope");
-    let _ = std::fs::remove_file(out.join("heads.png"));
-    h.render().expect("render").save(out.join("heads.png")).unwrap();
+    if let Some(out) = shot_dir("ui-area-head-scope") {
+        let _ = std::fs::remove_file(out.join("heads.png"));
+        h.render().expect("render").save(out.join("heads.png")).unwrap();
+    }
     let view = h.state().area_views.get(&area).unwrap();
     let model = view.model.as_ref().unwrap();
     let creature = |x: f32| {
@@ -5553,7 +5588,9 @@ fn an_invisible_object_is_selected_by_its_own_box() {
     assert!((across.x - 0.6).abs() < 0.05 && (across.y - 0.6).abs() < 0.05, "{across:?}");
     assert!(across.z < 0.3, "{across:?}");
     h.run_steps(3);
-    h.render().unwrap().save(mg_testkit::scratch_dir("ui-invisible-object").join("a.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-invisible-object") {
+        h.render().unwrap().save(dir.join("a.png")).unwrap();
+    }
 }
 
 /// A right click on the ground offers a light: one of the game's
@@ -5597,7 +5634,9 @@ fn a_light_is_added_from_the_area_s_menu_and_recolored() {
     assert_eq!(lights[0].integer("Static"), Some(1));
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add Light, White"));
     assert_eq!(h.state().area_views[&area].selection, [(mg_area::ObjectKind::Placeable, 0)]);
-    h.render().unwrap().save(mg_testkit::scratch_dir("ui-add-light").join("a.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-add-light") {
+        h.render().unwrap().save(dir.join("a.png")).unwrap();
+    }
     // Its own menu: another color.
     let on_it = screen(&h, area, Vec3::new(x, lights[0].float("Y").unwrap(), z + 0.5));
     right_click(&mut h, on_it);
@@ -5670,10 +5709,9 @@ fn a_light_is_placed_from_the_palette() {
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert_eq!(h.state().palette.placing_light, None);
-    h.render()
-        .expect("render")
-        .save(mg_testkit::output_dir("ui-area-palette-lights").join("placed.png"))
-        .unwrap();
+    if let Some(dir) = shot_dir("ui-area-palette-lights") {
+        h.render().expect("render").save(dir.join("placed.png")).unwrap();
+    }
 }
 
 /// Custom Light (the lights proposal's way B, behind an option off by
@@ -5697,9 +5735,11 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     };
     h.set_size(egui::vec2(1400.0, 1000.0));
     h.run_steps(3);
-    let out = mg_testkit::output_dir("ui-custom-light-pictures");
-    for f in ["menu.png", "window.png", "placed.png"] {
-        let _ = std::fs::remove_file(out.join(f));
+    let out = shot_dir("ui-custom-light-pictures");
+    if let Some(ref out) = out {
+        for f in ["menu.png", "window.png", "placed.png"] {
+            let _ = std::fs::remove_file(out.join(f));
+        }
     }
     let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
         h.hover_at(at);
@@ -5726,7 +5766,9 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     right_click(&mut h, at);
     h.get_by_label_contains("Add Light Here").hover();
     h.run_steps(3);
-    h.render().expect("render").save(out.join("menu.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("menu.png")).unwrap();
+    }
     h.get_by_label("Custom Light…").click();
     h.run_steps(3);
     {
@@ -5750,7 +5792,9 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
     h.get_by_label_contains(&said);
     h.get_by_label_contains("The module's players must have this hak");
     assert!(!hak.exists(), "nothing written yet");
-    h.render().expect("render").save(out.join("window.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("window.png")).unwrap();
+    }
     h.get_by_label("Write and Place").click();
     h.run_steps(6);
     assert!(hak.is_file(), "the hak written");
@@ -5781,7 +5825,9 @@ fn a_custom_light_is_written_into_a_chosen_hak_and_placed() {
         view.selection = vec![(mg_area::ObjectKind::Placeable, 0)];
     }
     h.run_steps(5);
-    h.render().expect("render").save(out.join("placed.png")).unwrap();
+    if let Some(ref out) = out {
+        h.render().expect("render").save(out.join("placed.png")).unwrap();
+    }
     // Change Light…: another row, the same hak.
     let on_it = screen(&h, area, Vec3::new(15.0, 15.0, 1.5));
     right_click(&mut h, on_it);
@@ -5970,8 +6016,10 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)]);
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
     h.run_steps(2);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-read-only-shot").join("read_only.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-read-only-shot") {
+        let img = h.render().expect("render");
+        img.save(dir.join("read_only.png")).unwrap();
+    }
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(1);
     // Paint and Select Tiles are off.
@@ -6243,8 +6291,10 @@ fn setup_area_transition_picks_on_the_target_area_s_map() {
     let east = egui::pos2(map.left() + map.width() * 0.75, map.bottom() - map.height() * 0.5);
     h.hover_at(east);
     h.run_steps(2);
-    let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-transition-shot").join("setup_transition.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-transition-shot") {
+        let img = h.render().expect("render");
+        img.save(dir.join("setup_transition.png")).unwrap();
+    }
     press(&h, east, true, egui::Modifiers::NONE);
     press(&h, east, false, egui::Modifiers::NONE);
     h.run_steps(2);
@@ -6507,8 +6557,11 @@ fn replaced_objects_keep_their_outline_and_transform() {
         ws.doc(&git_key).unwrap().root.list(list).unwrap()[0].clone()
     };
     let (trigger, chest) = (placed(&mut h, "TriggerList"), placed(&mut h, "Placeable List"));
-    let before = h.render().expect("render");
-    before.save(mg_testkit::output_dir("ui-replace-kept").join("before.png")).unwrap();
+    let dir = shot_dir("ui-replace-kept");
+    if let Some(ref dir) = dir {
+        let before = h.render().expect("render");
+        before.save(dir.join("before.png")).unwrap();
+    }
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(ObjectKind::Trigger, 0), (ObjectKind::Placeable, 0)];
     let replace = |h: &mut Harness<'_, Moonglow>, kind, name: &str| {
@@ -6541,8 +6594,10 @@ fn replaced_objects_keep_their_outline_and_transform() {
         assert_eq!(crate_.float(f), chest.float(f), "{f}");
     }
     assert_eq!(VisualTransform::read(&crate_), Some(tilted), "its visual transform");
-    let after = h.render().expect("render");
-    after.save(mg_testkit::output_dir("ui-replace-kept").join("after.png")).unwrap();
+    if let Some(ref dir) = dir {
+        let after = h.render().expect("render");
+        after.save(dir.join("after.png")).unwrap();
+    }
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(placed(&mut h, "Placeable List"), chest, "one undo for the chest");
@@ -6586,13 +6641,15 @@ fn onto_objects_places_on_the_placeable_under_the_pointer() {
     }
     h.state_mut().palette.selected = Some(ResKey::parse("plc_chest1", ResType::UTP).unwrap());
     h.run_steps(2);
-    let dir = mg_testkit::output_dir("ui-area-onto");
+    let dir = shot_dir("ui-area-onto");
     // On the chest's top, near its middle.
     let at = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.6));
     let shown_z = |h: &mut Harness<'_, Moonglow>, name: &str| {
         h.hover_at(at);
         h.run_steps(3);
-        h.render().expect("render").save(dir.join(name)).unwrap();
+        if let Some(ref dir) = dir {
+            h.render().expect("render").save(dir.join(name)).unwrap();
+        }
         h.state().area_views[&area].ghost_shown.as_ref().expect("the copy").position.z
     };
     let off = shown_z(&mut h, "off.png");
@@ -7211,7 +7268,7 @@ fn the_handles_fit_the_view_when_the_camera_is_close() {
         app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     }
     h.run_steps(3);
-    let dir = mg_testkit::output_dir("ui-area-handles-close");
+    let dir = shot_dir("ui-area-handles-close");
     // How far the handles reach from the chest on screen, at each
     // distance, with Shift and without.
     let (mut reach, mut out) = (Vec::new(), Vec::new());
@@ -7226,9 +7283,11 @@ fn the_handles_fit_the_view_when_the_camera_is_close() {
             let modifiers = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
             h.event(egui::Event::ModifiersChanged(modifiers));
             h.run_steps(3);
-            let img = h.render().expect("render");
             let shot = format!("{name}_{}.png", if shift { "shift" } else { "ring" });
-            img.save(dir.join(&shot)).unwrap();
+            if let Some(ref dir) = dir {
+                let img = h.render().expect("render");
+                img.save(dir.join(&shot)).unwrap();
+            }
             let view = &h.state().area_views[&area];
             let (rect, middle) = (view.rect, view.screen_pos(pivot).expect("the chest in view"));
             let points = view.handle_points(shift);
@@ -7454,12 +7513,14 @@ fn page_up_and_down_move_the_selection_to_the_next_surface() {
     key(&mut h, egui::Key::PageUp);
     let top = z(&mut h, "Placeable List", 1);
     // (A look from beside the table, low.)
-    let dir = mg_testkit::scratch_dir("ui-surface-steps");
+    let dir = shot_dir("ui-surface-steps");
     if let Some(o) = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut() {
         (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(12.0, 20.0, 0.8), 4.0, -1.57, 0.25);
     }
     h.run_steps(10);
-    h.render().expect("render").save(dir.join("raised.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("raised.png")).unwrap();
+    }
     assert!((0.8..0.9).contains(&(top - ground)), "on the table's top: {top}");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise to Surface"));
     let by = z(&mut h, "WaypointList", 0) - post;
@@ -7535,14 +7596,16 @@ fn page_up_and_down_move_the_ghost_before_it_is_placed() {
     let top = ghost_z(&h);
     assert!((0.8..0.9).contains(&(top - ground)), "on the table's top: {top}");
     // (A look from beside the table, low: the ghost on it.)
-    let dir = mg_testkit::scratch_dir("ui-ghost-steps");
+    let dir = shot_dir("ui-ghost-steps");
     let orbit = h.state().area_views[&area].orbit;
     if let Some(o) = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut() {
         (o.target, o.distance, o.yaw, o.pitch) = (Vec3::new(12.0, 20.0, 0.8), 4.0, -1.57, 0.25);
     }
     h.hover_at(screen(&h, area, Vec3::new(12.0, 20.0, 0.0)));
     h.run_steps(10);
-    h.render().expect("render").save(dir.join("ghost-on-the-table.png")).unwrap();
+    if let Some(ref dir) = dir {
+        h.render().expect("render").save(dir.join("ghost-on-the-table.png")).unwrap();
+    }
     h.state_mut().area_views.get_mut(&area).unwrap().orbit = orbit;
     h.hover_at(over);
     h.run_steps(3);
@@ -7892,8 +7955,9 @@ fn results_found_before_the_module_changed_are_not_acted_on() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
     h.run_steps(3);
     // (Both windows' lists, as they are laid out.)
-    let dir = mg_testkit::scratch_dir("ui-area-stale-results");
-    h.render().expect("render").save(dir.join("windows.png")).unwrap();
+    if let Some(dir) = shot_dir("ui-area-stale-results") {
+        h.render().expect("render").save(dir.join("windows.png")).unwrap();
+    }
 
     // The first waypoint deleted elsewhere, the windows open.
     remove_waypoint(&mut h, area, 0);

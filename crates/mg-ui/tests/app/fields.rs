@@ -2218,7 +2218,7 @@ fn arrow_keys_step_through_a_list_of_choices() {
 /// changed elsewhere meanwhile stays.
 #[test]
 fn area_properties_cancel_sets_back_its_sound_alone() {
-    let Some((mut h, area)) = area_harness("area-audio-cancel") else { return };
+    let Some((mut h, area)) = area_ui_harness("area-audio-cancel") else { return };
     h.run_steps(3);
     let git = ResKey::new(area, ResType::GIT);
     let props = |h: &mut Harness<'_, Moonglow>| {
@@ -2378,7 +2378,7 @@ fn arrow_step_list(h: &mut Harness<'_, Moonglow>, from: &str, to: &str) {
 /// flags.
 #[test]
 fn arrow_keys_step_through_the_area_dialogs_lists() {
-    let Some((mut h, area)) = area_harness("area-dialog-arrows") else { return };
+    let Some((mut h, area)) = area_ui_harness("area-dialog-arrows") else { return };
     h.run_steps(3);
     let menu = |h: &mut Harness<'_, Moonglow>, item: &str| {
         h.get_by_label("Edit").click();
@@ -2512,7 +2512,7 @@ fn arrow_keys_step_through_a_creature_s_alignments() {
 /// down the columns, Left and Right to the column beside.
 #[test]
 fn arrow_keys_move_through_the_lighting_schemes() {
-    let Some((mut h, area)) = area_harness("scheme-arrows") else { return };
+    let Some((mut h, area)) = area_ui_harness("scheme-arrows") else { return };
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
     h.run_steps(5);

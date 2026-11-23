@@ -15,16 +15,6 @@ use mg_uikit::shell as kit;
 /// `outer_margin`): the application's frame starts 8 points in.
 const HARNESS_MARGIN: f32 = 8.0;
 
-/// Frames until `done`, for twenty seconds at most (an area's view asks
-/// for frames as it draws, so `settle` may not end beside one).
-fn until(h: &mut Harness<'_, Moonglow>, what: &str, done: impl Fn(&Harness<'_, Moonglow>) -> bool) {
-    let started = std::time::Instant::now();
-    while !done(h) {
-        assert!(started.elapsed().as_secs() < 20, "never: {what}");
-        h.step();
-    }
-}
-
 /// What the shell's layout is at this frame, to wait for it to rest: the
 /// bars' and the docks' controls and where the editor area and the docks
 /// are.

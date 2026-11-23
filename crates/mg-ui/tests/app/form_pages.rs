@@ -132,7 +132,7 @@ fn the_keyboard_goes_down_the_pages_and_along_the_list() {
 /// changed, as one step.
 #[test]
 fn module_and_area_properties_list_their_pages_under_their_header() {
-    let Some((mut h, area)) = area_harness("pages-props") else { return };
+    let Some((mut h, area)) = area_ui_harness("pages-props") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
     settle(&mut h);
     for name in ["Basic", "Events", "Advanced", "Variables", "Description", "Custom Content"] {

@@ -526,25 +526,6 @@ fn a_conversation_s_hints_are_as_bound() {
     settle(&mut h);
 }
 
-/// Frames until the Status Bar says each of `what` and none of `not`,
-/// each said one drawn in the bar, for ten seconds at most.
-pub(crate) fn says(h: &mut Harness<'_, Moonglow>, what: &[&str], not: &[&str]) {
-    let started = std::time::Instant::now();
-    loop {
-        let now = h.state().status_said();
-        let has = |w: &&str| now.iter().any(|s| s == w);
-        let drawn = |w: &&str| h.get_by_label("Status Bar").query_by_label(w).is_some();
-        if what.iter().all(has) && !not.iter().any(has) && what.iter().all(drawn) {
-            return;
-        }
-        assert!(
-            started.elapsed().as_secs() < 10,
-            "never said {what:?} without {not:?}: it says {now:?}"
-        );
-        h.step();
-    }
-}
-
 /// Hello's bookmark's row once "x" is typed after its text (Data's,
 /// `type_in_front`): the row says the line's text as it is now.
 const HELLO_TYPED: &str = "Entry 0: Hello there.x";

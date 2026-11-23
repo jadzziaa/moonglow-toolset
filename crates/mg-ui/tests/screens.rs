@@ -110,7 +110,21 @@ fn at_rest(h: &mut Harness<'_, Moonglow>, rect: impl Fn(&Harness<'_, Moonglow>) 
 fn in_toolbar(n: &egui_kittest::Node<'_>) -> bool {
     let mut up = n.accesskit_node().parent();
     while let Some(p) = up {
-        if matches!(p.label().as_deref(), Some("Top Bar" | "Left Dock" | "Area header")) {
+        let bars = [
+            "Top Bar",
+            "Left Dock",
+            "Area header",
+            "More in Area header",
+            "Lighting",
+            "Overlays",
+            "Audio",
+            "Brush",
+            "Area tools",
+            "More Tools",
+            "Compass",
+            mg_ui::RIGHT_DOCK,
+        ];
+        if p.label().is_some_and(|l| bars.contains(&l.as_str())) {
             return true;
         }
         up = p.parent();
@@ -10947,6 +10961,13 @@ fn shell_with_area(root: &std::path::Path, size: egui::Vec2) -> Harness<'static,
     // view is drawn: time for them.)
     for _ in 0..40 {
         h.step();
+        if h.state()
+            .viewport
+            .as_ref()
+            .is_some_and(|vp| vp.renderer.drawn.game > 0 && vp.renderer.drawn.game_pending == 0)
+        {
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     h
