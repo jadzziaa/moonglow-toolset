@@ -1840,7 +1840,17 @@ fn the_outliner_follows_its_description_read_again() {
     let words = |h: &Harness<'_, Moonglow>| {
         column_row(h, "Kind").accesskit_node().label().unwrap_or_default().to_string()
     };
-    assert_eq!(words(&h), "Kind, one of 2 values");
+    // (Waited for by a deadline: on a slow runner the row's words came a
+    // frame after the description, and the test failed on its first line.)
+    let wait = |h: &mut Harness<'_, Moonglow>, want: &str| {
+        let start = std::time::Instant::now();
+        while words(h) != want {
+            assert!(start.elapsed().as_secs() < 10, "never {want}: {}", words(h));
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    wait(&mut h, "Kind, one of 2 values");
     let mg_ui::table_view::Home::File(path) = doc(&h, id).home.clone() else { panic!("a file") };
     let toml =
         MINE_TOML.replace("[columns.Kind]\nkind = \"list\"", "[columns.Kind]\nkind = \"flags\"");
@@ -1848,12 +1858,7 @@ fn the_outliner_follows_its_description_read_again() {
     // (Its time a second on: looked at once a second.)
     std::thread::sleep(std::time::Duration::from_millis(1100));
     std::fs::write(path.with_extension("2da.toml"), toml).unwrap();
-    let start = std::time::Instant::now();
-    while words(&h) != "Kind, any of 2 flags" {
-        assert!(start.elapsed().as_secs() < 10, "never followed: {}", words(&h));
-        h.step();
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    wait(&mut h, "Kind, any of 2 flags");
 }
 
 /// The Outliner's columns follow the game's data read again (kept by the
