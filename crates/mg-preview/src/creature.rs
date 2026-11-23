@@ -176,8 +176,13 @@ pub(crate) fn dressed_with(
                 .find(|m| lk.has_model(m))
         };
         // `part`: the armor part (an index of `ARMOR_PARTS`), which may
-        // have colors of its own.
-        let with = |model: String, attach: Option<&str>, animated: bool, part: Option<usize>| {
+        // have colors of its own. Passing `fallbacks: false` skips probing
+        // body-part PLTs when the caller supplies custom textures (cloaks).
+        let with = |model: String,
+                    attach: Option<&str>,
+                    animated: bool,
+                    part: Option<usize>,
+                    fallbacks: bool| {
             let mut p = Part::new(model);
             p.attach = attach.map(str::to_ascii_lowercase);
             p.colors = Some(match (armor, part) {
@@ -186,7 +191,9 @@ pub(crate) fn dressed_with(
             });
             p.env_map = env.clone();
             p.animated = animated;
-            p.textures = plt_fallbacks(&lk, &p.model);
+            if fallbacks {
+                p.textures = plt_fallbacks(&lk, &p.model);
+            }
             p
         };
 
@@ -204,7 +211,7 @@ pub(crate) fn dressed_with(
         if robe > 0
             && let Some(m) = part_model("robe", robe)
         {
-            preview.parts.push(with(m, None, true, Some(ROBE)));
+            preview.parts.push(with(m, None, true, Some(ROBE), true));
         }
 
         let capart = game.table("capart")?;
@@ -218,7 +225,7 @@ pub(crate) fn dressed_with(
             if let Some(model) =
                 cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m))
             {
-                let mut p = with(model, None, true, None);
+                let mut p = with(model, None, true, None, false);
                 p.local = look.cloak_transform.and_then(|t| t.matrix());
                 let texture =
                     format!("cloak_{:03}", cell_int(&cloaks, row, "TEXTURE").unwrap_or(1));
@@ -259,7 +266,7 @@ pub(crate) fn dressed_with(
             }
             let node = cell(&capart, row, "NODENAME").unwrap_or("rootdummy");
             if let Some(m) = part_model(&mdlname, n) {
-                preview.parts.push(with(m, Some(node), false, Some(part)));
+                preview.parts.push(with(m, Some(node), false, Some(part), true));
             }
         }
 
@@ -299,7 +306,7 @@ pub(crate) fn dressed_with(
                 if head > 0
                     && let Some(m) = part_model("head", head)
                 {
-                    let mut p = with(m, Some("head_g"), false, None);
+                    let mut p = with(m, Some("head_g"), false, None, true);
                     p.local = look.head_transform.and_then(|t| t.matrix());
                     preview.parts.push(p);
                 }

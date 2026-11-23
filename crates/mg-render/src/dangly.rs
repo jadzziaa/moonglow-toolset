@@ -45,6 +45,8 @@ struct DanglyMesh {
     /// World-space positions and velocities; empty until the first update.
     pos: Vec<Vec3>,
     vel: Vec<Vec3>,
+    /// Reusable world-space anchor positions scratch.
+    anchors: Vec<Vec3>,
 }
 
 impl Dangly {
@@ -79,6 +81,7 @@ impl Dangly {
                 zeta,
                 pos: Vec::new(),
                 vel: Vec::new(),
+                anchors: Vec::new(),
             });
         }
         Dangly { meshes }
@@ -93,11 +96,13 @@ impl Dangly {
     pub fn update(&mut self, dt: f32, pose: &[Mat4], transform: Mat4, wind: Vec3) {
         for d in &mut self.meshes {
             let world = transform * pose.get(d.node).copied().unwrap_or(Mat4::IDENTITY);
-            let anchors: Vec<Vec3> =
-                d.rest.iter().map(|v| world.transform_point3(Vec3::from(v.pos))).collect();
-            if d.pos.len() != anchors.len() {
-                d.pos = anchors.clone();
-                d.vel = vec![Vec3::ZERO; anchors.len()];
+            d.anchors.clear();
+            d.anchors.extend(d.rest.iter().map(|v| world.transform_point3(Vec3::from(v.pos))));
+            if d.pos.len() != d.anchors.len() {
+                d.pos.clear();
+                d.pos.extend_from_slice(&d.anchors);
+                d.vel.clear();
+                d.vel.resize(d.anchors.len(), Vec3::ZERO);
                 continue;
             }
             // (A time that is no number, or runs back, is none passed.)
@@ -106,7 +111,7 @@ impl Dangly {
             let h = dt / steps as f32;
             let (k, c) = (d.omega * d.omega, 2.0 * d.zeta * d.omega);
             for ((p, v), (&a, &limit)) in
-                d.pos.iter_mut().zip(&mut d.vel).zip(anchors.iter().zip(&d.limit))
+                d.pos.iter_mut().zip(&mut d.vel).zip(d.anchors.iter().zip(&d.limit))
             {
                 // (Fixed; so one whose limit is no number.)
                 if limit.is_nan() || limit <= 0.0 {
@@ -151,13 +156,14 @@ impl Dangly {
             }
             let world = transform * pose.get(d.node).copied().unwrap_or(Mat4::IDENTITY);
             let to_local = world.inverse();
-            let vertices = d
-                .rest
-                .iter()
-                .zip(&d.pos)
-                .map(|(v, p)| Vertex { pos: to_local.transform_point3(*p).to_array(), ..*v })
-                .collect();
-            out.vertices = Some(vertices);
+            let buf = out.vertices.get_or_insert_with(|| Vec::with_capacity(d.rest.len()));
+            buf.clear();
+            buf.extend(
+                d.rest
+                    .iter()
+                    .zip(&d.pos)
+                    .map(|(v, p)| Vertex { pos: to_local.transform_point3(*p).to_array(), ..*v }),
+            );
         }
     }
 
@@ -214,6 +220,7 @@ mod tests {
             limit,
             omega: 8.0,
             zeta: 0.3,
+            anchors: Vec::new(),
             pos: Vec::new(),
             vel: Vec::new(),
         }

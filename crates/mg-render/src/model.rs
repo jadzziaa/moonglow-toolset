@@ -147,6 +147,8 @@ pub struct GpuMesh {
     /// as one bucket, with that mesh's alpha and `NO_DISCARD`
     /// (`docs/findings.md`, "Static geometry is drawn in buckets").
     pub(crate) bucket: usize,
+    /// Cached rest upload + normal smoothing topology populated on first animation.
+    pub(crate) anim_cache: std::sync::OnceLock<crate::anim::AnimMeshCache>,
 }
 
 impl GpuMesh {
@@ -326,6 +328,7 @@ impl GpuModel {
                 slot: Arc::new(slot),
                 volume: Default::default(),
                 bucket: 0,
+                anim_cache: std::sync::OnceLock::new(),
             };
             if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
@@ -358,6 +361,7 @@ impl GpuModel {
                 slot: m.slot.clone(),
                 volume: Default::default(),
                 bucket: m.bucket,
+                anim_cache: std::sync::OnceLock::new(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -378,6 +382,7 @@ pub fn hint_wants_tangents(hint: &str) -> bool {
 
 /// A mesh as it is uploaded: its vertices, the vertex of the model's each
 /// is (a copy's original, past the model's own), and its triangles.
+#[derive(Debug)]
 pub(crate) struct Uploaded {
     pub(crate) vertices: Vec<Vertex>,
     pub(crate) originals: Vec<u32>,

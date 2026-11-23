@@ -148,6 +148,7 @@ impl Renderer {
     fn last_drawn(&self) -> HashMap<&str, u32> {
         let mut last: HashMap<&str, u32> = HashMap::new();
         for (i, key) in self.material_keys.iter().enumerate() {
+            let Some(key) = key else { continue };
             let at = self.kept.materials.get(i).copied().unwrap_or(0);
             for name in key.0.iter().flatten().chain([&key.1]) {
                 let e = last.entry(name.as_str()).or_default();
@@ -164,17 +165,15 @@ impl Renderer {
 
     /// Once a second at most: where the stale textures take more than is
     /// kept of them, lets go of the longest unused until half that is
-    /// left, and of what was made from them (the materials' bind groups
-    /// and each model's surfaces, made again as they are drawn). Says how
-    /// many were let go.
+    /// left, and of only the materials, surfaces, and game-shader groups
+    /// that bound those evicted textures. Says how many were let go.
     pub(crate) fn let_go_of_stale_textures(&mut self) -> usize {
         if self.kept.checked == Some(self.kept.now) {
             return 0;
         }
         self.kept.checked = Some(self.kept.now);
         // (Not even all of them past what is kept: none can be stale past it.)
-        let all: u64 = self.textures.values().flatten().map(|e| e.bytes).sum();
-        if all <= self.kept.stale_bytes {
+        if self.textures_bytes <= self.kept.stale_bytes {
             return 0;
         }
         let last = self.last_drawn();
@@ -201,20 +200,55 @@ impl Renderer {
             bytes -= b;
             gone.push(name.to_string());
         }
-        drop(last);
-        for name in &gone {
-            self.textures.remove(name);
+        if gone.is_empty() {
+            return 0;
         }
-        // What binds them goes with them (else the GPU holds them still).
-        self.materials.clear();
-        self.particle_materials.clear();
-        self.groups.clear();
-        self.material_keys.clear();
-        self.kept.materials.clear();
-        self.surfaces.clear();
-        self.game.forget_materials();
-        self.kept.let_go += gone.len();
-        gone.len()
+        let gone_names: std::collections::HashSet<String> = gone.into_iter().collect();
+        // Preserve material-draw timestamps on retained textures before dropping
+        // any materials referencing them.
+        for (name, entry) in &self.textures {
+            if !gone_names.contains(name.as_str())
+                && let (Some(e), Some(&at)) = (entry, last.get(name.as_str()))
+            {
+                e.used.fetch_max(at, Ordering::Relaxed);
+            }
+        }
+        drop(last);
+        for name in &gone_names {
+            if let Some(Some(e)) = self.textures.remove(name) {
+                self.textures_bytes = self.textures_bytes.saturating_sub(e.bytes);
+            }
+        }
+        let mut gone_mats: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for (i, key) in self.material_keys.iter().enumerate() {
+            let Some(key) = key else { continue };
+            if key.0.iter().flatten().chain([&key.1]).any(|n| gone_names.contains(n.as_str())) {
+                gone_mats.insert(i as u32);
+            }
+        }
+        for &slot in &gone_mats {
+            let idx = slot as usize;
+            if let Some(key) = self.material_keys[idx].take() {
+                self.materials.remove(&key);
+            }
+            self.groups[idx] = None;
+            self.free_materials.push(slot);
+            if let Some(at) = self.kept.materials.get_mut(idx) {
+                *at = 0;
+            }
+        }
+        if !gone_mats.is_empty() {
+            self.particle_materials.retain(|_, slot| !gone_mats.contains(slot));
+            let surface_gone = |s: &super::Surface| {
+                gone_mats.contains(&s.material)
+                    || s.water_material.is_some_and(|(m, _)| gone_mats.contains(&m))
+            };
+            self.surfaces.retain(|_, list| !list.iter().any(surface_gone));
+            self.surfaces_prev.retain(|_, list| !list.iter().any(surface_gone));
+            self.game.forget_materials_in(&gone_mats);
+        }
+        self.kept.let_go += gone_names.len();
+        gone_names.len()
     }
 }
 

@@ -176,7 +176,41 @@ impl Look {
             let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
             Gff::read(&data).ok()
         };
-        let preview = mg_preview::of_object(game, kind, s, &items, mg_preview::Shown::Placed);
+        Self::look_with(
+            mg_preview::of_object(game, kind, s, &items, mg_preview::Shown::Placed),
+            kind,
+        )
+    }
+
+    /// [`Look::read`], sharing `remembered`'s part-model texture caches across
+    /// an area's objects.
+    fn read_remembered(
+        game: &GameData,
+        kind: ObjectKind,
+        s: &Struct,
+        remembered: &mg_preview::Remembered,
+    ) -> Look {
+        let items = |r: ResRef| -> Option<Gff> {
+            let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+            Gff::read(&data).ok()
+        };
+        Self::look_with(
+            mg_preview::of_object_remembered(
+                game,
+                kind,
+                s,
+                &items,
+                mg_preview::Shown::Placed,
+                remembered,
+            ),
+            kind,
+        )
+    }
+
+    fn look_with(
+        preview: Option<Result<mg_preview::Preview, mg_preview::PreviewError>>,
+        kind: ObjectKind,
+    ) -> Look {
         // A waypoint without a flag (no appearance) is drawn as a marker:
         // nothing is wrong with it; a store or a sound without the game's
         // marker model, drawn as one.
@@ -321,6 +355,22 @@ impl Object {
         Object { look: Look::read(game, kind, s), laid, ..Object::placed(kind, s) }
     }
 
+    /// [`Object::read`], sharing `remembered`'s part-model texture caches across
+    /// an area's objects.
+    fn read_remembered(
+        game: &GameData,
+        kind: ObjectKind,
+        s: &Struct,
+        remembered: &mg_preview::Remembered,
+    ) -> Object {
+        let laid = if kind == ObjectKind::Item { mg_preview::ground_turn(game, s) } else { 0 };
+        Object {
+            look: Look::read_remembered(game, kind, s, remembered),
+            laid,
+            ..Object::placed(kind, s)
+        }
+    }
+
     /// [`Object::read`] without the game: where it stands, how it turns,
     /// its outline and fields; no look, and an item not turned as it lies.
     pub fn placed(kind: ObjectKind, s: &Struct) -> Object {
@@ -369,10 +419,11 @@ impl Area {
     /// An area's ARE and GIT (their root structs) as values.
     pub fn read(game: &GameData, are: &Struct, git: &Struct) -> Area {
         let size = |label: &str| are.integer(label).unwrap_or(0).clamp(0, i64::from(u32::MAX));
+        let remembered = mg_preview::Remembered::default();
         let mut objects = Vec::new();
         for kind in ObjectKind::ALL {
             for s in git.list(kind.list()).unwrap_or(&[]) {
-                objects.push(Object::read(game, kind, s));
+                objects.push(Object::read_remembered(game, kind, s, &remembered));
             }
         }
         Area {

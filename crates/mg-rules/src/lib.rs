@@ -179,7 +179,7 @@ pub struct GameData {
     /// Objects' appearances judged so far
     /// ([`appearance_problems`](Self::appearance_problems)), by the kind
     /// of object and the fields that bear on it.
-    judged: RwLock<HashMap<appearance::JudgedKey, Arc<Vec<appearance::ModelProblem>>>>,
+    judged: RwLock<appearance::JudgedCache>,
     /// The item property lists made so far (`items.rs`): a table's named
     /// rows, by the table and by which of them and in what order; and the
     /// property types of each itemprops.2da column.
@@ -300,7 +300,7 @@ impl GameData {
             tables: RwLock::new(HashMap::new()),
             choices: RwLock::new(HashMap::new()),
             marked: RwLock::new(HashMap::new()),
-            judged: RwLock::new(HashMap::new()),
+            judged: RwLock::default(),
             named: RwLock::new(HashMap::new()),
             property_types: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),

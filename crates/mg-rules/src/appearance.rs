@@ -351,16 +351,25 @@ impl crate::GameData {
     /// through every layer of the load order.
     pub fn appearance_problems(&self, kind: ObjectKind, object: &Struct) -> Vec<ModelProblem> {
         let key = judged_key(kind, object);
-        if let Some(said) = self.judged.read().expect("judged cache poisoned").get(&key) {
-            return said.to_vec();
+        {
+            let judged = self.judged.read().expect("judged cache poisoned");
+            if let Some(said) = judged.current.get(&key) {
+                return said.to_vec();
+            }
+            if let Some(said) = judged.prev.get(&key) {
+                let cached = std::sync::Arc::clone(said);
+                drop(judged);
+                let mut w = self.judged.write().expect("judged cache poisoned");
+                if w.current.get(&key).is_none() {
+                    w.prev.remove(&key);
+                    w.insert_current(key, std::sync::Arc::clone(&cached));
+                }
+                return cached.to_vec();
+            }
         }
         let said = self.judge_appearance(kind, object);
         let mut judged = self.judged.write().expect("judged cache poisoned");
-        // (Not without end: an editor's every change is another object.)
-        if judged.len() >= JUDGED_KEPT {
-            judged.clear();
-        }
-        judged.insert(key, std::sync::Arc::new(said.clone()));
+        judged.insert_current(key, std::sync::Arc::new(said.clone()));
         said
     }
 
@@ -452,34 +461,77 @@ impl crate::GameData {
 
 /// What an object's appearance is judged by: its kind and the whole
 /// numbers of the fields that bear on it (the row, a door's generic type,
-/// the gender and phenotype, the model, body and armor parts, their EE
+/// The gender and phenotype, the model, body and armor parts, their EE
 /// twins), by label.
 pub(crate) type JudgedKey = (ObjectKind, Vec<(String, i64)>);
 
-/// The most objects' verdicts kept at once.
+/// The most objects' verdicts kept per generation.
 const JUDGED_KEPT: usize = 4096;
 
+/// Two-generation cache for [`GameData::appearance_problems`] so exceeding
+/// [`JUDGED_KEPT`] rotates out cold entries while promoting hot ones instead of
+/// clearing the whole cache at once.
+#[derive(Debug, Default)]
+pub(crate) struct JudgedCache {
+    current: std::collections::HashMap<JudgedKey, std::sync::Arc<Vec<ModelProblem>>>,
+    prev: std::collections::HashMap<JudgedKey, std::sync::Arc<Vec<ModelProblem>>>,
+}
+
+impl JudgedCache {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.current.len() + self.prev.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.current.is_empty() && self.prev.is_empty()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.current.clear();
+        self.prev.clear();
+    }
+
+    fn insert_current(&mut self, key: JudgedKey, value: std::sync::Arc<Vec<ModelProblem>>) {
+        if self.current.len() >= JUDGED_KEPT {
+            self.prev = std::mem::take(&mut self.current);
+        }
+        self.current.insert(key, value);
+    }
+}
+
 fn judged_key(kind: ObjectKind, object: &Struct) -> JudgedKey {
-    const BEARING: [&str; 11] = [
-        "appearance",
-        "baseitem",
-        "generictype",
-        "gender",
-        "phenotype",
-        "modelpart",
-        "armorpart",
-        "bodypart",
-        "xmodelpart",
-        "xarmorpart",
-        "xbodypart",
+    const BEARING: [&[u8]; 11] = [
+        b"appearance",
+        b"baseitem",
+        b"generictype",
+        b"gender",
+        b"phenotype",
+        b"modelpart",
+        b"armorpart",
+        b"bodypart",
+        b"xmodelpart",
+        b"xarmorpart",
+        b"xbodypart",
     ];
-    let fields = (object.fields.iter())
+    let mut fields: Vec<(String, i64)> = object
+        .fields
+        .iter()
         .filter_map(|f| {
-            let label = f.label.to_string_lossy().to_ascii_lowercase();
-            let bears = BEARING.iter().any(|b| label.starts_with(b));
-            bears.then(|| Some((label, object.integer(&f.label.to_string_lossy())?))).flatten()
+            let bytes = f.label.as_bytes();
+            let bears = BEARING
+                .iter()
+                .any(|b| bytes.len() >= b.len() && bytes[..b.len()].eq_ignore_ascii_case(b));
+            if !bears {
+                return None;
+            }
+            let val = f.value.as_integer()?;
+            let label = bytes.iter().map(|&b| (b as char).to_ascii_lowercase()).collect();
+            Some((label, val))
         })
         .collect();
+    fields.sort_unstable();
     (kind, fields)
 }
 
@@ -825,8 +877,46 @@ mod tests {
         };
         assert_eq!(
             unread.to_string(),
-            "Unreadable model: pmd0_head009 (its Appearance_Head) is there and can't be read: \
-             truncated"
+            "Unreadable model: pmd0_head009 (its Appearance_Head) is there and can't be read: truncated"
         );
+    }
+
+    #[test]
+    fn judged_key_is_order_invariant_and_cache_promotes_hot_entries() {
+        let mut a = Struct::default();
+        a.set("Appearance_Type", Value::Word(0));
+        a.set("BodyPart_LShin", Value::Byte(2));
+        a.set("ArmorPart_Belt", Value::Byte(1));
+        a.set("Tag", Value::String(b"ALPHA".to_vec()));
+
+        let mut b = Struct::default();
+        b.set("ArmorPart_Belt", Value::Byte(1));
+        b.set("Tag", Value::String(b"BETA".to_vec()));
+        b.set("BodyPart_LShin", Value::Byte(2));
+        b.set("Appearance_Type", Value::Word(0));
+
+        assert_eq!(judged_key(ObjectKind::Creature, &a), judged_key(ObjectKind::Creature, &b));
+
+        let mut cache = JudgedCache::default();
+        let empty = std::sync::Arc::new(Vec::new());
+        let hot = judged_key(ObjectKind::Creature, &a);
+        cache.insert_current(hot.clone(), std::sync::Arc::clone(&empty));
+        for n in 1..=JUDGED_KEPT {
+            let mut s = Struct::default();
+            s.set("Appearance_Type", Value::Word(n as u16));
+            cache.insert_current(
+                judged_key(ObjectKind::Creature, &s),
+                std::sync::Arc::clone(&empty),
+            );
+        }
+        // `hot` moved to `prev` on rotation, while `current` holds the newly inserted entry.
+        assert!(cache.prev.contains_key(&hot));
+        assert!(!cache.current.contains_key(&hot));
+        assert!(cache.len() > JUDGED_KEPT);
+        // Promoting `hot` moves it into `current`.
+        cache.prev.remove(&hot);
+        cache.insert_current(hot.clone(), empty);
+        assert!(cache.current.contains_key(&hot));
+        assert!(!cache.prev.contains_key(&hot));
     }
 }

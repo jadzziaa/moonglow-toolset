@@ -142,6 +142,10 @@ pub(crate) struct Batcher {
     wide: Vec<Placed>,
     /// The latest place of the pass's draws.
     top: Place,
+    /// Scratch buffers reused across frames by [`Batcher::in_order_into`].
+    first_scratch: Vec<u32>,
+    rank_scratch: Vec<u32>,
+    cursor_scratch: Vec<u32>,
 }
 
 impl std::fmt::Debug for Batcher {
@@ -338,35 +342,83 @@ impl Batcher {
     }
 
     /// The draws in the order they are drawn in, batch by batch (each
-    /// batch's draws in the order they came in), from the batch each draw
-    /// was placed in: where each batch's draws begin (and, last, where
-    /// they end), and the draws.
+    /// batch's draws in the order they came in), written into `starts`
+    /// and `order` reusing `self`'s internal scratch buffers.
+    pub(crate) fn in_order_into(
+        &mut self,
+        batch_of: &[u32],
+        starts: &mut Vec<u32>,
+        order: &mut Vec<u32>,
+    ) {
+        fill_order(
+            &self.runs,
+            &self.places,
+            &self.sizes,
+            batch_of,
+            &mut self.first_scratch,
+            &mut self.rank_scratch,
+            &mut self.cursor_scratch,
+            starts,
+            order,
+        );
+    }
+
+    /// Convenience allocating wrapper used by tests.
+    #[cfg(test)]
     pub(crate) fn in_order(&self, batch_of: &[u32]) -> (Vec<u32>, Vec<u32>) {
-        // (Each batch's place in the order: its run's first, and its place
-        // in the run.)
-        let mut first = Vec::with_capacity(self.runs.len());
-        let mut n = 0;
-        for &(batches, _) in &self.runs {
-            first.push(n);
-            n += batches;
-        }
-        let rank: Vec<u32> =
-            self.places.iter().map(|&p| first[(p >> 32) as usize] + p as u32).collect();
-        let mut starts = vec![0u32; self.places.len() + 1];
-        for (b, &size) in self.sizes.iter().enumerate() {
-            starts[rank[b] as usize + 1] = size;
-        }
-        for b in 1..starts.len() {
-            starts[b] += starts[b - 1];
-        }
-        let mut next = starts.clone();
-        let mut order = vec![0u32; batch_of.len()];
-        for (draw, &b) in batch_of.iter().enumerate() {
-            let r = rank[b as usize] as usize;
-            order[next[r] as usize] = draw as u32;
-            next[r] += 1;
-        }
+        let (mut first, mut rank, mut cursor) = (Vec::new(), Vec::new(), Vec::new());
+        let (mut starts, mut order) = (Vec::new(), Vec::new());
+        fill_order(
+            &self.runs,
+            &self.places,
+            &self.sizes,
+            batch_of,
+            &mut first,
+            &mut rank,
+            &mut cursor,
+            &mut starts,
+            &mut order,
+        );
         (starts, order)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fill_order(
+    runs: &[(u32, u32)],
+    places: &[Place],
+    sizes: &[u32],
+    batch_of: &[u32],
+    first: &mut Vec<u32>,
+    rank: &mut Vec<u32>,
+    cursor: &mut Vec<u32>,
+    starts: &mut Vec<u32>,
+    order: &mut Vec<u32>,
+) {
+    first.clear();
+    let mut n = 0;
+    for &(batches, _) in runs {
+        first.push(n);
+        n += batches;
+    }
+    rank.clear();
+    rank.extend(places.iter().map(|&p| first[(p >> 32) as usize] + p as u32));
+    starts.clear();
+    starts.resize(places.len() + 1, 0);
+    for (b, &size) in sizes.iter().enumerate() {
+        starts[rank[b] as usize + 1] = size;
+    }
+    for b in 1..starts.len() {
+        starts[b] += starts[b - 1];
+    }
+    cursor.clear();
+    cursor.extend_from_slice(starts);
+    order.clear();
+    order.resize(batch_of.len(), 0);
+    for (draw, &b) in batch_of.iter().enumerate() {
+        let r = rank[b as usize] as usize;
+        order[cursor[r] as usize] = draw as u32;
+        cursor[r] += 1;
     }
 }
 

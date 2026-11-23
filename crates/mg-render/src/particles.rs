@@ -55,7 +55,7 @@
 use glam::{Mat4, Quat, Vec2, Vec3};
 use mg_mdl::{AnimNode, Animation, Model, NodeKind};
 
-use crate::anim::sample;
+use crate::anim::{sample_into, sample_one};
 
 /// How a batch of particles blends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -371,7 +371,7 @@ fn param_opt(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, which: P) -> Option
     if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
     {
-        return sample(c, t).first().copied();
+        return sample_one(c, t);
     }
     e.rest[which as usize]
 }
@@ -382,7 +382,9 @@ fn color(e: &EmitterSim, anim: Option<(&AnimNode, f32)>, end: bool, default: Vec
     if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == name)
     {
-        return color3(Some(&sample(c, t))).unwrap_or(default);
+        let mut buf = [0.0; 4];
+        let len = sample_into(c, t, &mut buf);
+        return color3(Some(&buf[..len])).unwrap_or(default);
     }
     e.colors[usize::from(end)].unwrap_or(default)
 }
@@ -495,7 +497,7 @@ impl Particles {
                 if let Some((an, t)) = at
                     && let Some(c) = an.controllers.iter().find(|c| c.name == NAMES[which as usize])
                 {
-                    return sample(c, t).first().copied().unwrap_or(default);
+                    return sample_one(c, t).unwrap_or(default);
                 }
                 rest[which as usize].unwrap_or(default)
             };

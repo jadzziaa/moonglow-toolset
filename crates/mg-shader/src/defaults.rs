@@ -38,7 +38,11 @@ pub fn uniform_defaults(text: &str) -> Vec<(String, UniformDefault)> {
         // (After a function's body, which no `;` ends: check certainty only after the last brace.)
         let tail = statement.rsplit(['{', '}']).next().unwrap_or_default();
         let certain = !tail.contains(UNSURE);
-        let cleaned = tail.replace(UNSURE, "");
+        let cleaned = if certain {
+            std::borrow::Cow::Borrowed(tail)
+        } else {
+            std::borrow::Cow::Owned(tail.replace(UNSURE, ""))
+        };
         let s = cleaned.trim();
         let Some(rest) = s.strip_prefix("uniform") else { continue };
         if !rest.starts_with(char::is_whitespace) {

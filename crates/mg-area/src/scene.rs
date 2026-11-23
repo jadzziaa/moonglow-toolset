@@ -511,6 +511,10 @@ pub struct AreaScene {
     pub merchant_signs: bool,
     /// By tile index, the grass it grows ([`crate::grass::tufts`]).
     tile_grass: Vec<Option<Arc<TileGrass>>>,
+    /// Precomputed per-tile grown grass descriptors and generation bumped when rebuilt.
+    grown_tiles: Vec<Grown>,
+    grass_gen: u64,
+    grass_sight_cache: RefCell<Option<(u64, Sight, Vec<GrassDraw>)>>,
     /// What grows (by material) that the grass was made for, and the
     /// grass of each tile model, by name.
     grass_for: Vec<(u32, GrassLook)>,
@@ -877,6 +881,18 @@ impl AreaScene {
                     .clone()
             })
             .collect();
+        self.grown_tiles = area
+            .tiles
+            .iter()
+            .zip(&self.tile_grass)
+            .enumerate()
+            .filter_map(|(i, (t, g))| {
+                let g = g.as_ref()?;
+                Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
+            })
+            .collect();
+        self.grass_gen = self.grass_gen.wrapping_add(1);
+        *self.grass_sight_cache.borrow_mut() = None;
     }
 
     /// What grows that the grass shown was made for.
@@ -884,15 +900,30 @@ impl AreaScene {
         &self.grass_for
     }
 
-    /// What `sight` sees of the grass of `area` ([`crate::grass_chosen`]).
+    /// What `sight` sees of the grass of `area` ([`crate::grass_chosen`]),
+    /// cached across frames while both the grown grass generation and
+    /// `sight` remain unchanged.
     fn grass_in_sight(&self, area: &AreaModel, sight: &Sight) -> Vec<GrassDraw> {
-        let grown: Vec<Grown> = (area.tiles.iter().zip(&self.tile_grass).enumerate())
-            .filter_map(|(i, (t, g))| {
-                let g = g.as_ref()?;
-                Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
-            })
-            .collect();
-        crate::grass_chosen(&grown, sight)
+        let mut cache = self.grass_sight_cache.borrow_mut();
+        if let Some((cached_gen, cached_sight, draws)) = cache.as_ref()
+            && *cached_gen == self.grass_gen
+            && *cached_sight == *sight
+        {
+            return draws.clone();
+        }
+        let draws = if area.tiles.len() == self.tile_grass.len() {
+            crate::grass_chosen(&self.grown_tiles, sight)
+        } else {
+            let grown: Vec<Grown> = (area.tiles.iter().zip(&self.tile_grass).enumerate())
+                .filter_map(|(i, (t, g))| {
+                    let g = g.as_ref()?;
+                    Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
+                })
+                .collect();
+            crate::grass_chosen(&grown, sight)
+        };
+        *cache = Some((self.grass_gen, *sight, draws.clone()));
+        draws
     }
 
     /// What the grass of chunk `tiles` (by index) is made of now: each
@@ -1172,7 +1203,7 @@ impl AreaScene {
             let gm = self.chunk_models.get(&c.model)?.clone()?;
             Some(Instance::new(gm, c.transform))
         };
-        let mut seen = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         // The objects with emitters, those nearest the view first: past
         // [`MAX_PARTICLE_OBJECTS`] the far ones go without.
         let eye = camera.inverse().w_axis.truncate();
@@ -1253,6 +1284,30 @@ impl AreaScene {
                 }
             }
         }
+        // Cache tile poses keyed by `(loaded ptr, anim_loops)` across both
+        // emitting tiles and source-light tiles for this frame.
+        let mut tile_poses: HashMap<(usize, [bool; 3]), Arc<Vec<Mat4>>> = HashMap::new();
+        fn tile_pose<'a>(
+            cache: &mut HashMap<(usize, [bool; 3]), Arc<Vec<Mat4>>>,
+            tile: &AreaTile,
+            loaded: &'a Arc<Loaded>,
+            view: &View,
+        ) -> (Vec<(&'a Animation, &'a anim::Binding)>, Arc<Vec<Mat4>>) {
+            let cache_key = (Arc::as_ptr(loaded) as usize, tile.anim_loops);
+            let model = &*loaded.gpu.model;
+            let layers = AreaScene::tile_layers(tile, loaded, view);
+            let pose = cache
+                .entry(cache_key)
+                .or_insert_with(|| {
+                    if layers.is_empty() {
+                        Arc::new(loaded.gpu.rest.clone())
+                    } else {
+                        Arc::new(anim::Playing::new(model, &layers, view.time).pose(model))
+                    }
+                })
+                .clone();
+            (layers, pose)
+        }
         // The tiles' own: a fountain's water, a forge's sparks. They emit
         // as the animations playing on the tile have them (its animation
         // loops switched on in Tile Properties, day or night). Those
@@ -1272,12 +1327,7 @@ impl AreaScene {
             let name = tile.model.as_deref().unwrap_or("a tile");
             let transform = tile.transform();
             let drawn = mg_render::guard::guarded(name, || {
-                let layers = Self::tile_layers(tile, loaded, view);
-                let pose = if layers.is_empty() {
-                    loaded.gpu.rest.clone()
-                } else {
-                    anim::Playing::new(model, &layers, view.time).pose(model)
-                };
+                let (layers, pose) = tile_pose(&mut tile_poses, tile, loaded, view);
                 // One animation of the emitters' keys, the later layer's
                 // first (the one that has its say).
                 let keys = (!layers.is_empty()).then(|| Animation {
@@ -1319,7 +1369,7 @@ impl AreaScene {
             });
             match drawn {
                 Some((batches, thrown)) => {
-                    seen.push(key);
+                    seen.insert(key);
                     out.extend(batches);
                     chunks.extend(thrown.into_iter().filter_map(chunk));
                 }
@@ -1336,29 +1386,31 @@ impl AreaScene {
             let mut burning: Vec<(f32, usize, usize, u8, Mat4)> = Vec::new();
             for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
                 let Some(loaded) = loaded else { continue };
-                if tile.source_lights.iter().all(|&v| v == 0) {
+                let any_lit = tile.source_lights.iter().enumerate().any(|(slot, &v)| {
+                    v > 0 && loaded.sources.get(slot).copied().flatten().is_some()
+                });
+                if !any_lit {
                     continue;
                 }
-                let layers = Self::tile_layers(tile, loaded, view);
-                let posed;
-                let pose: &[Mat4] = if layers.is_empty() {
-                    &loaded.gpu.rest
-                } else {
-                    let model = &loaded.gpu.model;
-                    posed = anim::Playing::new(model, &layers, view.time).pose(model);
-                    &posed
-                };
+                let (_, pose) = tile_pose(&mut tile_poses, tile, loaded, view);
                 let transform = tile.transform();
                 for (slot, &value) in tile.source_lights.iter().enumerate() {
                     let node = loaded.sources.get(slot).copied().flatten();
                     let Some(node) = node.filter(|_| value > 0) else { continue };
-                    let at = transform * Mat4::from_translation(anim::node_position(pose, node));
+                    let at = transform * Mat4::from_translation(anim::node_position(&pose, node));
                     let d = at.w_axis.truncate().distance_squared(eye);
                     burning.push((d, i, slot, value, at));
                 }
             }
             burning.sort_by(|a, b| a.0.total_cmp(&b.0));
             burning.truncate(MAX_PARTICLE_OBJECTS);
+            enum FlamePose<'a> {
+                Missing,
+                Failed,
+                Ready(&'a Animation, Vec<Mat4>),
+            }
+            // Pose `fx_flame01` at most once per active intensity value.
+            let mut flame_poses: HashMap<u8, FlamePose<'_>> = HashMap::new();
             for (_, i, slot, value, at) in burning {
                 // (Told apart from the tiles' by counting down from the
                 // middle: two a tile.)
@@ -1366,9 +1418,26 @@ impl AreaScene {
                 if self.failed.borrow().contains(&key.1) {
                     continue;
                 }
-                let Some(playing) = flame.animation(&value.to_string()) else { continue };
+                let entry = flame_poses.entry(value).or_insert_with(|| {
+                    let Some(playing) = flame.animation(&value.to_string()) else {
+                        return FlamePose::Missing;
+                    };
+                    match mg_render::guard::guarded("fx_flame01", || {
+                        anim::pose(model, playing, view.time)
+                    }) {
+                        Some(pose) => FlamePose::Ready(playing, pose),
+                        None => FlamePose::Failed,
+                    }
+                });
+                let (playing, pose) = match entry {
+                    FlamePose::Missing => continue,
+                    FlamePose::Failed => {
+                        self.failed.borrow_mut().insert(key.1);
+                        continue;
+                    }
+                    FlamePose::Ready(playing, pose) => (*playing, pose),
+                };
                 let drawn = mg_render::guard::guarded("fx_flame01", || {
-                    let pose = anim::pose(model, playing, view.time);
                     let new = !sims.contains_key(&key);
                     let sim = sims.entry(key).or_insert_with(|| {
                         mg_render::particles::Particles::new_seeded(model, key.0 as u64)
@@ -1377,16 +1446,16 @@ impl AreaScene {
                     if new {
                         let mut ahead = 0.0;
                         while ahead < 2.0 {
-                            sim.update(model, Some(playing), view.time, 0.1, &pose, at);
+                            sim.update(model, Some(playing), view.time, 0.1, pose, at);
                             ahead += 0.1;
                         }
                     }
-                    sim.update(model, Some(playing), view.time, dt, &pose, at);
-                    sim.batches(model, Some(playing), view.time, &pose, at, camera)
+                    sim.update(model, Some(playing), view.time, dt, pose, at);
+                    sim.batches(model, Some(playing), view.time, pose, at, camera)
                 });
                 match drawn {
                     Some(batches) => {
-                        seen.push(key);
+                        seen.insert(key);
                         out.extend(batches);
                     }
                     None => {
@@ -1547,14 +1616,19 @@ impl AreaScene {
             if failed(key) {
                 continue;
             }
-            let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
-            let posed = mg_render::guard::guarded(name, || {
-                let idle = c.idle.as_deref();
-                (c.instances(idle, time, transform), c.point_lights_at(idle, time, transform))
-            });
-            let Some((drawn, lit)) = posed else {
-                self.failed.borrow_mut().insert(key);
-                continue;
+            let idle = c.idle.as_deref();
+            let drawn = c.instances(idle, time, transform);
+            let lit = if view.lit {
+                let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
+                let Some(lit) =
+                    mg_render::guard::guarded(name, || c.point_lights_at(idle, time, transform))
+                else {
+                    self.failed.borrow_mut().insert(key);
+                    continue;
+                };
+                lit
+            } else {
+                Vec::new()
             };
             // The sun's shadows: cast by static placeables with the tiles;
             // by what moves (creatures, dynamic placeables, doors) where

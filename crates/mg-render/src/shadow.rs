@@ -20,12 +20,16 @@
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
 
 use crate::model::GpuMesh;
 use crate::scene::{Camera, Instance, PointLight, Scene, SunShadows};
+
+/// Monotonic id assigned to each created [`SunMap`] so cached darken bind
+/// groups can detect if a view's sun map is ever replaced.
+static NEXT_SUN_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The shadow map's side, texels: over an area seen whole (eight tiles
 /// across) a texel is 4 cm, finer than the game's volumes are made.
@@ -922,6 +926,7 @@ pub(crate) struct ShadowMaps {
 /// next ([`crate::views`]): made at the view's first frame with them.
 #[derive(Debug)]
 pub(crate) struct SunMap {
+    id: u64,
     map: wgpu::TextureView,
     /// What the map holds: the light's projection, the casters' meshes,
     /// transforms and bones (drawn again only when they change).
@@ -947,7 +952,7 @@ impl SunMap {
                 view_formats: &[],
             })
             .create_view(&Default::default());
-        SunMap { map, holds: None }
+        SunMap { id: NEXT_SUN_ID.fetch_add(1, Ordering::Relaxed), map, holds: None }
     }
 }
 
@@ -956,14 +961,20 @@ impl SunMap {
 type Held = (Mat4, Vec<((u64, usize), Mat4, Option<u32>)>, Vec<Mat4>);
 
 /// What draws casters into a shadow map: a pipeline for rigid meshes and
-/// one for skinned, the frame's casters and bones.
+/// one for skinned, the frame's lights (dynamic-offset uniform), casters,
+/// and bones, plus their cached bind group and CPU staging scratch.
 #[derive(Debug)]
 pub(crate) struct Casting {
     rigid: wgpu::RenderPipeline,
     skinned: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
+    light_stride: u32,
+    lights_buf: wgpu::Buffer,
+    lights_staging: Vec<u8>,
+    caster_scratch: Vec<CasterData>,
     casters: wgpu::Buffer,
     bones: wgpu::Buffer,
+    group: Option<wgpu::BindGroup>,
 }
 
 impl ShadowMaps {
@@ -1010,18 +1021,28 @@ impl ShadowMaps {
         map: &mut Option<SunMap>,
     ) -> bool {
         let map = map.get_or_insert_with(|| SunMap::new(&gpu.device));
-        let holds: Vec<_> = plan.casters.iter().map(Caster::key).collect();
-        if map
-            .holds
-            .as_ref()
-            .is_some_and(|(l, h, b)| *l == plan.light && *h == holds && *b == plan.bones)
-        {
+        if map.holds.as_ref().is_some_and(|(l, h, b)| {
+            *l == plan.light
+                && h.len() == plan.casters.len()
+                && h.iter().zip(&plan.casters).all(|(k, c)| *k == c.key())
+                && *b == plan.bones
+        }) {
             return false;
         }
-        self.casting.upload(gpu, &plan.casters, &plan.bones);
-        let group = self.casting.group(gpu, plan.light);
-        self.casting.draw(encoder, &map.map, &group, &plan.casters, 0, true);
-        map.holds = Some((plan.light, holds, plan.bones.clone()));
+        self.casting.upload(gpu, &plan.casters, &plan.bones, std::slice::from_ref(&plan.light));
+        self.casting.draw(encoder, &map.map, 0, &plan.casters, 0, true);
+        if let Some((l, h, b)) = &mut map.holds {
+            *l = plan.light;
+            h.clear();
+            h.extend(plan.casters.iter().map(Caster::key));
+            b.clone_from(&plan.bones);
+        } else {
+            map.holds = Some((
+                plan.light,
+                plan.casters.iter().map(Caster::key).collect(),
+                plan.bones.clone(),
+            ));
+        }
         true
     }
 
@@ -1040,6 +1061,7 @@ impl ShadowMaps {
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
+        cache: Option<&mut Option<(u64, wgpu::BindGroup)>>,
     ) {
         let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
         lights[0] = plan.light.to_cols_array_2d();
@@ -1050,7 +1072,17 @@ impl ShadowMaps {
             .darkeners
             .entry((format.0, format.1, false))
             .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, false));
-        darkener.lay(gpu, encoder, targets, &self.params, &map.map, &self.sampler);
+        let mut scratch = None;
+        let slot = cache.unwrap_or(&mut scratch);
+        if slot.as_ref().is_none_or(|(id, _)| *id != map.id) {
+            *slot = Some((
+                map.id,
+                darkener.make_group(&gpu.device, targets.1, &self.params, &map.map, &self.sampler),
+            ));
+        }
+        if let Some((_, group)) = slot.as_ref() {
+            darkener.lay_with(encoder, targets.0, group);
+        }
     }
 
     /// Draws the lights' maps of `plan`.
@@ -1061,11 +1093,10 @@ impl ShadowMaps {
         plan: &LightPlan,
     ) {
         let maps = self.lights.get_or_insert_with(|| LightMaps::new(&gpu.device));
-        maps.casting.upload(gpu, &plan.casters, &plan.bones);
-        for (k, (light, range)) in plan.lights.iter().zip(&plan.ranges).enumerate() {
-            let group = maps.casting.group(gpu, *light);
+        maps.casting.upload(gpu, &plan.casters, &plan.bones, &plan.lights);
+        for (k, range) in plan.ranges.iter().enumerate() {
             let casters = &plan.casters[range.start as usize..range.end as usize];
-            maps.casting.draw(encoder, &maps.layers[k], &group, casters, range.start, true);
+            maps.casting.draw(encoder, &maps.layers[k], k as u32, casters, range.start, true);
         }
     }
 
@@ -1082,6 +1113,7 @@ impl ShadowMaps {
         camera: &Camera,
         size: (u32, u32),
         fog: Option<crate::scene::Fog>,
+        cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {
         let Some(maps) = &self.lights else { return };
         let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
@@ -1095,7 +1127,12 @@ impl ShadowMaps {
             .darkeners
             .entry((format.0, format.1, true))
             .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, true));
-        darkener.lay(gpu, encoder, targets, &maps.params, &maps.array, &self.sampler);
+        let mut scratch = None;
+        let slot = cache.unwrap_or(&mut scratch);
+        let group = slot.get_or_insert_with(|| {
+            darkener.make_group(&gpu.device, targets.1, &maps.params, &maps.array, &self.sampler)
+        });
+        darkener.lay_with(encoder, targets.0, group);
     }
 }
 
@@ -1200,6 +1237,11 @@ impl Casting {
             },
             count: None,
         };
+        let min_light_size = std::num::NonZeroU64::new(std::mem::size_of::<Mat4>() as u64);
+        let light_stride = device
+            .limits()
+            .min_uniform_buffer_offset_alignment
+            .max(std::mem::size_of::<Mat4>() as u32);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow casters"),
             entries: &[
@@ -1208,8 +1250,8 @@ impl Casting {
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                        has_dynamic_offset: true,
+                        min_binding_size: min_light_size,
                     },
                     count: None,
                 },
@@ -1270,56 +1312,96 @@ impl Casting {
                 mapped_at_creation: false,
             })
         };
+        let lights_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow lights"),
+            size: (MAX_LIGHT_SHADOWS.max(1) as u64) * light_stride as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Casting {
             rigid,
             skinned,
             layout,
+            light_stride,
+            lights_buf,
+            lights_staging: Vec::new(),
+            caster_scratch: Vec::new(),
             casters: buffer("shadow casters", 80 * 256),
             bones: buffer("shadow bones", 64 * 64),
+            group: None,
         }
     }
 
-    /// Uploads `casters` and their `bones`.
-    pub(crate) fn upload(&mut self, gpu: &crate::Gpu, casters: &[Caster<'_>], bones: &[Mat4]) {
-        let data: Vec<CasterData> = casters
-            .iter()
-            .map(|c| CasterData {
-                world: c.world.to_cols_array_2d(),
-                bones: [c.bones.unwrap_or(0), 0, 0, 0],
-            })
-            .collect();
+    /// Uploads `casters`, their `bones`, and the pass `lights` (aligned to
+    /// `light_stride` for dynamic offsets), rebuilding the bind group only
+    /// when a buffer grows.
+    pub(crate) fn upload(
+        &mut self,
+        gpu: &crate::Gpu,
+        casters: &[Caster<'_>],
+        bones: &[Mat4],
+        lights: &[Mat4],
+    ) {
+        self.caster_scratch.clear();
+        self.caster_scratch.extend(casters.iter().map(|c| CasterData {
+            world: c.world.to_cols_array_2d(),
+            bones: [c.bones.unwrap_or(0), 0, 0, 0],
+        }));
         let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
-        crate::renderer::upload(gpu, &mut self.casters, "shadow casters", usage, &data, 0);
-        crate::renderer::upload(gpu, &mut self.bones, "shadow bones", usage, bones, 0);
-    }
+        let mut dirty = self.group.is_none();
+        dirty |= crate::renderer::upload(
+            gpu,
+            &mut self.casters,
+            "shadow casters",
+            usage,
+            &self.caster_scratch,
+            0,
+        );
+        dirty |= crate::renderer::upload(gpu, &mut self.bones, "shadow bones", usage, bones, 0);
 
-    /// The bind group for drawing the uploaded casters seen through
-    /// `light` (from the world to the map's clip space).
-    pub(crate) fn group(&self, gpu: &crate::Gpu, light: Mat4) -> wgpu::BindGroup {
-        let light = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("shadow light"),
-            contents: bytemuck::cast_slice(&[light]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow casters"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: light.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: self.casters.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: self.bones.as_entire_binding() },
-            ],
-        })
+        let stride = self.light_stride as usize;
+        let bytes = lights.len().max(1) * stride;
+        self.lights_staging.resize(bytes, 0);
+        for (k, light) in lights.iter().enumerate() {
+            self.lights_staging[k * stride..k * stride + std::mem::size_of::<Mat4>()]
+                .copy_from_slice(bytemuck::bytes_of(light));
+        }
+        dirty |= crate::renderer::upload(
+            gpu,
+            &mut self.lights_buf,
+            "shadow lights",
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            &self.lights_staging[..bytes],
+            bytes,
+        );
+        if dirty {
+            self.group = Some(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("shadow casters"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.lights_buf,
+                            offset: 0,
+                            size: std::num::NonZeroU64::new(std::mem::size_of::<Mat4>() as u64),
+                        }),
+                    },
+                    wgpu::BindGroupEntry { binding: 1, resource: self.casters.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: self.bones.as_entire_binding() },
+                ],
+            }));
+        }
     }
 
     /// Draws `casters` (in [`in_drawing_order`]; the uploaded ones from
-    /// `first`) into `depth`, cleared first where `clear`, with `group` (a
-    /// light's, [`Casting::group`]).
+    /// `first`) into `depth`, cleared first where `clear`, using light `light_index`
+    /// from the uploaded `lights_buf`.
     pub(crate) fn draw(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         depth: &wgpu::TextureView,
-        group: &wgpu::BindGroup,
+        light_index: u32,
         casters: &[Caster<'_>],
         first: u32,
         clear: bool,
@@ -1337,7 +1419,8 @@ impl Casting {
             }),
             ..Default::default()
         });
-        pass.set_bind_group(0, group, &[]);
+        let group = self.group.as_ref().expect("casters uploaded before draw");
+        pass.set_bind_group(0, group, &[light_index * self.light_stride]);
         let (mut chunk, mut skinned) = (None, None);
         let mut i = 0;
         while i < casters.len() {
@@ -1459,18 +1542,16 @@ impl Darkener {
         Darkener { pipeline, layout }
     }
 
-    /// Lays the shadows over what is drawn in `target`, as deep as `depth`
-    /// says, from `maps` with `params`.
-    fn lay(
+    /// Builds the darkening bind group sampling `depth`, `params`, and `maps`.
+    fn make_group(
         &self,
-        gpu: &crate::Gpu,
-        encoder: &mut wgpu::CommandEncoder,
-        (target, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        device: &wgpu::Device,
+        depth: &wgpu::TextureView,
         params: &wgpu::Buffer,
         maps: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
-    ) {
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow darkening"),
             layout: &self.layout,
             entries: &[
@@ -1488,7 +1569,16 @@ impl Darkener {
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
-        });
+        })
+    }
+
+    /// Lays the shadows over what is drawn in `target` using `group`.
+    fn lay_with(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        group: &wgpu::BindGroup,
+    ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow darkening"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1500,7 +1590,7 @@ impl Darkener {
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &group, &[]);
+        pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
     }
 }
