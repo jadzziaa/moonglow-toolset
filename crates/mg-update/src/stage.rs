@@ -25,9 +25,22 @@ pub const BUSY: &str =
     "another Moonglow that is running has this update: it is installed as that one closes";
 
 /// The locks this run holds, by cache folder (one, but for the tests).
-static HELD: std::sync::Mutex<Vec<(PathBuf, File)>> = std::sync::Mutex::new(Vec::new());
+static HELD: std::sync::Mutex<Vec<(PathBuf, Locked)>> = std::sync::Mutex::new(Vec::new());
 
-fn held() -> std::sync::MutexGuard<'static, Vec<(PathBuf, File)>> {
+/// The lock's file, unlocked when it is let go of. Closing it isn't
+/// enough: a program this run starts on another thread has a copy of every
+/// open file until it has started (fork, then exec), and the lock belongs
+/// to the open file, so it would stay held for that moment, and a download
+/// begun again then would be told [`BUSY`].
+struct Locked(File);
+
+impl Drop for Locked {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+fn held() -> std::sync::MutexGuard<'static, Vec<(PathBuf, Locked)>> {
     HELD.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
@@ -49,7 +62,7 @@ fn hold(cache: &Path) -> Result<bool, String> {
     let Ok(file) = options.open(cache.join(LOCK)) else { return Ok(false) };
     match file.try_lock() {
         Ok(()) => {
-            held.push((cache.to_path_buf(), file));
+            held.push((cache.to_path_buf(), Locked(file)));
             Ok(true)
         }
         Err(std::fs::TryLockError::WouldBlock) => Err(BUSY.into()),
@@ -376,7 +389,7 @@ pub fn clean(kind: &Kind, cache: &Path) {
         match File::open(cache.join(LOCK)) {
             Ok(file) => match file.try_lock() {
                 Err(std::fs::TryLockError::WouldBlock) => return,
-                _ => Some(file),
+                _ => Some(Locked(file)),
             },
             Err(_) => None,
         }
@@ -549,6 +562,39 @@ mod tests {
         assert_eq!(names(&cache), [LOCK]);
         assert!(held().iter().all(|(c, _)| *c != cache));
         assert_eq!(std::fs::read(&image).unwrap(), b"the old AppImage");
+    }
+
+    /// A download begun again at once, while this run starts programs on
+    /// other threads (as the other tests of this binary do): the lock let
+    /// go of isn't held on by a program in the middle of starting.
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_let_go_of_is_free_while_programs_start() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = crate::tests::scratch("stage-lock-spawn");
+        let cache = dir.join("cache");
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let starting = stop.clone();
+        let programs = std::thread::spawn(move || {
+            while !starting.load(Ordering::Relaxed) {
+                let _ = std::process::Command::new("true").status();
+            }
+        });
+        let mut refused = 0;
+        for i in 0..4000 {
+            if i % 2 == 0 {
+                match hold(&cache) {
+                    Ok(_) => release_lock(&cache),
+                    Err(_) => refused += 1,
+                }
+            } else {
+                // (Its own hold of the lock, let go of as it ends.)
+                clean(&Kind::Other, &cache);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        programs.join().unwrap();
+        assert_eq!(refused, 0, "refused {refused} of 2000 times");
     }
 
     #[cfg(unix)]
@@ -744,7 +790,9 @@ mod tests {
         let e = fetch(&*http, &key.public(), &release, &kind, &cache, &mut |_, _| {}).unwrap_err();
         assert_eq!(e, BUSY);
         assert_eq!(std::fs::read(&staged).unwrap(), b"new");
-        // It has ended.
+        // It has ended. (Unlocked as well as closed, or a program another
+        // test starts meanwhile holds on to it: see `Locked`.)
+        theirs.unlock().unwrap();
         drop(theirs);
         clean(&kind, &cache);
         assert!(!staged.exists() && !part.exists());
