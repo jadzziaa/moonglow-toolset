@@ -86,6 +86,8 @@ pub struct Browser {
     /// How many views have been made (their grids' ids are counted down
     /// from the highest, apart from the editor's).
     made_views: u32,
+    /// Monotonic counter for LRU eviction of cached 2DA views.
+    table_view_use: u64,
     /// An Export as Files into a folder that has some of the files: asked
     /// about before any is written over.
     pub(crate) exporting: Option<Exporting>,
@@ -112,6 +114,7 @@ pub(crate) struct TableView {
     /// editor's): its grid's keys are that tab's while it is the active
     /// editor (`table_view::grid_has_keys`).
     tab: Option<Tab>,
+    last_used: u64,
 }
 
 /// How many 2DA views are kept: more are made anew.
@@ -1160,8 +1163,9 @@ impl LongText {
         self.lines.get_or_init(|| {
             let (mut spans, mut widest, mut from) = (Vec::new(), 0, 0);
             for line in self.text.split('\n') {
-                spans.push(from..from + line.len());
-                widest = widest.max(line.chars().count());
+                let trimmed = line.strip_suffix('\r').unwrap_or(line);
+                spans.push(from..from + trimmed.len());
+                widest = widest.max(trimmed.chars().count());
                 from += line.len() + 1;
             }
             (spans, widest)
@@ -1274,6 +1278,18 @@ pub(crate) fn read_only_counts() -> (usize, usize) {
 }
 
 impl Browser {
+    /// Evicts the least-recently-used cached read-only 2DA view when at capacity.
+    fn evict_lru_table_view(&mut self) {
+        if self.table_views.len() < VIEWS_KEPT {
+            return;
+        }
+        if let Some(evict) =
+            self.table_views.iter().min_by_key(|(_, v)| v.last_used).map(|(k, _)| k.clone())
+        {
+            self.table_views.remove(&evict);
+        }
+    }
+
     /// The panel's count (the Resources board's "627 of 113538
     /// resources"), as its list was last filtered: also the Status Bar's
     /// while the panel is in use.
@@ -1355,9 +1371,12 @@ pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) ->
             Err(e) => Plain::Error(e.to_string()),
         }
     } else if is_text(key.restype, data) {
-        // (Its bytes as Latin-1 where they aren't UTF-8.)
-        let latin = || data.iter().map(|&b| b as char).collect();
-        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()).into())
+        let decoded = if key.restype == ResType::NSS {
+            crate::text::decode_script(data)
+        } else {
+            crate::text::decode(data)
+        };
+        Plain::Text(crate::text::to_editor(&decoded).0.into())
     } else if let Some(text) = model_text(key, data, rm) {
         Plain::Text(text.into())
     } else {
@@ -1855,18 +1874,21 @@ pub(crate) fn two_da(
         let had = v.doc.edit.table();
         v.of == of && had.len() == t.len() && had.columns() == t.columns()
     });
+    browser.table_view_use += 1;
+    let used = browser.table_view_use;
     if !kept {
-        if browser.table_views.len() >= VIEWS_KEPT {
-            browser.table_views.clear();
-        }
+        browser.evict_lru_table_view();
         browser.made_views += 1;
         let id = u32::MAX - browser.made_views;
         let doc = TableDoc::read_only(id, key, t.clone());
-        browser.table_views.insert(at.clone(), TableView { of, rows_from: None, doc, tab: None });
+        browser
+            .table_views
+            .insert(at.clone(), TableView { of, rows_from: None, doc, tab: None, last_used: used });
     }
     let rows_from = browser.rows_from.filter(|_| layered);
     let strrefs = !browser.raw_strrefs;
     let view = browser.table_views.get_mut(&at).expect("made above");
+    view.last_used = used;
     if view.rows_from != rows_from {
         view.rows_from = rows_from;
         view.doc.within = rows_from
@@ -1982,9 +2004,10 @@ mod tests {
         let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
             .unwrap();
         let doc = crate::table_view::TableDoc::read_only(u32::MAX, key, table);
-        app.browser
-            .table_views
-            .insert((key, None), TableView { of: 0, rows_from: None, doc, tab: None });
+        app.browser.table_views.insert(
+            (key, None),
+            TableView { of: 0, rows_from: None, doc, tab: None, last_used: 0 },
+        );
         app.browser.pictures.insert((key, None), 1.0);
         app.browser.bytes_shown.insert((key, None));
 
@@ -1992,5 +2015,43 @@ mod tests {
         assert!(app.browser.table_views.is_empty());
         assert!(app.browser.pictures.is_empty());
         assert!(!app.browser.bytes_shown.is_empty());
+    }
+
+    #[test]
+    fn long_text_and_plain_decode_codepage_and_strip_carriage_returns() {
+        let lt = LongText::from("ab\r\ncde\r\n".to_string());
+        let (spans, widest) = lt.lines();
+        assert_eq!(widest, &3);
+        assert_eq!(&lt.text[spans[0].clone()], "ab");
+        assert_eq!(&lt.text[spans[1].clone()], "cde");
+
+        let key = ResKey::parse("sample", ResType::TXT).unwrap();
+        let Plain::Text(p) = plain(key, b"\x93hi\x94\r\nnext", None) else {
+            panic!("expected text");
+        };
+        assert_eq!(p.text, "\u{201c}hi\u{201d}\nnext");
+        assert_eq!(p.lines().1, 4);
+    }
+
+    #[test]
+    fn browser_table_view_cache_evicts_only_lru_entry() {
+        let mut browser = Browser::new();
+        let table = mg_2da::TwoDa::parse(b"2DA V2.0\n\nLABEL\n0 *\n", mg_core::Codepage::default())
+            .unwrap();
+        for i in 0..VIEWS_KEPT {
+            let key = ResKey::parse(&format!("tbl_{i:02}"), ResType::TWODA).unwrap();
+            let doc =
+                crate::table_view::TableDoc::read_only(u32::MAX - i as u32, key, table.clone());
+            browser.table_views.insert(
+                (key, None),
+                TableView { of: 0, rows_from: None, doc, tab: None, last_used: (i + 1) as u64 },
+            );
+        }
+        browser.evict_lru_table_view();
+        assert_eq!(browser.table_views.len(), VIEWS_KEPT - 1);
+        let oldest = ResKey::parse("tbl_00", ResType::TWODA).unwrap();
+        let recent = ResKey::parse("tbl_01", ResType::TWODA).unwrap();
+        assert!(!browser.table_views.contains_key(&(oldest, None)));
+        assert!(browser.table_views.contains_key(&(recent, None)));
     }
 }

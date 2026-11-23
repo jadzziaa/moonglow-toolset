@@ -141,6 +141,24 @@ impl Form<'_> {
             .unwrap_or_default()
     }
 
+    /// Builds a command that sets the list inside a struct field, keeping
+    /// the struct's other fields; an empty list removes the field.
+    pub(super) fn nested_list_command(
+        &self,
+        what: &str,
+        field: &str,
+        id: u32,
+        list: &str,
+        items: Vec<Struct>,
+    ) -> Command {
+        let value = (!items.is_empty()).then(|| {
+            let mut s = self.root.child(field).cloned().unwrap_or_else(|| Struct::new(id));
+            s.set(list, Value::List(items));
+            Value::Struct(s)
+        });
+        self.setting(what, field, value)
+    }
+
     /// Sets the list inside a struct field, keeping the struct's other
     /// fields; an empty list removes the field.
     pub(super) fn set_nested_list(
@@ -151,18 +169,13 @@ impl Form<'_> {
         list: &str,
         items: Vec<Struct>,
     ) {
-        let value = (!items.is_empty()).then(|| {
-            let mut s = self.root.child(field).cloned().unwrap_or_else(|| Struct::new(id));
-            s.set(list, Value::List(items));
-            Value::Struct(s)
-        });
-        self.set_opt(what, field, value);
+        let cmd = self.nested_list_command(what, field, id, list, items);
+        self.app.actions.push(Action::Apply(cmd));
     }
 
-    /// Sets fields of `MiscVisuals`, keeping the others: each object's
-    /// own, where several are edited together (the first one's were set
-    /// on all of them).
-    fn set_misc(&mut self, what: &str, fields: &[(&str, Value)]) {
+    /// Builds a command setting fields of `MiscVisuals` on each target while
+    /// preserving each object's other fields.
+    fn misc_command(&mut self, what: &str, fields: &[(&str, Value)]) -> Command {
         let targets: Vec<(ResKey, GffPath)> = self.targets().map(|(k, p)| (k, p.clone())).collect();
         let mut edits = Vec::new();
         for (key, path) in targets {
@@ -180,7 +193,15 @@ impl Form<'_> {
             let value = Some(Value::Struct(s));
             edits.push(Edit::SetField { key, path, label: "MiscVisuals".into(), value });
         }
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        Command::new(what, edits)
+    }
+
+    /// Sets fields of `MiscVisuals`, keeping the others: each object's
+    /// own, where several are edited together (the first one's were set
+    /// on all of them).
+    fn set_misc(&mut self, what: &str, fields: &[(&str, Value)]) {
+        let cmd = self.misc_command(what, fields);
+        self.app.actions.push(Action::Apply(cmd));
     }
 
     /// [`mark_mixed`](Form::mark_mixed) for fields of the struct `field`
@@ -222,11 +243,28 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
                 for (i, e) in items.iter().enumerate() {
                     for label in ["Material", "Param"] {
                         let id = f.id(&format!("ShaderParams#{i}#{label}"));
-                        if let Some(v) = commit_text(f.app, ui, id, &text(e, label), false, field) {
+                        let current = text(e, label);
+                        if let Some(v) = commit_text(f.app, ui, id, &current, false, field) {
                             let mut all = items.clone();
                             all[i].set(label, Value::String(encode(v.trim())));
                             changed = Some(all);
                         }
+                        let cur_shown = crate::text::to_editor(&current).0;
+                        f.hold_command(ui, id, false, |form, buf| {
+                            if buf == cur_shown {
+                                return None;
+                            }
+                            let v = crate::text::with_line_ends(buf, &current);
+                            let mut all = items.clone();
+                            all[i].set(label, Value::String(encode(v.trim())));
+                            Some(form.nested_list_command(
+                                "Shader parameter",
+                                "Material",
+                                MATERIAL_ID,
+                                "ShaderParams",
+                                all,
+                            ))
+                        });
                     }
                     if narrow {
                         ui.end_row();
@@ -400,11 +438,21 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
             }
             if mode != 0 {
                 let current = decode(s.string("TextBubbleText").unwrap_or_default());
-                if let Some(v) =
-                    commit_text(f.app, ui, f.id("TextBubbleText"), &current, false, 200.0)
-                {
+                let id = f.id("TextBubbleText");
+                if let Some(v) = commit_text(f.app, ui, id, &current, false, 200.0) {
                     f.set_misc("Text bubble", &[("TextBubbleText", Value::String(encode(&v)))]);
                 }
+                let cur_shown = crate::text::to_editor(&current).0;
+                f.hold_command(ui, id, false, |form, buf| {
+                    if buf == cur_shown {
+                        return None;
+                    }
+                    let v = crate::text::with_line_ends(buf, &current);
+                    Some(form.misc_command(
+                        "Text bubble",
+                        &[("TextBubbleText", Value::String(encode(&v)))],
+                    ))
+                });
             }
         });
         ui.end_row();

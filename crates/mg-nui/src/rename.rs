@@ -427,6 +427,79 @@ fn rename_functions(src: &[u8], names: &BTreeMap<String, String>) -> (Vec<u8>, u
     (out, changed)
 }
 
+/// Token positions in `tokens` that represent direct call identifiers matching `is_target`
+/// (i.e. `TokenKind::Ident`, not preceded by significant `.`, followed by significant `(`).
+fn call_sites(
+    src: &str,
+    tokens: &[mg_script::lex::Token],
+    mut is_target: impl FnMut(&str) -> bool,
+) -> Vec<std::ops::Range<usize>> {
+    let sig: Vec<usize> = tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.kind.is_significant())
+        .map(|(i, _)| i)
+        .collect();
+    let mut matches = Vec::new();
+    for pos in 0..sig.len() {
+        let tok = &tokens[sig[pos]];
+        if tok.kind != TokenKind::Ident {
+            continue;
+        }
+        let Some(ident) = src.get(tok.span.clone()) else { continue };
+        if !is_target(ident) {
+            continue;
+        }
+        let prev_is_dot = pos.checked_sub(1).is_some_and(|p| {
+            let pt = &tokens[sig[p]];
+            pt.kind == TokenKind::Punct && src.get(pt.span.clone()) == Some(".")
+        });
+        let next_is_paren = pos + 1 < sig.len() && {
+            let nt = &tokens[sig[pos + 1]];
+            nt.kind == TokenKind::Punct && src.get(nt.span.clone()) == Some("(")
+        };
+        if !prev_is_dot && next_is_paren {
+            matches.push(tok.span.clone());
+        }
+    }
+    matches
+}
+
+/// Rewrites direct NWScript function call identifiers mapped in `calls`,
+/// ignoring comments, string literals, member accesses, and suffix matches.
+pub fn rename_calls(src: &str, calls: &[(String, String)]) -> String {
+    if calls.is_empty() {
+        return src.to_string();
+    }
+    let map: std::collections::HashMap<&str, &str> =
+        calls.iter().map(|(from, to)| (from.as_str(), to.as_str())).collect();
+    let tokens = tokenize(src.as_bytes());
+    let spans = call_sites(src, &tokens, |ident| map.contains_key(ident));
+    if spans.is_empty() {
+        return src.to_string();
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut at = 0;
+    for span in spans {
+        let repl = map[&src[span.clone()]];
+        out.push_str(&src[at..span.start]);
+        out.push_str(repl);
+        at = span.end;
+    }
+    out.push_str(&src[at..]);
+    out
+}
+
+/// Returns whether NWScript source `src` contains a direct call to `func`,
+/// ignoring comments, string literals, member accesses, and suffix matches.
+pub fn script_calls_function(src: &str, func: &str) -> bool {
+    if func.is_empty() {
+        return false;
+    }
+    let tokens = tokenize(src.as_bytes());
+    !call_sites(src, &tokens, |ident| ident == func).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -740,5 +813,26 @@ mod tests {
         let after = applied(&module, &made.command);
         let keys: Vec<String> = after.keys().map(ToString::to_string).collect();
         assert!(keys.len() == 2 && keys.iter().all(|k| k.starts_with("short.")), "{keys:?}");
+    }
+
+    #[test]
+    fn rename_calls_and_detection_handle_comments_strings_whitespace_and_swaps() {
+        let src = "// win_v()\n/* win_v(1); */\nstring s = \"win_v()\";\n\
+                   other_win_v();\nobj.win_v();\nwin_v ();\nwin_v /*c*/ (o);\n";
+        assert!(script_calls_function(src, "win_v"));
+        assert!(!script_calls_function(
+            "// win_v()\n/* win_v() */\nstring s = \"win_v()\";\nother_win_v();\nobj.win_v();\n",
+            "win_v"
+        ));
+        let renamed = rename_calls(src, &[("win_v".into(), "win_new".into())]);
+        assert_eq!(
+            renamed,
+            "// win_v()\n/* win_v(1); */\nstring s = \"win_v()\";\n\
+             other_win_v();\nobj.win_v();\nwin_new ();\nwin_new /*c*/ (o);\n"
+        );
+        // Simultaneous swap pairs do not corrupt each other.
+        let swapped =
+            rename_calls("a(); b();", &[("a".into(), "b".into()), ("b".into(), "a".into())]);
+        assert_eq!(swapped, "b(); a();");
     }
 }

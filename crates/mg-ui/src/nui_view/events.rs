@@ -250,8 +250,8 @@ pub(super) fn follow_controls(
         // comparison, a JSON string): not every string that spells it.
         text = mg_nui::rename_in_code(&text, old_name, new_name);
     }
-    for (from, to) in &calls {
-        text = text.replace(&format!("{from}("), &format!("{to}("));
+    if !calls.is_empty() {
+        text = mg_nui::rename_calls(&text, &calls);
     }
     // The guards are rebuilt for the new names.
     let text = mg_nui::merge_events(name, &s, Some(&text)).ok()?;

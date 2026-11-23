@@ -58,6 +58,8 @@ pub struct CreatureWizard {
     /// the name as Aurora's wizard makes them.
     pub resref: String,
     pub tag: String,
+    /// Whether the default random name for the chosen race was already seeded.
+    pub name_seeded: bool,
 }
 
 impl Default for CreatureWizard {
@@ -80,6 +82,7 @@ impl Default for CreatureWizard {
             all_portraits: false,
             resref: String::new(),
             tag: String::new(),
+            name_seeded: false,
         }
     }
 }
@@ -163,6 +166,20 @@ impl CreatureWizard {
         let class = int("ToolsetDefaultClass").unwrap_or(4).max(0) as u32;
         self.classes = vec![(class, 1)];
         self.portrait = None;
+        self.name_seeded = false;
+    }
+
+    /// Seeds a default random name once per chosen race when both name
+    /// fields are empty, without refilling after the user clears First Name.
+    fn seed_name_once(&mut self, game: &GameData, race: u32, rng: &mut fastrand::Rng) {
+        if self.name_seeded {
+            return;
+        }
+        self.name_seeded = true;
+        if self.first_name.is_empty() && self.last_name.is_empty() {
+            self.first_name = game.random_name(race, self.gender, false, rng).unwrap_or_default();
+            self.last_name = game.random_name(race, self.gender, true, rng).unwrap_or_default();
+        }
     }
 
     /// Whether Next may go on from the page.
@@ -839,11 +856,7 @@ fn page(
             // letter tables; none for races without).
             let race = w.race.unwrap_or(6);
             let mut rng = fastrand::Rng::new();
-            if w.first_name.is_empty() && w.last_name.is_empty() {
-                w.first_name =
-                    game.random_name(race, w.gender, false, &mut rng).unwrap_or_default();
-                w.last_name = game.random_name(race, w.gender, true, &mut rng).unwrap_or_default();
-            }
+            w.seed_name_once(game, race, &mut rng);
             ui.label("Please enter a name for this new Creature.");
             egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Name");
@@ -1003,5 +1016,31 @@ mod tests {
         // All: every creature's.
         let all = names(portraits(&game, Some(&ws), 6, 0, true));
         assert_eq!(all, ["hu_m_01_", "hu_f_01_", "kid_", "hu_m_31_", "w1po_", "hu_m_02_", "imp_"]);
+    }
+
+    #[test]
+    fn clearing_first_name_does_not_reseed_until_race_changes() {
+        let mut mem = mg_resman::MemContainer::new();
+        mem.insert(
+            ResKey::parse("racialtypes", ResType::TWODA).unwrap(),
+            b"2DA V2.0\n\n  Label Appearance ToolsetDefaultClass NameGenTableFirstNameMale NameGenTableLastName\n\
+              0 Dwarf 0 4 testfn testln\n6 Human 6 4 testfn testln\n"
+                .to_vec(),
+        );
+        mem.insert(ResKey::parse("testfn", ResType::LTR).unwrap(), vec![0; 4]);
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::KEY, "game", mg_resman::LayerClass::Key, mem);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut w = CreatureWizard { race: Some(6), ..Default::default() };
+        let mut rng = fastrand::Rng::with_seed(1);
+        w.first_name = "Alice".into();
+        w.seed_name_once(&game, 6, &mut rng);
+        assert!(w.name_seeded);
+        assert_eq!(w.first_name, "Alice");
+        w.first_name.clear();
+        w.seed_name_once(&game, 6, &mut rng);
+        assert_eq!(w.first_name, "", "clearing First Name stays empty across frames");
+        w.choose_race(&game, 0);
+        assert!(!w.name_seeded, "changing race allows re-seeding");
     }
 }

@@ -171,14 +171,18 @@ pub(crate) fn pictures_left_behind(
     })
 }
 
+fn is_background(layer: &Value) -> bool {
+    layer["type"] == 5 && layer["order"] == -1
+}
+
 /// The picture the root's first draw layer stretches under the controls.
 fn current_background(doc: &Value) -> Option<&str> {
     let first = doc["root"]["draw_list"].get(0)?;
-    (first["type"] == 5 && first["order"] == -1).then(|| first["image"].as_str()).flatten()
+    is_background(first).then(|| first["image"].as_str()).flatten()
 }
 
 /// A stretched picture under the window's controls: a draw layer of the
-/// root column, painted before it.
+/// root column, painted before it (replacing any existing background layer).
 pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     let geometry = resolved(&doc["geometry"], s);
     let title = doc["title"] != json!(false);
@@ -192,7 +196,11 @@ pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
         root["draw_list"] = json!([]);
     }
     if let Some(layers) = root["draw_list"].as_array_mut() {
-        layers.insert(0, item);
+        if layers.first().is_some_and(is_background) {
+            layers[0] = item;
+        } else {
+            layers.insert(0, item);
+        }
     }
 }
 
@@ -582,5 +590,35 @@ mod tests {
             assert!(in_folder(&game.join("data/../data/new.hak"), &game));
         }
         assert!(mg_resman::named_file("../../Documents/other/pack", "hak").is_none());
+    }
+
+    #[test]
+    fn background_replaces_existing_background_layer() {
+        let s = Settings::default();
+        let mut empty = json!({
+            "title": "Test",
+            "geometry": {"x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0},
+            "root": {"type": "col", "children": []}
+        });
+        background(&mut empty, &s, "bg1");
+        background(&mut empty, &s, "bg2");
+        assert_eq!(current_background(&empty), Some("bg2"));
+        assert_eq!(empty["root"]["draw_list"].as_array().unwrap().len(), 1);
+
+        let mut with_other = json!({
+            "title": "Test",
+            "geometry": {"x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0},
+            "root": {
+                "type": "col",
+                "draw_list": [{"type": 1, "order": 0}],
+                "children": []
+            }
+        });
+        background(&mut with_other, &s, "bg1");
+        background(&mut with_other, &s, "bg2");
+        let layers = with_other["root"]["draw_list"].as_array().unwrap();
+        assert_eq!(layers.len(), 2);
+        assert_eq!(current_background(&with_other), Some("bg2"));
+        assert_eq!(layers[1], json!({"type": 1, "order": 0}));
     }
 }

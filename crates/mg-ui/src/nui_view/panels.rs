@@ -508,11 +508,33 @@ enum Row {
     Variant { group: String, name: String, depth: usize, active: bool },
 }
 
+/// Whether rows belonging to `main` are currently editable (`main` when editing
+/// the main window, non-`main` when editing a swap-layout variant).
+fn is_editable_tree(main: bool, edit_view: Option<&str>) -> bool {
+    main == edit_view.is_none()
+}
+
+/// Index in `rows` of the currently selected control row in the active tree.
+fn chosen_control_index(rows: &[Row], selected: &str, edit_view: Option<&str>) -> Option<usize> {
+    rows.iter().position(|r| {
+        matches!(
+            r,
+            Row::Control { path, main, .. } if *path == selected && is_editable_tree(*main, edit_view)
+        )
+    })
+}
+
 /// Layers' rows, made again only where what they are made of changed
 /// ([`LayerRows::of`]): a window of hundreds of controls is not walked, and
 /// each row's words not written, every frame.
 pub(super) struct LayerRows {
-    of: (Option<[Held; 2]>, std::collections::BTreeSet<String>, String, Option<String>, usize),
+    of: (
+        Option<[Held; 2]>,
+        std::collections::BTreeSet<String>,
+        String,
+        Option<String>,
+        Option<std::rc::Rc<[mg_nui::Diagnostic]>>,
+    ),
     rows: std::sync::Arc<[Row]>,
 }
 
@@ -527,13 +549,17 @@ fn rows(state: &mut State) -> std::sync::Arc<[Row]> {
         state.collapsed.clone(),
         state.layer_search.clone(),
         state.edit_view.clone(),
-        findings.as_ref().map_or(0, |f| f.as_ptr() as usize),
+        findings.clone(),
     );
     if let Some(kept) = &state.layer_rows
         && kept.of.1 == of.1
         && kept.of.2 == of.2
         && kept.of.3 == of.3
-        && kept.of.4 == of.4
+        && match (&kept.of.4, &of.4) {
+            (Some(a), Some(b)) => std::rc::Rc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
         && match (&kept.of.0, &of.0) {
             (Some(a), Some(b)) => same(a, b),
             (None, None) => true,
@@ -838,7 +864,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
         .map(|(i, _)| i)
         .collect();
     let here = layers_have_keys(app, &ctx, key) && crate::tree::keys_free(ui);
-    let chosen_at = rows.iter().position(|r| matches!(r, Row::Control { path, main, .. } if *path == state.selected && (*main || state.edit_view.is_some())));
+    let chosen_at = chosen_control_index(&rows, &state.selected, state.edit_view.as_deref());
     let moved = here && app.outliner.marks_moved == Some(owner);
     if moved {
         app.outliner.marks_moved = None;
@@ -883,7 +909,7 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                 ui.new_child(egui::UiBuilder::new().id_salt(("nui-layer", i)).max_rect(place));
             match row {
                 Row::Control { path, words, detail, mark, branch, main, icon, tip, .. } => {
-                    let editable_tree = !*main || state.edit_view.is_none();
+                    let editable_tree = is_editable_tree(*main, state.edit_view.as_deref());
                     let marked = editable_tree
                         && (state.selected == *path || state.selected_many.contains(path));
                     let mut tree_row = mg_uikit::TreeRow::new(words.as_str()).icon(*icon).fit();
@@ -982,8 +1008,9 @@ pub(crate) fn layers(app: &mut Moonglow, ui: &mut Ui, key: ResKey, window: bool)
                     }
                 }
                 Row::Draw { path, index, words, main, .. } => {
-                    let chosen =
-                        state.selected == *path && state.draw_item == Some((path.clone(), *index));
+                    let chosen = is_editable_tree(*main, state.edit_view.as_deref())
+                        && state.selected == *path
+                        && state.draw_item == Some((path.clone(), *index));
                     let r = row_ui.add(
                         mg_uikit::IconButton::new(mg_uikit::Icon::Layers, words.as_str())
                             .selectable(chosen)
@@ -1114,11 +1141,17 @@ fn keys(
     if controls.is_empty() {
         return;
     }
+    let tree_at = |c: usize| {
+        matches!(
+            &rows[controls[c]],
+            Row::Control { main, .. } if is_editable_tree(*main, state.edit_view.as_deref())
+        )
+    };
     let path_of = |c: usize| match &rows[controls[c]] {
         Row::Control { path, .. } => path.clone(),
         _ => String::new(),
     };
-    let at = (0..controls.len()).find(|c| path_of(*c) == state.selected);
+    let at = (0..controls.len()).find(|&c| tree_at(c) && path_of(c) == state.selected);
     let last = controls.len() - 1;
     let page = ((high / mg_uikit::row_pitch(ui)) as usize).max(1);
     let from = at.unwrap_or(0);
@@ -1127,8 +1160,8 @@ fn keys(
         let path = path_of(c);
         let up = array_position(&path)
             .map(|(p, _, _)| p.rsplit_once('/').map_or(String::new(), |(p, _)| p.to_owned()))
-            .or_else(|| (path == "/root").then(String::new))?;
-        (0..controls.len()).find(|c| path_of(*c) == up)
+            .or_else(|| (state.edit_view.is_none() && path == "/root").then(String::new))?;
+        (0..controls.len()).find(|&c| tree_at(c) && path_of(c) == up)
     };
     let mut to = if next {
         Some(at.map_or(0, |a| (a + 1).min(last)))
@@ -1246,5 +1279,23 @@ mod tests {
                 assert!(title, "{words} in title case");
             }
         }
+    }
+
+    #[test]
+    fn chosen_control_index_matches_active_main_or_variant_tree() {
+        let row = |path: &str, main: bool| super::Row::Control {
+            path: path.into(),
+            depth: 0,
+            words: path.into(),
+            detail: None,
+            mark: None,
+            branch: false,
+            main,
+            icon: mg_uikit::Icon::Nui,
+            tip: String::new(),
+        };
+        let rows = vec![row("/root", true), row("/root", false)];
+        assert_eq!(super::chosen_control_index(&rows, "/root", None), Some(0));
+        assert_eq!(super::chosen_control_index(&rows, "/root", Some("compact")), Some(1));
     }
 }

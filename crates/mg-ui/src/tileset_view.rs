@@ -1271,9 +1271,8 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
         ui.label("Name");
         ui.add(mg_uikit::text_field(&mut d.new_type).desired_width(160.0));
         let name = d.new_type.trim().to_string();
-        let taken =
-            t.terrains.iter().chain(&t.crossers).any(|x| x.name.eq_ignore_ascii_case(&name));
-        let ok = !name.is_empty() && !taken && !name.contains(char::is_whitespace);
+        let refused = type_name_refused(&t, None, &d.new_type);
+        let ok = refused.is_none();
         if ui.add_enabled(ok, egui::Button::new("Add Terrain")).clicked() {
             d.change(|f| {
                 edit::add_type(f, false, &name, None);
@@ -1286,20 +1285,25 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
             });
             d.new_type.clear();
         }
-        if taken {
-            ui.weak("The tileset has one of that name.");
+        if !name.is_empty()
+            && let Some(why) = refused
+        {
+            ui.weak(format!("{why}."));
         }
     });
 }
 
-/// Why a terrain (`crosser`: crosser) `index` can't be renamed `typed`:
-/// no name, a space, more than a palette's 16 characters (a palette names
-/// it as a ResRef), or another terrain's or crosser's name; `None` when
-/// it can.
-fn rename_refused(t: &Tileset, crosser: bool, index: usize, typed: &str) -> Option<&'static str> {
+/// Why adding or renaming a terrain (`crosser`: crosser) `skip` to `typed`
+/// is refused: empty, whitespace, longer than 16 characters (palettes store it
+/// as a ResRef), or collides case-insensitively with another terrain/crosser.
+fn type_name_refused(
+    t: &Tileset,
+    skip: Option<(bool, usize)>,
+    typed: &str,
+) -> Option<&'static str> {
     let name = typed.trim();
     let other = |c: bool, k: usize, x: &mg_set::NamedType| {
-        (c != crosser || k != index) && x.name.eq_ignore_ascii_case(name)
+        skip != Some((c, k)) && x.name.eq_ignore_ascii_case(name)
     };
     let taken = t.terrains.iter().enumerate().any(|(k, x)| other(false, k, x))
         || t.crossers.iter().enumerate().any(|(k, x)| other(true, k, x));
@@ -1314,6 +1318,14 @@ fn rename_refused(t: &Tileset, crosser: bool, index: usize, typed: &str) -> Opti
     } else {
         None
     }
+}
+
+/// Why a terrain (`crosser`: crosser) `index` can't be renamed `typed`:
+/// no name, a space, more than a palette's 16 characters (a palette names
+/// it as a ResRef), or another terrain's or crosser's name; `None` when
+/// it can.
+fn rename_refused(t: &Tileset, crosser: bool, index: usize, typed: &str) -> Option<&'static str> {
+    type_name_refused(t, Some((crosser, index)), typed)
 }
 
 /// The painting rules, primary and secondary: what the area view's
@@ -2119,15 +2131,42 @@ pub const MINIMAP_SIZE: u32 = 32;
 /// `.set`'s folder, its models found there or in the game data. Tiles
 /// without a picture's name get `mi_<model>` (one undoable change).
 pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
-    let Ok(t) = d.set.clone() else { return };
+    if app.game.is_none() {
+        app.log.error("Rendering minimaps needs the game data");
+        return;
+    }
     let dir = d.path.parent().map(PathBuf::from).unwrap_or_default();
-    // Unnamed pictures named after their models.
+    // Mount the tileset folder with exclusive access before mutating `d`.
+    const LAYER: &str = "tileset folder";
+    app.release_game_data();
+    {
+        let Some(game) = crate::exclusive(&mut app.game) else {
+            app.log
+                .error("Could not load the tileset folder while game data is in use; try again.");
+            return;
+        };
+        game.resman.add(
+            mg_resman::priority::TEMP,
+            LAYER,
+            mg_resman::LayerClass::Directory,
+            mg_resman::DirContainer::open(&dir),
+        );
+    }
+    let Ok(t) = d.set.clone() else {
+        app.release_game_data();
+        if let Some(game) = crate::exclusive(&mut app.game) {
+            game.resman.remove(LAYER);
+        }
+        return;
+    };
+    // Unnamed non-hole tiles get pictures named after their models.
     let unnamed: Vec<usize> = (0..t.tiles.len())
         .filter(|&i| {
-            t.tiles[i]
-                .image_map_2d
-                .as_deref()
-                .is_none_or(|n| n.is_empty() || n.eq_ignore_ascii_case("(null)"))
+            !t.tiles[i].is_hole()
+                && t.tiles[i]
+                    .image_map_2d
+                    .as_deref()
+                    .is_none_or(|n| n.is_empty() || n.eq_ignore_ascii_case("(null)"))
         })
         .collect();
     if !unnamed.is_empty() {
@@ -2141,21 +2180,19 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
             }
         });
     }
-    let Ok(t) = d.set.clone() else { return };
-    // The folder's models and textures, over the game data while rendering.
-    const LAYER: &str = "tileset folder";
-    app.release_game_data();
-    if let Some(game) = crate::exclusive(&mut app.game) {
-        game.resman.add(
-            mg_resman::priority::TEMP,
-            LAYER,
-            mg_resman::LayerClass::Directory,
-            mg_resman::DirContainer::open(&dir),
-        );
-    }
+    let Ok(t) = d.set.clone() else {
+        app.release_game_data();
+        if let Some(game) = crate::exclusive(&mut app.game) {
+            game.resman.remove(LAYER);
+        }
+        return;
+    };
     let (mut written, mut failed) = (0, Vec::new());
     let mut done = std::collections::HashSet::new();
     for tile in &t.tiles {
+        if tile.is_hole() {
+            continue;
+        }
         let Some(name) = tile.image_map_2d.clone().filter(|n| !n.is_empty()) else { continue };
         if !done.insert(name.to_lowercase()) {
             continue;
@@ -2306,5 +2343,54 @@ mod tests {
         assert!(file == before);
         again.take(&mut file);
         assert!(file == after);
+    }
+
+    #[test]
+    fn type_name_refused_enforces_16_char_limit_for_add_and_rename() {
+        let d = doc();
+        let t = d.set.unwrap();
+        assert!(type_name_refused(&t, None, "abcdefghijklmnop").is_none());
+        assert_eq!(
+            type_name_refused(&t, None, "abcdefghijklmnopq"),
+            Some("16 characters at most: a palette names it so")
+        );
+        assert_eq!(
+            rename_refused(&t, false, 0, "abcdefghijklmnopq"),
+            Some("16 characters at most: a palette names it so")
+        );
+    }
+
+    #[test]
+    fn render_minimaps_skips_holes_and_aborts_if_game_data_is_shared() {
+        let dir = mg_testkit::scratch_dir("tileset-minimap-holes");
+        let set_path = dir.join("tst01.set");
+        let with_hole = "[GENERAL]\r\nName=TST01\r\n\r\n[TILES]\r\nCount=2\r\n\r\n\
+                         [TILE0]\r\nModel=t0\r\n\r\n[TILE1]\r\nTopLeft=A\r\n";
+        let mut d = TilesetDoc::new(1, set_path, SetFile::parse(with_hole), None);
+
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(
+            mg_resman::priority::KEY,
+            "game",
+            mg_resman::LayerClass::Key,
+            mg_resman::MemContainer::new(),
+        );
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let game = std::sync::Arc::new(mg_rules::GameData::new(
+            rm,
+            mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+        ));
+        app.game = Some(game.clone());
+        // Holding an extra Arc prevents exclusive access: aborts before mutating doc.
+        render_minimaps(&mut app, &mut d);
+        assert!(!d.has_undo());
+        assert!(d.get("TILE0", "ImageMap2D").is_none());
+        assert!(app.log.entries.iter().any(|(_, m)| m.contains("in use")));
+        drop(game);
+
+        // With exclusive access, TILE0 gets `mi_t0` while hole TILE1 does not get `mi_`.
+        render_minimaps(&mut app, &mut d);
+        assert_eq!(d.get("TILE0", "ImageMap2D").as_deref(), Some("mi_t0"));
+        assert!(d.get("TILE1", "ImageMap2D").is_none());
     }
 }

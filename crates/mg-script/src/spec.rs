@@ -192,7 +192,7 @@ impl Spec {
 /// `type name [= default], ...` from the tokens between the parentheses.
 fn parse_params(words: &[&str]) -> Vec<Param> {
     let mut params = Vec::new();
-    let mut depth = 0;
+    let mut depth: usize = 0;
     let mut current: Vec<&str> = Vec::new();
     let mut flush = |current: &mut Vec<&str>| {
         if let [ty, name, rest @ ..] = current.as_slice() {
@@ -207,7 +207,7 @@ fn parse_params(words: &[&str]) -> Vec<Param> {
     for &w in words {
         match w {
             "[" | "(" => depth += 1,
-            "]" | ")" => depth -= 1,
+            "]" | ")" => depth = depth.saturating_sub(1),
             "," if depth == 0 => {
                 flush(&mut current);
                 continue;
@@ -318,5 +318,13 @@ void Jump(vector vDest=[0.0,0.0,0.0], location lLoc=LOCATION_INVALID);
         assert_eq!(j.params[0].default.as_deref(), Some("[0.0,0.0,0.0]"));
         assert_eq!(j.params[1].ty, "location");
         assert_eq!(j.doc, "", "no comment directly above");
+    }
+
+    #[test]
+    fn parse_params_does_not_go_negative_on_stray_closing_brackets() {
+        let p = parse_params(&["int", "a", "=", ")", ",", "float", "b"]);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].name, "a");
+        assert_eq!(p[1].name, "b");
     }
 }

@@ -607,10 +607,17 @@ impl VarTableEdit {
     }
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// A described variable's tip: what it is, and its help.
 fn description_tip(d: &Described) -> String {
-    let what = d.words();
-    let what = format!("{}{}", what[..1].to_uppercase(), &what[1..]);
+    let what = capitalize_first(&d.words());
     match &d.help {
         Some(h) => format!("{what}.\n{h}"),
         None => format!("{what}."),
@@ -876,8 +883,7 @@ pub(crate) const PARAMETER_SETS: SetKind<crate::param_sets::ParamSet> = SetKind 
 impl<T: Clone + Send + Sync + 'static> SetKind<T> {
     /// What one is called at the beginning of a message ("Variable set").
     fn what(&self) -> String {
-        let what = self.shelf.what;
-        what[..1].to_uppercase() + &what[1..]
+        capitalize_first(self.shelf.what)
     }
 
     /// The sets saved in `dir`, each read ([`crate::saved::Shelf::read_all`],
@@ -7040,5 +7046,12 @@ mod row_choice_tests {
         // (A frame of it in a debug build, with a margin: it took 93 ms
         // in a release build when every row was laid out.)
         assert!(t.elapsed() < std::time::Duration::from_millis(20 * 40), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn capitalize_first_handles_empty_ascii_and_multibyte_chars() {
+        assert_eq!(super::capitalize_first(""), "");
+        assert_eq!(super::capitalize_first("variable set"), "Variable set");
+        assert_eq!(super::capitalize_first("éclair"), "Éclair");
     }
 }

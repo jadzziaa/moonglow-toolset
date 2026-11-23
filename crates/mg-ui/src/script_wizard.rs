@@ -447,6 +447,31 @@ fn move_lists(
     });
 }
 
+/// Inserts `tag` into `items` (if absent), sorting when `sorted` is set while
+/// preserving which item `selected` points to in list `0`.
+fn insert_list_item(
+    items: &mut Vec<String>,
+    tag: String,
+    sorted: bool,
+    selected: &mut Option<(u8, usize)>,
+) {
+    if items.contains(&tag) {
+        return;
+    }
+    let keep = if sorted {
+        selected.and_then(|(l, i)| (l == 0).then(|| items.get(i).cloned()).flatten())
+    } else {
+        None
+    };
+    items.push(tag);
+    if sorted {
+        items.sort_by_cached_key(|s| (s.to_lowercase(), s.clone()));
+        if let Some(keep) = keep {
+            *selected = items.iter().position(|s| *s == keep).map(|i| (0, i));
+        }
+    }
+}
+
 /// A text field with Add (and "…" for the item picker), and the list it
 /// adds to with Remove. Returns whether "…" was clicked.
 fn add_list(
@@ -465,13 +490,8 @@ fn add_list(
             pick = ui.small_button("…").on_hover_text("Select an item blueprint").clicked();
         }
         let tag = entry.trim().to_string();
-        if ui.add_enabled(!tag.is_empty(), egui::Button::new("Add")).clicked()
-            && !items.contains(&tag)
-        {
-            items.push(tag);
-            if sorted {
-                items.sort_by_cached_key(|s| (s.to_lowercase(), s.clone()));
-            }
+        if ui.add_enabled(!tag.is_empty(), egui::Button::new("Add")).clicked() {
+            insert_list_item(items, tag, sorted, selected);
         }
     });
     let rows: Vec<(usize, &str)> = items.iter().enumerate().map(|(i, s)| (i, s.as_str())).collect();
@@ -1295,5 +1315,20 @@ mod tests {
         assert_eq!(w.back(), Step::Page(2));
         w.step = Step::Name;
         assert_eq!(w.back(), Step::Page(8));
+    }
+
+    #[test]
+    fn insert_list_item_preserves_selected_item_across_sorted_insert() {
+        let mut items = vec!["beta".to_string(), "gamma".to_string()];
+        let mut selected = Some((0u8, 0usize));
+        insert_list_item(&mut items, "alpha".into(), true, &mut selected);
+        assert_eq!(items, ["alpha", "beta", "gamma"]);
+        assert_eq!(selected, Some((0, 1)));
+
+        let mut unsorted = vec!["beta".to_string(), "gamma".to_string()];
+        let mut unsorted_sel = Some((0u8, 0usize));
+        insert_list_item(&mut unsorted, "alpha".into(), false, &mut unsorted_sel);
+        assert_eq!(unsorted, ["beta", "gamma", "alpha"]);
+        assert_eq!(unsorted_sel, Some((0, 0)));
     }
 }

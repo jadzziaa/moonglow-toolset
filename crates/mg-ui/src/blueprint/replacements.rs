@@ -346,6 +346,14 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                             {
                                 set_new = Some((row.entry, row.name.clone(), r));
                             }
+                            f.hold_command(ui, id, false, |form, buf| {
+                                if buf == new {
+                                    return None;
+                                }
+                                let r = ResRef::from_str(buf.trim()).ok()?;
+                                let all = p.replaced(items.clone(), row.entry, &row.name, r)?;
+                                Some(form.nested_list_command(p.what, p.field, p.id, p.list, all))
+                            });
                             let button = ui.button("Select Texture…");
                             if button.on_hover_text("Pick the texture to draw it with").clicked() {
                                 pick = Some((row.entry, row.name.clone(), new.clone()));

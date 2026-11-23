@@ -79,7 +79,9 @@ pub fn from_text(text: &str) -> Result<Vec<VarRow>, String> {
                 Some("float") => {
                     (2, value.as_f64().ok_or(format!("{name}: not a float"))?.to_string())
                 }
-                Some("string") => (3, value.as_str().unwrap_or_default().to_string()),
+                Some("string") => {
+                    (3, value.as_str().ok_or_else(|| format!("{name}: not a string"))?.to_string())
+                }
                 other => return Err(format!("{name}: type {other:?} isn't int, float or string")),
             };
             Ok(VarRow::new(name, kind, &value))
@@ -239,6 +241,13 @@ mod tests {
                 .unwrap_err()
                 .contains("isn't int")
         );
+        for bad in ["123", "true", "null", "[]"] {
+            let err = from_text(&format!(
+                "{{\"variables\": [{{\"name\": \"X\", \"type\": \"string\", \"value\": {bad}}}]}}"
+            ))
+            .unwrap_err();
+            assert!(err.contains("not a string"), "{bad}: {err}");
+        }
     }
 
     #[test]

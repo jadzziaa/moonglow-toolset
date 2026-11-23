@@ -243,10 +243,12 @@ impl Moonglow {
     pub fn rename_resource(&mut self, from: ResKey, to: ResRef, literals: bool) {
         // (A NUI window's script is renamed with its window, which takes
         // the new name less the script's suffix.)
-        if let Some(window) = self.window_of_script(main_key(from)) {
-            let suffix = &from.resref.to_string()[window.resref.to_string().len()..];
+        if let Some(window) = self.window_of_script(main_key(from))
+            && let Some(suffix) = from.resref.to_string().strip_prefix(&window.resref.to_string())
+        {
+            let suffix = suffix.to_string();
             let Some(to) =
-                to.to_string().strip_suffix(suffix).and_then(|n| ResRef::from_str(n).ok())
+                to.to_string().strip_suffix(&suffix).and_then(|n| ResRef::from_str(n).ok())
             else {
                 self.log.error(format!(
                     "{from} is {window}'s script: give a new name ending {suffix}, or rename the \

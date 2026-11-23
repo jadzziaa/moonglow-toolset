@@ -2609,6 +2609,8 @@ impl Moonglow {
                     true => Action::ApplyTyped(command),
                     false => Action::Apply(command),
                 });
+            } else if let Some(action) = held.action {
+                self.actions.push(action);
             }
             self.buffers.remove(&held.id);
         }
@@ -5418,6 +5420,8 @@ impl Moonglow {
                                 }
                             }
                         }
+                    } else if let Some(action) = held.action {
+                        self.actions.push(action);
                     }
                     self.buffers.remove(&held.id);
                 }
