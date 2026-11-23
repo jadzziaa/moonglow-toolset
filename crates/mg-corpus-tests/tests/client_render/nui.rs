@@ -384,7 +384,7 @@ pub(super) fn click_in_window(x: u32, y: u32) {
         Command::new("python3").arg(&xdrive).args(args).status().unwrap();
         std::thread::sleep(Duration::from_millis(300));
     };
-    run(&["move".into(), (px - 20).to_string(), (py - 10).to_string()]);
+    run(&["move".into(), px.saturating_sub(20).to_string(), py.saturating_sub(10).to_string()]);
     run(&["move".into(), px.to_string(), py.to_string()]);
     run(&["press".into(), px.to_string(), py.to_string()]);
     run(&["release".into(), px.to_string(), py.to_string()]);
@@ -464,6 +464,7 @@ fn nui_readings_in_the_client() {
 
     let log = dir.join("user/logs/nwclientLog1.txt");
     let read = || String::from_utf8_lossy(&std::fs::read(&log).unwrap_or_default()).into_owned();
+    let _only = common::client_lock();
     let mut child = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
         .arg(&dir)
         .args(["+TestNewModule", "MgNui"])
@@ -477,6 +478,9 @@ fn nui_readings_in_the_client() {
     let mut clicked = false;
     let mut k = 0;
     while start.elapsed() < limit && !(clicked || done.iter().all(|d| *d)) {
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(200));
         // The evented window, the last, stays open: its button clicked
         // once it is (the click reaches the client as it is, whatever the
@@ -732,6 +736,7 @@ fn reading_scrollbar_end_buttons() {
         .unwrap_or((15, 15));
     eprintln!("{fps} frames a second, the down button held {holds:?} s");
 
+    let _only = common::client_lock();
     let mut child = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
         .arg(&dir)
         .args(["+TestNewModule", "MgNui"])
@@ -742,6 +747,9 @@ fn reading_scrollbar_end_buttons() {
     let begun = Instant::now();
     let mut found = None;
     while begun.elapsed() < Duration::from_secs(240) && found.is_none() {
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(500));
         let Some(img) = winshot(&dir.join("last.png")) else { continue };
         if tag_of(&img) == Some(0) {

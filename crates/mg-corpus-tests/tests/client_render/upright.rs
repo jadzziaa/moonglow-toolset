@@ -227,22 +227,27 @@ fn bands(img: &Rgba) -> ([f32; 2], [f32; 2]) {
 fn upright_particles_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let skip_client = std::env::var_os("MG_NO_CLIENT").is_some();
+    let captures: Vec<_> = FACINGS
+        .into_iter()
+        .map(|facing| {
+            let dir = scratch_dir(&format!("client_upright_{facing}"));
+            let (are, git) = scene(&game, &dir, facing);
+            let client = (!skip_client).then(|| client_screenshot(&dir, "MgScene")).flatten();
+            if let Some(c) = &client {
+                save_png(c, &dir.join("client.png"));
+            }
+            (facing, dir, are, git, client)
+        })
+        .collect();
     mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
     };
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
-    // `MG_NO_CLIENT=1`: Moonglow's pictures alone.
-    let skip_client = std::env::var_os("MG_NO_CLIENT").is_some();
     let mut results = std::collections::BTreeMap::new();
-    for facing in FACINGS {
-        let dir = scratch_dir(&format!("client_upright_{facing}"));
-        let (are, git) = scene(&game, &dir, facing);
-        let client = (!skip_client).then(|| client_screenshot(&dir, "MgScene")).flatten();
-        if let Some(c) = &client {
-            save_png(c, &dir.join("client.png"));
-        }
+    for (facing, dir, are, git, client) in captures {
         // (The scratch override's model, as the client reads it.)
         let ours_game =
             GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();

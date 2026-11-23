@@ -120,7 +120,7 @@ fn world_with(name: &str, clash: bool) -> Option<World> {
             ],
         );
     };
-    let (h, field) = area_harness_with(name, "ttr01", None, 4, None, &prepare)?;
+    let (h, field) = area_ui_harness_with(name, "ttr01", None, 4, None, &prepare)?;
     let second = h.state().ws.as_ref()?.module.areas().ok()?.into_iter().find(|a| *a != field)?;
     Some(World { h, field, second })
 }
@@ -630,14 +630,11 @@ fn read_only_world(name: &str) -> Option<World> {
     std::fs::write(dir.join("claims.2da"), table).unwrap();
     mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
     let root = mg_testkit::nwn_root()?;
-    let rs = gpu()?;
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
-    app.set_render_state(rs.clone());
+    let mut app = game_app(&root, None);
     app.settings.game_shaders = Some(false);
     app.open_module(&dir);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(field)));
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    let mut h = harness(app, 1100.0, 800.0);
     settle(&mut h);
     settle(&mut h);
     Some(World { h, field, second })

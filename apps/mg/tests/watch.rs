@@ -5,8 +5,16 @@
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
+
+fn bump_mtime(path: &Path) {
+    static STEP: AtomicU64 = AtomicU64::new(2);
+    let secs = STEP.fetch_add(2, Ordering::Relaxed);
+    let f = std::fs::File::options().write(true).open(path).unwrap();
+    f.set_modified(SystemTime::now() + Duration::from_secs(secs)).unwrap();
+}
 
 use serde_json::Value;
 
@@ -82,8 +90,8 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
         let file = project.join(format!("{script}.nss"));
         let mut source = std::fs::read(&file).unwrap();
         source.extend_from_slice(b"\n// changed\n");
-        std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&file, source).unwrap();
+        bump_mtime(&file);
         let synced = next(&events, "synced");
         let written: Vec<&str> =
             synced["written"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
@@ -96,28 +104,30 @@ fn changes_go_to_the_development_folder_or_build_the_module() {
 
         // A script that does not compile: said, and nothing put out.
         let before = std::fs::read(dev.join(format!("{script}.ncs"))).unwrap();
-        std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&file, "void main() { nothing here }\n").unwrap();
+        bump_mtime(&file);
         let broken = next(&events, "synced");
         assert_eq!(broken["errors"].as_array().unwrap().len(), 1, "{broken}");
         assert!(broken["written"].as_array().unwrap().is_empty());
         assert_eq!(std::fs::read(dev.join(format!("{script}.ncs"))).unwrap(), before);
         std::fs::write(&file, "void main() { }\n").unwrap();
+        bump_mtime(&file);
         next(&events, "synced");
 
         // A blueprint changes: it goes out as it is.
-        std::thread::sleep(Duration::from_millis(1100));
         let set = mg(&root, &["set", p, "pawn_w.utc", "Tag=WATCHED"]).output().unwrap();
         assert!(set.status.success(), "{}", String::from_utf8_lossy(&set.stdout));
+        bump_mtime(&project.join("pawn_w.utc"));
         let synced = next(&events, "synced");
         assert_eq!(synced["written"], serde_json::json!(["pawn_w.utc"]), "{synced}");
 
         // The module's own file changes: built again, and what was put
         // out is taken away (the module has it); theirs stays.
-        let was = std::fs::metadata(&built).unwrap().modified().unwrap();
-        std::thread::sleep(Duration::from_millis(1100));
+        let was = std::fs::metadata(&built).unwrap().modified().unwrap() - Duration::from_secs(2);
+        std::fs::File::options().write(true).open(&built).unwrap().set_modified(was).unwrap();
         let set = mg(&root, &["set", p, "module.ifo", "Mod_Tag=WATCHED"]).output().unwrap();
         assert!(set.status.success(), "{}", String::from_utf8_lossy(&set.stdout));
+        bump_mtime(&project.join("module.ifo"));
         let rebuilt = next(&events, "rebuilt");
         assert_eq!(rebuilt["changed"], serde_json::json!(["module.ifo"]), "{rebuilt}");
         assert!(std::fs::metadata(&built).unwrap().modified().unwrap() > was);
@@ -236,16 +246,16 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
         let file = project.join(format!("{script}.nss"));
         let mut source = std::fs::read(&file).unwrap();
         source.extend_from_slice(b"\n// changed\n");
-        std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&file, source).unwrap();
+        bump_mtime(&file);
         let synced = next(&events, "synced");
         assert!(dev.join(format!("{script}.ncs")).is_file(), "{synced}");
 
         // The module's own file changes: built again, and the server
         // started again on it, at its port.
-        std::thread::sleep(Duration::from_millis(1100));
         let set = mg(&root, &["set", p, "module.ifo", "Mod_Tag=WATCHED"]).output().unwrap();
         assert!(set.status.success(), "{}", String::from_utf8_lossy(&set.stdout));
+        bump_mtime(&project.join("module.ifo"));
         next(&events, "rebuilt");
         let again = next(&events, "started");
         assert_eq!(again["port"], started["port"]);
@@ -321,8 +331,8 @@ fn tests_run_again_after_a_change() {
 
         // The include changes: its includer is compiled, put out, and the
         // tests run again on it.
-        std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&include, "int WatchValue() { return 3; }\n").unwrap();
+        bump_mtime(&include);
         let synced = next(&events, "synced");
         let compiled: Vec<&str> =
             synced["compiled"].as_array().unwrap().iter().filter_map(Value::as_str).collect();

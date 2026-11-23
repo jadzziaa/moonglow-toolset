@@ -53,10 +53,7 @@ fn console(code: &str, host: &Rc<TestHost>) -> Result<Outcome, PluginError> {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    mg_testkit::scratch_dir(&format!("mg-plugin-{name}"))
 }
 
 #[test]
@@ -291,12 +288,20 @@ fn a_picture_is_decoded() {
 }
 
 fn game() -> Option<Arc<GameData>> {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return None;
+    let root = match mg_testkit::nwn_root() {
+        Some(r) => r,
+        None if mg_testkit::corpus_required() => {
+            panic!("MOONGLOW_REQUIRE_CORPUS is set but no game install was found (set NWN_ROOT)")
+        }
+        None => {
+            eprintln!("skipped: no game install");
+            return None;
+        }
     };
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    Some(Arc::new(GameData::open(&install).unwrap()))
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = Arc::new(GameData::open_tlk(&install).unwrap());
+    Some(Arc::new(GameData::with_shared_tlk(rm, tlk)))
 }
 
 fn applied(outcome: &Outcome) -> Module {

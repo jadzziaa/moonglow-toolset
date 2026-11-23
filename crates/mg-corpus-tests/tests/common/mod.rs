@@ -286,6 +286,12 @@ pub(crate) fn repo() -> PathBuf {
 }
 
 #[allow(dead_code)]
+#[allow(dead_code)]
+pub(crate) fn client_lock() -> std::sync::MutexGuard<'static, ()> {
+    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Runs the client until the scene is ready and screenshots its window.
 /// One client at a time: the screenshot finds the window by its title.
 ///
@@ -304,8 +310,7 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
         eprintln!("the client's picture of {}", from.display());
         return Some(read_png(&dir.join("client.png")));
     }
-    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _only = client_lock();
     // In single player the game's server logs to the client's log.
     let log = dir.join("user/logs/nwclientLog1.txt");
     let _ = std::fs::remove_file(&log);
@@ -395,8 +400,7 @@ pub(crate) fn client_screenshots_with(
     gap: Duration,
     env: &[(&str, &str)],
 ) -> Option<Vec<(f64, Rgba)>> {
-    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _only = client_lock();
     let log = dir.join("user/logs/nwclientLog1.txt");
     let _ = std::fs::remove_file(&log);
     let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
@@ -412,6 +416,10 @@ pub(crate) fn client_screenshots_with(
     while start.elapsed() < Duration::from_secs(180) {
         if std::fs::read_to_string(&log).is_ok_and(|l| l.contains("MG_READY")) {
             ready = true;
+            break;
+        }
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            eprintln!("the client ended before the scene was ready (see {})", dir.display());
             break;
         }
         std::thread::sleep(Duration::from_millis(500));

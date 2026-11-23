@@ -44,7 +44,7 @@ fn module_with_game() -> Option<H> {
 
 /// A module with an area open (the game's).
 fn area() -> Option<H> {
-    area_harness(&super::scratch("u27-module-area")).map(|(h, _)| h)
+    area_ui_harness(&super::scratch("u27-module-area")).map(|(h, _)| h)
 }
 
 fn script() -> ResKey {

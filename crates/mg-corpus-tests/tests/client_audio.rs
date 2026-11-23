@@ -1754,6 +1754,7 @@ void main()
     let out = dir.join("capture.wav");
     let _ = std::fs::remove_file(&out);
     let log = user.join("logs/nwclientLog1.txt");
+    let _only = common::client_lock();
     let _ = std::fs::remove_file(&log);
     let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
         .arg(dir)

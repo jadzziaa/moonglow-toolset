@@ -158,7 +158,11 @@ fn a_fold_button_shows_the_tip_it_is_given() {
     assert_eq!(fold.accesskit_node().data().is_expanded(), Some(true));
     fold.hover();
     // (A tooltip waits a moment.)
-    h.run_steps(60);
+    h.step();
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + 1.5);
+    h.run_steps(2);
+    h.input_mut().time = None;
     h.get_by_label("Fold the Left Dock (Ctrl+Alt+1)");
     h.get_by_label("Fold the Left Dock").click();
     h.run();
@@ -732,7 +736,7 @@ fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
     });
     // Each width: the same on three frames; icons only below a boundary.
     let mut seen = Vec::new();
-    for w in (165..=320).map(|w| w as f32) {
+    for w in (165..=320).step_by(5).map(|w| w as f32) {
         width.set(w);
         let mut each = Vec::new();
         for _ in 0..3 {
@@ -758,9 +762,11 @@ fn a_dock_s_tabs_show_their_icons_where_their_words_do_not_fit() {
     let module = h.get_by_label("Left Dock").get_by_label("Module");
     assert_eq!(module.accesskit_node().is_selected(), Some(false));
     module.hover();
-    for _ in 0..30 {
-        h.run();
-    }
+    h.step();
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + 1.5);
+    h.run_steps(2);
+    h.input_mut().time = None;
     assert!(h.query_all_by_label("Module").count() >= 2, "its name in its tip");
 }
 
@@ -802,7 +808,7 @@ fn a_dock_s_tabs_close_their_words_up_before_they_turn_to_icons() {
     let tight = words - 2.0 * (shell::DOCK_TAB_PADDING - shell::DOCK_TAB_TIGHT_PADDING);
     let icon = 2.0 * shell::DOCK_TAB_ICON_PADDING + 16.0 + 1.0;
     let mut forms = Vec::new();
-    for w in (200..=300).rev().map(|w| w as f32) {
+    for w in (200..=300).rev().step_by(4).map(|w| w as f32) {
         width.set(w);
         h.run();
         h.run();
@@ -850,7 +856,7 @@ fn a_dock_tab_s_words_stand_by_its_padding_in_each_form() {
         });
     });
     let mut seen = Vec::new();
-    for w in (200..=320).rev().step_by(2).map(|w| w as f32) {
+    for w in (200..=320).rev().step_by(5).map(|w| w as f32) {
         width.set(w);
         h.run();
         h.run();

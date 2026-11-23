@@ -2691,16 +2691,20 @@ fn the_plugins_folder_s_path_takes_the_room_there_is() {
     app.load_plugins();
     app.settings.open_editors = mg_ui::OpenEditors::Tabs;
     let mut h = harness(app, 1280.0, 720.0);
-    settle(&mut h);
-    menu_command(&mut h, "Plugins", "Manage Plugins…");
-    settle(&mut h);
     let path = long.display().to_string();
-    let r = h.get_by_label(&path).rect();
     let words = h.ctx.fonts_mut(|f| {
         f.layout_no_wrap(path.clone(), egui::FontId::proportional(13.0), egui::Color32::WHITE)
             .size()
             .x
     });
+    assert!(words > 700.0, "expected path wider than form page: {words}");
+    if words + 160.0 > 1280.0 {
+        h.set_size(egui::vec2(words + 160.0, 720.0));
+    }
+    settle(&mut h);
+    menu_command(&mut h, "Plugins", "Manage Plugins…");
+    settle(&mut h);
+    let r = h.get_by_label(&path).rect();
     assert!(r.width() + 1.0 >= words, "whole: {r:?} for {words} of words");
 }
 

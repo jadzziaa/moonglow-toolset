@@ -17,7 +17,7 @@ fn a_name_is_replaced_throughout_a_campaign() {
         return;
     }
     let original = Module::open(&path).unwrap();
-    let mut m = Module::open(&path).unwrap();
+    let mut m = original.clone();
     let o = Options { match_case: true, whole_word: true, ..Default::default() };
     let kinds = TextKind::PLAYERS;
     let hits = find(&m, "Daggerford", o, &kinds);

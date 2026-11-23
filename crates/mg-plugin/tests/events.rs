@@ -70,10 +70,7 @@ fn module(tag: &str) -> Module {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = mg_testkit::scratch_dir(&format!("mg-plugin-ev-{name}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    mg_testkit::scratch_dir(&format!("mg-plugin-ev-{name}"))
 }
 
 fn manifest(api: &str, sections: &str) -> Result<mg_plugin::Manifest, String> {

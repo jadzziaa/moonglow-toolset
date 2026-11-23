@@ -50,7 +50,7 @@ fn a_module_is_served_until_a_line_of_its_log() {
 
     // A line that never comes: a failure at the timeout.
     let (ok, events, _) =
-        serve(&root, &user, &[c, "--dir", s, "--until", "never said", "--timeout", "4"]);
+        serve(&root, &user, &[c, "--dir", s, "--until", "never said", "--timeout", "2"]);
     assert!(!ok && events.last().unwrap()["failed"] == true, "{events:?}");
     // (Meanwhile the server said its module was loaded.)
     assert_eq!(events.iter().filter(|e| e["event"] == "ready").count(), 1, "{events:?}");

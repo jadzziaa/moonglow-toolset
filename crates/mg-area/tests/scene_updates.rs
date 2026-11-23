@@ -17,6 +17,19 @@ use mg_area::{AreaModel, AreaObject, AreaScene, ObjectKind, View};
 use mg_core::ResType;
 use mg_preview::Preview;
 use mg_render::{Gpu, Scene};
+
+fn gpu() -> Option<Gpu> {
+    mg_testkit::gpu::hold();
+    static BASE: std::sync::OnceLock<Option<Gpu>> = std::sync::OnceLock::new();
+    let base = BASE.get_or_init(|| {
+        let g = Gpu::headless();
+        if g.is_none() {
+            eprintln!("skipped: no GPU");
+        }
+        g
+    });
+    base.as_ref().map(|g| Gpu::new(g.device.clone(), g.queue.clone()))
+}
 use mg_resman::{Container, MemContainer, ResError, ResKey};
 use mg_rules::GameData;
 
@@ -121,11 +134,7 @@ fn as_fresh(gpu: &Gpu, game: &GameData, loaded: &AreaScene, area: &AreaModel, wh
 #[test]
 fn objects_move_come_and_go_as_in_a_scene_built_afresh() {
     let (game, reads) = game();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let p = |x: f32, y: f32| Vec3::new(x, y, 0.0);
     let mut area = area(
         &game,
@@ -213,11 +222,7 @@ fn objects_move_come_and_go_as_in_a_scene_built_afresh() {
 #[ignore = "timed by hand, in release"]
 fn one_creature_moved_costs_little() {
     let (game, reads) = game();
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
+    let Some(gpu) = gpu() else { return };
     let names = ["tst_box", "tst_pole", "tst_crate"];
     let objects = (0..2000)
         .map(|i| {

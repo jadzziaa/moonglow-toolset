@@ -25,7 +25,7 @@ pub(crate) struct Set<'a> {
 /// of the base game's and every sixth module.
 pub(crate) fn each_script_set(root: &Path, mut each: impl FnMut(&Set<'_>)) {
     let install = GameInstall::new(root, None, "en");
-    let base = ResMan::for_game(&install).unwrap();
+    let base = mg_testkit::shared_resman(&install).unwrap();
     let names: Vec<String> =
         base.list(ResType::NSS).iter().map(|r| r.to_lowercase().to_string()).collect();
     each(&Set { label: "base".into(), rm: &base, names: &sweep(names, 8), module: None });
@@ -37,7 +37,7 @@ pub(crate) fn each_script_set(root: &Path, mut each: impl FnMut(&Set<'_>)) {
         if names.is_empty() {
             continue;
         }
-        let mut rm = ResMan::for_game(&install).unwrap();
+        let mut rm = mg_testkit::shared_resman(&install).unwrap();
         let (_, wrong) = m.stack_onto(&mut rm, &install);
         assert!(wrong.is_none(), "{}: {wrong:?}", path.display());
         let haks = m.haks().unwrap();

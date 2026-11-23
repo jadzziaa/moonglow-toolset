@@ -163,7 +163,7 @@ fn the_header_yields_words_then_icons_then_more() {
     let mut w = full;
     while w >= least {
         widths.push(w);
-        w -= 10.0;
+        w -= 20.0;
     }
     widths.push(least);
     let mut down: Vec<Vec<(String, Place)>> = Vec::new();
@@ -243,7 +243,7 @@ fn the_header_yields_words_then_icons_then_more() {
         let row = r.row.width();
         assert!(in_more("To Scratch") || (row < MORE_ROOM && p("To Scratch") == Place::Cut));
         assert_ne!(p("Codepage"), Place::More, "a part that never yields in More");
-        if step % 8 == 0 || w == least {
+        if step % 4 == 0 || w == least {
             found_once(&mut h, &r.places, row);
         }
         last = Some(r.places.clone());

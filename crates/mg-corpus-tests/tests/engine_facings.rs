@@ -21,6 +21,7 @@ use common::compile;
 
 #[test]
 fn bearings_and_orientations_face_as_the_engine_reports() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = corpus!();
     if server_binary(&root).is_none() {
         return;

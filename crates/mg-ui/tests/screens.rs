@@ -43,15 +43,22 @@ fn theme() -> mg_uikit::Theme {
 }
 
 /// Where the pictures meant for `dir` go: `dir`, or in the light theme its
-/// namesake under `screens-light/`.
+/// relative subpath under `screens-light/`.
 fn picture_dir(dir: &std::path::Path) -> std::path::PathBuf {
     if !light() {
         return dir.to_path_buf();
     }
-    let name = dir.file_name().expect("a folder");
-    // (Where the tests write, `MOONGLOW_TEST_OUTPUT` where it is set: the
-    // light pictures of a run beside another went to the other's folder.)
-    let light = mg_testkit::test_output().join("screens-light").join(name);
+    let root = mg_testkit::test_output();
+    let light_root = root.join("screens-light");
+    if dir.strip_prefix(&light_root).is_ok() {
+        return dir.to_path_buf();
+    }
+    let rel = if let Ok(rel) = dir.strip_prefix(&root) {
+        rel.strip_prefix("screens").unwrap_or(rel).to_path_buf()
+    } else {
+        std::path::PathBuf::from(dir.file_name().expect("a folder"))
+    };
+    let light = light_root.join(rel);
     std::fs::create_dir_all(&light).unwrap();
     light
 }
@@ -270,9 +277,7 @@ fn color_button_paste() {
     h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
     h.run_steps(3);
     let image = h.render().expect("render");
-    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("../test-output/screens");
-    std::fs::create_dir_all(&path).unwrap();
-    let path = picture_dir(&path);
+    let path = picture_dir(&mg_testkit::output_dir("screens"));
     image.save(path.join("color-button-paste.png")).unwrap();
     // Its right-click menu, the picker closed.
     h.key_press(egui::Key::Escape);
@@ -425,19 +430,17 @@ fn window_bar_maximize_and_an_older_hak() {
 }
 
 /// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
-/// the window after publishing (`nwsync-published`), and, where the
-/// window has it, after Remove Unused Data took a file no manifest names
-/// (`nwsync-pruned`), and Upload by a stand-in command under way
-/// (`nwsync-uploading`) and done (`nwsync-uploaded`). (Run on the code
-/// before the install-and-publish fix
-/// package, the window has no Remove Unused Data and the first picture is
-/// all there is.)
+/// the window after publishing (`nwsync-published`), after Remove Unused
+/// Data took a file no manifest names (`nwsync-pruned`), and Upload by a
+/// stand-in command under way (`nwsync-uploading`) and done
+/// (`nwsync-uploaded`).
 #[test]
 #[ignore]
 fn nwsync_publish_and_prune() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let dir = mg_testkit::output_dir("screens-nwsync");
+    let out = mg_testkit::output_dir("screens-nwsync");
+    let dir = mg_testkit::scratch_dir("screens-nwsync-work");
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     let mut w = mg_erf::ErfWriter::new(*b"HAK ");
@@ -488,7 +491,7 @@ fn nwsync_publish_and_prune() {
     h.get_by_label("Publish").click();
     h.run_steps(1);
     std::thread::sleep(std::time::Duration::from_millis(150));
-    shoot(&mut h, &dir, "nwsync-publishing");
+    shoot(&mut h, &out, "nwsync-publishing");
     for _ in 0..1000 {
         h.run_steps(1);
         if h.state().publish.as_ref().is_some_and(|p| p.written.is_some() || p.error.is_some()) {
@@ -496,8 +499,12 @@ fn nwsync_publish_and_prune() {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    shoot(&mut h, &dir, "nwsync-published");
-    eprintln!("{}", dir.join("nwsync-published.png").display());
+    assert!(
+        h.state().publish.as_ref().is_some_and(|p| p.written.is_some() || p.error.is_some()),
+        "publish timed out"
+    );
+    shoot(&mut h, &out, "nwsync-published");
+    eprintln!("{}", out.join("nwsync-published.png").display());
     if h.query_by_label("Remove Unused Data").is_some() {
         let unused = repo.join("data/sha1/ab/cd").join("ab".repeat(20));
         std::fs::create_dir_all(unused.parent().unwrap()).unwrap();
@@ -507,8 +514,8 @@ fn nwsync_publish_and_prune() {
         std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
         h.get_by_label("Remove Unused Data").click();
         h.run_steps(4);
-        shoot(&mut h, &dir, "nwsync-pruned");
-        eprintln!("{}", dir.join("nwsync-pruned.png").display());
+        shoot(&mut h, &out, "nwsync-pruned");
+        eprintln!("{}", out.join("nwsync-pruned.png").display());
     }
     // Where the window has it: Upload, by a stand-in command (it says
     // which part it sends, and sends nothing anywhere), under way in the
@@ -522,6 +529,7 @@ fn nwsync_publish_and_prune() {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(!h.state().busy(), "prune timed out");
         let p = h.state().publish.as_ref().unwrap();
         let sha1 = std::fs::read_dir(repo.join("manifests"))
             .unwrap()
@@ -544,9 +552,13 @@ fn nwsync_publish_and_prune() {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(
+            h.state().log.entries.iter().any(|e| e.1.contains("sent manifests")),
+            "upload start timed out"
+        );
         h.run_steps(10);
-        shoot(&mut h, &dir, "nwsync-uploading");
-        eprintln!("{}", dir.join("nwsync-uploading.png").display());
+        shoot(&mut h, &out, "nwsync-uploading");
+        eprintln!("{}", out.join("nwsync-uploading.png").display());
         for _ in 0..500 {
             h.run_steps(1);
             if !h.state().busy() {
@@ -554,21 +566,22 @@ fn nwsync_publish_and_prune() {
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        assert!(!h.state().busy(), "upload finish timed out");
         h.run_steps(10);
-        shoot(&mut h, &dir, "nwsync-uploaded");
-        eprintln!("{}", dir.join("nwsync-uploaded.png").display());
+        shoot(&mut h, &out, "nwsync-uploaded");
+        eprintln!("{}", out.join("nwsync-uploaded.png").display());
     }
 }
 
 /// Edit › Undo opened from a hak's editor (`target/test-output/screens-undo/`,
-/// `edit-menu-over-a-hak`): the hak's step, named ("Undo Add files"), where
-/// before the install-and-publish fix package the menu said the module's
-/// step ("Undo A table") and took it.
+/// `edit-menu-over-a-hak`): the hak's own step ("Undo Add files") takes
+/// precedence over the module's step.
 #[test]
 #[ignore]
 fn side_editor_undo_in_the_edit_menu() {
     mg_testkit::gpu::hold();
-    let dir = mg_testkit::output_dir("screens-undo");
+    let out = mg_testkit::output_dir("screens-undo");
+    let dir = mg_testkit::scratch_dir("screens-undo-work");
     let file = dir.join("mg_one.2da");
     std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
     let mut m = mg_module::Module::new();
@@ -596,8 +609,8 @@ fn side_editor_undo_in_the_edit_menu() {
     h.hover_at(h.get_by_label("Add Files…").rect().center());
     h.run_steps(2);
     top_menu(&h, "Edit").click();
-    shoot(&mut h, &dir, "edit-menu-over-a-hak");
-    eprintln!("{}", dir.join("edit-menu-over-a-hak.png").display());
+    shoot(&mut h, &out, "edit-menu-over-a-hak");
+    eprintln!("{}", out.join("edit-menu-over-a-hak.png").display());
 }
 
 /// Closing a hak with a file added (a builder's report against 4.0: the
@@ -624,9 +637,11 @@ fn hak_closing_questions() {
     let hak_path = dir.join("mine.hak");
     hak.save(Some(&hak_path)).unwrap();
     let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        themed(h);
         h.run_steps(3);
+        let out_dir = picture_dir(&out);
         let image = h.render().expect("render");
-        image.save(out.join(format!("{prefix}-{name}.png"))).unwrap();
+        image.save(out_dir.join(format!("{prefix}-{name}.png"))).unwrap();
         // The question, cropped for a phone.
         let label = h.query_all_by_label_contains("Save changes to").next().map(|n| n.rect());
         if let Some(r) = label {
@@ -641,9 +656,9 @@ fn hak_closing_questions() {
             let (x, y, w, hh) =
                 (r.min.x as u32, r.min.y as u32, r.width() as u32, r.height() as u32);
             let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
-            crop.save(out.join(format!("{prefix}-{name}-question.png"))).unwrap();
+            crop.save(out_dir.join(format!("{prefix}-{name}-question.png"))).unwrap();
         }
-        eprintln!("{}", out.join(format!("{prefix}-{name}.png")).display());
+        eprintln!("{}", out_dir.join(format!("{prefix}-{name}.png")).display());
     };
     let open = |added: &std::path::Path| {
         let dialogs =
@@ -2940,21 +2955,30 @@ fn appearance_hover_pictures() {
     };
     let generic = names("genericdoors", "Name", "Label");
     let in_generic = |v: &str| generic.iter().any(|g| g == v);
-    let mut h = pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
-    h.run_steps(4);
-    hover_list_row(&mut h, &in_generic, &in_generic, 3);
-    shoot(&mut h, &dir, "appearance-hover-door-generic");
+    {
+        let mut h =
+            pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
+        h.run_steps(4);
+        hover_list_row(&mut h, &in_generic, &in_generic, 3);
+        shoot(&mut h, &dir, "appearance-hover-door-generic");
+    }
     let types = names("doortypes", "StringRefGame", "Label");
     let in_types = |v: &str| types.iter().any(|t| v.starts_with(t.as_str()));
-    let mut h = pictured_blueprint(&root, &dir, ("nw_door_ttr_01", ResType::UTD), "Basic", size);
-    h.run_steps(4);
-    hover_list_row(&mut h, &in_types, &in_types, 4);
-    shoot(&mut h, &dir, "appearance-hover-door-type");
+    {
+        let mut h =
+            pictured_blueprint(&root, &dir, ("nw_door_ttr_01", ResType::UTD), "Basic", size);
+        h.run_steps(4);
+        hover_list_row(&mut h, &in_types, &in_types, 4);
+        shoot(&mut h, &dir, "appearance-hover-door-type");
+    }
     // The type that is the generic door: the generic door chosen.
-    let mut h = pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
-    h.run_steps(4);
-    hover_list_row(&mut h, &in_types, &|v: &str| v == "Use Generic Appearance", 0);
-    shoot(&mut h, &dir, "appearance-hover-door-type-generic");
+    {
+        let mut h =
+            pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
+        h.run_steps(4);
+        hover_list_row(&mut h, &in_types, &|v: &str| v == "Use Generic Appearance", 0);
+        shoot(&mut h, &dir, "appearance-hover-door-type-generic");
+    }
     let number = |v: &str| v.parse::<u32>().is_ok();
     for (name, value, rows, row, woman) in [
         (
@@ -3089,14 +3113,17 @@ fn shown_on_a_woman() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let size = egui::vec2(1200.0, 800.0);
-    let mut h = pictured_blueprint(&root, &dir, ("nw_bandit001", ResType::UTC), "Inventory", size);
-    h.state_mut().settings.no_inventory_warning = true;
-    h.run_steps(4);
-    for woman in [false, true] {
-        h.state_mut().settings.armor_on_woman = woman;
-        h.run_steps(6);
-        let on = if woman { "woman" } else { "man" };
-        shoot(&mut h, &dir, &format!("shown-on-{on}-inventory"));
+    {
+        let mut h =
+            pictured_blueprint(&root, &dir, ("nw_bandit001", ResType::UTC), "Inventory", size);
+        h.state_mut().settings.no_inventory_warning = true;
+        h.run_steps(4);
+        for woman in [false, true] {
+            h.state_mut().settings.armor_on_woman = woman;
+            h.run_steps(6);
+            let on = if woman { "woman" } else { "man" };
+            shoot(&mut h, &dir, &format!("shown-on-{on}-inventory"));
+        }
     }
     let mut h = pictured_blueprint(&root, &dir, ("nw_aarcl001", ResType::UTI), "General", size);
     h.run_steps(2);
@@ -4139,37 +4166,39 @@ fn update_install() {
             .wgpu()
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
     };
-    let server = serve(&key);
-    let mut h = app_for(&server, Some(key.public()));
-    h.run();
-    shoot(&mut h, &dir, "update-notice-install");
-    h.get_by_label("What's New…").click();
-    shoot(&mut h, &dir, "update-whats-new");
-    // Half way (the server holds the rest back for a while).
-    let stored = format!("/files/v3.3.0/{name}");
-    server.put(
-        &stored,
-        Reply::Stall {
-            body: body.clone(),
-            sent: 17_000_000,
-            wait: std::time::Duration::from_secs(3),
-        },
-    );
-    h.state_mut().background_jobs = true;
-    h.get_all_by_label("Install Now").last().unwrap().click();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while h.state().updates.getting.as_ref().is_none_or(|g| g.progress().0 < 17_000_000) {
-        assert!(std::time::Instant::now() < deadline, "no progress");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        h.run_steps(1);
+    {
+        let server = serve(&key);
+        let mut h = app_for(&server, Some(key.public()));
+        h.run();
+        shoot(&mut h, &dir, "update-notice-install");
+        h.get_by_label("What's New…").click();
+        shoot(&mut h, &dir, "update-whats-new");
+        // Half way (the server holds the rest back for a while).
+        let stored = format!("/files/v3.3.0/{name}");
+        server.put(
+            &stored,
+            Reply::Stall {
+                body: body.clone(),
+                sent: 17_000_000,
+                wait: std::time::Duration::from_secs(3),
+            },
+        );
+        h.state_mut().background_jobs = true;
+        h.get_all_by_label("Install Now").last().unwrap().click();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while h.state().updates.getting.as_ref().is_none_or(|g| g.progress().0 < 17_000_000) {
+            assert!(std::time::Instant::now() < deadline, "no progress");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            h.run_steps(1);
+        }
+        shoot(&mut h, &dir, "update-downloading");
+        while h.state().updates.getting.as_ref().is_some_and(|g| g.ready().is_none()) {
+            assert!(std::time::Instant::now() < deadline, "not downloaded");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            h.run_steps(1);
+        }
+        shoot(&mut h, &dir, "update-restart");
     }
-    shoot(&mut h, &dir, "update-downloading");
-    while h.state().updates.getting.as_ref().is_some_and(|g| g.ready().is_none()) {
-        assert!(std::time::Instant::now() < deadline, "not downloaded");
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        h.run_steps(1);
-    }
-    shoot(&mut h, &dir, "update-restart");
 
     // Signed by another key: refused.
     let other = mg_testkit::signing::TestKey::new();
@@ -7099,72 +7128,78 @@ fn readme_screenshots() {
     let key = |name: &str, t: ResType| ResKey::parse(name, t).unwrap();
 
     // The area view, with the palette beside it.
-    let mut h = harness();
-    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
-    h.run_steps(3);
-    show_palette(h.state_mut());
-    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
-    h.state_mut().palette.tiles = false;
-    h.run_steps(5);
     {
-        let view = h.state_mut().area_views.get_mut(&area).unwrap();
-        for k in [
-            mg_area::ObjectKind::Trigger,
-            mg_area::ObjectKind::Encounter,
-            mg_area::ObjectKind::Sound,
-            mg_area::ObjectKind::Waypoint,
-        ] {
-            view.show[k.index()] = false;
+        let mut h = harness();
+        let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        h.run_steps(3);
+        show_palette(h.state_mut());
+        h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+        h.state_mut().palette.tiles = false;
+        h.run_steps(5);
+        {
+            let view = h.state_mut().area_views.get_mut(&area).unwrap();
+            for k in [
+                mg_area::ObjectKind::Trigger,
+                mg_area::ObjectKind::Encounter,
+                mg_area::ObjectKind::Sound,
+                mg_area::ObjectKind::Waypoint,
+            ] {
+                view.show[k.index()] = false;
+            }
+            view.show_start = false;
+            view.grid = false;
+            if let Some(o) = &mut view.orbit {
+                o.pitch = 34f32.to_radians();
+                o.yaw = -55f32.to_radians();
+                o.distance *= 0.42;
+                o.target.x -= 8.0;
+            }
         }
-        view.show_start = false;
-        view.grid = false;
-        if let Some(o) = &mut view.orbit {
-            o.pitch = 34f32.to_radians();
-            o.yaw = -55f32.to_radians();
-            o.distance *= 0.42;
-            o.target.x -= 8.0;
-        }
+        h.run_steps(10);
+        shoot(&mut h, &dir, "area");
     }
-    h.run_steps(10);
-    shoot(&mut h, &dir, "area");
 
     // Aribeth's conversation.
-    let mut h = harness();
-    let dlg = mg_ui::Tab::Dialog(key("m1q1faribeth", ResType::DLG));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(dlg.clone()));
-    h.run_steps(3);
-    place(&mut h, &dlg, (250.0, 70.0), (1320.0, 725.0));
-    h.run_steps(5);
-    shoot(&mut h, &dir, "conversation");
+    {
+        let mut h = harness();
+        let dlg = mg_ui::Tab::Dialog(key("m1q1faribeth", ResType::DLG));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(dlg.clone()));
+        h.run_steps(3);
+        place(&mut h, &dlg, (250.0, 70.0), (1320.0, 725.0));
+        h.run_steps(5);
+        shoot(&mut h, &dir, "conversation");
+    }
 
     // Aribeth: her blueprint beside her model.
-    let mut h = harness();
-    let utc = key("m1q1faribeth", ResType::UTC);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
-    h.run_steps(3);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(utc)));
-    h.run_steps(3);
-    // (Side by side, nothing of the editor's form under the model's
-    // window, and no gap between them, where what is behind showed. Each
-    // is put twice: egui holds a window inside the screen by the size it
-    // had the frame before (its `Area`'s constrain), so the model's
-    // window, opened wider than it is put, was pushed back to x 820; put
-    // again once it is narrow, it stays. Moonglow re-puts so in its own
-    // two cases (`lib.rs`'s `remember_window_sizes`, `track.aim`, and a
-    // NUI design's window put back narrow).)
-    let model = mg_ui::Tab::Model(utc);
-    for (tab, x, w) in [(mg_ui::Tab::Blueprint(utc), 250.0, 760.0), (model, 1010.0, 580.0)] {
-        for _ in 0..2 {
-            place(&mut h, &tab, (x, 70.0), (w, 725.0));
-            h.run_steps(5);
+    {
+        let mut h = harness();
+        let utc = key("m1q1faribeth", ResType::UTC);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(utc)));
+        h.run_steps(3);
+        // (Side by side, nothing of the editor's form under the model's
+        // window, and no gap between them, where what is behind showed. Each
+        // is put twice: egui holds a window inside the screen by the size it
+        // had the frame before (its `Area`'s constrain), so the model's
+        // window, opened wider than it is put, was pushed back to x 820; put
+        // again once it is narrow, it stays. Moonglow re-puts so in its own
+        // two cases (`lib.rs`'s `remember_window_sizes`, `track.aim`, and a
+        // NUI design's window put back narrow).)
+        let model = mg_ui::Tab::Model(utc);
+        for (tab, x, w) in [(mg_ui::Tab::Blueprint(utc), 250.0, 760.0), (model, 1010.0, 580.0)] {
+            for _ in 0..2 {
+                place(&mut h, &tab, (x, 70.0), (w, 725.0));
+                h.run_steps(5);
+            }
         }
+        h.run_steps(20);
+        let shown =
+            h.query_all_by_label("m1q1faribeth.utc").map(|n| n.rect().left()).fold(0.0, f32::max);
+        assert!(shown > 1010.0, "the model's tab at its window's place, not at {shown}");
+        shoot(&mut h, &dir, "creature");
     }
-    h.run_steps(20);
-    let shown =
-        h.query_all_by_label("m1q1faribeth.utc").map(|n| n.rect().left()).fold(0.0, f32::max);
-    assert!(shown > 1010.0, "the model's tab at its window's place, not at {shown}");
-    shoot(&mut h, &dir, "creature");
 
     // A script.
     let mut h = harness();
@@ -7983,6 +8018,7 @@ fn nui_saved_window() {
     let (path, before, keys) = nui_saved_module();
     let [key] = keys[..] else { panic!("NUI_PREVIEW_RESREF names one window of the module") };
     let mut h = nui_harness(nui_saved_app(&root, &path), key, (1600.0, 1040.0));
+    themed(&mut h);
     h.run_steps(3);
     h.render().expect("render").save(output).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), before, "the module is not written");
@@ -11274,9 +11310,11 @@ fn shell_by_hand() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
-    unfold_left_dock(&mut h);
-    shoot(&mut h, &dir, "shell_by_hand_1280_left");
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1280.0, 800.0));
+        unfold_left_dock(&mut h);
+        shoot(&mut h, &dir, "shell_by_hand_1280_left");
+    }
     let mut h = shell_with_area(&root, egui::vec2(420.0, 800.0));
     h.step();
     h.get_by_label("Show the Right Dock").click();
@@ -11377,77 +11415,79 @@ fn shell_doc_tabs() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    board_tabs(&mut h);
-    shoot(&mut h, &dir, "shell_groups_left");
-    let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
-    let tab_rect =
-        |h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab| h.state().tab_rect(tab).expect("drawn");
-    let at = tab_rect(&h, &script).center();
-    // (The press and the release in frames of their own, as a click.)
-    for pressed in [true, false] {
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+        board_tabs(&mut h);
+        shoot(&mut h, &dir, "shell_groups_left");
+        let script = mg_ui::Tab::Script(ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap());
+        let tab_rect =
+            |h: &Harness<'_, Moonglow>, tab: &mg_ui::Tab| h.state().tab_rect(tab).expect("drawn");
+        let at = tab_rect(&h, &script).center();
+        // (The press and the release in frames of their own, as a click.)
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+        }
+        frames_until(&mut h, "the script's group focused", |h| {
+            h.state().active_editor() == Some(&script)
+        });
+        shoot(&mut h, &dir, "shell_groups_right");
+        // The script typed in: its dot too.
+        let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+        h.state_mut().script_tools.jump = Some((key, 0));
+        let editor = egui::Id::new(("script", key));
+        let started = std::time::Instant::now();
+        while !h.ctx.memory(|m| m.has_focus(editor)) {
+            assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
+            h.step();
+        }
+        h.event(egui::Event::Text("// ".into()));
+        frames_until(&mut h, "the script's dot", |h| {
+            h.get_all_by_role(egui::accesskit::Role::Tab).any(|n| {
+                let node = n.accesskit_node();
+                node.label().as_deref() == Some("m1q3_formosa_9.nss")
+                    && node.description().as_deref() == Some("Modified")
+            })
+        });
+        shoot(&mut h, &dir, "shell_tabs_modified");
+        // Module Properties under the pointer.
+        let module = tab_rect(&h, &mg_ui::Tab::ModuleProperties);
+        h.hover_at(module.center());
+        frames_until(&mut h, "its close button", |h| {
+            h.query_by_label("Close Module Properties").is_some()
+        });
+        shoot(&mut h, &dir, "shell_tabs_hover");
+        // Faribeth's tab held and dragged down over the area's view.
+        let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
+        let from = tab_rect(&h, &utc).center();
+        h.hover_at(from);
+        h.step();
+        // (A frame for each event of the drag: the press, then each move.)
         h.event(egui::Event::PointerButton {
-            pos: at,
+            pos: from,
             button: egui::PointerButton::Primary,
-            pressed,
+            pressed: true,
             modifiers: egui::Modifiers::NONE,
         });
         h.step();
+        for i in 1..=12 {
+            h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
+            h.step();
+        }
+        shoot(&mut h, &dir, "shell_tab_dragged");
+        h.event(egui::Event::PointerButton {
+            pos: from + egui::vec2(120.0, 240.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        frames_until(&mut h, "the drag over", |h| h.ctx.dragged_id().is_none());
     }
-    frames_until(&mut h, "the script's group focused", |h| {
-        h.state().active_editor() == Some(&script)
-    });
-    shoot(&mut h, &dir, "shell_groups_right");
-    // The script typed in: its dot too.
-    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
-    h.state_mut().script_tools.jump = Some((key, 0));
-    let editor = egui::Id::new(("script", key));
-    let started = std::time::Instant::now();
-    while !h.ctx.memory(|m| m.has_focus(editor)) {
-        assert!(started.elapsed().as_secs() < 10, "the script's editor never had the keys");
-        h.step();
-    }
-    h.event(egui::Event::Text("// ".into()));
-    frames_until(&mut h, "the script's dot", |h| {
-        h.get_all_by_role(egui::accesskit::Role::Tab).any(|n| {
-            let node = n.accesskit_node();
-            node.label().as_deref() == Some("m1q3_formosa_9.nss")
-                && node.description().as_deref() == Some("Modified")
-        })
-    });
-    shoot(&mut h, &dir, "shell_tabs_modified");
-    // Module Properties under the pointer.
-    let module = tab_rect(&h, &mg_ui::Tab::ModuleProperties);
-    h.hover_at(module.center());
-    frames_until(&mut h, "its close button", |h| {
-        h.query_by_label("Close Module Properties").is_some()
-    });
-    shoot(&mut h, &dir, "shell_tabs_hover");
-    // Faribeth's tab held and dragged down over the area's view.
-    let utc = mg_ui::Tab::Blueprint(ResKey::parse("m1q1faribeth", ResType::UTC).unwrap());
-    let from = tab_rect(&h, &utc).center();
-    h.hover_at(from);
-    h.step();
-    // (A frame for each event of the drag: the press, then each move.)
-    h.event(egui::Event::PointerButton {
-        pos: from,
-        button: egui::PointerButton::Primary,
-        pressed: true,
-        modifiers: egui::Modifiers::NONE,
-    });
-    h.step();
-    for i in 1..=12 {
-        h.event(egui::Event::PointerMoved(from + egui::vec2(10.0 * i as f32, 20.0 * i as f32)));
-        h.step();
-    }
-    shoot(&mut h, &dir, "shell_tab_dragged");
-    h.event(egui::Event::PointerButton {
-        pos: from + egui::vec2(120.0, 240.0),
-        button: egui::PointerButton::Primary,
-        pressed: false,
-        modifiers: egui::Modifiers::NONE,
-    });
-    frames_until(&mut h, "the drag over", |h| h.ctx.dragged_id().is_none());
     // Thirty tabs in 800 points.
     let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
     h.state_mut().settings.window_places = vec![("script".into(), "middle".into())];
@@ -11931,6 +11971,7 @@ fn shell_right_dock_narrow() {
 #[test]
 #[ignore]
 fn shell_right_dock_no_game() {
+    mg_testkit::gpu::hold();
     let dir = mg_testkit::output_dir("screens").join("shell");
     std::fs::create_dir_all(&dir).unwrap();
     let scratch = mg_testkit::scratch_dir("screens-right-dock-no-game");
@@ -12458,12 +12499,8 @@ fn palette_gallery_of(
     h.run_steps(5);
 }
 
-/// Main.png: the area editor As Tabs. Today: the board's header row (M4's
-/// U3; its popovers closed, the board has Overlays open), but no tool
-/// shelf and compass (Select Tiles, Paint, Reorient Camera and Go to
-/// Start Location in its More until U4); no Properties panel under the
-/// Right Dock's Palette (the selection's Properties open in a tab of
-/// their own); the minimap at the view's top right.
+/// Area editor in docked tabs: header row, tool shelf and compass, Right
+/// Dock with Palette and Properties, and minimap at top right.
 #[test]
 #[ignore]
 fn board_main() {
@@ -12603,9 +12640,8 @@ fn board_main_problems() {
     shoot(&mut h, &board_dir(), "board_main_problems");
 }
 
-/// Narrow.png at 1280 by 800: the compact header (M4's U3), but no tool
-/// strip at the view's left; the Right Dock has no Properties tab beside
-/// Palette and Preview.
+/// Area editor at 1280 by 800: compact header and tool strip, with
+/// Palette, Preview, and Properties tabs in the Right Dock.
 #[test]
 #[ignore]
 fn board_narrow() {
@@ -12665,12 +12701,14 @@ fn board_main_overlays() {
 fn board_wide_sizes() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
-    let least = mg_ui::RIGHT_DOCK_LEAST.round() as u32;
-    h.state_mut().settings.right_dock_width = Some(least);
-    h.state_mut().settings.right_dock_width_wide = Some(least);
-    h.run_steps(6);
-    shoot(&mut h, &board_dir(), "board_wide_least_dock");
+    {
+        let mut h = board_window(&root, egui::vec2(3440.0, 1440.0));
+        let least = mg_ui::RIGHT_DOCK_LEAST.round() as u32;
+        h.state_mut().settings.right_dock_width = Some(least);
+        h.state_mut().settings.right_dock_width_wide = Some(least);
+        h.run_steps(6);
+        shoot(&mut h, &board_dir(), "board_wide_least_dock");
+    }
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     shoot(&mut h, &board_dir(), "board_wide_1600");
 }
@@ -12698,11 +12736,9 @@ fn board_floating() {
     shoot(&mut h, &board_dir(), "board_floating");
 }
 
-/// AreaPaint.png: Paint on with two bushes chosen (`x3_plc_bush001`,
-/// `x3_plc_bush002`), the brush's circle on the ground under the pointer.
-/// Today Paint's settings are the second strip under the toolbar, not the
-/// board's Brush popover; the palette shows no Brush section with the
-/// two chosen.
+/// Area paint mode with two bushes chosen (`x3_plc_bush001`,
+/// `x3_plc_bush002`), the brush popover open, and the brush circle on the
+/// ground under the pointer.
 #[test]
 #[ignore]
 fn board_area_paint() {
@@ -13436,31 +13472,37 @@ fn board_script_pitch() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = board_dir();
-    let mut h = board_window(&root, mg_ui::LEAST_WINDOW_SIZE);
-    board_front(&mut h, &board_script_tab());
-    board_script_state(&mut h);
-    shoot(&mut h, &dir, "board_script_least");
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    board_front(&mut h, &board_script_tab());
-    h.state_mut().actions.push(mg_ui::Action::SplitEditor);
-    frames_until(&mut h, "two editor groups", |h| {
-        h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
-    });
-    board_script_state(&mut h);
-    let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
-    let text = h.state().script_text(key).unwrap();
-    let (from, to) =
-        (mg_ui::script_tools::line_start(&text, 17), mg_ui::script_tools::line_start(&text, 20));
-    let id = egui::Id::new(("script", key));
-    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
-    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-        egui::text::CCursor::new(text[..from].chars().count()),
-        egui::text::CCursor::new(text[..to].chars().count() + 6),
-    )));
-    state.store(&h.ctx, id);
-    h.ctx.memory_mut(|m| m.request_focus(id));
-    h.run_steps(5);
-    shoot(&mut h, &dir, "board_script_split");
+    {
+        let mut h = board_window(&root, mg_ui::LEAST_WINDOW_SIZE);
+        board_front(&mut h, &board_script_tab());
+        board_script_state(&mut h);
+        shoot(&mut h, &dir, "board_script_least");
+    }
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        board_front(&mut h, &board_script_tab());
+        h.state_mut().actions.push(mg_ui::Action::SplitEditor);
+        frames_until(&mut h, "two editor groups", |h| {
+            h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main()).count() == 2
+        });
+        board_script_state(&mut h);
+        let key = ResKey::parse("m1q3_formosa_9", ResType::NSS).unwrap();
+        let text = h.state().script_text(key).unwrap();
+        let (from, to) = (
+            mg_ui::script_tools::line_start(&text, 17),
+            mg_ui::script_tools::line_start(&text, 20),
+        );
+        let id = egui::Id::new(("script", key));
+        let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(text[..from].chars().count()),
+            egui::text::CCursor::new(text[..to].chars().count() + 6),
+        )));
+        state.store(&h.ctx, id);
+        h.ctx.memory_mut(|m| m.request_focus(id));
+        h.run_steps(5);
+        shoot(&mut h, &dir, "board_script_split");
+    }
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     board_front(&mut h, &board_script_tab());
     board_script_state(&mut h);
@@ -13543,15 +13585,17 @@ fn conversation_panels() {
         chosen(&mut h);
         shoot(&mut h, &dir, name);
     }
-    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
-    frames_until(&mut h, "the conversation drawn", |h| h.state().tab_rect(&tab).is_some());
-    place(&mut h, &tab, (250.0, 110.0), (1100.0, 700.0));
-    chosen(&mut h);
-    shoot(&mut h, &dir, "conversation-floating");
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        frames_until(&mut h, "the conversation drawn", |h| h.state().tab_rect(&tab).is_some());
+        place(&mut h, &tab, (250.0, 110.0), (1100.0, 700.0));
+        chosen(&mut h);
+        shoot(&mut h, &dir, "conversation-floating");
+    }
     // A window the kind kept at 920 by 700, too narrow for its Outliner's
     // pane beside the tree's room: folded to its strip, then unfolded over
-    // the tree (M4's U15 review).
+    // the tree.
     let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
     h.state_mut().settings.window_sizes = vec![("dialog".to_string(), [920, 700])];
     h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -13681,70 +13725,82 @@ fn table_panels() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = board_dir();
-    let mut h = board_window(&root, egui::vec2(1280.0, 900.0));
-    let id = board_spells(&mut h);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-1280");
+    {
+        let mut h = board_window(&root, egui::vec2(1280.0, 900.0));
+        let id = board_spells(&mut h);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-1280");
+    }
     // (A window kept wide enough for both panes beside the grid's room.)
-    let mut h = shell_with_area(&root, egui::vec2(1920.0, 1080.0));
-    h.state_mut().settings.window_sizes = vec![("table".to_string(), [1640, 820])];
-    let id = board_spells(&mut h);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-floating");
-    let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
-    h.state_mut().settings.window_sizes = vec![("table".to_string(), [1100, 700])];
-    let id = board_spells(&mut h);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-floating-strip");
-    let strip = h.get_by_label(mg_ui::dialog_view::OUTLINER_STRIP);
-    strip.get_by_label(mg_ui::OUTLINER).click();
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-floating-strip-open");
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
-    board_front(&mut h, &mg_ui::Tab::Resource(key));
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-read-only");
-    // (Its cursor: a row of the game's later copy, given the keys.)
-    h.get_by_label("Acid_Fog").click();
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-read-only-cursor");
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1920.0, 1080.0));
+        h.state_mut().settings.window_sizes = vec![("table".to_string(), [1640, 820])];
+        let id = board_spells(&mut h);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-floating");
+    }
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1600.0, 900.0));
+        h.state_mut().settings.window_sizes = vec![("table".to_string(), [1100, 700])];
+        let id = board_spells(&mut h);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-floating-strip");
+        let strip = h.get_by_label(mg_ui::dialog_view::OUTLINER_STRIP);
+        strip.get_by_label(mg_ui::OUTLINER).click();
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-floating-strip-open");
+    }
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+        board_front(&mut h, &mg_ui::Tab::Resource(key));
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-read-only");
+        // (Its cursor: a row of the game's later copy, given the keys.)
+        h.get_by_label("Acid_Fog").click();
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-read-only-cursor");
+    }
     // The wrong cell (a string the module's talk table has not) with the
     // keys: its red text and outline on the cursor's fill.
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    let id = board_spells(&mut h);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
-    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
-    let name = doc.edit.table().column("Name").unwrap();
-    doc.go_to(30, name);
-    mg_ui::table_view::take_keys(&h.ctx, id);
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-wrong-cursor");
-    // No module open (M4's U16 review): the game's spells.2da as a file,
-    // its columns the Left Dock's Outliner alone, a STRING_REF cell chosen.
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        let id = board_spells(&mut h);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        let name = doc.edit.table().column("Name").unwrap();
+        doc.go_to(30, name);
+        mg_ui::table_view::take_keys(&h.ctx, id);
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-wrong-cursor");
+    }
+    // No module open: the game's spells.2da as a file, its columns the
+    // Left Dock's Outliner alone, a STRING_REF cell chosen.
     let files = mg_testkit::scratch_dir("screens-table-no-module");
-    let mut h = no_module_window(&root, egui::vec2(1600.0, 900.0));
-    let (data, name) = {
-        let game = h.state().game.as_deref().unwrap();
-        let t = game.table("spells").unwrap();
-        (t.to_bytes(game.codepage()).unwrap(), t.column("Name").unwrap())
-    };
-    std::fs::write(files.join("spells.2da"), data).unwrap();
-    let id = mg_ui::table_view::open_path(h.state_mut(), &files.join("spells.2da")).unwrap();
-    h.run_steps(3);
-    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().selected = Some((9, name));
-    mg_ui::table_view::take_keys(&h.ctx, id);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-no-module");
+    {
+        let mut h = no_module_window(&root, egui::vec2(1600.0, 900.0));
+        let (data, name) = {
+            let game = h.state().game.as_deref().unwrap();
+            let t = game.table("spells").unwrap();
+            (t.to_bytes(game.codepage()).unwrap(), t.column("Name").unwrap())
+        };
+        std::fs::write(files.join("spells.2da"), data).unwrap();
+        let id = mg_ui::table_view::open_path(h.state_mut(), &files.join("spells.2da")).unwrap();
+        h.run_steps(3);
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().selected = Some((9, name));
+        mg_ui::table_view::take_keys(&h.ctx, id);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table in front", |h| h.state().active_editor() == Some(&tab));
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-no-module");
+    }
     // A list of 300 values (a description of ours) in Cell: one list in a
     // frame a few rows high, its value chosen in sight.
     let files = mg_testkit::scratch_dir("screens-table-long-list");
@@ -13831,24 +13887,26 @@ fn talk_one_tab() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = board_dir();
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    board_own_talk(&mut h);
-    board_front(&mut h, &mg_ui::Tab::TalkTable);
-    h.state_mut().talk_view.go_to_line(7);
-    h.run_steps(5);
-    let mut line = h.state().talk.as_ref().unwrap().line(7);
-    line.text.push_str(" Not saved yet.");
-    h.state_mut().talk.as_mut().unwrap().set_line(7, &line, None).unwrap();
-    board_game_talk(&mut h);
-    h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
-    h.run_steps(5);
-    // (More › Module's Table.)
-    h.get_by_label(mg_ui::talk_view::TALK_HEADER).get_by_label("More").click();
-    h.run_steps(3);
-    h.get_by_label(mg_ui::talk_view::MODULE_S_TABLE).click();
-    frames_until(&mut h, "the module's table back", |h| h.state().game_talk.is_none());
-    h.run_steps(10);
-    shoot(&mut h, &dir, "talk-returned");
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        board_own_talk(&mut h);
+        board_front(&mut h, &mg_ui::Tab::TalkTable);
+        h.state_mut().talk_view.go_to_line(7);
+        h.run_steps(5);
+        let mut line = h.state().talk.as_ref().unwrap().line(7);
+        line.text.push_str(" Not saved yet.");
+        h.state_mut().talk.as_mut().unwrap().set_line(7, &line, None).unwrap();
+        board_game_talk(&mut h);
+        h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
+        h.run_steps(5);
+        // (More › Module's Table.)
+        h.get_by_label(mg_ui::talk_view::TALK_HEADER).get_by_label("More").click();
+        h.run_steps(3);
+        h.get_by_label(mg_ui::talk_view::MODULE_S_TABLE).click();
+        frames_until(&mut h, "the module's table back", |h| h.state().game_talk.is_none());
+        h.run_steps(10);
+        shoot(&mut h, &dir, "talk-returned");
+    }
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
     board_game_talk(&mut h);
     h.state_mut().game_talk.as_mut().unwrap().view.go_to_line(18608);
@@ -13949,12 +14007,14 @@ fn floating_first_sizes() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = board_dir();
-    let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
-    let id = board_spells(&mut h);
-    let tab = mg_ui::Tab::Table(id);
-    frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
-    h.run_steps(10);
-    shoot(&mut h, &dir, "table-floating-720");
+    {
+        let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
+        let id = board_spells(&mut h);
+        let tab = mg_ui::Tab::Table(id);
+        frames_until(&mut h, "the table drawn", |h| h.state().tab_rect(&tab).is_some());
+        h.run_steps(10);
+        shoot(&mut h, &dir, "table-floating-720");
+    }
     let mut h = shell_with_area(&root, egui::vec2(1280.0, 720.0));
     let key = ResKey::parse("m1q1faribeth", ResType::DLG).unwrap();
     let tab = mg_ui::Tab::Dialog(key);
@@ -14150,10 +14210,8 @@ fn nui_panels() {
     }
 }
 
-/// Tileset.png: the game's `tcn01.set` (a copy) in the tileset editor As
-/// Tabs, on Tiles, tile 16 chosen. Today the pages are selectables over a
-/// page, the tile's fields beside the list; no Preview and Textures in the
-/// Right Dock, no Outliner of the tileset's parts, no Problems panel.
+/// Tileset editor in docked tabs on `tcn01.set`, Tiles page, tile 16
+/// selected with Right Dock Preview/Textures and Left Dock Outliner.
 #[test]
 #[ignore]
 fn board_tileset() {
@@ -14217,70 +14275,77 @@ fn tileset_panels() {
         h.state_mut().tilesets[0].page = page;
         h.run_steps(10);
     };
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    open(&mut h, &tcn, "tcn01.set");
-    use mg_ui::tileset_view::Page;
-    for (p, shot) in [
-        (Page::General, "tileset-general"),
-        (Page::Terrain, "tileset-terrain"),
-        (Page::Rules, "tileset-rules"),
-        (Page::Groups, "tileset-groups"),
-    ] {
-        page(&mut h, p);
-        shoot(&mut h, &dir, shot);
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        open(&mut h, &tcn, "tcn01.set");
+        use mg_ui::tileset_view::Page;
+        for (p, shot) in [
+            (Page::General, "tileset-general"),
+            (Page::Terrain, "tileset-terrain"),
+            (Page::Rules, "tileset-rules"),
+            (Page::Groups, "tileset-groups"),
+        ] {
+            page(&mut h, p);
+            shoot(&mut h, &dir, shot);
+        }
+        page(&mut h, Page::Tiles);
+        h.get_by_label("Status Bar").get_by_label("Problems").click();
+        h.run_steps(10);
+        shoot(&mut h, &dir, "tileset-problems-empty");
+        // Check's findings: a model nowhere and a group's first tile -1.
+        let mut text = String::from_utf8_lossy(&tcn).into_owned();
+        let model = mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[17]
+            .model
+            .clone();
+        text = text.replacen(&format!("Model={model}"), "Model=tcn01_zz17", 1);
+        let group = text.find("[GROUP0]").unwrap();
+        let tile0 = group + text[group..].find("Tile0=").unwrap();
+        let end = tile0 + text[tile0..].find("\r\n").unwrap();
+        text.replace_range(tile0..end, "Tile0=-1");
+        h.state_mut().tilesets[0].change(|f| *f = mg_set::edit::SetFile::parse(&text));
+        h.run_steps(5);
+        h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
+            .get_by_label(mg_ui::tileset_view::CHECK)
+            .click();
+        h.run_steps(10);
+        shoot(&mut h, &dir, "tileset-problems");
+        // A stale set beside a current one (U20's review): a second copy
+        // checked, the first changed since its Check.
+        let first = h.state().tilesets[0].id;
+        let two = scratch.join("tcn02.set");
+        std::fs::write(&two, text.as_bytes()).unwrap();
+        mg_ui::tileset_view::open_path(h.state_mut(), two);
+        h.run_steps(10);
+        h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
+            .get_by_label(mg_ui::tileset_view::CHECK)
+            .click();
+        h.run_steps(10);
+        if let Some(d) = h.state_mut().tilesets.iter_mut().find(|d| d.id == first) {
+            d.change(|f| f.set("TILE16", "PathNode", "Q"));
+        }
+        h.run_steps(10);
+        shoot(&mut h, &dir, "tileset-problems-stale");
     }
-    page(&mut h, Page::Tiles);
-    h.get_by_label("Status Bar").get_by_label("Problems").click();
-    h.run_steps(10);
-    shoot(&mut h, &dir, "tileset-problems-empty");
-    // Check's findings: a model nowhere and a group's first tile -1.
-    let mut text = String::from_utf8_lossy(&tcn).into_owned();
-    let model =
-        mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[17].model.clone();
-    text = text.replacen(&format!("Model={model}"), "Model=tcn01_zz17", 1);
-    let group = text.find("[GROUP0]").unwrap();
-    let tile0 = group + text[group..].find("Tile0=").unwrap();
-    let end = tile0 + text[tile0..].find("\r\n").unwrap();
-    text.replace_range(tile0..end, "Tile0=-1");
-    h.state_mut().tilesets[0].change(|f| *f = mg_set::edit::SetFile::parse(&text));
-    h.run_steps(5);
-    h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
-        .get_by_label(mg_ui::tileset_view::CHECK)
-        .click();
-    h.run_steps(10);
-    shoot(&mut h, &dir, "tileset-problems");
-    // A stale set beside a current one (U20's review): a second copy
-    // checked, the first changed since its Check.
-    let first = h.state().tilesets[0].id;
-    let two = scratch.join("tcn02.set");
-    std::fs::write(&two, text.as_bytes()).unwrap();
-    mg_ui::tileset_view::open_path(h.state_mut(), two);
-    h.run_steps(10);
-    h.get_by_label(mg_ui::tileset_view::TILESET_HEADER)
-        .get_by_label(mg_ui::tileset_view::CHECK)
-        .click();
-    h.run_steps(10);
-    if let Some(d) = h.state_mut().tilesets.iter_mut().find(|d| d.id == first) {
-        d.change(|f| f.set("TILE16", "PathNode", "Q"));
-    }
-    h.run_steps(10);
-    shoot(&mut h, &dir, "tileset-problems-stale");
     // A hole chosen: tile 20 with no model.
     let mut hole = String::from_utf8_lossy(&tcn).into_owned();
     let model20 =
         mg_set::Tileset::parse(&tcn, mg_core::Codepage::default()).unwrap().tiles[20].model.clone();
     hole = hole.replacen(&format!("Model={model20}\r\n"), "", 1);
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    open(&mut h, hole.as_bytes(), "tcn01.set");
-    h.state_mut().tilesets[0].tile = Some(20);
-    h.run_steps(10);
-    shoot(&mut h, &dir, "tileset-hole");
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        open(&mut h, hole.as_bytes(), "tcn01.set");
+        h.state_mut().tilesets[0].tile = Some(20);
+        h.run_steps(10);
+        shoot(&mut h, &dir, "tileset-hole");
+    }
     // The Preview's 3D view drawn, paused (a window tall enough for it
     // under the diagram).
-    let mut h = board_window(&root, egui::vec2(1600.0, 1400.0));
-    open(&mut h, &tcn, "tcn01.set");
-    h.run_steps(20);
-    shoot(&mut h, &dir, "tileset-3d-paused");
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 1400.0));
+        open(&mut h, &tcn, "tcn01.set");
+        h.run_steps(20);
+        shoot(&mut h, &dir, "tileset-3d-paused");
+    }
     for (shot, width) in [("tileset-1280", 1280.0), ("tileset-narrow", 1000.0)] {
         let mut h = board_window(&root, egui::vec2(width, 900.0));
         open(&mut h, &tcn, "tcn01.set");
@@ -14302,11 +14367,8 @@ fn tileset_panels() {
     shoot(&mut h, &dir, "tileset-read-only");
 }
 
-/// Hak.png: a game hak (`id_resources.hak`, opened, never saved) in the
-/// hak editor As Tabs, its models found by ".mdl". The board's module is
-/// Neverwinter Chess; Chapter1 here. Today the rows of tools and the
-/// preview in the editor's lower part, not the board's header, Preview
-/// and Details panels in the Right Dock and Outliner by type.
+/// Hak editor in docked tabs on `id_resources.hak` filtered to `.mdl`,
+/// with Left Dock Outliner by type and Right Dock Preview/Details panels.
 #[test]
 #[ignore]
 fn board_hak() {
@@ -14329,7 +14391,11 @@ fn hak_row_double_click(h: &mut Harness<'_, Moonglow>, name: &str) {
         .unwrap_or_else(|| panic!("no row {name}"))
         .center();
     h.hover_at(at);
-    h.run_steps(60);
+    h.run_steps(1);
+    let now = h.ctx.input(|i| i.time);
+    h.input_mut().time = Some(now + 1.0);
+    h.run_steps(1);
+    h.input_mut().time = None;
     let button = egui::PointerButton::Primary;
     for pressed in [true, false, true, false] {
         let modifiers = egui::Modifiers::NONE;
@@ -14351,8 +14417,7 @@ fn hak_as_the_board(h: &mut Harness<'static, Moonglow>, root: &std::path::Path) 
     let id = mg_ui::hak_view::open_at(h.state_mut(), &root.join("data/hk/id_resources.hak"))
         .expect("the game's hak");
     frames_until(h, "the hak drawn", |h| h.state().tab_rect(&mg_ui::Tab::Hak(id)).is_some());
-    let scratch = mg_testkit::output_dir("screens-hak");
-    std::fs::create_dir_all(&scratch).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-hak-work");
     let chair = scratch.join("mg_chair.mdl");
     std::fs::write(&chair, b"chair").unwrap();
     let key = |n: &str| ResKey::parse(n, ResType::MDL).unwrap();
@@ -14417,10 +14482,8 @@ fn hak_editor_boards() {
     }
 }
 
-/// Resources.png: the Left Dock's Resources panel finding "nw_c",
-/// `nw_chicken.utc` open read-only As Tabs, the palettes folded away.
-/// Today Copy to Module and Save As… are a row over the tree, not the
-/// board's header row.
+/// Resource viewer in docked tabs with `nw_chicken.utc` open read-only
+/// and the Left Dock's Resources panel filtered to `nw_c`.
 #[test]
 #[ignore]
 fn board_resource() {
@@ -14593,16 +14656,22 @@ fn journal_and_faction_boards() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens-journal-factions");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    journal_as_the_board(&mut h, false);
-    shoot(&mut h, &dir, "journal-category");
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    factions_as_the_board(&mut h, false);
-    shoot(&mut h, &dir, "factions-basic");
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        journal_as_the_board(&mut h, false);
+        shoot(&mut h, &dir, "journal-category");
+    }
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        factions_as_the_board(&mut h, false);
+        shoot(&mut h, &dir, "factions-basic");
+    }
     for (shot, width) in [("1280", 1280.0), ("narrow", 1000.0)] {
-        let mut h = board_window(&root, egui::vec2(width, 900.0));
-        journal_as_the_board(&mut h, true);
-        shoot(&mut h, &dir, &format!("journal-{shot}"));
+        {
+            let mut h = board_window(&root, egui::vec2(width, 900.0));
+            journal_as_the_board(&mut h, true);
+            shoot(&mut h, &dir, &format!("journal-{shot}"));
+        }
         let mut h = board_window(&root, egui::vec2(width, 900.0));
         factions_as_the_board(&mut h, true);
         shoot(&mut h, &dir, &format!("factions-{shot}"));
@@ -14610,10 +14679,12 @@ fn journal_and_faction_boards() {
     for (shot, size) in
         [("floating", egui::vec2(1600.0, 900.0)), ("floating-720", egui::vec2(1280.0, 720.0))]
     {
-        let mut h = board_window(&root, size);
-        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
-        journal_as_the_board(&mut h, true);
-        shoot(&mut h, &dir, &format!("journal-{shot}"));
+        {
+            let mut h = board_window(&root, size);
+            h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+            journal_as_the_board(&mut h, true);
+            shoot(&mut h, &dir, &format!("journal-{shot}"));
+        }
         let mut h = board_window(&root, size);
         h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
         factions_as_the_board(&mut h, true);
@@ -14634,14 +14705,16 @@ fn faction_editor_review_fixes() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens-journal-factions");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
-    board_front(&mut h, &mg_ui::Tab::Factions);
-    choose_victim(&mut h, true);
-    h.state_mut().faction_view.selected = 0;
-    h.state_mut().faction_view.full_detail = true;
-    h.run_steps(5);
-    no_pointer(&mut h);
-    shoot(&mut h, &dir, "fix-pc-chosen");
+    {
+        let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
+        board_front(&mut h, &mg_ui::Tab::Factions);
+        choose_victim(&mut h, true);
+        h.state_mut().faction_view.selected = 0;
+        h.state_mut().faction_view.full_detail = true;
+        h.run_steps(5);
+        no_pointer(&mut h);
+        shoot(&mut h, &dir, "fix-pc-chosen");
+    }
     let mut h = board_window(&root, egui::vec2(1600.0, 900.0));
     board_front(&mut h, &mg_ui::Tab::Factions);
     choose_victim(&mut h, false);
@@ -15009,41 +15082,49 @@ fn u24_fix_welcome() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens").join("u24-fix");
     std::fs::create_dir_all(&dir).unwrap();
-    let mut h = welcome_window(&root, egui::vec2(1280.0, 700.0), "available");
-    h.state_mut().settings.recent = (0..200)
-        .map(|i| std::path::PathBuf::from(format!("/srv/nwn/modules/set {i:03}/Module {i:03}.mod")))
-        .collect();
-    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
-    h.run_steps(3);
-    h.get_by_label("Module 000.mod in /srv/nwn/modules/set 000").focus();
-    h.run_steps(2);
-    for _ in 0..39 {
-        h.key_press(egui::Key::Tab);
+    {
+        let mut h = welcome_window(&root, egui::vec2(1280.0, 700.0), "available");
+        h.state_mut().settings.recent = (0..200)
+            .map(|i| {
+                std::path::PathBuf::from(format!("/srv/nwn/modules/set {i:03}/Module {i:03}.mod"))
+            })
+            .collect();
+        h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+        h.run_steps(3);
+        h.get_by_label("Module 000.mod in /srv/nwn/modules/set 000").focus();
         h.run_steps(2);
+        for _ in 0..39 {
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+        }
+        h.run_steps(20);
+        shoot(&mut h, &dir, "welcome-focus-past-fold");
     }
-    h.run_steps(20);
-    shoot(&mut h, &dir, "welcome-focus-past-fold");
-    let mut h = welcome_window(&root, egui::vec2(1400.0, 800.0), "available");
-    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
-    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
-    h.run_steps(3);
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Manual));
-    h.run_steps(8);
-    shoot(&mut h, &dir, "welcome-floating-strip");
+    {
+        let mut h = welcome_window(&root, egui::vec2(1400.0, 800.0), "available");
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Floating;
+        h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Manual));
+        h.run_steps(8);
+        shoot(&mut h, &dir, "welcome-floating-strip");
+    }
     // The review's probes: Welcome in a split pane beside the manual (the
     // update told once, by the page), a recent module whose name has a
     // newline (cut at it with an ellipsis, one row high).
-    let mut h = welcome_window(&root, egui::vec2(1600.0, 900.0), "available");
-    h.state_mut().settings.recent = vec![
-        std::path::PathBuf::from("/srv/nwn/modules/two\nlines.mod"),
-        std::path::PathBuf::from("/srv/nwn/modules/castle.mod"),
-    ];
-    h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
-    h.run_steps(3);
-    let path = h.state().dock.find_tab(&mg_ui::Tab::Welcome).expect("the Welcome tab");
-    h.state_mut().dock.main_surface_mut().split_right(path.node, 0.5, vec![mg_ui::Tab::Manual]);
-    h.run_steps(8);
-    shoot(&mut h, &dir, "welcome-split-newline");
+    {
+        let mut h = welcome_window(&root, egui::vec2(1600.0, 900.0), "available");
+        h.state_mut().settings.recent = vec![
+            std::path::PathBuf::from("/srv/nwn/modules/two\nlines.mod"),
+            std::path::PathBuf::from("/srv/nwn/modules/castle.mod"),
+        ];
+        h.ctx.all_styles_mut(|s| s.interaction.tooltip_delay = 3600.0);
+        h.run_steps(3);
+        let path = h.state().dock.find_tab(&mg_ui::Tab::Welcome).expect("the Welcome tab");
+        h.state_mut().dock.main_surface_mut().split_right(path.node, 0.5, vec![mg_ui::Tab::Manual]);
+        h.run_steps(8);
+        shoot(&mut h, &dir, "welcome-split-newline");
+    }
     // The strip in each of the notice's states, drawn from `updates::line`
     // as the page's Status is: the Manual in front of Welcome.
     for case in ["available", "checking", "downloading", "ready", "failed"] {
@@ -15349,85 +15430,91 @@ fn board_pickers() {
     let dir = board_dir();
     let size = egui::vec2(1600.0, 720.0);
     // Select Portrait.
-    let mut h = shell_window(&root, size);
-    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    h.state_mut().settings.hide_log = true;
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
-    frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
-    h.get_by_label("Portraits…").click();
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "board_pickers_portrait");
+    {
+        let mut h = shell_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        h.state_mut().settings.hide_log = true;
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
+        frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
+        h.get_by_label("Portraits…").click();
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "board_pickers_portrait");
+    }
     // Select Texture, from the module's first placeable blueprint.
-    let mut h = shell_window(&root, size);
-    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    h.state_mut().settings.hide_log = true;
-    // (The size slider at the board's 80: eight to a row.)
-    h.state_mut().settings.gallery_tile = Some(80);
-    let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
-    h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
-    frames_until(&mut h, "the Visuals page", |h| {
-        h.query_all_by_label("Select Texture…").next().is_some()
-    });
-    h.get_all_by_label("Select Texture…").next().unwrap().click();
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "board_pickers_texture");
-    // (Another chosen, as the board has one: ringed, in the preview with
-    // its name, OK enabled; `board_pickers_texture_chosen`.)
-    let count = h
-        .query_all_by(|n| {
-            n.role() == egui::accesskit::Role::List && n.label().as_deref() == Some("Textures")
-        })
-        .next()
-        .expect("the textures' grid")
-        .accesskit_node()
-        .data()
-        .size_of_set();
-    let screen = h.ctx.content_rect();
-    let cell = h
-        .query_all_by(|n| {
-            n.role() != egui::accesskit::Role::List
-                && n.data().size_of_set() == count
-                && n.data().position_in_set().is_some()
-        })
-        .map(|n| n.rect())
-        .filter(|r| screen.contains_rect(*r))
-        .nth(10)
-        .expect("a texture in sight");
-    h.get_all_by(|n| n.data().size_of_set() == count && n.data().position_in_set().is_some())
-        .find(|n| n.rect() == cell)
-        .unwrap()
-        .click();
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "board_pickers_texture_chosen");
+    {
+        let mut h = shell_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        h.state_mut().settings.hide_log = true;
+        // (The size slider at the board's 80: eight to a row.)
+        h.state_mut().settings.gallery_tile = Some(80);
+        let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
+        h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
+        frames_until(&mut h, "the Visuals page", |h| {
+            h.query_all_by_label("Select Texture…").next().is_some()
+        });
+        h.get_all_by_label("Select Texture…").next().unwrap().click();
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "board_pickers_texture");
+        // (Another chosen, as the board has one: ringed, in the preview with
+        // its name, OK enabled; `board_pickers_texture_chosen`.)
+        let count = h
+            .query_all_by(|n| {
+                n.role() == egui::accesskit::Role::List && n.label().as_deref() == Some("Textures")
+            })
+            .next()
+            .expect("the textures' grid")
+            .accesskit_node()
+            .data()
+            .size_of_set();
+        let screen = h.ctx.content_rect();
+        let cell = h
+            .query_all_by(|n| {
+                n.role() != egui::accesskit::Role::List
+                    && n.data().size_of_set() == count
+                    && n.data().position_in_set().is_some()
+            })
+            .map(|n| n.rect())
+            .filter(|r| screen.contains_rect(*r))
+            .nth(10)
+            .expect("a texture in sight");
+        h.get_all_by(|n| n.data().size_of_set() == count && n.data().position_in_set().is_some())
+            .find(|n| n.rect() == cell)
+            .unwrap()
+            .click();
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "board_pickers_texture_chosen");
+    }
     // The armor part gallery.
     let scratch = mg_testkit::scratch_dir("screens-board-pickers");
-    let mut h =
-        pictured_blueprint(&root, &scratch, ("nw_aarcl001", ResType::UTI), "Appearance", size);
-    themed(&mut h);
-    h.state_mut().settings.hide_log = true;
-    pictures_made(&mut h);
-    // (Its window, floating as this module opens it, made large, as
-    // `armor_part_pictures` has it.)
-    let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
-    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1560.0, 640.0));
-    pictures_made(&mut h);
-    // (Scrolled so the part buttons are near the page's top, the two
-    // rows of pictures under them, as the board has them.)
-    let row = h.get_by_label("Pictures of").rect();
-    h.hover_at(row.center());
-    h.event(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -(row.top() - 140.0)),
-        phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
-    });
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "board_pickers_armor");
+    {
+        let mut h =
+            pictured_blueprint(&root, &scratch, ("nw_aarcl001", ResType::UTI), "Appearance", size);
+        themed(&mut h);
+        h.state_mut().settings.hide_log = true;
+        pictures_made(&mut h);
+        // (Its window, floating as this module opens it, made large, as
+        // `armor_part_pictures` has it.)
+        let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
+        place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1560.0, 640.0));
+        pictures_made(&mut h);
+        // (Scrolled so the part buttons are near the page's top, the two
+        // rows of pictures under them, as the board has them.)
+        let row = h.get_by_label("Pictures of").rect();
+        h.hover_at(row.center());
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -(row.top() - 140.0)),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "board_pickers_armor");
+    }
     // The Creature Wizard's Appearance and Portrait.
     let mut h = shell_window(&root, size);
     h.state_mut().settings.hide_log = true;
@@ -15938,31 +16025,35 @@ fn u26_pickers_least() {
     let root = mg_testkit::corpus!();
     let dir = board_dir();
     let size = egui::vec2(600.0, 500.0);
-    let mut h = shell_window(&root, size);
-    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    h.state_mut().settings.hide_log = true;
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
-    frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
-    // (Below the page's view at this size: brought into it first.)
-    h.get_by_label("Portraits…").scroll_to_me();
-    h.run_steps(10);
-    h.get_by_label("Portraits…").click();
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "u26_pickers_least_portrait");
-    let mut h = shell_window(&root, size);
-    h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
-    h.state_mut().settings.hide_log = true;
-    let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
-    h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
-    frames_until(&mut h, "the Visuals page", |h| {
-        h.query_all_by_label("Select Texture…").next().is_some()
-    });
-    h.get_all_by_label("Select Texture…").next().unwrap().click();
-    pictures_made(&mut h);
-    rest_pointer(&mut h);
-    shoot(&mut h, &dir, "u26_pickers_least_texture");
+    {
+        let mut h = shell_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        h.state_mut().settings.hide_log = true;
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(board_utc_tab()));
+        frames_until(&mut h, "the Properties", |h| h.query_by_label("Portraits…").is_some());
+        // (Below the page's view at this size: brought into it first.)
+        h.get_by_label("Portraits…").scroll_to_me();
+        h.run_steps(10);
+        h.get_by_label("Portraits…").click();
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "u26_pickers_least_portrait");
+    }
+    {
+        let mut h = shell_window(&root, size);
+        h.state_mut().settings.open_editors = mg_ui::OpenEditors::Tabs;
+        h.state_mut().settings.hide_log = true;
+        let utp = *h.state().ws.as_ref().unwrap().module.keys_of(ResType::UTP).next().unwrap();
+        h.state_mut().blueprint_pages.insert((utp, GffPath::root()), "Visuals");
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utp)));
+        frames_until(&mut h, "the Visuals page", |h| {
+            h.query_all_by_label("Select Texture…").next().is_some()
+        });
+        h.get_all_by_label("Select Texture…").next().unwrap().click();
+        pictures_made(&mut h);
+        rest_pointer(&mut h);
+        shoot(&mut h, &dir, "u26_pickers_least_texture");
+    }
     let mut h = shell_window(&root, egui::vec2(800.0, 600.0));
     h.state_mut().settings.hide_log = true;
     settle(&mut h);
@@ -16376,20 +16467,22 @@ fn form_windows_first_sizes() {
     app.open_module(&path);
     app.palette_dock = false;
     app.module_page = mg_ui::module_props::Page::CustomContent;
-    let mut h = Harness::builder()
-        .with_size(screen)
-        .wgpu()
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    let tab = mg_ui::Tab::ModuleProperties;
-    let at = h.state().dock.find_tab(&tab).unwrap();
-    let rect = egui::Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(800.0, 600.0));
-    h.state_mut().dock.detach_tab(at, rect);
-    h.run_steps(3);
-    let w = if old { 760.0 } else { 930.0 };
-    place(&mut h, &tab, (20.0, 40.0), (w, 640.0));
-    h.run_steps(10);
-    shoot(&mut h, &dir, &format!("first-size-{when}-module-properties"));
+    {
+        let mut h = Harness::builder()
+            .with_size(screen)
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        let tab = mg_ui::Tab::ModuleProperties;
+        let at = h.state().dock.find_tab(&tab).unwrap();
+        let rect = egui::Rect::from_min_size(egui::pos2(20.0, 40.0), egui::vec2(800.0, 600.0));
+        h.state_mut().dock.detach_tab(at, rect);
+        h.run_steps(3);
+        let w = if old { 760.0 } else { 930.0 };
+        place(&mut h, &tab, (20.0, 40.0), (w, 640.0));
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("first-size-{when}-module-properties"));
+    }
     // A long name in a header 440 wide.
     let mut h = pictured_blueprint(&root, &dir, ("plc_chest1", ResType::UTP), "Basic", screen);
     h.run_steps(4);

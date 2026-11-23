@@ -185,6 +185,7 @@ fn client_driven(dir: &Path, steps: &str, after: Duration) -> bool {
     let _ = std::fs::remove_file(&log);
     std::fs::write(dir.join("driver.py"), DRIVER).unwrap();
     std::fs::write(dir.join("steps.txt"), steps).unwrap();
+    let _only = common::client_lock();
     let mut child = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
         .arg(dir)
         .args(["+TestNewModule", "MgScene"])
@@ -394,6 +395,7 @@ fn lit(dir: &Path, variants: &[Variant]) -> (Vec<bool>, bool) {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_by_field() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "ccw", change: |_| {} },
         Variant { name: "cw", change: clockwise },
@@ -427,6 +429,7 @@ fn transition_outlines_by_field() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_control() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "aurora", change: aurora },
         Variant {
@@ -455,6 +458,7 @@ fn transition_outlines_control() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_by_height() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "ccw", change: |_| {} },
         Variant { name: "z_below1", change: |s| point_z(s, -1.0) },
@@ -491,6 +495,7 @@ fn walked(name: &str, variant: Variant, y: i32) -> glam::Vec2 {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transitions_not_drawn_clicked_and_crossed() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let dest = glam::Vec2::from(DEST);
     let mut taken = Vec::new();
     for (how, y) in [("clicked", CLICK_Y), ("crossed", THROUGH_Y)] {
@@ -521,6 +526,7 @@ fn transitions_not_drawn_clicked_and_crossed() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_height_tolerance() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "z_0", change: |s| point_z(s, 0.0) },
         Variant { name: "z_01", change: |s| point_z(s, 0.1) },
@@ -540,6 +546,7 @@ fn transition_outlines_height_tolerance() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_by_z_position() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "ccw", change: |_| {} },
         Variant { name: "zpos1", change: |s| s.set("ZPosition", Value::Float(1.0)) },
@@ -721,6 +728,7 @@ fn south_east_as_4_1_0(s: &mut Struct) {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_before_and_after_the_fix() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let before = || {
         [
             Variant { name: "ccw", change: |_| {} },
@@ -768,6 +776,7 @@ fn corner_z(s: &mut Struct, i: usize, z: f32) {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_with_a_lone_corner() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     fn variants() -> [Variant; 5] {
         [
             Variant { name: "ccw", change: |_| {} },
@@ -814,6 +823,7 @@ fn transition_outlines_with_a_lone_corner() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn shipped_transitions_off_the_walkmesh_are_shown() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
     let nwm = |name: &str| root.join(format!("data/nwm/{name}.nwm"));
     let interlude = nwm("XP1-Interlude");
@@ -884,6 +894,7 @@ fn shifted(t: &mut Struct, by: f32) {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn shipped_transitions_on_the_walkmesh() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
     let nwm = |name: &str| root.join(format!("data/nwm/{name}.nwm"));
     let interlude = nwm("XP1-Interlude");
@@ -1049,6 +1060,7 @@ fn scaled(s: &mut Struct, k: f32) {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_by_size_off_the_ground() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let variants = [
         Variant { name: "small_up03", change: |s| point_z(s, 0.325) },
         Variant {
@@ -1072,6 +1084,7 @@ fn transition_outlines_by_size_off_the_ground() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn transition_outlines_fix_clicked_and_raised_by_position() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
     let dod = root.join("data/nwm/Neverwinter Nights - Darkness over Daggerford.nwm");
     let fixed = shoot_in_module_with(
@@ -1119,6 +1132,7 @@ fn transition_outlines_fix_clicked_and_raised_by_position() {
 #[test]
 #[ignore = "needs the game client and the off-screen display"]
 fn shipped_transitions_far_off_the_walkmesh() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game (NWN_ROOT)");
     let nwm = |name: &str| root.join(format!("data/nwm/{name}.nwm"));
     let interlude = nwm("XP1-Interlude");

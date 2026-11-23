@@ -496,15 +496,15 @@ fn the_other_area_states_show_their_hints() {
     wheel(&mut h, chest);
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     says(&mut h, &[refused, "Ctrl, Wheel: Zoom slowly"], &[]);
-    // (The window's own time: a frame a 60th of a second.)
-    let (started, from) = (std::time::Instant::now(), h.ctx.input(|i| i.time));
-    loop {
+    // (Advance simulated time in half-second steps rather than burning ~240 frames.)
+    let from = h.ctx.input(|i| i.time);
+    for _ in 0..20 {
         if !said(&h).iter().any(|s| s == refused) {
             break;
         }
-        assert!(started.elapsed().as_secs() < 30, "the refusal said for good");
-        h.step();
+        advance_clock(&mut h, 0.5);
     }
+    assert!(!said(&h).iter().any(|s| s == refused), "the refusal timed out");
     let said_for = h.ctx.input(|i| i.time) - from;
     assert!((3.0..5.0).contains(&said_for), "said for its four seconds: {said_for}");
     // Pasting objects: a waypoint copied and pasted over the view.

@@ -539,10 +539,12 @@ fn build_module(game: &GameData, cases: &[Case]) -> mg_module::Module {
 struct Running {
     child: Child,
     unit: Option<String>,
+    _client: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Running {
     fn start(dir: &Path, module: &str, seconds: u64) -> Running {
+        let _client = common::client_lock();
         let display = std::env::var("DISPLAY").unwrap_or_default();
         assert!(
             !display.is_empty() && display != ":0",
@@ -574,7 +576,7 @@ impl Running {
             .stderr(Stdio::null())
             .spawn()
             .expect("start the client");
-        Running { child, unit }
+        Running { child, unit, _client }
     }
 }
 

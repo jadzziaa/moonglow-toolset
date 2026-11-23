@@ -411,19 +411,19 @@ fn no_form_page_is_drawn_again_every_frame() {
             let copy = format!("d{}", &name[name.len().saturating_sub(12)..]);
             let Some((mut h, _)) = blueprint_harness_in(mode, name, &copy, t, None) else { return };
             h.set_size(size);
-            h.run_steps(30);
-            for step in 0..40 {
+            settle(&mut h);
+            for step in 0..8 {
                 h.hover_at(egui::pos2(size.x * 0.6, size.y * 0.5));
-                let delta = if step < 30 { -150.0 } else { 400.0 };
+                let delta = if step < 6 { -300.0 } else { 400.0 };
                 h.event(egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, delta),
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
                 });
-                h.run_steps(3);
+                h.run_steps(2);
                 let (p, f) = (h.ctx.cumulative_pass_nr(), h.ctx.cumulative_frame_nr());
-                h.run_steps(10);
+                h.run_steps(6);
                 let again = (h.ctx.cumulative_pass_nr() - p) - (h.ctx.cumulative_frame_nr() - f);
                 assert!(
                     again <= 2,

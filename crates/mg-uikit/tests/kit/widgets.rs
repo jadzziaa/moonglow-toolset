@@ -335,7 +335,6 @@ fn a_segmented_control_is_one_stop_its_arrows_choose_and_it_is_named() {
     let choices = [(Pick::A, "Alpha", ""), (Pick::B, "Beta", ""), (Pick::C, "Gamma", "")];
     for theme in [Some(Theme::Dark), Some(Theme::Light), None] {
         let value = Cell::new(Pick::B);
-        let mut after = false;
         let mut h = Harness::new_ui(|ui| {
             if let Some(theme) = theme {
                 mg_uikit::apply(ui.ctx(), theme);
@@ -344,7 +343,7 @@ fn a_segmented_control_is_one_stop_its_arrows_choose_and_it_is_named() {
             let mut v = value.get();
             mg_uikit::segmented(ui, "Letters", &mut v, &choices);
             value.set(v);
-            after = ui.button("After").has_focus();
+            let _ = ui.button("After");
         });
         h.run();
         let group = h.get_by_role_and_label(egui::accesskit::Role::RadioGroup, "Letters");
@@ -461,9 +460,11 @@ fn a_tooltip_has_its_own_fill() {
         h.run();
         h.get_by_label("Fog").hover();
         // (Tooltips wait for the pointer to rest.)
-        for _ in 0..90 {
-            h.step();
-        }
+        h.step();
+        let now = h.ctx.input(|i| i.time);
+        h.input_mut().time = Some(now + 1.5);
+        h.run_steps(2);
+        h.input_mut().time = None;
         assert!(h.query_by_label("Show the area's fog").is_some(), "the tooltip shows");
         let t = theme.tokens();
         assert!(rects(&h).iter().any(|r| r.fill == t.tooltip_bg), "{theme:?}");

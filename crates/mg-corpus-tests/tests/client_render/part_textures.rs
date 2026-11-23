@@ -1657,7 +1657,8 @@ fn part_textures_tdod_look() {
         ],
     ];
     let set: usize = std::env::var("MG_TDOD_SET").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-    let creatures = sets[set - 1];
+    let idx = set.checked_sub(1).expect("MG_TDOD_SET must be >= 1");
+    let creatures = sets[idx];
     let mut items = HashMap::new();
     for (i, (_, _, _, parts)) in creatures.iter().enumerate() {
         if parts.is_empty() {

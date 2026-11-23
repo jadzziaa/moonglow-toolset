@@ -1661,6 +1661,32 @@ impl Moonglow {
     pub fn new(install: Option<GameInstall>, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut log = Log::default();
         let game = load_game(install.as_ref(), &mut log);
+        Self::new_with_log(install, game, log, dialogs)
+    }
+
+    /// The application with an already-opened [`GameData`] (used by tests to
+    /// share immutable base install layers while still keeping `Arc::strong_count == 1`).
+    #[doc(hidden)]
+    pub fn new_with_game(
+        install: Option<GameInstall>,
+        game: Option<GameData>,
+        dialogs: Box<dyn Dialogs>,
+    ) -> Moonglow {
+        let mut log = Log::default();
+        if let Some(gi) = &install
+            && game.is_some()
+        {
+            log_game_loaded(gi, &mut log);
+        }
+        Self::new_with_log(install, game.map(Arc::new), log, dialogs)
+    }
+
+    fn new_with_log(
+        install: Option<GameInstall>,
+        game: Option<Arc<GameData>>,
+        log: Log,
+        dialogs: Box<dyn Dialogs>,
+    ) -> Moonglow {
         Moonglow {
             install,
             game,
@@ -4549,7 +4575,8 @@ impl Moonglow {
 
     /// Makes a module the open one, with its haks and itself layered into
     /// the game data.
-    fn use_module(&mut self, m: Module) {
+    #[doc(hidden)]
+    pub fn use_module(&mut self, m: Module) {
         // (The side editors open now stay open with their documents: a
         // hak is no module's, and one opened with the module, in the same
         // frame, was let go with the last one's tabs.)
@@ -7823,14 +7850,7 @@ fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameDat
     match install {
         Some(gi) => match GameData::open(gi) {
             Ok(g) => {
-                log.info(format!("Game data loaded from {}", gi.root.display()));
-                if let Some(user) = gi.user_dir.as_ref().filter(|u| !u.is_dir()) {
-                    log.warn(format!(
-                        "The NWN user folder {} doesn't exist: no hak, talk table or override \
-                         is found there (Tools › Options › Folders)",
-                        user.display()
-                    ));
-                }
+                log_game_loaded(gi, log);
                 Some(Arc::new(g))
             }
             Err(e) => {
@@ -7842,6 +7862,17 @@ fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameDat
             log.warn("No Neverwinter Nights installation found; choose it in Tools › Options.");
             None
         }
+    }
+}
+
+fn log_game_loaded(gi: &GameInstall, log: &mut Log) {
+    log.info(format!("Game data loaded from {}", gi.root.display()));
+    if let Some(user) = gi.user_dir.as_ref().filter(|u| !u.is_dir()) {
+        log.warn(format!(
+            "The NWN user folder {} doesn't exist: no hak, talk table or override \
+             is found there (Tools › Options › Folders)",
+            user.display()
+        ));
     }
 }
 

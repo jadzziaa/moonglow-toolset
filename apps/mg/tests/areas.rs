@@ -369,8 +369,7 @@ fn a_lighting_scheme_is_given_to_the_areas() {
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         (out.status.success(), text(&out.stdout), text(&out.stderr))
     };
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = mg_rules::GameData::open(&install).unwrap();
+    let game = crate::shared_game(&root);
     let env = game.table("environment").unwrap();
     let row = (0..env.len()).find(|&r| env.get(r, "LABEL") == Some("InteriorDark")).unwrap();
     let cell = |c: &str| i64::from(env.get_int(row, c).unwrap());

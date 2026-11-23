@@ -15,6 +15,11 @@ fn area() -> Option<Harness<'static, Moonglow>> {
     area_harness(&super::scratch("u27-world")).map(|(h, _)| h)
 }
 
+/// A UI-only area open for dialogs that do not inspect the 3D viewport.
+fn ui_area() -> Option<Harness<'static, Moonglow>> {
+    area_ui_harness(&super::scratch("u27-world-ui")).map(|(h, _)| h)
+}
+
 /// The area the window shows.
 fn area_of(h: &Harness<'static, Moonglow>) -> ResRef {
     *h.state().area_views.keys().next().expect("an area open")
@@ -128,13 +133,13 @@ fn open_tidy(h: &mut Harness<'static, Moonglow>) {
 
 pub(crate) fn openers() -> Vec<Opener> {
     vec![
-        Opener::new("area_reshape.rs:resize_window#1", "Resize Area", area, |h| {
+        Opener::new("area_reshape.rs:resize_window#1", "Resize Area", ui_area, |h| {
             edit_item(h, "Resize Area…")
         }),
-        Opener::new("area_reshape.rs:rotate_window#1", "Rotate Area", area, |h| {
+        Opener::new("area_reshape.rs:rotate_window#1", "Rotate Area", ui_area, |h| {
             edit_item(h, "Rotate Area…")
         }),
-        Opener::new("area_reshape.rs:tileset_window#1", "Change Tileset", area, |h| {
+        Opener::new("area_reshape.rs:tileset_window#1", "Change Tileset", ui_area, |h| {
             edit_item(h, "Change Tileset…")
         }),
         Opener::new("area_tools.rs:adjust_window#1", "Adjust Location", area, |h| {
@@ -146,7 +151,7 @@ pub(crate) fn openers() -> Vec<Opener> {
             h.get_by_label("Adjust Location…").click();
             settle(h);
         }),
-        Opener::new("area_view.rs:set_window#1", "Create Set", area, |h| {
+        Opener::new("area_view.rs:set_window#1", "Create Set", ui_area, |h| {
             let area = area_of(h);
             h.state_mut().area_views.get_mut(&area).unwrap().set_name = Some(String::new());
         })

@@ -737,14 +737,20 @@ fn a_struct_s_id_is_read_beside_its_fields() {
 
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
+fn shared_base_tlk(install: &mg_resman::GameInstall) -> std::sync::Arc<mg_tlk::Tlk> {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), std::sync::Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let key = (install.root.clone(), install.language.clone());
+    TLK.get(&key, || std::sync::Arc::new(mg_rules::GameData::open_tlk(install).unwrap()))
+}
+
 #[test]
 fn the_game_s_data_is_read() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = shared_base_tlk(&install);
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let dir = mg_testkit::scratch_dir("plugin-game");
     std::fs::write(
         dir.join("plugin.cfg"),
@@ -784,12 +790,11 @@ fn the_game_s_data_is_read() {
 #[test]
 fn a_layer_s_copy_is_open_and_read() {
     use mg_plugin::{Selected, Selection, run_console};
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = shared_base_tlk(&install);
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let rm = &game.resman;
     // A blueprint of which a lower layer has another copy.
     let (copy, layers) = rm

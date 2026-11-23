@@ -161,7 +161,7 @@ enum Looked {
 pub struct GameData {
     pub resman: ResMan,
     pub language: Language,
-    tlk: Tlk,
+    tlk: Arc<Tlk>,
     custom_tlk: Option<Tlk>,
     /// Tables looked up so far, found or not: a missing table is asked for
     /// again and again (per candidate feat in a level-up).
@@ -263,20 +263,30 @@ impl GameData {
     /// Opens the base stack of an install and its `dialog.tlk`.
     pub fn open(install: &GameInstall) -> Result<GameData, RulesError> {
         let resman = ResMan::for_game(install)?;
+        let tlk = Self::open_tlk(install)?;
+        Ok(GameData::new(resman, tlk))
+    }
+
+    /// Reads an install's `dialog.tlk`.
+    pub fn open_tlk(install: &GameInstall) -> Result<Tlk, RulesError> {
         let path = install.talk_table();
         let bytes = std::fs::read(&path).map_err(|e| RulesError::Tlk {
             path: path.display().to_string(),
             message: e.to_string(),
         })?;
-        let tlk = Tlk::read(&bytes).map_err(|e| RulesError::Tlk {
+        Tlk::read(&bytes).map_err(|e| RulesError::Tlk {
             path: path.display().to_string(),
             message: e.to_string(),
-        })?;
-        Ok(GameData::new(resman, tlk))
+        })
     }
 
     /// Wraps an existing resource stack and talk table.
     pub fn new(resman: ResMan, tlk: Tlk) -> GameData {
+        Self::with_shared_tlk(resman, Arc::new(tlk))
+    }
+
+    /// Wraps an existing resource stack and a shared read-only `dialog.tlk`.
+    pub fn with_shared_tlk(resman: ResMan, tlk: Arc<Tlk>) -> GameData {
         GameData {
             resman,
             language: tlk.language,
@@ -344,13 +354,19 @@ impl GameData {
     /// test brings its own), the language its own.
     pub fn set_tlk(&mut self, tlk: Tlk) {
         self.language = tlk.language;
-        self.tlk = tlk;
+        self.tlk = Arc::new(tlk);
         self.invalidate();
     }
 
     /// `dialog.tlk`.
     pub fn tlk(&self) -> &Tlk {
         &self.tlk
+    }
+
+    /// Shared handle to `dialog.tlk` so tests can build fresh [`GameData`]
+    /// instances without re-parsing all 112k talk-table entries.
+    pub fn tlk_arc(&self) -> Arc<Tlk> {
+        Arc::clone(&self.tlk)
     }
 
     /// Forgets cached tables (call after the resource stack changes, e.g.

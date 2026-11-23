@@ -34,20 +34,47 @@ use crate::aurora_common::{PLAIN, lines};
 /// How the GFFs are compared, as lines.
 const SHOWN: crate::aurora_common::Shown<'static> = PLAIN;
 
-/// The game, with the probe's hak and the override folder's blueprint.
-fn game(root: &std::path::Path) -> Option<GameData> {
-    let mut game = GameData::open(&GameInstall::new(root, None, "en")).ok()?;
-    let hak = ErfContainer::open(&mg_testkit::aurora_capture("palettes/mgpal.hak")?).ok()?;
-    game.resman.add(priority::HAK_USER, "mgpal", LayerClass::Erf, hak);
-    let mut over = MemContainer::new();
-    let ov = std::fs::read(mg_testkit::aurora_capture("palettes/ov_item.uti")?).ok()?;
-    over.insert(ResKey::parse("ov_item", ResType::UTI).unwrap(), ov);
-    game.resman.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
-    Some(game)
+fn shared_base_game(root: &std::path::Path) -> GameData {
+    static TLK: mg_testkit::Shared<(std::path::PathBuf, String), std::sync::Arc<mg_tlk::Tlk>> =
+        mg_testkit::Shared::new();
+    let install = GameInstall::new(root, None, "en");
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let key = (install.root.clone(), install.language.clone());
+    let tlk = TLK.get(&key, || std::sync::Arc::new(GameData::open_tlk(&install).unwrap()));
+    GameData::with_shared_tlk(rm, tlk)
 }
 
-fn capture(name: &str) -> Option<Module> {
-    Module::open(&mg_testkit::aurora_capture(&format!("palettes/{name}.mod"))?).ok()
+/// The game, with the probe's hak and the override folder's blueprint.
+fn game(root: &std::path::Path, hak_path: &std::path::Path, ov_path: &std::path::Path) -> GameData {
+    let mut game = shared_base_game(root);
+    let hak = ErfContainer::open(hak_path).unwrap();
+    game.resman.add(priority::HAK_USER, "mgpal", LayerClass::Erf, hak);
+    let mut over = MemContainer::new();
+    let ov = std::fs::read(ov_path).unwrap();
+    over.insert(ResKey::parse("ov_item", ResType::UTI).unwrap(), ov);
+    game.resman.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
+    game
+}
+
+fn palette_entries(g: &Gff, drop_xtra: bool) -> BTreeMap<String, Vec<String>> {
+    let mut out = BTreeMap::new();
+    fn walk(list: &[Struct], drop_xtra: bool, out: &mut BTreeMap<String, Vec<String>>) {
+        for n in list {
+            if let Some(r) = n.resref("RESREF") {
+                let mut fields: Vec<String> = n
+                    .fields
+                    .iter()
+                    .filter(|f| !drop_xtra || f.label.as_bytes() != b"XTRA")
+                    .map(|f| format!("{} {:?}", f.label.to_string_lossy(), f.value))
+                    .collect();
+                fields.sort();
+                out.insert(r.to_string(), fields);
+            }
+            walk(n.list("LIST").unwrap_or(&[]), drop_xtra, out);
+        }
+    }
+    walk(g.root.list("MAIN").unwrap(), drop_xtra, &mut out);
+    out
 }
 
 fn palette(m: &Module, kind: BlueprintKind) -> Gff {
@@ -94,39 +121,25 @@ fn with_blueprints_of(ours: &Module, next: &Module) -> Module {
 fn a_plain_save_keeps_every_entry() {
     let root = corpus!();
     let before = Module::open(&aurora_capture!("palettes/before.mod")).unwrap();
-    let (Some(game), Some(aurora)) = (game(&root), capture("saveas")) else {
-        panic!("the palette captures are incomplete");
-    };
+    let aurora = Module::open(&aurora_capture!("palettes/saveas.mod")).unwrap();
+    let game = game(
+        &root,
+        &aurora_capture!("palettes/mgpal.hak"),
+        &aurora_capture!("palettes/ov_item.uti"),
+    );
     let mut saved = before.clone();
     assert_eq!(update_custom_palettes(&mut saved, &before, &game), Ok(0));
     let key = BlueprintKind::Item.custom_key();
     assert_eq!(saved.get(&key), before.get(&key), "byte for byte");
     // The same entries as Aurora's, each as it is (but the field Aurora
     // drops), in the order the module has them.
-    let entries = |g: &Gff| -> BTreeMap<String, Vec<String>> {
-        let mut out = BTreeMap::new();
-        fn walk(list: &[Struct], out: &mut BTreeMap<String, Vec<String>>) {
-            for n in list {
-                if let Some(r) = n.resref("RESREF") {
-                    let mut fields: Vec<String> = n
-                        .fields
-                        .iter()
-                        .filter(|f| f.label.as_bytes() != b"XTRA")
-                        .map(|f| format!("{} {:?}", f.label.to_string_lossy(), f.value))
-                        .collect();
-                    fields.sort();
-                    out.insert(r.to_string(), fields);
-                }
-                walk(n.list("LIST").unwrap_or(&[]), out);
-            }
-        }
-        walk(g.root.list("MAIN").unwrap(), &mut out);
-        out
-    };
     let ours = palette(&saved, BlueprintKind::Item);
-    assert_eq!(entries(&ours), entries(&palette(&aurora, BlueprintKind::Item)));
+    assert_eq!(
+        palette_entries(&ours, true),
+        palette_entries(&palette(&aurora, BlueprintKind::Item), true)
+    );
     for resref in ["hk_strref", "hk_text", "hk_moved", "gh_missing", "ov_item", "md_strref"] {
-        assert!(entries(&ours).contains_key(resref), "{resref} kept");
+        assert!(palette_entries(&ours, true).contains_key(resref), "{resref} kept");
     }
 }
 
@@ -141,13 +154,17 @@ fn a_plain_save_keeps_every_entry() {
 #[test]
 fn each_operation_changes_its_entry_as_aurora_does() {
     let root = corpus!();
-    let _ = aurora_capture!("palettes/saveas.mod");
-    let Some(game) = game(&root) else { panic!("the palette captures are incomplete") };
+    let saveas_path = aurora_capture!("palettes/saveas.mod");
+    let game = game(
+        &root,
+        &aurora_capture!("palettes/mgpal.hak"),
+        &aurora_capture!("palettes/ov_item.uti"),
+    );
     let kind = BlueprintKind::Item;
-    let mut ours = capture("saveas").unwrap();
+    let mut ours = Module::open(&saveas_path).unwrap();
     let mut failures = Vec::new();
     for step in ["edit-ok", "edit-strref", "edit-strname", "edit-moved", "edit-copy"] {
-        let aurora = capture(step).unwrap_or_else(|| panic!("no capture {step}"));
+        let aurora = Module::open(&aurora_capture!(&format!("palettes/{step}.mod"))).unwrap();
         let mut now = with_blueprints_of(&ours, &aurora);
         let made = update_custom_palette(&now, &ours, &game, kind).unwrap();
         if let Some(g) = &made {
@@ -169,12 +186,12 @@ fn each_operation_changes_its_entry_as_aurora_does() {
     }
 
     // Refresh Palette (and Build's Palettes): made anew, as Aurora's.
-    let refreshed = capture("refresh").unwrap();
+    let refreshed = Module::open(&aurora_capture!("palettes/refresh.mod")).unwrap();
     let built = rebuild_custom_palette(&ours, &game, kind).unwrap();
     failures.extend(differences("refresh", &built, &palette(&refreshed, kind)));
 
     // Delete, after the refresh.
-    let deleted = capture("delete").unwrap();
+    let deleted = Module::open(&aurora_capture!("palettes/delete.mod")).unwrap();
     let now = with_blueprints_of(&refreshed, &deleted);
     let made = update_custom_palette(&now, &refreshed, &game, kind).unwrap().expect("one gone");
     failures.extend(differences("delete", &made, &palette(&deleted, kind)));
@@ -188,9 +205,12 @@ fn each_operation_changes_its_entry_as_aurora_does() {
 fn build_makes_every_palette_as_aurora_s_build() {
     let root = corpus!();
     let before = Module::open(&aurora_capture!("palettes/nopal-before.mod")).unwrap();
-    let (Some(game), Some(aurora)) = (game(&root), capture("nopal-build")) else {
-        panic!("the palette captures are incomplete");
-    };
+    let aurora = Module::open(&aurora_capture!("palettes/nopal-build.mod")).unwrap();
+    let game = game(
+        &root,
+        &aurora_capture!("palettes/mgpal.hak"),
+        &aurora_capture!("palettes/ov_item.uti"),
+    );
     let mut failures = Vec::new();
     for kind in BlueprintKind::ALL {
         let built = rebuild_custom_palette(&before, &game, kind).unwrap();
@@ -208,7 +228,12 @@ fn build_makes_every_palette_as_aurora_s_build() {
 fn add_to_palette_keeps_the_other_entries() {
     let root = corpus!();
     let before = Module::open(&aurora_capture!("palettes/before.mod")).unwrap();
-    let Some(game) = game(&root) else { panic!("the palette captures are incomplete") };
+    let saveas_path = aurora_capture!("palettes/saveas.mod");
+    let game = game(
+        &root,
+        &aurora_capture!("palettes/mgpal.hak"),
+        &aurora_capture!("palettes/ov_item.uti"),
+    );
     let area = before.gff(&ResKey::parse("field", ResType::GIT).unwrap()).unwrap().unwrap();
     let sword = area.root.list("List").unwrap()[0].clone();
     let read = |k: ResKey| match before.gff(&k) {
@@ -251,14 +276,10 @@ fn add_to_palette_keeps_the_other_entries() {
         out
     };
     let entries = |g: &Gff| -> BTreeMap<String, Struct> {
-        order(g)
-            .into_iter()
-            .flatten()
-            .map(|r| (r.clone(), entry_mut(&mut g.clone(), &r).clone()))
-            .collect()
+        order(g).into_iter().flatten().map(|r| (r.clone(), palette_entry(g, &r).clone())).collect()
     };
     assert_eq!(entries(&taken_out), entries(&was));
-    let aurora = palette(&capture("saveas").unwrap(), BlueprintKind::Item);
+    let aurora = palette(&Module::open(&saveas_path).unwrap(), BlueprintKind::Item);
     let (ours, file, theirs) = (order(&taken_out), order(&was), order(&aurora));
     let touched = (0..file.len()).filter(|i| ours[*i] != file[*i]).collect::<Vec<_>>();
     assert_eq!(touched.len(), 1, "one category put in order");
@@ -281,6 +302,23 @@ fn field(label: &str, value: Value) -> mg_gff::Field {
     let mut s = Struct::new(0);
     s.set(label, value);
     s.fields.remove(0)
+}
+
+fn palette_entry<'a>(g: &'a Gff, resref: &str) -> &'a Struct {
+    fn walk<'a>(list: &'a [Struct], resref: &str) -> Option<&'a Struct> {
+        for n in list {
+            if n.resref("RESREF").is_some_and(|r| r.to_string() == resref) {
+                return Some(n);
+            }
+            if let Some(children) = n.list("LIST")
+                && let Some(found) = walk(children, resref)
+            {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(g.root.list("MAIN").unwrap(), resref).unwrap()
 }
 
 fn entry_mut<'a>(g: &'a mut Gff, resref: &str) -> &'a mut Struct {
@@ -309,30 +347,17 @@ fn a_save_gives_creature_entries_their_blueprint_s_cr_and_faction() {
     let root = corpus!();
     let before = Module::open(&aurora_capture!("wave1/before.mod")).unwrap();
     let aurora = Module::open(&aurora_capture!("wave1/saveas.mod")).unwrap();
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = shared_base_game(&root);
     let kind = BlueprintKind::Creature;
     let mut saved = before.clone();
     update_custom_palettes(&mut saved, &before, &game).unwrap();
     // Every entry's fields, by ResRef, in no order (Aurora writes CR and
     // FACTION after the name; Moonglow keeps the place each field had).
-    let entries = |g: &Gff| -> BTreeMap<String, Vec<String>> {
-        let mut out = BTreeMap::new();
-        fn walk(list: &[Struct], out: &mut BTreeMap<String, Vec<String>>) {
-            for n in list {
-                if let Some(r) = n.resref("RESREF") {
-                    let mut fields: Vec<String> = (n.fields.iter())
-                        .map(|f| format!("{} {:?}", f.label.to_string_lossy(), f.value))
-                        .collect();
-                    fields.sort();
-                    out.insert(r.to_string(), fields);
-                }
-                walk(n.list("LIST").unwrap_or(&[]), out);
-            }
-        }
-        walk(g.root.list("MAIN").unwrap(), &mut out);
-        out
-    };
     let (ours, theirs) = (palette(&saved, kind), palette(&aurora, kind));
-    assert_ne!(entries(&palette(&before, kind)), entries(&theirs), "the capture's entry was stale");
-    assert_eq!(entries(&ours), entries(&theirs));
+    assert_ne!(
+        palette_entries(&palette(&before, kind), false),
+        palette_entries(&theirs, false),
+        "the capture's entry was stale"
+    );
+    assert_eq!(palette_entries(&ours, false), palette_entries(&theirs, false));
 }

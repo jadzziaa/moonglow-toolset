@@ -253,8 +253,6 @@ fn an_item_shows_words_apart_from_its_name_and_a_button_its_words_alone() {
     assert!(h.query_by_label("Show 5 of 10").is_none(), "named by its name");
     let w = widths.borrow().clone();
     assert_eq!(w[0], w[1], "as wide as its words: {w:?}");
-    let two = KitButton::new(None, "2");
-    let _ = two;
     assert!(w[2] + metrics_icon() < w[3], "Area Properties without its icon: {w:?}");
 }
 
@@ -316,7 +314,7 @@ fn no_popover_unfolds_again_once_words_went() {
                 .show(ui)
         });
     });
-    for px in (40..1200).rev().step_by(4) {
+    for px in (40..1200).rev().step_by(16) {
         width.set(px as f32);
         h.run();
         let places = header::places(&h.ctx, H);

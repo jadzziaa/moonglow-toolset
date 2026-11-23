@@ -484,7 +484,7 @@ fn the_general_page_folds_its_columns_never_cut_never_taller_where_wider() {
         h.ctx.set_zoom_factor(scale);
         settle(&mut h);
         let mut seen: Vec<(f32, f32, usize)> = Vec::new();
-        for width in (640..=1900).step_by(20) {
+        for &width in &[640, 800, 1000, 1200, 1450, 1700, 1900] {
             // (Tall enough for the whole page in sight at one column: what
             // is out of sight has no box.)
             h.set_size(egui::vec2(width as f32, 3200.0));

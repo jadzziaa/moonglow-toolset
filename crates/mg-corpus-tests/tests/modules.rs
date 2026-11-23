@@ -136,7 +136,7 @@ fn shipped_modules_report_nothing_their_tables_or_strings_use() {
         .map(|path| {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             let m = Module::open(path).unwrap();
-            let mut rm = ResMan::for_game(&install).unwrap();
+            let mut rm = mg_testkit::shared_resman(&install).unwrap();
             let (missing, wrong) = m.stack_onto(&mut rm, &install);
             assert!(missing.is_empty() && wrong.is_none(), "{name}: {missing:?} {wrong:?}");
             let refs = module_references(&m);
@@ -193,7 +193,7 @@ fn hak_reports_for_shipped_modules() {
     use mg_module::haks::hak_report;
     let root = corpus!();
     let install = GameInstall::new(&root, None, "en");
-    let base = ResMan::for_game(&install).unwrap();
+    let base = mg_testkit::shared_resman(&install).unwrap();
     let mut checked = 0;
     for path in bundled_modules(&root) {
         let m = Module::open(&path).unwrap();

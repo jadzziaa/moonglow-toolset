@@ -106,6 +106,10 @@ fn claims_are_listed_claimed_released_and_merged() {
     // A merged area retagged: Verify fails, naming the table's row (Verify
     // needs the game: skipped without an install, as on CI).
     if mg_testkit::nwn_root().is_none() {
+        assert!(
+            !mg_testkit::corpus_required(),
+            "MOONGLOW_REQUIRE_CORPUS is set but no game install was found"
+        );
         eprintln!("verify part skipped: no game install");
         return;
     }

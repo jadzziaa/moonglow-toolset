@@ -159,7 +159,7 @@ fn a_dialog_its_buttons_answer_has_no_close() {
 /// the Close, Escape and Cancel closes it and changes nothing.
 #[test]
 fn a_dialog_closes_by_its_close_by_escape_and_by_its_cancel_alike() {
-    let Some((mut h, area)) = area_harness("dialog-closes") else { return };
+    let Some((mut h, area)) = area_ui_harness("dialog-closes") else { return };
     let size = |h: &mut Harness<'_, Moonglow>| {
         let ws = h.state_mut().ws.as_mut().unwrap();
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
@@ -193,7 +193,7 @@ fn a_dialog_closes_by_its_close_by_escape_and_by_its_cancel_alike() {
 /// folded: the Area Wizard over an area.
 #[test]
 fn a_dialog_opens_in_the_middle_of_the_main_window_whatever_the_docks() {
-    let Some((mut h, _)) = area_harness("dialog-middle") else { return };
+    let Some((mut h, _)) = area_ui_harness("dialog-middle") else { return };
     // (A window no width folds a dock in: the builder's folds are read
     // there, M3 T14.)
     wide_window(&mut h);
@@ -257,7 +257,7 @@ fn reachable(h: &mut Harness<'_, Moonglow>, title: &str, buttons: &[&str], at: e
 /// row in sight, its body scrolling to Create and Cancel.
 #[test]
 fn a_tall_dialog_stays_whole_and_scrolls_in_a_short_window() {
-    let Some((mut h, _)) = area_harness("dialog-least") else { return };
+    let Some((mut h, _)) = area_ui_harness("dialog-least") else { return };
     // (The builder unfolds the Left Dock, folded at this width: M3 T14.)
     unfold_left_dock(&mut h);
     for at in SHORT_WINDOWS {
@@ -303,7 +303,7 @@ fn new_module_and_a_picker_stay_whole_in_a_short_window() {
 /// The area's Properties in a window of its own in `mode` (As Tabs keeps
 /// the kind in a window as Eject would), with its window's pane.
 fn properties_window(mode: Mode, name: &str) -> Option<(Harness<'static, Moonglow>, Tab)> {
-    let (mut h, area) = area_harness(&mode.dir(name))?;
+    let (mut h, area) = area_ui_harness(&mode.dir(name))?;
     put_in(h.state_mut(), mode);
     if mode.tabs() {
         h.state_mut().settings.window_places =
@@ -464,7 +464,7 @@ fn a_size_scaled_past_the_window_opens_inside_it() {
     // (900 by 26 / 21: past an 800 point window.)
     assert_eq!(app.settings.window_sizes, [("area-properties".to_string(), [700, 1114])]);
     assert!(app.settings.window_sizes_scaled);
-    let Some((mut h, area)) = area_harness("window-scaled-past") else { return };
+    let Some((mut h, area)) = area_ui_harness("window-scaled-past") else { return };
     h.state_mut().settings.window_sizes = app.settings.window_sizes.clone();
     let props = Tab::AreaProperties(area);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
@@ -719,7 +719,7 @@ fn bar_tab_hits(h: &Harness<'_, Moonglow>, bar: egui::Rect) -> Vec<egui::Rect> {
 /// tab's close ending before Maximize; no two buttons on one point.
 #[test]
 fn a_window_s_bar_holds_at_every_width() {
-    let Some((mut h, area)) = area_harness("window-bar-sweep") else { return };
+    let Some((mut h, area)) = area_ui_harness("window-bar-sweep") else { return };
     let props = Tab::AreaProperties(area);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
     settle(&mut h);
@@ -770,7 +770,7 @@ fn a_window_s_bar_holds_at_every_width() {
                 );
                 r
             };
-            let (collapse, maximize, close) =
+            let (collapse, maximize, _close) =
                 (one("Collapse"), one("Maximize"), one("Close Window"));
             // The tabs, as they take the pointer, between the arrow and
             // Maximize.
@@ -798,7 +798,6 @@ fn a_window_s_bar_holds_at_every_width() {
                     assert!(!both.is_positive(), "{count} at {width}: {a} {ra:?} over {b} {rb:?}");
                 }
             }
-            let _ = close;
             width += 60.0;
         }
     }
@@ -848,7 +847,7 @@ fn click_holding(h: &mut Harness<'_, Moonglow>, at: egui::Pos2, modifiers: egui:
 /// "Close Window".
 #[test]
 fn a_window_s_panes_close_one_at_a_time() {
-    let Some((mut h, _)) = area_harness("window-panes") else { return };
+    let Some((mut h, _)) = area_ui_harness("window-panes") else { return };
     let dir = mg_testkit::scratch_dir("ui-window-panes");
     let file = dir.join("loose.2da");
     std::fs::write(&file, "2DA V2.0\n\n Label Cost\n0 Bread 1\n").unwrap();

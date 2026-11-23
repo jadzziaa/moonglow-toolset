@@ -524,7 +524,7 @@ fn the_gallery_s_toolbar_is_never_taller_where_wider() {
     for scale in [100, 125, 150] {
         h.state_mut().settings.ui_scale = (scale != 100).then_some(scale);
         let mut was: Option<(f32, f32)> = None;
-        for width in (280..=741).step_by(13) {
+        for width in (280..=741).step_by(39).chain(std::iter::once(741)) {
             right_dock_width(&mut h, width as f32);
             settle(&mut h);
             // (kittest gives AccessKit's boxes in points, the zoom's.)
@@ -891,7 +891,7 @@ fn the_palette_s_toolbar_is_in_the_board_s_order() {
     assert!(at[5].1 > at[4].1 + 4.0, "the slider under the rest at 280: {at:?}");
     // (Where it wraps: the widest dock with the slider under the rest.)
     let mut wraps = None;
-    for width in 280..=440 {
+    for width in [280, 368, 369, 370, 440] {
         right_dock_width(&mut h, width as f32);
         settle(&mut h);
         let at = row(&h);

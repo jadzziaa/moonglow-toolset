@@ -255,6 +255,7 @@ pub(super) fn client_after(
     wait: Duration,
     then: Option<&dyn Fn(&Path) -> bool>,
 ) -> (Option<Rgba>, bool) {
+    let _only = common::client_lock();
     let _ = std::fs::remove_file(dir.join("user/logs/nwclientLog1.txt"));
     let Ok(mut child) = Command::new(common::repo().join("tools/nwclient/run-client.sh"))
         .arg(dir)
@@ -299,6 +300,7 @@ pub(super) fn client_after(
 #[test]
 #[ignore]
 fn reading_choose_character() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
     let mut r = Reading::new("choose_character", "tic01", light, &[]);
     r.save(&enter(INVISIBLE, (90.0, 12.0, 45.0)), SETTINGS);
@@ -386,6 +388,7 @@ fn inventory(female: bool) -> (PathBuf, Rgba) {
 #[test]
 #[ignore]
 fn reading_inventory_icons() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     for female in [false, true] {
         let (dir, _) = inventory(female);
         print_log(&dir);
@@ -399,6 +402,7 @@ fn reading_inventory_icons() {
 #[test]
 #[ignore]
 fn reading_illuminated_brazier() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x101010, diffuse: 0x101010, main_light: 0, only_tile: None };
     let mut r = Reading::new("illuminated", "tic01", light, &[]);
     for (x, on) in [(18.5f32, 1u8), (21.5, 0)] {
@@ -482,6 +486,7 @@ fn replacement(name: &str, value: Option<u8>, stock: bool) -> Option<Rgba> {
 #[test]
 #[ignore]
 fn reading_tile_replacement_texture() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let only = std::env::var("MG_REPLACE").ok();
     for (name, value, stock) in [
         ("none", None, false),
@@ -509,6 +514,7 @@ fn reading_tile_replacement_texture() {
 #[test]
 #[ignore]
 fn reading_tile_heights() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     // (From the middle, the server stood the player on the high tile: the
     // ground's player enters south of it.)
@@ -627,6 +633,7 @@ pub(super) fn placeables_with(game: &GameData, models: &[(&str, u8)]) -> (String
 #[test]
 #[ignore]
 fn reading_grass_on_placeables() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let (mdl, pwk) = slab("mg_slab", 4.0);
@@ -662,6 +669,7 @@ fn reading_grass_on_placeables() {
 #[test]
 #[ignore]
 fn reading_grass_tufts() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     // From the side and from above (a quad seen edge on is a line, crossed
     // ones a cross).
@@ -691,6 +699,7 @@ fn reading_grass_tufts() {
 #[test]
 #[ignore]
 fn reading_grass_sway() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let overrides = [("mgwhite.tga", white_tga())];
     // (`MG_WIND`: the area's `WindPower`, 2 by default; `MG_CAMERA`:
@@ -750,6 +759,7 @@ fn reading_grass_sway() {
 #[test]
 #[ignore]
 fn reading_custom_talk_table_in_the_module() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let mut r = Reading::new("custom_tlk", "tic01", light, &[]);
     let mut t = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
@@ -779,6 +789,7 @@ fn reading_custom_talk_table_in_the_module() {
 #[test]
 #[ignore]
 fn reading_custom_cloak_base_item() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let table = base.resman.get_named("baseitems", ResType::TWODA).unwrap();
@@ -830,6 +841,7 @@ fn reading_custom_cloak_base_item() {
 #[test]
 #[ignore]
 fn reading_placeable_without_its_state_s_animation() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let goblin = Model::read(&base.resman.get_named("c_goblina", ResType::MDL).unwrap()).unwrap();
@@ -890,6 +902,7 @@ fn reading_placeable_without_its_state_s_animation() {
 #[test]
 #[ignore]
 fn reading_git_sun_direction() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x303030, diffuse: 0xE0E0E0, main_light: 0, only_tile: None };
     let settings = SETTINGS.replace(
         "[graphics.shadows.environment]\n\t\t\tenabled = false",
@@ -968,6 +981,7 @@ pub(super) fn pillar(name: &str, side: f32, height: f32) -> String {
 #[test]
 #[ignore]
 fn reading_low_sun_shadow_length() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let (table, first) = placeables_with(&base, &[("mg_pillar", 1), ("mg_pillar", 0)]);
@@ -1018,6 +1032,7 @@ fn reading_low_sun_shadow_length() {
 #[test]
 #[ignore]
 fn reading_dropped_cloak_shine() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let mut r = Reading::new("dropped_cloak_shine", "tic01", light, &[]);
     let bp = Gff::read(&r.game.resman.get_named("nw_maarcl055", ResType::UTI).unwrap()).unwrap();
@@ -1044,6 +1059,7 @@ fn reading_dropped_cloak_shine() {
 #[test]
 #[ignore]
 fn reading_git_sun_uniform() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let overrides = [("inc_standard.shd", debug_shader(&base).into_bytes())];
@@ -1096,6 +1112,7 @@ fn reading_git_sun_uniform() {
 #[test]
 #[ignore]
 fn reading_facelift_cliffs() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let mut r = Reading::new("facelift_cliffs", "ttf02", light, &[]);
     let tiles = r.are.root.list_mut("Tile_List").unwrap();
@@ -1120,6 +1137,7 @@ fn reading_facelift_cliffs() {
 #[test]
 #[ignore]
 fn reading_shore() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let mut r = Reading::new("shore", "ttr01", light, &[]);
     let tiles = r.are.root.list_mut("Tile_List").unwrap();
@@ -1136,6 +1154,7 @@ fn reading_shore() {
 #[test]
 #[ignore]
 fn reading_exact_tile_seams() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let mut r = Reading::new("exact_tile_seams", "ttr01", light, &[]);
     let tiles = r.are.root.list_mut("Tile_List").unwrap();
@@ -1157,6 +1176,7 @@ fn reading_exact_tile_seams() {
 #[test]
 #[ignore]
 fn reading_tile_border() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     let env = |name: &str, default: &str| -> Vec<f32> {
         let v = std::env::var(name).unwrap_or_else(|_| default.into());
         v.split(',').filter_map(|s| s.trim().parse().ok()).collect()
@@ -1269,6 +1289,7 @@ fn reading_tile_border() {
 #[test]
 #[ignore]
 fn reading_baked_copy_drawn_as_the_original() {
+    let _ = mg_testkit::oracle_tool!("nwn_script_comp");
     use mg_module::bake;
     let root = mg_testkit::nwn_root().expect("the game");
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();

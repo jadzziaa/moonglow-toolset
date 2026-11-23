@@ -445,8 +445,9 @@ fn menu(h: &mut Harness<'_, Moonglow>, name: &str, item: &str, note: &mut String
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let Some(i) = menu_item(h, item, &before) else {
+        let prefix: String = item.chars().take(2).collect();
         let seen: Vec<String> =
-            h.query_all_by_label_contains(&item[..2]).filter_map(|n| text_of(&n)).collect();
+            h.query_all_by_label_contains(&prefix).filter_map(|n| text_of(&n)).collect();
         note.push_str(&format!(" [{name} › {item} not found; seen {seen:?}]"));
         return false;
     };
@@ -980,26 +981,49 @@ fn every_way_of_closing_a_hak_with_a_file_added() {
         .filter(|c| only.as_deref().is_none_or(|o| c.name().contains(o)))
         .collect();
     let started = std::time::Instant::now();
-    for (n, cell) in cells.iter().enumerate() {
-        let name = cell.name();
-        let dir = root.join(format!("cell-{n:04}"));
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_cell(cell, &dir)));
-        match r {
-            Ok(o) => {
-                let off = deviations(cell, &o);
-                let line = row(&name, &o, &off);
-                if !off.is_empty() {
-                    off_rows.push(line.clone());
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<(usize, String, Option<String>, Option<String>)>> =
+        std::sync::Mutex::new(Vec::with_capacity(cells.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let n = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(cell) = cells.get(n) else { break };
+                    let name = cell.name();
+                    let dir = root.join(format!("cell-{n:04}"));
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run_cell(cell, &dir)
+                    }));
+                    let (line, off_line, panic_line) = match r {
+                        Ok(o) => {
+                            let off = deviations(cell, &o);
+                            let line = row(&name, &o, &off);
+                            let off_line = (!off.is_empty()).then(|| line.clone());
+                            (line, off_line, None)
+                        }
+                        Err(e) => {
+                            let line = format!("| {name} | PANIC: {} |", panic_text(&e));
+                            (line.clone(), None, Some(line))
+                        }
+                    };
+                    let _ = std::fs::remove_dir_all(&dir);
+                    results.lock().unwrap().push((n, line, off_line, panic_line));
                 }
-                rows.push(line);
-            }
-            Err(e) => {
-                let line = format!("| {name} | PANIC: {} |", panic_text(&e));
-                panics.push(line.clone());
-                rows.push(line);
-            }
+            });
         }
-        let _ = std::fs::remove_dir_all(&dir);
+    });
+    let mut results = results.into_inner().unwrap();
+    results.sort_by_key(|r| r.0);
+    for (_, line, off_line, panic_line) in results {
+        if let Some(off) = off_line {
+            off_rows.push(off);
+        }
+        if let Some(p) = panic_line {
+            panics.push(p);
+        }
+        rows.push(line);
     }
     let _ = std::fs::remove_dir_all(&root);
     let header = "| cell | verdict | end state | questions | on screen | hak file | again / under the job | log | notes |\n|---|---|---|---|---|---|---|---|---|";
@@ -1014,16 +1038,16 @@ fn every_way_of_closing_a_hak_with_a_file_added() {
         rows.join("\n")
     );
     text = text.replace("\n\n\n", "\n\n");
-    let out = mg_testkit::output_dir("hak-closing").join("matrix.md");
-    std::fs::write(&out, &text).unwrap();
-    eprintln!("{} cells in {:.0?}, written to {}", cells.len(), started.elapsed(), out.display());
+    if std::env::var_os("MG_SHOT").is_some() || !off_rows.is_empty() || !panics.is_empty() {
+        let out = mg_testkit::output_dir("hak-closing").join("matrix.md");
+        std::fs::write(&out, &text).unwrap();
+    }
     assert!(
         off_rows.is_empty() && panics.is_empty(),
-        "{} deviating and {} panicked cells of {} (see {}):\n{}\n{}",
+        "{} deviating and {} panicked cells of {}:\n{}\n{}",
         off_rows.len(),
         panics.len(),
         cells.len(),
-        out.display(),
         off_rows.join("\n"),
         panics.join("\n")
     );

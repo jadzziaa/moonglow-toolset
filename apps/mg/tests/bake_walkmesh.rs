@@ -7,7 +7,7 @@ use mg_gff::{Gff, Value};
 use mg_module::instances::{Placement, Placing, instance};
 use mg_module::new::{AreaSpec, add_area, new_module};
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, ResKey};
+use mg_resman::ResKey;
 use mg_rules::GameData;
 
 const RULES: &str = "[bake]\nrows = \"50000-50009\"\nhak = \"mybaked\"\nnames = \"mgbk_\"\n";
@@ -82,7 +82,7 @@ fn appearances(dir: &std::path::Path, area: ResRef) -> Vec<i64> {
 #[test]
 fn placeables_are_baked_shared_and_unbaked() {
     let root = mg_testkit::corpus!();
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = crate::shared_game(&root);
     let scratch = mg_testkit::scratch_dir("mg-bake-walkmesh");
     let (dir, user) = (scratch.join("bake"), scratch.join("user"));
     std::fs::create_dir_all(&user).unwrap();
@@ -168,7 +168,7 @@ fn placeables_are_baked_shared_and_unbaked() {
 #[test]
 fn without_bake_rules_nothing_is_baked() {
     let root = mg_testkit::corpus!();
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = crate::shared_game(&root);
     let scratch = mg_testkit::scratch_dir("mg-bake-walkmesh-none");
     let dir = scratch.join("bake");
     for (rules, said) in [
@@ -196,7 +196,7 @@ fn without_bake_rules_nothing_is_baked() {
 #[test]
 fn a_refused_bake_writes_no_hak_and_no_rows() {
     let root = mg_testkit::corpus!();
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = crate::shared_game(&root);
     let scratch = mg_testkit::scratch_dir("mg-bake-refused");
     let (dir, user, plugin) = (scratch.join("bake"), scratch.join("user"), scratch.join("refuser"));
     std::fs::create_dir_all(&user).unwrap();

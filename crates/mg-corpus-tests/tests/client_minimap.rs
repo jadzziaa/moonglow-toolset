@@ -244,7 +244,6 @@ fn map_rect(img: &Rgba) -> Option<(u32, u32, u32, u32)> {
 fn minimaps_are_laid_out_as_the_client_draws_them() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let mut failures = Vec::new();
     for (format, restype) in
@@ -353,7 +352,6 @@ fn minimaps_are_laid_out_as_the_client_draws_them() {
 fn map_notes_are_marked_as_the_client_marks_them() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let dir = scratch_dir("client_minimap_notes");
     let user = dir.join("user");

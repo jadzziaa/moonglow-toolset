@@ -75,6 +75,48 @@ pub trait Container: Send + Sync + fmt::Debug {
     }
 }
 
+impl<T: Container + ?Sized> Container for Arc<T> {
+    fn contains(&self, key: &ResKey) -> bool {
+        (**self).contains(key)
+    }
+
+    fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
+        (**self).read(key)
+    }
+
+    fn read_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {
+        (**self).read_start(key, n)
+    }
+
+    fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+        (**self).keys()
+    }
+
+    fn len(&self) -> usize {
+        (**self).len()
+    }
+
+    fn is_empty(&self) -> bool {
+        (**self).is_empty()
+    }
+
+    fn fingerprint(&self) -> u64 {
+        (**self).fingerprint()
+    }
+
+    fn listing(&self) -> u64 {
+        (**self).listing()
+    }
+
+    fn watched(&self) -> Option<&Path> {
+        (**self).watched()
+    }
+
+    fn unreadable(&self) -> Vec<ResKey> {
+        (**self).unreadable()
+    }
+}
+
 /// The game reads no resource that starts this far or further into an
 /// archive (a signed 32-bit offset): it finds the resource, fails to read
 /// it, and doesn't look in the archives below
@@ -330,7 +372,7 @@ impl Container for ErfContainer {
 /// portraits, a module folder). Files with unknown extensions or names that
 /// are not valid resrefs are ignored. The listing is taken when opened; call
 /// [`DirContainer::rescan`] to pick up changes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DirContainer {
     pub path: PathBuf,
     files: HashMap<ResKey, PathBuf>,

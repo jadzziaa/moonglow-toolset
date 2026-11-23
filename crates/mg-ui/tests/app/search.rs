@@ -1193,7 +1193,7 @@ fn advanced_search_lists_a_property_s_values_in_the_cost_table_s_order() {
 /// by its name where areas are shown by name.
 #[test]
 fn references_name_areas_as_the_window_does() {
-    let Some((mut h, area)) = area_harness("refs-area-names") else { return };
+    let Some((mut h, area)) = area_ui_harness("refs-area-names") else { return };
     let waypoint = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
     h.state_mut().settings.area_names = false;
     h.state_mut().actions.push(mg_ui::Action::FindReferences(waypoint));

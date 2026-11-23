@@ -717,12 +717,11 @@ fn set_local_acts_on_the_selection() {
 /// from `classes.2da` and the talk table.
 #[test]
 fn creature_report_names_the_classes() {
-    let Some(root) = mg_testkit::nwn_root() else {
-        eprintln!("skipped: no game install");
-        return;
-    };
+    let root = mg_testkit::corpus!();
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
+    let rm = mg_testkit::shared_resman(&install).unwrap();
+    let tlk = std::sync::Arc::new(mg_rules::GameData::open_tlk(&install).unwrap());
+    let game = std::sync::Arc::new(mg_rules::GameData::with_shared_tlk(rm, tlk));
     let host = Rc::new(TestHost::default());
     let input = Input::new(module(), Some(game));
     let outcome =

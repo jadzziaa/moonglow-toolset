@@ -64,6 +64,7 @@ fn the_job_window_s_progress_words_read_in_light() {
         return;
     }
     mg_testkit::gpu::hold();
+    let _shared_rs = with_shared_renderer();
     for light in [true, false] {
         let mut app = app_with(Vec::new());
         app.settings.light_theme = light;
@@ -122,6 +123,7 @@ fn the_main_action_is_drawn_in_the_accent_fill() {
         return;
     }
     mg_testkit::gpu::hold();
+    let _shared_rs = with_shared_renderer();
     for light in [false, true] {
         for title in ["New Module", "Unsaved Changes"] {
             let mut app = app_with(Vec::new());
@@ -165,6 +167,7 @@ fn every_dialog_s_main_action_is_drawn_in_the_accent_fill() {
         return;
     }
     mg_testkit::gpu::hold();
+    let _shared_rs = with_shared_renderer();
     crate::dialog_pattern::running("-accent");
     let mut failed = Vec::new();
     let mut held = 0;
@@ -172,10 +175,10 @@ fn every_dialog_s_main_action_is_drawn_in_the_accent_fill() {
         if op.bare {
             continue;
         }
+        let screen = egui::vec2(1280.0, 720.0);
+        let Some(mut h) = crate::dialog_pattern::opened(&op, screen, 1.0) else { continue };
         for light in [false, true] {
             let theme = if light { "Light" } else { "Dark" };
-            let screen = egui::vec2(1280.0, 720.0);
-            let Some(mut h) = crate::dialog_pattern::opened(&op, screen, 1.0) else { continue };
             h.state_mut().settings.light_theme = light;
             h.event(egui::Event::PointerGone);
             crate::dialog_pattern::rested(&mut h, op.title, op.job);

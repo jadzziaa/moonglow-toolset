@@ -303,11 +303,6 @@ fn custom_shader_uvs_look() {
     use mg_module::instances::{Placement, Placing, instance};
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
-    mg_testkit::gpu::hold();
-    let Some(gpu) = Gpu::headless() else {
-        eprintln!("skipped: no GPU");
-        return;
-    };
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let tileset = std::env::var("MG_UV_TILESET").unwrap_or_else(|_| "tni01".into());
     let dir = scratch_dir("client_custom_uvs");
@@ -384,6 +379,11 @@ fn custom_shader_uvs_look() {
     }
 
     let set = mg_area::tileset(&game, ResRef::from_str(&tileset).unwrap()).ok();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
     let model = mg_area::AreaModel::read(&game, &are.root, &git.root, set.as_ref());
     let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
     let scene =

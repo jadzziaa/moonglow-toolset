@@ -96,74 +96,75 @@ fn main() {
         Gff::read(&data).ok().map(|g| g.root)
     };
     let placing = Placing { game: &game, item: &item };
-    // (race, Int and Wis, Cha, class entries)
+    // (race, Int, Wis, Cha, class entries)
     let (bard, cleric, sorcerer, wizard) = (1, 2, 9, 10);
     let cantrips: &[u16] = &[37, 100, 144, 151, 416, 424];
-    let probes: Vec<(u8, u8, u8, Vec<Struct>)> = match set.as_str() {
-        "inventory" => (0..6).map(|_| (6, 10, 10, vec![class(4, 1, &[])])).collect(),
+    let probes: Vec<(u8, u8, u8, u8, Vec<Struct>)> = match set.as_str() {
+        "inventory" => (0..6).map(|_| (6, 10, 10, 10, vec![class(4, 1, &[])])).collect(),
         "5" => vec![
-            (6, 10, 11, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
-            (6, 10, 18, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
-            (6, 18, 10, vec![class(wizard, 1, &[("MemorizedList0", &cantrips[..5])])]),
-            (6, 18, 10, vec![class(sorcerer, 1, &[("KnownList0", cantrips)])]),
-            (6, 18, 10, vec![class(wizard, 1, &[("MemorizedList0", cantrips)])]),
-            (6, 10, 18, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10, 24])])]),
+            (6, 10, 10, 11, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
+            (6, 10, 10, 18, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
+            (6, 18, 10, 10, vec![class(wizard, 1, &[("MemorizedList0", &cantrips[..5])])]),
+            (6, 18, 18, 10, vec![class(sorcerer, 1, &[("KnownList0", cantrips)])]),
+            (6, 18, 10, 10, vec![class(wizard, 1, &[("MemorizedList0", cantrips)])]),
+            (6, 10, 10, 18, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10, 24])])]),
         ],
         "4" => vec![
-            (6, 10, 10, vec![class(bard, 1, &[("KnownList0", &[33, 37, 100, 151, 416])])]),
-            (6, 10, 10, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
-            (6, 10, 12, vec![class(bard, 1, &[("KnownList1", &[32])])]),
-            (6, 10, 10, vec![class(sorcerer, 2, &[("KnownList0", cantrips)])]),
-            (6, 10, 10, vec![class(cleric, 1, &[("MemorizedList0", &[33, 33, 33, 33, 33])])]),
-            (6, 12, 10, vec![class(cleric, 1, &[("MemorizedList1", &[32, 32, 32, 32])])]),
+            (6, 10, 10, 10, vec![class(bard, 1, &[("KnownList0", &[33, 37, 100, 151, 416])])]),
+            (6, 10, 10, 10, vec![class(sorcerer, 1, &[("KnownList1", &[107, 102, 10])])]),
+            (6, 10, 10, 12, vec![class(bard, 1, &[("KnownList1", &[32])])]),
+            (6, 10, 10, 10, vec![class(sorcerer, 2, &[("KnownList0", cantrips)])]),
+            (6, 10, 10, 10, vec![class(cleric, 1, &[("MemorizedList0", &[33, 33, 33, 33, 33])])]),
+            (6, 10, 12, 10, vec![class(cleric, 1, &[("MemorizedList1", &[32, 32, 32, 32])])]),
         ],
         "3" => vec![
-            (6, 10, 18, vec![class(sorcerer, 1, &[("KnownList0", cantrips)])]),
-            (6, 14, 10, vec![class(wizard, 3, &[("MemorizedList2", &[9, 13, 36])])]),
-            (5, 13, 10, vec![class(wizard, 1, &[("MemorizedList1", &[107, 102])])]),
-            (6, 10, 10, vec![class(wizard, 1, &[("MemorizedList2", &[9])])]),
+            (6, 10, 10, 18, vec![class(sorcerer, 1, &[("KnownList0", cantrips)])]),
+            (6, 14, 10, 10, vec![class(wizard, 3, &[("MemorizedList2", &[9, 13, 36])])]),
+            (5, 13, 10, 10, vec![class(wizard, 1, &[("MemorizedList1", &[107, 102])])]),
+            (6, 10, 10, 10, vec![class(wizard, 1, &[("MemorizedList2", &[9])])]),
             (
                 6,
                 18,
+                10,
                 10,
                 vec![
                     class(wizard, 1, &[("MemorizedList2", &[9])]),
                     class(sorcerer, 1, &[("KnownList0", cantrips)]),
                 ],
             ),
-            (6, 10, 10, vec![class(bard, 1, &[("KnownList0", &[33, 37, 100, 151])])]),
+            (6, 10, 10, 10, vec![class(bard, 1, &[("KnownList0", &[33, 37, 100, 151])])]),
         ],
         "2" => [
-            (6, 10, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102])])),
-            (6, 18, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102, 10])])),
-            (6, 18, 10, class(wizard, 2, &[("MemorizedList2", &[9])])),
-            (6, 10, 10, class(sorcerer, 1, &[("KnownList0", cantrips)])),
-            (6, 10, 10, class(wizard, 3, &[("MemorizedList2", &[9, 13])])),
-            (6, 18, 10, class(wizard, 2, &[("MemorizedList0", &cantrips[..5])])),
+            (6, 10, 10, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102])])),
+            (6, 18, 10, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102, 10])])),
+            (6, 18, 10, 10, class(wizard, 2, &[("MemorizedList2", &[9])])),
+            (6, 10, 10, 10, class(sorcerer, 1, &[("KnownList0", cantrips)])),
+            (6, 10, 10, 10, class(wizard, 3, &[("MemorizedList2", &[9, 13])])),
+            (6, 18, 10, 10, class(wizard, 2, &[("MemorizedList0", &cantrips[..5])])),
         ]
-        .map(|(r, i, c, e)| (r, i, c, vec![e]))
+        .map(|(r, i, w, c, e)| (r, i, w, c, vec![e]))
         .into(),
         _ => [
-            (6, 18, 10, class(wizard, 1, &[("MemorizedList2", &[9])])),
-            (6, 12, 10, class(wizard, 5, &[("MemorizedList3", &[58])])),
-            (6, 10, 10, class(wizard, 1, &[("MemorizedList0", &cantrips[..4])])),
-            (6, 18, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102])])),
-            (5, 12, 10, class(wizard, 1, &[("MemorizedList1", &[107])])),
-            (6, 10, 10, class(sorcerer, 1, &[("KnownList0", &cantrips[..5])])),
+            (6, 18, 10, 10, class(wizard, 1, &[("MemorizedList2", &[9])])),
+            (6, 12, 10, 10, class(wizard, 5, &[("MemorizedList3", &[58])])),
+            (6, 10, 10, 10, class(wizard, 1, &[("MemorizedList0", &cantrips[..4])])),
+            (6, 18, 10, 10, class(wizard, 1, &[("MemorizedList1", &[107, 102])])),
+            (5, 12, 10, 10, class(wizard, 1, &[("MemorizedList1", &[107])])),
+            (6, 10, 10, 10, class(sorcerer, 1, &[("KnownList0", &cantrips[..5])])),
         ]
-        .map(|(r, i, c, e)| (r, i, c, vec![e]))
+        .map(|(r, i, w, c, e)| (r, i, w, c, vec![e]))
         .into(),
     };
     let creatures = probes
         .into_iter()
         .enumerate()
-        .map(|(i, (race, int, cha, entries))| {
+        .map(|(i, (race, int, wis, cha, entries))| {
             let at = Placement { position: [8.0 + 4.0 * i as f32, 20.0, 0.0], rotation: 0.0 };
             let mut c = instance(&placing, ResType::UTC, &bandit.root, at, &[]).unwrap();
             c.set("Tag", Value::String(format!("SPW{i}").into_bytes()));
             c.set("Race", Value::Byte(race));
             c.set("Int", Value::Byte(int));
-            c.set("Wis", Value::Byte(int));
+            c.set("Wis", Value::Byte(wis));
             c.set("Cha", Value::Byte(cha));
             c.set("ClassList", Value::List(entries));
             if set == "inventory" {

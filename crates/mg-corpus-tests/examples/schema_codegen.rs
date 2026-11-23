@@ -134,8 +134,16 @@ fn emit(node: &Node, total_files: usize, depth: usize, out: &mut String) {
     for (label, obs) in &node.fields {
         let mut name = const_name(label);
         if !used.insert(name.clone()) {
-            name = format!("{name}_{}", used.len());
-            used.insert(name.clone());
+            let base = name;
+            let mut n = 2usize;
+            loop {
+                let candidate = format!("{base}_{n}");
+                if used.insert(candidate.clone()) {
+                    name = candidate;
+                    break;
+                }
+                n += 1;
+            }
         }
         let pct = 100.0 * obs.files as f64 / total_files.max(1) as f64;
         let types: Vec<&str> = obs.types.iter().copied().collect();

@@ -44,6 +44,10 @@ fn write_hak(path: &std::path::Path, far: u64, near_ncs: &[u8], far_ncs: &[u8]) 
 fn the_game_reads_nothing_that_starts_past_2_gib_in_a_hak() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
+    let has_server = server_binary(&root).is_some();
+    if !has_server {
+        eprintln!("skipped the engine: no nwserver for this platform");
+    }
     let dir = scratch_dir("engine_big_hak");
     let near = compile(&dir, "mg_near", &script("MG_NEAR"));
     let far = compile(&dir, "mg_far", &script("MG_FAR"));
@@ -78,23 +82,22 @@ fn the_game_reads_nothing_that_starts_past_2_gib_in_a_hak() {
         unreadable.sort();
         assert_eq!(c.unreadable(), unreadable);
 
-        if server_binary(&root).is_none() {
-            eprintln!("skipped the engine: no nwserver for this platform");
-            return;
+        if has_server {
+            probe_module(&root, &user, "bighak", probe, &["mg_big"], &[]);
+            let run =
+                run_server(&root, &user, "bighak", "MG_DONE", Duration::from_secs(300)).unwrap();
+            assert!(run.finished, "the server didn't finish:\n{}", run.log);
+            // The control: what sits at the start is read.
+            assert_eq!(run.values("MG_NEAR_CELL"), ["[near]"]);
+            assert_eq!(run.values("MG_NEAR ran").len(), 1);
+            // A resource is read when it starts before the mark, wherever it
+            // ends.
+            let cell = if at < MARK { "[far]" } else { "[]" };
+            assert_eq!(run.values("MG_FAR_CELL"), [cell], "mg_far at {at:#x}");
+            let ran = usize::from(script_at < MARK);
+            assert_eq!(run.values("MG_FAR ran").len(), ran, "mg_far at {at:#x}");
         }
-        probe_module(&root, &user, "bighak", probe, &["mg_big"], &[]);
-        let run = run_server(&root, &user, "bighak", "MG_DONE", Duration::from_secs(300)).unwrap();
         let _ = std::fs::remove_file(&hak);
-        assert!(run.finished, "the server didn't finish:\n{}", run.log);
-        // The control: what sits at the start is read.
-        assert_eq!(run.values("MG_NEAR_CELL"), ["[near]"]);
-        assert_eq!(run.values("MG_NEAR ran").len(), 1);
-        // A resource is read when it starts before the mark, wherever it
-        // ends.
-        let cell = if at < MARK { "[far]" } else { "[]" };
-        assert_eq!(run.values("MG_FAR_CELL"), [cell], "mg_far at {at:#x}");
-        let ran = usize::from(script_at < MARK);
-        assert_eq!(run.values("MG_FAR ran").len(), ran, "mg_far at {at:#x}");
     }
 }
 

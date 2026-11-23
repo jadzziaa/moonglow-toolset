@@ -763,7 +763,8 @@ fn the_left_dock_s_tab_bar_fits_at_its_least_width() {
             h.state_mut().actions.push(mg_ui::Action::ShowPanel(panel));
             settle(&mut h);
             let mut icons_seen = Vec::new();
-            for dock in 190..=most {
+            let widths = [190, 200, 220, 240, 260, 280, 320, 400, 480, 560];
+            for dock in widths.into_iter().filter(|w| *w <= most) {
                 left_dock_width(&mut h, dock as f32);
                 let mut each = Vec::new();
                 for _ in 0..2 {

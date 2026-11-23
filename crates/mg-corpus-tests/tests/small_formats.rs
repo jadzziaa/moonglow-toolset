@@ -7,9 +7,12 @@ use mg_set::Tileset;
 use mg_ssf::Ssf;
 use mg_testkit::{bundled_haks, corpus};
 
-/// Every resource of a type in the base game and the shipped haks.
-fn shipped(root: &std::path::Path, restype: ResType) -> Vec<(String, Vec<u8>)> {
-    let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
+/// Every resource of a type in the base game and the parsed shipped haks.
+fn shipped_with(
+    rm: &ResMan,
+    haks: &[(std::path::PathBuf, Erf<'_>)],
+    restype: ResType,
+) -> Vec<(String, Vec<u8>)> {
     let mut out: Vec<(String, Vec<u8>)> = rm
         .list(restype)
         .into_iter()
@@ -18,12 +21,10 @@ fn shipped(root: &std::path::Path, restype: ResType) -> Vec<(String, Vec<u8>)> {
             (format!("base:{key}"), rm.get(&key).unwrap().into_owned())
         })
         .collect();
-    for hak in bundled_haks(root) {
-        let data = std::fs::read(&hak).unwrap();
-        let erf = Erf::read(&data).unwrap();
+    for (path, erf) in haks {
         for e in erf.entries.iter().filter(|e| e.restype == restype) {
             out.push((
-                format!("{}:{}", hak.display(), e.filename()),
+                format!("{}:{}", path.display(), e.filename()),
                 erf.data(e).unwrap().into_owned(),
             ));
         }
@@ -43,11 +44,13 @@ const KNOWN_MISSING_MODELS: &[&str] =
 #[test]
 fn shipped_tilesets_parse_and_their_models_exist() {
     let root = corpus!();
-    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
-    let hak_data: Vec<Vec<u8>> =
-        bundled_haks(&root).iter().map(|h| std::fs::read(h).unwrap()).collect();
-    let haks: Vec<Erf> = hak_data.iter().map(|d| Erf::read(d).unwrap()).collect();
-    let sets = shipped(&root, ResType::SET);
+    let rm = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
+    let hak_paths = bundled_haks(&root);
+    let hak_data: Vec<Vec<u8>> = hak_paths.iter().map(|h| std::fs::read(h).unwrap()).collect();
+    let haks_with_paths: Vec<(std::path::PathBuf, Erf<'_>)> =
+        hak_paths.into_iter().zip(&hak_data).map(|(p, d)| (p, Erf::read(d).unwrap())).collect();
+    let haks: Vec<&Erf<'_>> = haks_with_paths.iter().map(|(_, e)| e).collect();
+    let sets = shipped_with(&rm, &haks_with_paths, ResType::SET);
     assert!(sets.len() > 30);
     let mut failures = Vec::new();
     let (mut rules, mut warnings) = (0, 0);
@@ -91,7 +94,12 @@ fn shipped_tilesets_parse_and_their_models_exist() {
 #[test]
 fn tilesets_with_door_counts_that_are_no_counts_read_the_same() {
     let root = corpus!();
-    let sets = shipped(&root, ResType::SET);
+    let rm = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
+    let hak_paths = bundled_haks(&root);
+    let hak_data: Vec<Vec<u8>> = hak_paths.iter().map(|h| std::fs::read(h).unwrap()).collect();
+    let haks: Vec<(std::path::PathBuf, Erf<'_>)> =
+        hak_paths.into_iter().zip(&hak_data).map(|(p, d)| (p, Erf::read(d).unwrap())).collect();
+    let sets = shipped_with(&rm, &haks, ResType::SET);
     let started = std::time::Instant::now();
     let mut doors = 0;
     for (name, bytes) in &sets {
@@ -128,7 +136,12 @@ fn tilesets_with_door_counts_that_are_no_counts_read_the_same() {
 #[test]
 fn shipped_soundsets_round_trip_exactly() {
     let root = corpus!();
-    let ssfs = shipped(&root, ResType::SSF);
+    let rm = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
+    let hak_paths = bundled_haks(&root);
+    let hak_data: Vec<Vec<u8>> = hak_paths.iter().map(|h| std::fs::read(h).unwrap()).collect();
+    let haks: Vec<(std::path::PathBuf, Erf<'_>)> =
+        hak_paths.into_iter().zip(&hak_data).map(|(p, d)| (p, Erf::read(d).unwrap())).collect();
+    let ssfs = shipped_with(&rm, &haks, ResType::SSF);
     assert!(ssfs.len() > 400);
     let failures: Vec<String> = ssfs
         .iter()

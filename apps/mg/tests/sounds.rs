@@ -122,7 +122,7 @@ fn chess_with(
 ) -> std::path::PathBuf {
     let chess = root.join("data/mod/Neverwinter Chess.mod");
     let mut m = Module::open(&chess).unwrap();
-    let game = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
+    let game = mg_testkit::shared_resman(&GameInstall::new(root, None, "en")).unwrap();
     let (music_table, first_music) = extended(&game, "ambientmusic", music);
     let (ambient_table, first_ambient) = extended(&game, "ambientsound", ambient);
     m.set(ResKey::parse("ambientmusic", ResType::TWODA).unwrap(), music_table);
@@ -227,7 +227,7 @@ fn verify_says_which_music_and_sounds_the_game_plays_nothing_of() {
             ("mg_amb_pcm", ResType::WAV, pcm_wave()),
         ],
     );
-    let game = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
     let rows = |name: &str| {
         let t = game.get(&ResKey::parse(name, ResType::TWODA).unwrap()).unwrap();
         mg_2da::TwoDa::parse(&t, mg_core::Codepage::default()).unwrap().len()
@@ -343,7 +343,7 @@ fn verify_says_a_track_found_nowhere_and_nothing_of_music_the_game_plays() {
             ("mg_bare", ResType::WAV, mp3()),
         ],
     );
-    let game = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let game = mg_testkit::shared_resman(&GameInstall::new(&root, None, "en")).unwrap();
     let rows = |name: &str| {
         let t = game.get(&ResKey::parse(name, ResType::TWODA).unwrap()).unwrap();
         mg_2da::TwoDa::parse(&t, mg_core::Codepage::default()).unwrap().len()
