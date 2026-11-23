@@ -203,8 +203,7 @@ impl Factions {
     }
 }
 
-/// Labels of the faction fields of objects and their instances.
-const FACTION_FIELDS: [&str; 2] = ["FactionID", "Faction"];
+/// Resource types of objects and instances that hold a faction id.
 const FACTION_USERS: [ResType; 6] =
     [ResType::UTC, ResType::UTD, ResType::UTP, ResType::UTT, ResType::UTE, ResType::GIT];
 
@@ -213,7 +212,7 @@ fn walk(s: &mut Struct, f: &mut dyn FnMut(&mut Value)) {
         match &mut field.value {
             Value::Struct(c) => walk(c, f),
             Value::List(items) => items.iter_mut().for_each(|i| walk(i, f)),
-            v if FACTION_FIELDS.contains(&field.label.to_string_lossy().as_str()) => f(v),
+            v if matches!(field.label.as_bytes(), b"FactionID" | b"Faction") => f(v),
             _ => {}
         }
     }

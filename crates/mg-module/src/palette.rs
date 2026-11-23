@@ -1183,12 +1183,14 @@ fn update_palettes(
             continue;
         }
         let mut made = update_custom_palette(module, before, game, kind)?;
-        if kind == BlueprintKind::Creature
-            && let Some(mut g) =
-                made.clone().or_else(|| module.gff(&kind.custom_key()).and_then(Result::ok))
-            && creature_entries_made_right(&mut g, module, game)
-        {
-            made = Some(g);
+        if kind == BlueprintKind::Creature {
+            if let Some(g) = made.as_mut() {
+                creature_entries_made_right(g, module, game);
+            } else if let Some(mut g) = module.gff(&kind.custom_key()).and_then(Result::ok)
+                && creature_entries_made_right(&mut g, module, game)
+            {
+                made = Some(g);
+            }
         }
         if let Some(g) = made {
             let bytes = g.to_bytes().map_err(|e| e.to_string())?;
@@ -1249,14 +1251,20 @@ pub fn creature_entries_made_right(palette: &mut Gff, module: &Module, game: &Ga
             None => game.resman.get(&key).ok().and_then(|d| Gff::read(&d).ok()),
         };
         let Some(g) = blueprint else { return false };
-        let wanted = entry_for(BlueprintKind::Creature, resref, &g.root, game, &factions);
+        let cr = Value::Float(g.root.float("ChallengeRating").unwrap_or(0.0));
+        let faction = g
+            .root
+            .integer("FactionID")
+            .and_then(|f| factions.get(usize::try_from(f).ok()?).map(Vec::as_slice))
+            .unwrap_or(&[]);
         let mut any = false;
-        for label in ["CR", "FACTION"] {
-            let value = wanted.get(label).expect("a creature's entry has it");
-            if entry.get(label) != Some(value) {
-                entry.set(label, value.clone());
-                any = true;
-            }
+        if entry.get("CR") != Some(&cr) {
+            entry.set("CR", cr);
+            any = true;
+        }
+        if entry.string("FACTION") != Some(faction) {
+            entry.set("FACTION", Value::String(faction.to_vec()));
+            any = true;
         }
         any
     };

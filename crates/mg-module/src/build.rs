@@ -589,11 +589,14 @@ pub fn compile_changed(
     only: Option<Vec<ResKey>>,
     debug: bool,
 ) -> Pass {
-    let stamps = script_stamps(module);
     let scripts = module.keys_of(ResType::NSS).filter(|k| !skips_compiling(module, k)).count();
-    let names = match only {
-        Some(names) => names,
-        None => changed_of(module, known, &stamps, debug),
+    let (stamps, names) = match only {
+        Some(names) => (script_stamps_of(module, &names), names),
+        None => {
+            let stamps = script_stamps(module);
+            let names = changed_of(module, known, &stamps, debug);
+            (stamps, names)
+        }
     };
     let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
@@ -663,7 +666,10 @@ pub fn compiled_for_checks(module: &mut Module, resman: &ResMan) -> usize {
 
 /// A nasher project's target leaves the script uncompiled.
 fn skips_compiling(module: &Module, k: &ResKey) -> bool {
-    module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
+    module.project.as_ref().is_some_and(|p| {
+        let target = p.target();
+        !target.skip_compile.is_empty() && target.skips_compiling(&k.to_string())
+    })
 }
 
 /// [`compile_scripts_with`] for the scripts named.

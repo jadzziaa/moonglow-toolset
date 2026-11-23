@@ -323,6 +323,48 @@ pub struct Filter {
     pub has: Vec<Has>,
 }
 
+/// Precompiled form of [`Filter`] for filtering many areas without rebuilding
+/// the text matcher or scanning large `only` slices repeatedly.
+#[derive(Debug)]
+pub struct CompiledFilter<'a> {
+    filter: &'a Filter,
+    only_set: Option<std::collections::HashSet<ResRef>>,
+    needle: Option<mg_core::text::Needle>,
+}
+
+fn matches_cheap(filter: &Filter, a: &AreaInfo) -> bool {
+    filter.tileset.is_none_or(|t| t == a.tileset)
+        && [
+            (filter.interior, INTERIOR),
+            (filter.underground, UNDERGROUND),
+            (filter.natural, NATURAL),
+        ]
+        .iter()
+        .all(|(want, bit)| want.is_none_or(|w| (a.flags & bit != 0) == w))
+}
+
+fn matches_text(needle: &mg_core::text::Needle, a: &AreaInfo) -> bool {
+    let (name, tag) = (mg_core::text::fold(&a.name), mg_core::text::fold(&a.tag));
+    let lower = a.resref.to_lowercase();
+    let resref = lower
+        .as_str()
+        .map(std::borrow::Cow::Borrowed)
+        .unwrap_or_else(|| std::borrow::Cow::Owned(lower.to_string_lossy()));
+    needle.finds_in(&[&name, &tag, resref.as_ref()])
+}
+
+impl CompiledFilter<'_> {
+    pub fn matches(&self, a: &AreaInfo) -> bool {
+        let only_ok = match &self.only_set {
+            Some(set) => set.contains(&a.resref),
+            None => self.filter.only.is_empty() || self.filter.only.contains(&a.resref),
+        };
+        only_ok
+            && matches_cheap(self.filter, a)
+            && self.needle.as_ref().is_none_or(|t| matches_text(t, a))
+    }
+}
+
 impl Filter {
     /// Whether what an area holds meets [`Filter::has`].
     pub fn holds(&self, h: &Holds) -> bool {
@@ -334,19 +376,25 @@ impl Filter {
         *self == Filter::default()
     }
 
+    /// Precompiles the text matcher and large `only` filter for batch matching.
+    pub fn compiled(&self) -> CompiledFilter<'_> {
+        CompiledFilter {
+            filter: self,
+            only_set: (self.only.len() > 8).then(|| self.only.iter().copied().collect()),
+            needle: self.text.as_deref().map(mg_core::text::Needle::new),
+        }
+    }
+
     pub fn matches(&self, a: &AreaInfo) -> bool {
         // (Every word in its name, tag or ResRef, as the toolset's Filter
         // finds a row.)
-        let has = self.text.as_deref().map(mg_core::text::Needle::new).is_none_or(|t| {
-            let (name, tag) = (mg_core::text::fold(&a.name), mg_core::text::fold(&a.tag));
-            t.finds_in(&[&name, &tag, &a.resref.to_string().to_ascii_lowercase()])
-        });
         (self.only.is_empty() || self.only.contains(&a.resref))
-            && has
-            && self.tileset.is_none_or(|t| t == a.tileset)
-            && [(self.interior, INTERIOR), (self.underground, UNDERGROUND), (self.natural, NATURAL)]
-                .iter()
-                .all(|(want, bit)| want.is_none_or(|w| (a.flags & bit != 0) == w))
+            && matches_cheap(self, a)
+            && self
+                .text
+                .as_deref()
+                .map(mg_core::text::Needle::new)
+                .is_none_or(|t| matches_text(&t, a))
     }
 }
 

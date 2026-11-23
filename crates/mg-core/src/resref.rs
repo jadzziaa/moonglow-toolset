@@ -238,13 +238,19 @@ impl PartialOrd for ResRef {
 
 impl fmt::Debug for ResRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ResRef({:?})", self.to_string_lossy())
+        match self.as_str() {
+            Some(s) => write!(f, "ResRef({s:?})"),
+            None => write!(f, "ResRef({:?})", self.to_string_lossy()),
+        }
     }
 }
 
 impl fmt::Display for ResRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.to_string_lossy())
+        match self.as_str() {
+            Some(s) => f.write_str(s),
+            None => f.write_str(&self.to_string_lossy()),
+        }
     }
 }
 

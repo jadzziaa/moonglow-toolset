@@ -439,32 +439,36 @@ pub fn merge(base: &str, ours: &str, theirs: &str, prefer: Side) -> Result<Merge
         return Err("the tables' columns differ: merge them by hand".into());
     }
     let (bs, os, ts) = (b.by_area(), o.by_area(), t.by_area());
-    let get = |rows: &[(String, &Vec<Option<String>>)], area: &str| {
-        rows.iter().find(|(a, _)| a == area).map(|(_, c)| (*c).clone())
-    };
-    let shown = |table: &Table<'_>, cells: &Option<Vec<Option<String>>>| {
-        cells.as_ref().and_then(|c| table.line_of("", c).ok()).map(|l| l.trim().to_string())
+    let bm: std::collections::HashMap<&str, &Vec<Option<String>>> =
+        bs.iter().map(|(a, c)| (a.as_str(), *c)).collect();
+    let om: std::collections::HashMap<&str, &Vec<Option<String>>> =
+        os.iter().map(|(a, c)| (a.as_str(), *c)).collect();
+    let tm: std::collections::HashMap<&str, &Vec<Option<String>>> =
+        ts.iter().map(|(a, c)| (a.as_str(), *c)).collect();
+    let shown = |table: &Table<'_>, cells: Option<&Vec<Option<String>>>| {
+        cells.and_then(|c| table.line_of("", c).ok()).map(|l| l.trim().to_string())
     };
     // What theirs did to each area, in theirs's order, then the areas it
     // took out.
+    let ts_areas: std::collections::HashSet<&str> = ts.iter().map(|(a, _)| a.as_str()).collect();
     let mut areas: Vec<String> = ts.iter().map(|(a, _)| a.clone()).collect();
-    let gone: Vec<String> =
-        bs.iter().map(|(a, _)| a.clone()).filter(|a| !areas.contains(a)).collect();
-    areas.extend(gone);
+    areas.extend(bs.iter().filter(|(a, _)| !ts_areas.contains(a.as_str())).map(|(a, _)| a.clone()));
     let mut text = ours.to_string();
     let mut conflicts = Vec::new();
     for area in areas {
-        let (bc, oc, tc) = (get(&bs, &area), get(&os, &area), get(&ts, &area));
-        let base_cells = if base_made { None } else { bc.clone() };
-        if tc == base_cells || oc == tc {
+        let k = area.as_str();
+        let bc = if base_made { None } else { bm.get(k).copied() };
+        let oc = om.get(k).copied();
+        let tc = tm.get(k).copied();
+        if tc == bc || oc == tc {
             continue;
         }
-        if oc != base_cells {
+        if oc != bc {
             conflicts.push(Conflict {
                 area: area.clone(),
-                base: shown(&b, &base_cells),
-                ours: shown(&o, &oc),
-                theirs: shown(&t, &tc),
+                base: shown(&b, bc),
+                ours: shown(&o, oc),
+                theirs: shown(&t, tc),
             });
             if prefer == Side::Ours {
                 continue;
@@ -477,7 +481,7 @@ pub fn merge(base: &str, ours: &str, theirs: &str, prefer: Side) -> Result<Merge
         let all = |cells: &[Option<String>]| -> Vec<(usize, Option<String>)> {
             cells.iter().cloned().enumerate().collect()
         };
-        text = match (row, &tc) {
+        text = match (row, tc) {
             (Some(r), Some(cells)) => now.with_row(r, &all(cells))?,
             (None, Some(cells)) => now.with_new_row(&all(cells))?,
             (Some(r), None) => now.without_row(r)?,
@@ -728,11 +732,12 @@ impl<'t> Table<'t> {
     /// Each row with an Area, by its Area (lower case): the first of an
     /// area's rows, as [`Claims::parse`] reads it.
     fn by_area(&self) -> Vec<(String, &Vec<Option<String>>)> {
+        let mut seen = std::collections::HashSet::new();
         let mut out: Vec<(String, &Vec<Option<String>>)> = Vec::new();
         for cells in &self.rows {
             let Some(Some(area)) = cells.get(self.area) else { continue };
             let area = area.to_ascii_lowercase();
-            if !out.iter().any(|(a, _)| *a == area) {
+            if seen.insert(area.clone()) {
                 out.push((area, cells));
             }
         }

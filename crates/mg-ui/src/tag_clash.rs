@@ -17,7 +17,7 @@ use mg_edit::tags::Weighed;
 use mg_edit::{Command, Edit, Workspace};
 use mg_gff::Value;
 use mg_module::project_file::PasteWarning;
-use mg_module::tags::{Clash, MadeTag, TagCache, TagIndex, clashes, retag};
+use mg_module::tags::{Clash, MadeTag, TagCache, TagView, clashes, retag};
 use mg_resman::ResKey;
 use mg_uikit::Controls as _;
 
@@ -60,8 +60,8 @@ pub struct TagClash {
 /// document (the workspace's documents are written back at a save, and a
 /// module folder's file would be rewritten for one only read here): its
 /// tags are kept in `cache`, read again only once its bytes change.
-pub(crate) fn index(cache: &mut TagCache, ws: &Workspace) -> TagIndex {
-    cache.index(&ws.module, |k| ws.loaded(k).map(|g| &g.root))
+pub(crate) fn view<'a>(cache: &'a mut TagCache, ws: &Workspace) -> TagView<'a> {
+    cache.view(&ws.module, |k| ws.loaded(k).map(|g| &g.root))
 }
 
 /// What a made object's tag is to [`clashes`] (`mg_edit::tags::weigh`),
@@ -107,7 +107,7 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         .cloned()
         .filter_map(|m| Some((m.clone(), weigh(ws, game.as_deref(), &m)?)))
         .collect();
-    let index = index(&mut app.tag_cache, ws);
+    let view = view(&mut app.tag_cache, ws);
     let tags: Vec<MadeTag> = weighed
         .iter()
         .map(|(m, w)| MadeTag {
@@ -117,7 +117,7 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
             is_static: w.is_static,
         })
         .collect();
-    let mut found = clashes(&index, &tags, &rules, warning);
+    let mut found = clashes(&view, &tags, &rules, warning);
     // (Said as the game reads them: a tag is bytes in the module's
     // codepage, kept in `raw`, which the objects' are compared with. As
     // UTF-8 text, a tag with a letter outside ASCII, `Señor`, was listed
@@ -246,17 +246,16 @@ pub(crate) fn blueprint_copy_warning(
 /// as the original's within the original.
 pub(crate) fn retag_edits(app: &mut Moonglow, clash: &TagClash, all: bool) -> Vec<Edit> {
     let Some(ws) = app.ws.as_mut() else { return Vec::new() };
-    let index = index(&mut app.tag_cache, ws);
-    let mut given: Vec<String> = Vec::new();
+    let view = view(&mut app.tag_cache, ws);
+    let mut given: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut edits = Vec::new();
     // (Where, the tag it had, the one it is given.)
     let mut retagged: Vec<(&Made, &str, String)> = Vec::new();
     let chosen = clash.objects.iter().chain(clash.more.iter().filter(|_| all));
     for (made, tag) in chosen {
-        let taken =
-            |t: &str| index.count(&crate::text::encode(t)) > 0 || given.iter().any(|g| g == t);
+        let taken = |t: &str| view.count(&crate::text::encode(t)) > 0 || given.contains(t);
         let new = retag(tag, &taken);
-        given.push(new.clone());
+        given.insert(new.clone());
         edits.push(Edit::SetField {
             key: made.key,
             path: made.path.clone(),

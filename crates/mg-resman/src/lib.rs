@@ -441,7 +441,8 @@ impl ResMan {
     /// first is the copy the game reads), sorted by name and type: what
     /// [`entries`](Self::entries) gives, and the copies it overrides.
     pub fn every_copy(&self) -> Vec<(ResKey, Vec<usize>)> {
-        let mut at: HashMap<ResKey, Vec<usize>> = HashMap::new();
+        let hint = self.layers.iter().map(|l| l.container.keys().size_hint().0).max().unwrap_or(0);
+        let mut at: HashMap<ResKey, Vec<usize>> = HashMap::with_capacity(hint);
         for (i, l) in self.layers.iter().enumerate() {
             for k in l.container.keys() {
                 let layers = at.entry(k).or_default();

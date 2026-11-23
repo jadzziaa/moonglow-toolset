@@ -4172,10 +4172,11 @@ fn run(cli: &Cli) -> Result<Output> {
             if let Some(n) = music.as_deref().and_then(|m| mg_2da::parse_int(m.trim())) {
                 filter.has.push(areas::Has::Music(n.into()));
             }
+            let compiled = filter.compiled();
             let mut held = areas::HoldsCache::default();
             let chosen: Vec<&areas::AreaInfo> = listed
                 .iter()
-                .filter(|a| filter.matches(a))
+                .filter(|a| compiled.matches(a))
                 .filter(|a| {
                     filter.has.is_empty()
                         || held.of(&m, a.resref, cp).is_some_and(|h| filter.holds(h))

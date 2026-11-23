@@ -114,43 +114,77 @@ fn row_of(ours: &TwoDa, other: &TwoDa, row: usize) -> Vec<Option<String>> {
     ours.columns().iter().map(|c| other.get(row, c).map(str::to_string)).collect()
 }
 
+fn cell_by<'a>(table: &'a TwoDa, cols: &[Option<usize>], row: usize, c: usize) -> Option<&'a str> {
+    cols[c].and_then(|col| table.cell(row, col))
+}
+
 /// The rows of `other` that `ours` could take: those it lacks, and those
 /// it has differently. With `base` (the lowest copy, usually the game's),
 /// a row `other` left as the base has it is not offered (only this table
 /// changed it), and one both changed is a conflict.
 pub fn candidates(ours: &TwoDa, other: &TwoDa, base: Option<&TwoDa>) -> Vec<Candidate> {
+    let other_cols: Vec<Option<usize>> = ours.columns().iter().map(|c| other.column(c)).collect();
+    let base_cols: Option<Vec<Option<usize>>> =
+        base.map(|b| ours.columns().iter().map(|c| b.column(c)).collect());
     let mut out = Vec::new();
     for row in 0..other.len() {
-        let theirs = row_of(ours, other, row);
-        if theirs.iter().all(Option::is_none) {
-            continue;
-        }
-        let mine: Vec<Option<String>> =
-            (0..ours.columns().len()).map(|c| ours.cell(row, c).map(str::to_string)).collect();
-        if mine == theirs {
-            continue;
-        }
-        let based = base.filter(|b| row < b.len()).map(|b| row_of(ours, b, row));
-        let offered = if row >= ours.len() || mine.iter().all(Option::is_none) {
-            Offered::New
-        } else {
-            match &based {
-                Some(b) if *b == theirs => continue,
-                Some(b) if *b != mine => Offered::Conflict,
-                _ => Offered::Changed,
+        let mut any_theirs = false;
+        let mut any_diff = false;
+        let mut all_none_mine = true;
+        for c in 0..ours.columns().len() {
+            let m = ours.cell(row, c);
+            let t = cell_by(other, &other_cols, row, c);
+            if t.is_some() {
+                any_theirs = true;
             }
+            if m.is_some() {
+                all_none_mine = false;
+            }
+            if m != t {
+                any_diff = true;
+            }
+        }
+        if !any_theirs || !any_diff {
+            continue;
+        }
+        let base_row = base.zip(base_cols.as_deref()).filter(|(b, _)| row < b.len());
+        let offered = if row >= ours.len() || all_none_mine {
+            Offered::New
+        } else if let Some((b, bcols)) = base_row {
+            let theirs_eq_base = (0..ours.columns().len())
+                .all(|c| cell_by(b, bcols, row, c) == cell_by(other, &other_cols, row, c));
+            if theirs_eq_base {
+                continue;
+            }
+            let mine_eq_base =
+                (0..ours.columns().len()).all(|c| cell_by(b, bcols, row, c) == ours.cell(row, c));
+            if mine_eq_base { Offered::Changed } else { Offered::Conflict }
+        } else {
+            Offered::Changed
         };
-        let differ: Vec<usize> = (0..mine.len()).filter(|&c| mine[c] != theirs[c]).collect();
-        let cells = differ.iter().map(|&c| (c, mine[c].clone(), theirs[c].clone())).collect();
-        let whose = differ
-            .iter()
-            .map(|&c| match &based {
-                Some(b) if b[c] == mine[c] => Whose::Theirs,
-                Some(b) if b[c] == theirs[c] => Whose::Ours,
-                Some(_) => Whose::Both,
+        let mut cells = Vec::new();
+        let mut whose = Vec::new();
+        for c in 0..ours.columns().len() {
+            let m = ours.cell(row, c);
+            let t = cell_by(other, &other_cols, row, c);
+            if m == t {
+                continue;
+            }
+            cells.push((c, m.map(str::to_string), t.map(str::to_string)));
+            whose.push(match base_row {
+                Some((b, bcols)) => {
+                    let bv = cell_by(b, bcols, row, c);
+                    if bv == m {
+                        Whose::Theirs
+                    } else if bv == t {
+                        Whose::Ours
+                    } else {
+                        Whose::Both
+                    }
+                }
                 None => Whose::Untold,
-            })
-            .collect();
+            });
+        }
         out.push(Candidate { row, offered, cells, whose });
     }
     out

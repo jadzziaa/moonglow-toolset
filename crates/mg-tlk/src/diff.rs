@@ -14,16 +14,17 @@ pub struct Change {
     pub to: Option<TlkEntry>,
 }
 
-fn entry(t: &Tlk, line: usize) -> Option<TlkEntry> {
-    t.entries.get(line).filter(|e| **e != TlkEntry::default()).cloned()
+fn entry_ref<'a>(t: &'a Tlk, line: usize, empty: &TlkEntry) -> Option<&'a TlkEntry> {
+    t.entries.get(line).filter(|e| *e != empty)
 }
 
 /// The lines that differ from `from` to `to`.
 pub fn diff(from: &Tlk, to: &Tlk) -> Vec<Change> {
+    let empty = TlkEntry::default();
     (0..from.entries.len().max(to.entries.len()))
         .filter_map(|i| {
-            let (a, b) = (entry(from, i), entry(to, i));
-            (a != b).then_some(Change { line: i as u32, from: a, to: b })
+            let (a, b) = (entry_ref(from, i, &empty), entry_ref(to, i, &empty));
+            (a != b).then(|| Change { line: i as u32, from: a.cloned(), to: b.cloned() })
         })
         .collect()
 }
@@ -43,11 +44,14 @@ pub struct Conflict {
 /// `prefer_theirs`). Two lines added under one number are conflicts: a
 /// line's number cannot be given away for it.
 pub fn merge(base: &Tlk, ours: &Tlk, theirs: &Tlk, prefer_theirs: bool) -> (Tlk, Vec<Conflict>) {
+    let empty = TlkEntry::default();
     let mut merged = Tlk::new(ours.language);
     let mut conflicts = Vec::new();
     let len = ours.entries.len().max(theirs.entries.len());
+    merged.entries.reserve(len);
     for i in 0..len {
-        let (b, o, t) = (entry(base, i), entry(ours, i), entry(theirs, i));
+        let (b, o, t) =
+            (entry_ref(base, i, &empty), entry_ref(ours, i, &empty), entry_ref(theirs, i, &empty));
         let taken = if o == b {
             t
         } else if t == b || o == t {
@@ -55,15 +59,15 @@ pub fn merge(base: &Tlk, ours: &Tlk, theirs: &Tlk, prefer_theirs: bool) -> (Tlk,
         } else {
             conflicts.push(Conflict {
                 line: i as u32,
-                base: b,
-                ours: o.clone(),
-                theirs: t.clone(),
+                base: b.cloned(),
+                ours: o.cloned(),
+                theirs: t.cloned(),
             });
             if prefer_theirs { t } else { o }
         };
-        merged.entries.push(taken.unwrap_or_default());
+        merged.entries.push(taken.cloned().unwrap_or_default());
     }
-    while merged.entries.last().is_some_and(|e| *e == TlkEntry::default()) {
+    while merged.entries.last().is_some_and(|e| *e == empty) {
         merged.entries.pop();
     }
     (merged, conflicts)

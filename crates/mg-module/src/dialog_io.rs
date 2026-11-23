@@ -50,9 +50,11 @@ use mg_core::{Codepage, Gender, Language, LocString, LocStringKey, ResRef};
 use mg_gff::{Gff, Struct, Value};
 
 use crate::dialog::{
-    Kind, Parent, add_link, add_node, is_link, link_index, links, new_dialog, node, node_mut,
-    set_condition, text,
+    Kind, Parent, add_link_raw, add_node_raw, add_start_raw, is_link, link_index, links,
+    new_dialog, node, node_mut, renumber, set_condition, text,
 };
+#[cfg(test)]
+use crate::dialog::{add_link, add_node};
 
 /// The formats a conversation is written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1427,19 +1429,19 @@ impl Builder<'_> {
         let pos = links(&self.g, parent).len();
         if let Some(&i) = self.made.get(name) {
             let linked = match parent {
-                Parent::Root => crate::dialog::add_start(&mut self.g, i),
-                _ => add_link(&mut self.g, parent, i),
+                Parent::Root => add_start_raw(&mut self.g, i),
+                _ => add_link_raw(&mut self.g, parent, i),
             };
             if !linked {
                 return Ok(());
             }
         } else {
-            let i = add_node(&mut self.g, parent, &line.text);
+            let i = add_node_raw(&mut self.g, parent, &line.text);
             apply_tags(node_mut(&mut self.g, Kind::Entry, i).expect("made"), &line.tags)?;
             self.made.insert(name.to_string(), i);
             for (text, rc, tags, to) in &line.replies {
                 let at = Parent::Node(Kind::Entry, i);
-                let r = add_node(&mut self.g, at, text);
+                let r = add_node_raw(&mut self.g, at, text);
                 apply_tags(node_mut(&mut self.g, Kind::Reply, r).expect("made"), tags)?;
                 if let Some(c) = rc {
                     let last = links(&self.g, at).len() - 1;
@@ -1469,6 +1471,7 @@ impl Builder<'_> {
         if let Some(start) = start {
             b.place(Parent::Root, start, None, 0)?;
         }
+        renumber(&mut b.g);
         settings.apply(&mut b.g, replaced)?;
         crate::dialog::recount(&mut b.g);
         Ok(b.g)

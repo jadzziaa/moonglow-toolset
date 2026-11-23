@@ -51,6 +51,64 @@ pub struct Query {
     pub typed_fields: Vec<(String, Vec<(ResType, String)>)>,
 }
 
+/// Pre-folded glob matcher (`*` matches any run, case- and accent-insensitive).
+#[derive(Debug, Clone)]
+pub struct Glob {
+    parts: Vec<String>,
+}
+
+impl Glob {
+    pub fn new(pattern: &str) -> Self {
+        let p = mg_core::text::fold(pattern);
+        Self { parts: p.split('*').map(str::to_string).collect() }
+    }
+
+    /// Substring glob matching `*{pattern}*` without formatting `*` into a temporary string.
+    pub fn contains(pattern: &str) -> Self {
+        let p = mg_core::text::fold(pattern);
+        let mut parts = Vec::with_capacity(3);
+        parts.push(String::new());
+        parts.extend(p.split('*').map(str::to_string));
+        parts.push(String::new());
+        Self { parts }
+    }
+
+    pub fn is_match(&self, text: &str) -> bool {
+        let t = mg_core::text::fold(text);
+        glob_match(&self.parts, &t)
+    }
+}
+
+/// Precompiled text matcher for glob or case-insensitive regex patterns.
+#[derive(Debug, Clone)]
+pub enum Matcher {
+    Glob(Glob),
+    Regex(Option<regex_lite::Regex>),
+}
+
+impl Matcher {
+    pub fn exact(pattern: &str, regex: bool) -> Self {
+        match regex {
+            true => Self::Regex(made_regex(pattern).ok()),
+            false => Self::Glob(Glob::new(pattern)),
+        }
+    }
+
+    pub fn contains(pattern: &str, regex: bool) -> Self {
+        match regex {
+            true => Self::Regex(made_regex(pattern).ok()),
+            false => Self::Glob(Glob::contains(pattern)),
+        }
+    }
+
+    pub fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::Glob(g) => g.is_match(text),
+            Self::Regex(re) => re.as_ref().is_some_and(|re| re.is_match(text)),
+        }
+    }
+}
+
 /// Whether `text` matches `pattern`: as [`glob`], or with `regex` as a
 /// regular expression (`regex-lite`'s: anywhere in the text unless
 /// anchored with `^…$`, letters A to Z in either case). An expression
@@ -67,6 +125,9 @@ pub fn like(pattern: &str, text: &str, regex: bool) -> bool {
     }
     MADE.with(|made| {
         let mut made = made.borrow_mut();
+        if let Some(re) = made.get(pattern) {
+            return re.as_ref().is_some_and(|re| re.is_match(text));
+        }
         if made.len() > 64 {
             made.clear();
         }
@@ -85,16 +146,13 @@ fn made_regex(pattern: &str) -> Result<regex_lite::Regex, String> {
     regex_lite::Regex::new(&format!("(?i){pattern}")).map_err(|e| format!("{pattern}: {e}"))
 }
 
-/// Whether `text` matches `pattern`, ignoring case and accents, `*`
-/// matching any run.
-pub fn glob(pattern: &str, text: &str) -> bool {
-    let (p, t) = (mg_core::text::fold(pattern), mg_core::text::fold(text));
-    let parts: Vec<&str> = p.split('*').collect();
+fn glob_match(parts: &[impl AsRef<str>], t: &str) -> bool {
     if parts.len() == 1 {
-        return p == t;
+        return parts[0].as_ref() == t;
     }
     let mut at = 0;
     for (i, part) in parts.iter().enumerate() {
+        let part = part.as_ref();
         if i == 0 {
             if !t.starts_with(part) {
                 return false;
@@ -110,6 +168,14 @@ pub fn glob(pattern: &str, text: &str) -> bool {
         }
     }
     true
+}
+
+/// Whether `text` matches `pattern`, ignoring case and accents, `*`
+/// matching any run.
+pub fn glob(pattern: &str, text: &str) -> bool {
+    let (p, t) = (mg_core::text::fold(pattern), mg_core::text::fold(text));
+    let parts: Vec<&str> = p.split('*').collect();
+    glob_match(&parts, &t)
 }
 
 /// A localized string's text where there is no game: its English, else

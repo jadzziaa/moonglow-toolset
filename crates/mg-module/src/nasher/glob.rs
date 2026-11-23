@@ -116,10 +116,23 @@ pub(crate) fn to_regex(pattern: &str, ignore_case: bool) -> Result<String, Strin
 /// Whether `name` matches `pattern` (nasher's rules: case-sensitive, except
 /// on Windows).
 pub(crate) fn matches(name: &str, pattern: &str) -> bool {
-    to_regex(pattern, cfg!(windows))
-        .ok()
-        .and_then(|rx| Regex::new(&rx).ok())
-        .is_some_and(|rx| rx.is_match(name))
+    thread_local! {
+        static CACHE: std::cell::RefCell<std::collections::HashMap<String, Option<Regex>>> =
+            Default::default();
+    }
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(rx) = cache.get(pattern) {
+            return rx.as_ref().is_some_and(|rx| rx.is_match(name));
+        }
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        let compiled = to_regex(pattern, cfg!(windows)).ok().and_then(|rx| Regex::new(&rx).ok());
+        let matched = compiled.as_ref().is_some_and(|rx| rx.is_match(name));
+        cache.insert(pattern.to_string(), compiled);
+        matched
+    })
 }
 
 /// Whether `pattern` finds the file `path`, as [`walk`] would (whether it

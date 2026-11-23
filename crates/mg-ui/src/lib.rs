@@ -1236,7 +1236,7 @@ pub struct Moonglow {
     /// one object, and Retag.
     pub tag_clash: Option<tag_clash::TagClash>,
     /// The module's tags, area by area, for the paste's and Setup Store's
-    /// checks ([`tag_clash::index`]).
+    /// checks ([`tag_clash::view`]).
     pub(crate) tag_cache: mg_module::tags::TagCache,
     /// The Builder Code window (Edit › Builder Code…): the code typed.
     pub builder_code: Option<builder_code::Draft>,

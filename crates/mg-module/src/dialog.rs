@@ -152,13 +152,21 @@ pub fn links(g: &Gff, parent: Parent) -> &[Struct] {
     }
 }
 
-/// Adds a starting link to an NPC line already made (a conversation may
-/// start at the same line under two conditions).
-pub fn add_start(g: &mut Gff, target: u32) -> bool {
+/// Adds a starting link without renumbering the entire dialog tree.
+pub(crate) fn add_start_raw(g: &mut Gff, target: u32) -> bool {
     if node(g, Kind::Entry, target).is_none() {
         return false;
     }
     list_mut(g, "StartingList").push(new_link(target, Parent::Root, false));
+    true
+}
+
+/// Adds a starting link to an NPC line already made (a conversation may
+/// start at the same line under two conditions).
+pub fn add_start(g: &mut Gff, target: u32) -> bool {
+    if !add_start_raw(g, target) {
+        return false;
+    }
     renumber(g);
     true
 }
@@ -204,8 +212,8 @@ pub fn is_link(link: &Struct) -> bool {
     link.byte("IsChild") == Some(1)
 }
 
-/// Adds a new line under a parent (last), and returns its index.
-pub fn add_node(g: &mut Gff, parent: Parent, text: &str) -> u32 {
+/// Adds a new line under a parent (last) without renumbering, returning its index.
+pub(crate) fn add_node_raw(g: &mut Gff, parent: Parent, text: &str) -> u32 {
     let kind = parent.child_kind();
     let nodes = list_mut(g, kind.list());
     nodes.push(new_node(kind, text));
@@ -213,17 +221,31 @@ pub fn add_node(g: &mut Gff, parent: Parent, text: &str) -> u32 {
     if let Some(l) = links_mut(g, parent) {
         l.push(new_link(index, parent, false));
     }
+    index
+}
+
+/// Adds a new line under a parent (last), and returns its index.
+pub fn add_node(g: &mut Gff, parent: Parent, text: &str) -> u32 {
+    let index = add_node_raw(g, parent, text);
     renumber(g);
     index
 }
 
-/// Adds a link under a parent to an existing line (Paste As Link).
-pub fn add_link(g: &mut Gff, parent: Parent, target: u32) -> bool {
+/// Adds a link under a parent to an existing line without renumbering.
+pub(crate) fn add_link_raw(g: &mut Gff, parent: Parent, target: u32) -> bool {
     if parent == Parent::Root || node(g, parent.child_kind(), target).is_none() {
         return false;
     }
     let Some(l) = links_mut(g, parent) else { return false };
     l.push(new_link(target, parent, true));
+    true
+}
+
+/// Adds a link under a parent to an existing line (Paste As Link).
+pub fn add_link(g: &mut Gff, parent: Parent, target: u32) -> bool {
+    if !add_link_raw(g, parent, target) {
+        return false;
+    }
     renumber(g);
     true
 }
@@ -491,14 +513,38 @@ impl Renumbering {
     }
 }
 
+fn hash_value(v: Option<&Value>, h: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    match v {
+        None => 0u8.hash(h),
+        Some(Value::LocString(ls)) => {
+            1u8.hash(h);
+            ls.hash(h);
+        }
+        Some(Value::String(b)) => {
+            2u8.hash(h);
+            b.hash(h);
+        }
+        Some(Value::ResRef(b)) => {
+            3u8.hash(h);
+            b.hash(h);
+        }
+        Some(other) => {
+            4u8.hash(h);
+            format!("{other:?}").hash(h);
+        }
+    }
+}
+
 /// Each line's signature for [`Renumbering::by_lines`], entries' then
 /// replies': a hash of its text and speaker, then each owning line's up
 /// to Root (an extra 0 for a line no owning link reaches).
 fn signatures(g: &Gff) -> [Vec<Vec<u64>>; 2] {
-    use std::hash::{Hash, Hasher};
+    use std::hash::Hasher;
     let own = |n: &Struct| {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        format!("{:?}{:?}", n.get("Text"), n.get("Speaker")).hash(&mut h);
+        hash_value(n.get("Text"), &mut h);
+        hash_value(n.get("Speaker"), &mut h);
         h.finish() | 1
     };
     // (Each line's own, once: it was made again for every line under it,
@@ -611,7 +657,7 @@ fn prune(g: &mut Gff) -> Renumbering {
 }
 
 /// Struct ids as Aurora writes them: each list's index, and the word count.
-fn renumber(g: &mut Gff) {
+pub(crate) fn renumber(g: &mut Gff) {
     fn ids(list: &mut [Struct]) {
         for (i, s) in list.iter_mut().enumerate() {
             s.id = i as u32;

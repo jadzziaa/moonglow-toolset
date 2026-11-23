@@ -1722,9 +1722,10 @@ impl AreaChooser {
             return shown.clone();
         }
         let filters = self.filters();
+        let compiled = filters.compiled();
         let holds = |a: &ResRef| holding.is_none_or(|h| h.contains(a));
         let shown: Vec<usize> = (areas.iter().enumerate())
-            .filter(|(_, (a, i, _))| filters.matches(i) && holds(a))
+            .filter(|(_, (a, i, _))| compiled.matches(i) && holds(a))
             .map(|(n, _)| n)
             .collect();
         let shown = std::sync::Arc::new(shown);

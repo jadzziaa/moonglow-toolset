@@ -300,8 +300,9 @@ pub fn hak_strrefs(resman: &ResMan, strref: u32) -> Vec<HakCell> {
             let Ok(table) = mg_2da::TwoDa::parse(&data, Codepage::default()) else { continue };
             let columns = crate::doctor::STRREF_COLUMNS.iter().filter(|(t, _)| t == name);
             for (_, column) in columns {
+                let Some(col) = table.column(column) else { continue };
                 for row in 0..table.len() {
-                    let cell = table.get(row, column).and_then(mg_2da::parse_int);
+                    let cell = table.cell(row, col).and_then(mg_2da::parse_int);
                     if cell.and_then(|n| u32::try_from(n).ok()) == Some(strref) {
                         let cell = format!("row {row}, {column}");
                         out.push(HakCell { hak: hak.clone(), table: key, cell });
@@ -336,9 +337,9 @@ pub fn hak_scripts(resman: &ResMan, script: ResRef) -> Vec<HakCell> {
             let Ok(table) = mg_2da::TwoDa::parse(&data, Codepage::default()) else { continue };
             let columns = crate::doctor::SCRIPT_COLUMNS.iter().filter(|(t, _)| t == table_name);
             for (_, column) in columns {
+                let Some(col) = table.column(column) else { continue };
                 for row in 0..table.len() {
-                    if table.get(row, column).is_some_and(|c| c.trim().eq_ignore_ascii_case(&name))
-                    {
+                    if table.cell(row, col).is_some_and(|c| c.trim().eq_ignore_ascii_case(&name)) {
                         let cell = format!("row {row}, {column}");
                         out.push(HakCell { hak: hak.clone(), table: key, cell });
                     }
@@ -634,15 +635,79 @@ impl UsageIndex {
         strref: u32,
         stop: &dyn Fn() -> bool,
     ) -> Option<Vec<Usage>> {
-        let mut index = UsageIndex::default();
-        for key in module.keys() {
+        let mut keys: Vec<ResKey> = module.keys().copied().collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
             if stop() {
                 return None;
             }
-            let Some(data) = module.shared(key) else { continue };
-            index.seen.insert(*key, Read::of(*key, data));
+            let Some(data) = module.shared(&key) else { continue };
+            if key.restype == ResType::NSS {
+                // Every function in `STRREF_FUNCTIONS` contains one of these 6-byte prefixes.
+                let may_reference =
+                    data.windows(6).any(|w| matches!(w, b"StrRef" | b"SetTlk" | b"GetDia"));
+                if !may_reference {
+                    continue;
+                }
+                let tokens = tokenize(data);
+                for (path, n) in script_strrefs(data, &tokens) {
+                    if n == strref {
+                        let place = format!("{key} › {path}");
+                        out.push(Usage { from: key, path, place });
+                    }
+                }
+            } else if key.restype.is_gff() {
+                let Ok(gff) = Gff::read(data) else { continue };
+                let mut fields = Vec::new();
+                strref_fields(&gff.root, key.restype, &mut fields);
+                for (path, n) in fields {
+                    if n == strref
+                        && let Location::Gff(p) = path
+                    {
+                        let place = describe(key, Some(&gff), &p);
+                        out.push(Usage { from: key, path: Location::Gff(p), place });
+                    }
+                }
+            } else if key.restype == ResType::SSF {
+                let Ok(ssf) = mg_ssf::Ssf::read(data) else { continue };
+                for (i, e) in ssf.entries.iter().enumerate() {
+                    if !e.strref.is_none() && e.strref.0 == strref {
+                        let path = Location::Entry(i);
+                        let place = format!("{key} › {path}");
+                        out.push(Usage { from: key, path, place });
+                    }
+                }
+            } else if key.restype == ResType::TWODA {
+                let lower = key.resref.to_lowercase();
+                let name = lower
+                    .as_str()
+                    .map(std::borrow::Cow::Borrowed)
+                    .unwrap_or_else(|| std::borrow::Cow::Owned(lower.to_string_lossy()));
+                let mut cols = crate::doctor::STRREF_COLUMNS
+                    .iter()
+                    .filter(|(t, _)| *t == name.as_ref())
+                    .peekable();
+                if cols.peek().is_none() {
+                    continue;
+                }
+                let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default()) else {
+                    continue;
+                };
+                for (_, column) in cols {
+                    let Some(col) = table.column(column) else { continue };
+                    for row in 0..table.len() {
+                        let cell = table.cell(row, col).and_then(mg_2da::parse_int);
+                        if cell.and_then(|n| u32::try_from(n).ok()) == Some(strref) {
+                            let path = Location::Cell { row, column: (*column).to_string() };
+                            let place = format!("{key} › {path}");
+                            out.push(Usage { from: key, path, place });
+                        }
+                    }
+                }
+            }
         }
-        Some(index.strref_usages(strref))
+        Some(out)
     }
 
     /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.

@@ -507,7 +507,7 @@ fn store_tag(app: &mut Moonglow, w: &StoreWizard) -> Result<String, String> {
         .ok()
         .and_then(|a| a.root.string("Tag").map(crate::text::decode))
         .unwrap_or_else(|| w.area.to_string());
-    let index = crate::tag_clash::index(&mut app.tag_cache, ws);
+    let index = crate::tag_clash::view(&mut app.tag_cache, ws);
     // (In the area, for a tag the project wants unique in each area.)
     let tags = &ws.module.project_file.tags;
     let counted = mg_module::tags::taken_in(&index, tags, w.area);

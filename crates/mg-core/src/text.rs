@@ -358,8 +358,11 @@ fn extended_additional(c: char) -> Option<&'static str> {
     if let Some(letter) = n.checked_sub(0x1e96).and_then(|i| alone.get(i as usize)) {
         return Some(letter);
     }
-    let run = RUNS.windows(2).find(|w| w[0].0 <= n && n < w[1].0)?;
-    Some(run[0].1).filter(|l| !l.is_empty())
+    let at = RUNS.partition_point(|&(start, _)| start <= n);
+    if at == 0 || at >= RUNS.len() {
+        return None;
+    }
+    Some(RUNS[at - 1].1).filter(|l| !l.is_empty())
 }
 
 /// The line (from 1) that byte offset `at` of `text` is on: one more than

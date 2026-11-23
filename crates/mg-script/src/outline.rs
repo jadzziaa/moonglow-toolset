@@ -528,7 +528,7 @@ pub fn has_entry_point(src: &[u8]) -> bool {
 }
 
 /// Parses the top-level declarations from already-tokenized source text.
-pub(crate) fn outline_with_tokens(text: &str, toks: &[Token]) -> Outline {
+pub fn outline_with_tokens(text: &str, toks: &[Token]) -> Outline {
     // (Read as the other script tools read them.)
     let includes = (includes_in(text.as_bytes(), toks).into_iter())
         .map(|at| Include {

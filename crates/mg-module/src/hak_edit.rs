@@ -294,9 +294,15 @@ impl Hak {
             self.places.insert(after.key, *at);
         }
         if !c.removed.is_empty() {
-            for (at, _) in c.removed.iter().rev() {
-                self.items.remove(*at);
-            }
+            let (mut r, mut i) = (0usize, 0usize);
+            self.items.retain(|_| {
+                let drop = c.removed.get(r).is_some_and(|(at, _)| *at == i);
+                if drop {
+                    r += 1;
+                }
+                i += 1;
+                !drop
+            });
             self.index();
         }
         for item in &c.appended {
@@ -316,9 +322,22 @@ impl Hak {
         }
         self.items.truncate(self.items.len() - c.appended.len());
         if !c.removed.is_empty() {
-            for (at, item) in &c.removed {
-                self.items.insert(*at, item.clone());
+            let total = self.items.len() + c.removed.len();
+            let mut merged = Vec::with_capacity(total);
+            let mut current = std::mem::take(&mut self.items).into_iter();
+            let mut removed = c.removed.iter();
+            let mut next_removed = removed.next();
+            for pos in 0..total {
+                if let Some((at, item)) = next_removed
+                    && *at == pos
+                {
+                    merged.push(item.clone());
+                    next_removed = removed.next();
+                } else if let Some(item) = current.next() {
+                    merged.push(item);
+                }
             }
+            self.items = merged;
             self.index();
         }
         for (at, before, _) in &c.replaced {
