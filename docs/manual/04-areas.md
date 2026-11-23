@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's header and its popovers, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T00:08:19Z }
+generated: { by: antigravity/gemini-3-pro, at: 2026-11-22T16:02:36Z }
 ---
 
 # Areas
@@ -471,6 +471,7 @@ Options › Keyboard):
 | Z, C | move the camera up, down |
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
+| F, . | focus Selection: center and zoom the camera onto the selected objects (framing the bounding box of an encounter or trigger outline, or the start location); `.` also works right after clicking a row in the Outliner or module tree |
 | F10 | select tiles or objects (Aurora's; with the pointer over the area's view, shelf or header) |
 | B | Paint on or off |
 | Ctrl+Alt+R | Reorient Camera: face north again (wherever the pointer is: the area shown last) |
@@ -487,9 +488,10 @@ while it has the keys ([Conversations](06-conversations.md)).
 
 | Do | To |
 | --- | --- |
-| Click | select an object (the one whose model is under the pointer: a click through an arch reaches what is behind it) |
+| Click | select an object (the one whose model is under the pointer: a click through an arch reaches what is behind it; repeated plain clicks on overlapping triggers or encounters cycle through them) |
+| Shift + click | add the object to the current selection (Shift + click on empty ground keeps the current selection) |
 | Ctrl + click | add it to the selection, or take it out |
-| Drag on the ground | select the objects in the box |
+| Drag on the ground | select the objects in the box (**Shift + drag** adds the boxed objects to the current selection) |
 | Drag the selection | move it over the ground |
 | Alt + right drag | turn the selected objects |
 | Drag the ring around them | turn them as the pointer goes round |
@@ -505,8 +507,8 @@ while it has the keys ([Conversations](06-conversations.md)).
 | Delete | delete them |
 | Escape | select nothing (it drops a drag, a brush or a paste first) |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another): the copies follow the pointer, each outlined by its model's box, and Q and E turn them together before the click puts them down |
-| Double-click (with Ctrl too) | the object's Properties, in the Right Dock's Properties panel, in front, the object selected ([Blueprints](05-blueprints.md#instances)); its row's double click in the module tree or the Outliner the same |
-| A row of the Outliner (the Left Dock, under its tabs) | select its object, with Ctrl and Shift as in the view; while it shows, it follows the selection, and the module tree stays where you left it: see [The Outliner](02-main-window.md#the-outliner) |
+| Double-click | open the object's Properties in the Right Dock's Properties panel, the object selected ([Blueprints](05-blueprints.md#instances)); a double click on a row in the module tree or the Outliner focuses the camera on the object instead |
+| A row of the Outliner or module tree (the Left Dock) | single-click selects its object without moving the camera (with Ctrl and Shift as in the view); double-click goes to (focuses) it. While shown, the Outliner follows the view's selection and leaves the module tree where you left it: see [The Outliner](02-main-window.md#the-outliner) |
 
 Every move, turn and deletion is one undoable step. The view's corner
 shows the pointer's position in the area, to the centimeter, and the
@@ -724,11 +726,15 @@ and on Add Light Here. **Change Light…** on a selected one gives it
 other settings: another row (and model), written as Custom Light writes
 them; Undo gives it its row back (what was written stays in the hak).
 
-**An encounter's spawn points**: with the encounter selected, the tip of
-each spawn point's arrow is a handle. Lead it round the point and what
-spawns there faces that way (**Turn** snaps it). The square at the foot
-of its post is another: lead it over the ground and the point moves, the
-encounter staying where it is.
+**An encounter's spawn points**: each spawn point is drawn as a crisp
+3D wireframe prism oriented the way what spawns there faces, with its
+facing arrow on the ground. With the encounter selected, the tip of each
+spawn point's arrow is a handle (lead it round the point to turn, snapped
+with **Turn**) and the square at the foot of its prism is another (lead
+it over the ground to move the point while the encounter stays where it
+is). Right-clicking over overlapping encounters or triggers keeps the
+already-selected one active if it is under the pointer, so **Add Spawn
+Point** adds to the selected encounter.
 
 What you are dragging stays in hand while another button turns the
 camera (hold the middle button too and swing the view, or move it with
@@ -744,22 +750,30 @@ of the button that holds it. **Escape** drops the drag: nothing moves.
 With several selected, the first selected snaps and the others keep their
 places and turns around it.
 
-**Right-click** the selection for its menu (Properties last, as in
-Aurora):
+**Right-click** the selection for its menu (preserving the current
+selection if an already-selected trigger or encounter is under the
+pointer; Properties last, as in Aurora):
 
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform that EE added (scale, rotation and offset of the model) for
-  creatures, doors, items and placeables that aren't Static. The area
-  view shows what you change as you change it, before anything is set:
-  the objects (or the start location) move, turn and take their new
-  shape. The fields are in a grid of four columns (X, Y; Z, Bearing (°)),
-  and the visual transform has its own under **Visual Transforms**:
+  creatures, doors, items and placeables that aren't Static. While open,
+  Adjust Location stays live: clicking or selecting another object
+  auto-saves any unapplied edits first and switches to the new selection
+  (or shows an empty state until another object is selected), and
+  clicking away outside the dialog auto-saves any unapplied edits while
+  keeping it open. Dragging the object in the view while clean updates
+  its numbers live. The area view previews what you change before it is
+  applied. The fields are in a grid of four columns (X, Y; Z, Bearing
+  (°)), and the visual transform has its own under **Visual Transforms**:
   Scale, Animation speed; X rotation, X translation; Y rotation, Y
   translation; Z rotation, Z translation. The footer has **OK** (the main
   button, which Enter presses), which sets what you changed and closes
   the window, **Apply**, which sets it and keeps the window open (each is
-  one step to undo), and **Cancel**. Cancel,
-  or closing the window, puts them back as they were. The rotations are
+  one step to undo), and **Cancel** (**Cancel** and **Escape** discard
+  unapplied changes without saving).
+- **Focus Selection (F)**: centers and zooms the camera onto the
+  selected objects or start location (framing the bounding box of a
+  trigger or encounter outline). The rotations are
   named as Aurora names them and the game reads them, which is not by
   the axis each turns about: **X rotation** turns the model about its
   upright axis (as Bearing does), **Y rotation** tips it forward or

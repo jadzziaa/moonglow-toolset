@@ -78,6 +78,87 @@ pub struct AdjustLocation {
     pub start: bool,
 }
 
+impl AdjustLocation {
+    /// Whether any field has unapplied edits.
+    pub fn has_changes(&self) -> bool {
+        self.changed.iter().any(|&c| c) || self.visual_changed || self.speed_changed
+    }
+
+    /// Marks all fields as clean after saving.
+    pub(crate) fn clear_changes(&mut self) {
+        self.changed = [false; 4];
+        self.visual_changed = false;
+        self.speed_changed = false;
+    }
+
+    /// Whether no object and no start location is currently targeted.
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.start && self.objects.is_empty()
+    }
+}
+
+/// An empty Adjust Location state kept when the dialog stays open after
+/// deselecting in the area view.
+fn empty_adjust(area: ResRef) -> AdjustLocation {
+    AdjustLocation {
+        area,
+        objects: Vec::new(),
+        position: Vec3::ZERO,
+        bearing: 0.0,
+        changed: [false; 4],
+        visual: mg_area::VisualTransform::default(),
+        visual_changed: false,
+        speed: 1.0,
+        speed_changed: false,
+        kept: Vec::new(),
+        shaped: false,
+        fixed: 0,
+        fixed_shaped: 0,
+        uneven: 0,
+        start: false,
+    }
+}
+
+/// Refreshes clean Adjust Location values from the current area state so
+/// dragging or turning the object in the view updates the open dialog live.
+fn sync_live(app: &mut Moonglow, a: &mut AdjustLocation) {
+    if a.has_changes() || a.is_empty() {
+        return;
+    }
+    if a.start {
+        if let Some(at) = crate::area_view::start_location(app, a.area) {
+            let refreshed = adjust_start(a.area, at);
+            a.position = refreshed.position;
+            a.bearing = refreshed.bearing;
+        }
+    } else if let Some(view) = app.area_views.get(&a.area)
+        && view.selection == a.objects
+        && let Some(refreshed) = adjust(view)
+    {
+        a.position = refreshed.position;
+        a.bearing = refreshed.bearing;
+        a.visual = refreshed.visual;
+        a.speed = refreshed.speed;
+        a.kept = refreshed.kept;
+        a.shaped = refreshed.shaped;
+        a.fixed = refreshed.fixed;
+        a.fixed_shaped = refreshed.fixed_shaped;
+        a.uneven = refreshed.uneven;
+    }
+}
+
+#[derive(Clone)]
+struct AdjustWinState {
+    rect: egui::Rect,
+    seen_selection: (bool, Vec<(ObjectKind, usize)>),
+}
+
+impl Default for AdjustWinState {
+    fn default() -> Self {
+        Self { rect: egui::Rect::NOTHING, seen_selection: (false, Vec::new()) }
+    }
+}
+
 /// Adjust Location for the module's start location in `area`, at
 /// `(position, facing)` (radians anticlockwise from east, the way its
 /// arrow points): its position and bearing, as an object's.
@@ -150,125 +231,143 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(mut a) = app.adjust.take() else { return };
+    let state_id = egui::Id::new("mg-adjust-win-state");
+    let Some(mut a) = app.adjust.take() else {
+        ui.ctx().data_mut(|d| d.remove_temp::<AdjustWinState>(state_id));
+        return;
+    };
+    let prev_state: Option<AdjustWinState> = ui.ctx().data(|d| d.get_temp(state_id));
     let mut open = true;
     let footed = crate::widgets::dialog(ui.ctx(), "Adjust Location", &mut open)
         .resizable(false)
         .collapsible(false)
         .show_foot(ui.ctx(), |ui| {
-            if a.objects.len() > 1 {
-                ui.weak(format!("{} objects: what you change is set on each", a.objects.len()));
-            }
-            if a.start {
-                ui.weak("The module's start location");
-            }
-            egui::Grid::new("adjust").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-                // (Two fields to a row: X and Y, then Z and the bearing.)
-                for row in [[0, 1], [2, 3]] {
-                    for i in row {
-                        if i < 3 {
-                            crate::widgets::field_label(ui, ["X", "Y", "Z"][i]);
-                            // (A step of an arrow: a tenth of a meter.)
-                            let r =
-                                crate::widgets::spin_draft(ui, &mut a.position[i], FAR, 0.1, |d| {
-                                    d.speed(0.05).max_decimals(3)
-                                });
-                            a.changed[i] |= r.changed();
-                        } else {
-                            crate::widgets::field_label(ui, "Bearing (°)")
-                                .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
-                            let r = crate::widgets::spin_draft(
-                                ui,
-                                &mut a.bearing,
-                                0.0..=360.0,
-                                1.0,
-                                |d| d.speed(1.0).max_decimals(2),
-                            );
-                            a.changed[3] |= r.changed();
-                        }
-                    }
-                    ui.end_row();
+            let empty = a.is_empty();
+            if empty {
+                ui.weak("Select an object to adjust its location.");
+            } else {
+                if a.objects.len() > 1 {
+                    ui.weak(format!("{} objects: what you change is set on each", a.objects.len()));
                 }
-            });
-            if a.shaped {
-                ui.add_space(crate::widgets::SECTION_GAP);
-                crate::widgets::section_heading(ui, "Visual Transforms");
+                if a.start {
+                    ui.weak("The module's start location");
+                }
             }
-            let visual = egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]);
-            if a.shaped {
-                visual.show(ui, |ui| {
-                    crate::widgets::field_label(ui, "Scale");
-                    let mut scale = a.visual.scale.x;
-                    let r = crate::widgets::spin_draft(ui, &mut scale, 0.01..=100.0, 0.1, |d| {
-                        d.speed(0.01).max_decimals(2)
-                    });
-                    if r.changed() {
-                        a.visual.scale = Vec3::splat(scale);
-                        a.visual_changed = true;
-                        // (Written alike from now on.)
-                        a.uneven = 0;
-                    }
-                    crate::widgets::field_label(ui, "Animation speed").on_hover_text(
-                        "How fast the model's animations play: 1 as made, 2 twice as fast",
-                    );
-                    let r = crate::widgets::spin_draft(ui, &mut a.speed, 0.0..=100.0, 0.1, |d| {
-                        d.speed(0.01).max_decimals(2)
-                    });
-                    a.speed_changed |= r.changed();
-                    ui.end_row();
-                    // What each turn does, as the game draws it
-                    // (`mg_area::VisualTransform::matrix`).
-                    let turns = [
-                        "Turns the model about its upright axis, as Bearing does",
-                        "Tips the model forward or back, about its own X axis \
-                         (east at Bearing 0)",
-                        "Leans the model to one side, about its own Y axis \
-                         (north at Bearing 0)",
-                    ];
-                    for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        crate::widgets::field_label(ui, format!("{axis} rotation"))
-                            .on_hover_text(turns[i]);
-                        let turn = &mut a.visual.rotate[i];
-                        let r = crate::widgets::spin_draft(ui, turn, FAR, 1.0, |d| {
-                            d.speed(1.0).max_decimals(1)
-                        });
-                        a.visual_changed |= r.changed();
-                        crate::widgets::field_label(ui, format!("{axis} translation"));
-                        let to = &mut a.visual.translate[i];
-                        let r = crate::widgets::spin_draft(ui, to, FAR, 0.1, |d| {
-                            d.speed(0.01).max_decimals(2)
-                        });
-                        a.visual_changed |= r.changed();
+            ui.add_enabled_ui(!empty, |ui| {
+                egui::Grid::new("adjust").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+                    // (Two fields to a row: X and Y, then Z and the bearing.)
+                    for row in [[0, 1], [2, 3]] {
+                        for i in row {
+                            if i < 3 {
+                                crate::widgets::field_label(ui, ["X", "Y", "Z"][i]);
+                                // (A step of an arrow: a tenth of a meter.)
+                                let r = crate::widgets::spin_draft(
+                                    ui,
+                                    &mut a.position[i],
+                                    FAR,
+                                    0.1,
+                                    |d| d.speed(0.05).max_decimals(3),
+                                );
+                                a.changed[i] |= r.changed();
+                            } else {
+                                crate::widgets::field_label(ui, "Bearing (°)")
+                                    .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
+                                let r = crate::widgets::spin_draft(
+                                    ui,
+                                    &mut a.bearing,
+                                    0.0..=360.0,
+                                    1.0,
+                                    |d| d.speed(1.0).max_decimals(2),
+                                );
+                                a.changed[3] |= r.changed();
+                            }
+                        }
                         ui.end_row();
                     }
                 });
-            }
-            if a.shaped && !a.kept.is_empty() {
-                ui.add_space(crate::widgets::SECTION_GAP);
-                ui.scope(|ui| {
-                    crate::widgets::fit_width(ui, 340.0);
-                    if a.objects.len() > 1 {
-                        ui.weak("The first of them:");
-                    }
-                    for note in &a.kept {
+                if a.shaped {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    crate::widgets::section_heading(ui, "Visual Transforms");
+                }
+                let visual = egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]);
+                if a.shaped {
+                    visual.show(ui, |ui| {
+                        crate::widgets::field_label(ui, "Scale");
+                        let mut scale = a.visual.scale.x;
+                        let r =
+                            crate::widgets::spin_draft(ui, &mut scale, 0.01..=100.0, 0.1, |d| {
+                                d.speed(0.01).max_decimals(2)
+                            });
+                        if r.changed() {
+                            a.visual.scale = Vec3::splat(scale);
+                            a.visual_changed = true;
+                            // (Written alike from now on.)
+                            a.uneven = 0;
+                        }
+                        crate::widgets::field_label(ui, "Animation speed").on_hover_text(
+                            "How fast the model's animations play: 1 as made, 2 twice as fast",
+                        );
+                        let r =
+                            crate::widgets::spin_draft(ui, &mut a.speed, 0.0..=100.0, 0.1, |d| {
+                                d.speed(0.01).max_decimals(2)
+                            });
+                        a.speed_changed |= r.changed();
+                        ui.end_row();
+                        // What each turn does, as the game draws it
+                        // (`mg_area::VisualTransform::matrix`).
+                        let turns = [
+                            "Turns the model about its upright axis, as Bearing does",
+                            "Tips the model forward or back, about its own X axis \
+                             (east at Bearing 0)",
+                            "Leans the model to one side, about its own Y axis \
+                             (north at Bearing 0)",
+                        ];
+                        for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                            crate::widgets::field_label(ui, format!("{axis} rotation"))
+                                .on_hover_text(turns[i]);
+                            let turn = &mut a.visual.rotate[i];
+                            let r = crate::widgets::spin_draft(ui, turn, FAR, 1.0, |d| {
+                                d.speed(1.0).max_decimals(1)
+                            });
+                            a.visual_changed |= r.changed();
+                            crate::widgets::field_label(ui, format!("{axis} translation"));
+                            let to = &mut a.visual.translate[i];
+                            let r = crate::widgets::spin_draft(ui, to, FAR, 0.1, |d| {
+                                d.speed(0.01).max_decimals(2)
+                            });
+                            a.visual_changed |= r.changed();
+                            ui.end_row();
+                        }
+                    });
+                }
+                if a.shaped && !a.kept.is_empty() {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    ui.scope(|ui| {
+                        crate::widgets::fit_width(ui, 340.0);
+                        if a.objects.len() > 1 {
+                            ui.weak("The first of them:");
+                        }
+                        for note in &a.kept {
+                            ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
+                        }
+                    });
+                }
+                if let Some(note) = scale_note(&a) {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    // (About as wide as the fields above: the window sizes
+                    // itself to what it holds.)
+                    ui.scope(|ui| {
+                        crate::widgets::fit_width(ui, 340.0);
                         ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
-                    }
-                });
-            }
-            if let Some(note) = scale_note(&a) {
-                ui.add_space(crate::widgets::SECTION_GAP);
-                // (About as wide as the fields above: the window sizes
-                // itself to what it holds.)
-                ui.scope(|ui| {
-                    crate::widgets::fit_width(ui, 340.0);
-                    ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
-                });
-            }
-            if let Some(note) = static_note(&a) {
-                ui.add_space(crate::widgets::SECTION_GAP);
-                ui.colored_label(ui.visuals().warn_fg_color, note);
-            }
-            let foot = crate::widgets::Foot::new().main("OK", true).button("Apply", true).cancel();
+                    });
+                }
+                if let Some(note) = static_note(&a) {
+                    ui.add_space(crate::widgets::SECTION_GAP);
+                    ui.colored_label(ui.visuals().warn_fg_color, note);
+                }
+            });
+            let foot =
+                crate::widgets::Foot::new().main("OK", !empty).button("Apply", !empty).cancel();
             ((), foot)
         });
     let (cancel, done) = match &footed {
@@ -277,21 +376,58 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
         Some(f) => (f.pressed.cancelled(), None),
         None => (false, None),
     };
-    if cancel {
+    if cancel || !open {
+        ui.ctx().data_mut(|d| d.remove_temp::<AdjustWinState>(state_id));
         return;
     }
     if let Some(close) = done {
-        apply_location(app, &a);
-        a.changed = [false; 4];
-        a.visual_changed = false;
-        a.speed_changed = false;
+        if !a.is_empty() {
+            apply_location(app, &a);
+            a.clear_changes();
+        }
         if close {
+            ui.ctx().data_mut(|d| d.remove_temp::<AdjustWinState>(state_id));
             return;
         }
     }
-    if open {
-        app.adjust = Some(a);
+    let cur_selection =
+        app.area_views.get(&a.area).map(|v| (v.start_is_selected(), v.selection.clone()));
+    let rect = footed.as_ref().map_or(egui::Rect::NOTHING, |f| f.response.rect);
+    if let Some(prev) = prev_state {
+        let selection_changed = cur_selection.as_ref().is_some_and(|cur| {
+            *cur != prev.seen_selection && (cur.0 != a.start || cur.1 != a.objects)
+        });
+        let pressed_outside = a.has_changes()
+            && !a.is_empty()
+            && !egui::Popup::is_any_open(ui.ctx())
+            && ui.ctx().input(|i| {
+                i.pointer.primary_pressed()
+                    && i.pointer.press_origin().is_some_and(|p| !prev.rect.contains(p))
+            });
+        if selection_changed {
+            if a.has_changes() && !a.is_empty() {
+                apply_location(app, &a);
+            }
+            let area = a.area;
+            a = match cur_selection.as_ref() {
+                Some((true, _)) => crate::area_view::start_location(app, area)
+                    .map_or_else(|| empty_adjust(area), |at| adjust_start(area, at)),
+                Some((false, sel)) if !sel.is_empty() => {
+                    app.area_views.get(&area).and_then(adjust).unwrap_or_else(|| empty_adjust(area))
+                }
+                _ => empty_adjust(area),
+            };
+            ui.ctx().request_repaint();
+        } else if pressed_outside {
+            apply_location(app, &a);
+            a.clear_changes();
+        } else if !a.has_changes() && !a.is_empty() {
+            sync_live(app, &mut a);
+        }
     }
+    let seen_selection = cur_selection.unwrap_or_else(|| (a.start, a.objects.clone()));
+    ui.ctx().data_mut(|d| d.insert_temp(state_id, AdjustWinState { rect, seen_selection }));
+    app.adjust = Some(a);
 }
 
 /// What Adjust Location says of the static placeables chosen: the game

@@ -6825,6 +6825,7 @@ fn the_area_menus_group_related_commands_in_submenus() {
         [
             "Preview",
             "Adjust Location…",
+            "Focus Selection (F)",
             "Position",
             "Arrange",
             "Lock",
@@ -9338,4 +9339,396 @@ fn the_opening_target_takes_the_nearest_tile_s_level_where_the_middle_has_none()
     assert!(raised > 4.0, "tcm02's ground is raised: {raised}");
     let o = mg_ui::area_view::Orbit::overview_over(&gap, Some(&ground));
     assert!((o.target.z - raised).abs() < 0.01, "the nearest tile's level: {o:?}");
+}
+
+/// 5.1.0 Item 9: Open Adjust Location follows selection changes and auto-saves
+/// unapplied edits when switching selection, deselecting, or clicking away;
+/// Cancel and Escape still discard unapplied edits.
+#[test]
+fn adjust_location_follows_selection_and_auto_saves_on_switch_or_click_away() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("adjust-follow") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let wp_x = |h: &mut Harness<'_, Moonglow>, idx: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("WaypointList").unwrap()[idx].float("XPosition").unwrap()
+    };
+    let wp_y = |h: &mut Harness<'_, Moonglow>, idx: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("WaypointList").unwrap()[idx].float("YPosition").unwrap()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, pos: egui::Pos2| {
+        h.hover_at(pos);
+        press(h, pos, true, egui::Modifiers::NONE);
+        press(h, pos, false, egui::Modifiers::NONE);
+        settle(h);
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    // Shift target slightly south (keeping overview distance) so waypoints at Y=20..26
+    // remain well inside the viewport while staying clear above the centered dialog.
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = Vec3::new(25.0, 12.0, 0.0);
+    }
+    h.run_steps(2);
+    // Right-click waypoint 0 at (20, 20, 0) and open Adjust Location.
+    let wp0_at = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    right_click(&mut h, wp0_at);
+    h.get_by_label("Adjust Location…").click();
+    settle(&mut h);
+    assert_eq!(h.state().adjust.as_ref().unwrap().objects, [(ObjectKind::Waypoint, 0)]);
+
+    // Edit waypoint 0's Y in the open dialog, then click outside the dialog on the
+    // bottom status bar -> auto-saves waypoint 0 and keeps it targeted in the dialog.
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.y = 24.0;
+        a.changed[1] = true;
+    }
+    h.run_steps(2);
+    click(&mut h, egui::pos2(8.0, 790.0));
+    assert!((wp_y(&mut h, 0) - 24.0).abs() < 0.01, "click-away saved Y=24.0");
+    let a = h.state().adjust.as_ref().expect("dialog stayed open");
+    assert_eq!(a.objects, [(ObjectKind::Waypoint, 0)]);
+    assert!(!a.has_changes());
+
+    // Edit Y again to 26.0, then click empty ground in the area view -> auto-saves Y=26.0
+    // and transitions the open dialog to its empty disabled state.
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.y = 26.0;
+        a.changed[1] = true;
+    }
+    h.run_steps(2);
+    let outside = h.state().area_views[&area].rect.left_bottom() + egui::vec2(12.0, -12.0);
+    click(&mut h, outside);
+    assert!((wp_y(&mut h, 0) - 26.0).abs() < 0.01, "deselect saved Y=26.0");
+    h.get_by_label("Select an object to adjust its location.");
+    assert!(h.get_by_label("OK").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Select waypoint 0 at its new location (20, 26, 0.5) -> open dialog retargets to it.
+    let wp0_new = screen(&h, area, Vec3::new(20.0, 26.0, 0.5));
+    click(&mut h, wp0_new);
+    assert_eq!(h.state().adjust.as_ref().unwrap().objects, [(ObjectKind::Waypoint, 0)]);
+    assert!(!h.get_by_label("OK").accesskit_node().is_disabled());
+
+    // Edit waypoint 0's X to 22.0, then switch selection to waypoint 1 at (30, 20, 0.5):
+    // waypoint 0 auto-saves X=22.0 and dialog retargets to waypoint 1 cleanly.
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.x = 22.0;
+        a.changed[0] = true;
+    }
+    h.run_steps(2);
+    let wp1_at = screen(&h, area, Vec3::new(30.0, 20.0, 0.5));
+    click(&mut h, wp1_at);
+    assert!((wp_x(&mut h, 0) - 22.0).abs() < 0.01, "switching selection saved wp0 X=22.0");
+    let a = h.state().adjust.as_ref().expect("dialog stayed open");
+    assert_eq!(a.objects, [(ObjectKind::Waypoint, 1)]);
+    assert!(!a.has_changes());
+    assert!((a.position.x - 30.0).abs() < 0.01);
+
+    // Edit waypoint 1 without changing selection and click Cancel -> discards changes.
+    let was_x1 = wp_x(&mut h, 1);
+    {
+        let a = h.state_mut().adjust.as_mut().unwrap();
+        a.position.x = 37.0;
+        a.changed[0] = true;
+    }
+    h.run_steps(2);
+    h.get_by_label("Cancel").click();
+    settle(&mut h);
+    assert!(h.state().adjust.is_none());
+    assert!((wp_x(&mut h, 1) - was_x1).abs() < 0.01, "Cancel discarded wp1 X edit");
+}
+
+/// 5.1.0 Item 10: Shift+click and Shift+box-drag add objects to the current
+/// selection rather than replacing it, and Shift+click on empty ground keeps it.
+#[test]
+fn shift_click_and_shift_box_drag_add_to_selection() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("shift-select") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let blueprint = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let chest = instance(
+            &placing,
+            ResType::UTP,
+            &blueprint,
+            Placement { position: [14.0, 20.0, 0.0], rotation: 0.0 },
+            &[],
+        )
+        .unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item: chest,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    // Select waypoint 0 with a plain click.
+    let wp0 = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(wp0);
+    press(&h, wp0, true, egui::Modifiers::NONE);
+    press(&h, wp0, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+
+    // Shift+click on empty ground keeps the existing selection.
+    let empty = screen(&h, area, Vec3::new(10.0, 10.0, 0.0));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.hover_at(empty);
+    press(&h, empty, true, egui::Modifiers::SHIFT);
+    press(&h, empty, false, egui::Modifiers::SHIFT);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+
+    // Shift+click waypoint 1 adds it without dropping waypoint 0.
+    let wp1 = screen(&h, area, Vec3::new(30.0, 20.0, 0.0));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.hover_at(wp1);
+    press(&h, wp1, true, egui::Modifiers::SHIFT);
+    press(&h, wp1, false, egui::Modifiers::SHIFT);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    settle(&mut h);
+    assert_eq!(
+        h.state().area_views[&area].selection,
+        [(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)]
+    );
+
+    // Shift+box-drag around the chest at (14, 20, 0) adds it without clearing waypoints.
+    let from = screen(&h, area, Vec3::new(11.0, 17.0, 0.0));
+    let to = screen(&h, area, Vec3::new(17.0, 23.0, 0.0));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::SHIFT);
+    h.step();
+    for k in 1..=5 {
+        h.hover_at(from + (to - from) * (k as f32 / 5.0));
+        h.step();
+    }
+    press(&h, to, false, egui::Modifiers::SHIFT);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    settle(&mut h);
+    assert_eq!(
+        h.state().area_views[&area].selection,
+        [(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1), (ObjectKind::Placeable, 0)]
+    );
+}
+
+/// 5.1.0 Item 11: Focus Selection works with `F` and `.` (even right after
+/// clicking an Outliner row) and from the area context menu.
+#[test]
+fn focus_selection_with_f_and_period_keys() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("focus-key") else { return };
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = Vec3::new(5.0, 5.0, 0.0);
+        o.distance = 40.0;
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.hover_at(h.state().area_views[&area].rect.center());
+    h.run_steps(2);
+    h.key_press(egui::Key::F);
+    settle(&mut h);
+    let o = h.state().area_views[&area].orbit.unwrap();
+    assert!((o.target - Vec3::new(20.0, 20.0, 0.0)).length() < 0.01, "F focuses waypoint 0");
+    assert!(o.distance <= 25.0);
+
+    // Click waypoint 1 in the Outliner (camera stays put, Outliner gets keys), then press `.`.
+    unfold_left_dock(&mut h);
+    settle(&mut h);
+    if h.get_by_label(mg_ui::OUTLINER).query_all_by_label_contains("tag NW_WAYPOINT001").count() < 2
+    {
+        h.get_by_label(mg_ui::OUTLINER).get_by_label("2 waypoints").click();
+        settle(&mut h);
+    }
+    let rows = h.get_by_label(mg_ui::OUTLINER);
+    let second = rows.query_all_by_label_contains("tag NW_WAYPOINT001").last().unwrap().rect();
+    h.hover_at(second.center());
+    press(&h, second.center(), true, egui::Modifiers::NONE);
+    press(&h, second.center(), false, egui::Modifiers::NONE);
+    settle(&mut h);
+    let after_click = h.state().area_views[&area].orbit.unwrap();
+    assert!((after_click.target - Vec3::new(20.0, 20.0, 0.0)).length() < 0.01, "no auto-zoom");
+    let expected = h.state().area_views[&area]
+        .model
+        .as_ref()
+        .unwrap()
+        .object(
+            h.state().area_views[&area].selection[0].0,
+            h.state().area_views[&area].selection[0].1,
+        )
+        .unwrap()
+        .position;
+    h.key_press(egui::Key::Period);
+    settle(&mut h);
+    assert!(
+        (h.state().area_views[&area].orbit.unwrap().target - expected).length() < 0.01,
+        "`.` focuses selected waypoint straight after clicking in the Outliner"
+    );
+}
+
+/// 5.1.0 Item 12: Overlapping encounters cycle on repeated left-clicks, keep the
+/// already-selected encounter on right-click (so Add Spawn Point targets it),
+/// focus on the outline bounding-box center (not vertex 0), and render spawn
+/// points as 3D wireframe prisms in the overlay.
+#[test]
+fn overlapping_encounters_cycle_preserve_right_click_focus_bbox_and_wireframe_spawn() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("overlap-enc") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("nw_giantevil", ResType::UTE).unwrap();
+        let blueprint = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let outline_a = [[-3.0, -3.0, 0.0], [3.0, -3.0, 0.0], [3.0, 3.0, 0.0], [-3.0, 3.0, 0.0]];
+        // Encounter B's outline spans X: 18..26, Y: 28..36 -> bbox center (22, 32, 0),
+        // clearly distinct from its position/first vertex at (18, 28, 0).
+        let outline_b = [[-2.0, -2.0, 0.0], [6.0, -2.0, 0.0], [6.0, 6.0, 0.0], [-2.0, 6.0, 0.0]];
+        let enc_a = instance(
+            &placing,
+            ResType::UTE,
+            &blueprint,
+            Placement { position: [20.0, 30.0, 0.0], rotation: 0.0 },
+            &outline_a,
+        )
+        .unwrap();
+        let mut enc_b = instance(
+            &placing,
+            ResType::UTE,
+            &blueprint,
+            Placement { position: [20.0, 30.0, 0.0], rotation: 0.0 },
+            &outline_b,
+        )
+        .unwrap();
+        let mut sp = mg_gff::Struct::new(2);
+        for (label, v) in [("X", 21.0), ("Y", 31.0), ("Z", 0.0), ("Orientation", 0.0)] {
+            sp.set(label, mg_gff::Value::Float(v));
+        }
+        enc_b.set("SpawnPointList", mg_gff::Value::List(vec![sp]));
+        let edits = [enc_a, enc_b]
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: "Encounter List".into(),
+                index,
+                item,
+            })
+            .collect();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    // Count orange wireframe shapes emitted for encounters and spawn points (12d).
+    let orange = egui::Color32::from_rgb(230, 120, 40);
+    let count_orange_shapes = |h: &mut Harness<'_, Moonglow>| -> usize {
+        let rect = h.state().area_views[&area].rect;
+        h.output()
+            .shapes
+            .iter()
+            .filter(|cs| rect.intersects(cs.clip_rect))
+            .filter(|cs| match &cs.shape {
+                egui::Shape::LineSegment { stroke, .. } => stroke.color == orange,
+                egui::Shape::Path(p) => p.stroke.color == egui::epaint::ColorMode::Solid(orange),
+                _ => false,
+            })
+            .count()
+    };
+    let with_markers = count_orange_shapes(&mut h);
+    h.state_mut().settings.no_spawn_markers = true;
+    h.run_steps(2);
+    let without_markers = count_orange_shapes(&mut h);
+    assert!(
+        with_markers >= without_markers + 9,
+        "wireframe prism adds >= 9 orange edges (got {with_markers} vs {without_markers})"
+    );
+    h.state_mut().settings.no_spawn_markers = false;
+    h.run_steps(2);
+
+    // (12a) Repeated plain left-clicks on the overlap cycle Encounter 0 -> Encounter 1 -> Encounter 0.
+    let overlap = screen(&h, area, Vec3::new(20.0, 30.0, 0.0));
+    h.hover_at(overlap);
+    press(&h, overlap, true, egui::Modifiers::NONE);
+    press(&h, overlap, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Encounter, 0)]);
+    h.run_steps(30);
+    h.hover_at(overlap);
+    press(&h, overlap, true, egui::Modifiers::NONE);
+    press(&h, overlap, false, egui::Modifiers::NONE);
+    settle(&mut h);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Encounter, 1)]);
+
+    // (12c) Right-clicking the overlap while Encounter 1 is selected keeps Encounter 1 selected,
+    // so Add Spawn Point adds to Encounter 1 rather than reverting to Encounter 0.
+    h.hover_at(overlap);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: overlap,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Encounter, 1)]);
+    h.get_by_label("Add Spawn Point").click();
+    settle(&mut h);
+    {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let list = git.root.list("Encounter List").unwrap();
+        assert_eq!(
+            list[0].list("SpawnPointList").map_or(0, <[mg_gff::Struct]>::len),
+            0,
+            "not enc 0"
+        );
+        assert_eq!(
+            list[1].list("SpawnPointList").map_or(0, <[mg_gff::Struct]>::len),
+            2,
+            "added to enc 1"
+        );
+    }
+
+    // (12b) Focus Selection (`F`) frames Encounter 1's bounding box center (22, 32, 0),
+    // not vertex 0 (18, 28, 0) or position (20, 30, 0).
+    h.key_press(egui::Key::F);
+    settle(&mut h);
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!((target - Vec3::new(22.0, 32.0, 0.0)).length() < 0.01, "bbox center: {target:?}");
 }

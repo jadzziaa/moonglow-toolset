@@ -1596,8 +1596,12 @@ fn var_body(
         ui.fonts_mut(|f| f.layout(t.clone(), font, color, wrap)).size().y
             + ui.spacing().item_spacing.y
     });
-    // (The list scrolls, over the buttons kept in reach below it.)
+    // (The list scrolls, over the buttons kept in reach below it. In the
+    // Properties panel's all-pages scroll, cap and shrink vertically so an
+    // empty or short table uses only the height of its rows.)
+    let in_panel_scroll = crate::blueprint::panel_scroll(ui);
     let tall = (ui.available_height() - VAR_FOOT - lines * 18.0 - together_tall).max(100.0);
+    let tall = if in_panel_scroll { tall.min(260.0) } else { tall };
     // (Wider, the fields share what is spare; narrower, as a Properties
     // window's page often is, they shrink to it, down to two fifths: the
     // type, a color's swatch and Delete kept in sight.)
@@ -1610,148 +1614,156 @@ fn var_body(
         let part = (room / (VAR_NAME_WIDTH + VAR_VALUE_WIDTH)).max(0.4);
         (VAR_NAME_WIDTH * part, VAR_VALUE_WIDTH * part)
     };
-    egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(ui, |ui| {
-        // (A table of fields: rows 22 apart, a line between.)
-        mg_uikit::table_rows(ui);
-        let rule = mg_uikit::metrics::TABLE_RULE;
-        egui::Grid::new("vars").num_columns(4).spacing([8.0, rule]).show(ui, |ui| {
-            ui.strong("Name");
-            ui.strong("Type");
-            ui.strong("Value");
-            ui.end_row();
-            let mut remove = None;
-            let mut picked = None;
-            let mut picked_field: Option<egui::Id> = None;
-            for i in 0..edit.rows.len() {
-                // (A minimum: a new window offers the fields no width yet,
-                // and they would keep to it.)
-                fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
-                    mg_uikit::text_field(text).desired_width(width).min_size(egui::vec2(width, 0.0))
-                }
-                // The offer's keys, before the field takes them.
-                let offering = described && help.completing == Some(i);
-                let count = if offering { help.offered_before } else { 0 };
-                let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
-                let field = wide(&mut edit.rows[i].name, name_width);
-                let name = ui.add(field.hint_text("Name"));
-                let r = &edit.rows[i];
-                let desc = help.variables.describe(r.name.trim());
-                let name = match desc {
-                    Some(d) => name.on_hover_text(description_tip(d)),
-                    None => name,
-                };
-                // The described names, offered as one is typed.
-                if described {
-                    // (Escape closes the offer, until the name
-                    // changes; the name is still being typed.)
-                    let dismissed = help.dismissed.as_ref() == Some(&(i, r.name.clone()));
-                    if closed {
-                        help.completing = None;
-                        help.dismissed = Some((i, r.name.clone()));
-                        name.request_focus();
-                    } else if (name.has_focus() || name.gained_focus()) && !dismissed {
-                        help.completing = Some(i);
-                        help.dismissed = None;
-                    }
-                    if help.completing == Some(i) {
-                        let offered = help.offered(&r.name, &edit.rows, i);
-                        // (Typing anew: the first again.)
-                        let retyped = help.names.get(i).is_some_and(|n| *n != r.name);
-                        let h = if retyped || help.highlighted >= offered.len() {
-                            0
-                        } else {
-                            help.highlighted
-                        };
-                        if taken && let Some(o) = offered.get(h) {
-                            picked = Some((i, o.name.clone()));
-                        }
-                        let over = completion(ui, i, &name, &offered, h, &mut picked);
-                        let pressed = ui.input(|i| i.pointer.any_pressed());
-                        let count = offered.len();
-                        help.highlighted = h;
-                        help.offered_before = count;
-                        if picked.is_some() {
-                            // (Typed on from there, from its end.)
-                            picked_field = Some(name.id);
-                        }
-                        if count == 0
-                            || picked.is_some()
-                            || (!name.has_focus() && !over && pressed)
-                            || (name.lost_focus() && !over)
-                        {
-                            help.completing = None;
-                        }
-                    }
-                    if help.completing.is_none() {
-                        help.offered_before = 0;
-                    }
-                }
-                let r = &mut edit.rows[i];
-                // An object's or a location's is shown, not
-                // edited (it isn't set from text).
-                let edits = VarType::of(r.kind.into()).is_some_and(|t| t.field_type().is_some());
-                ui.add_enabled_ui(edits, |ui| {
-                    let kinds = [VarType::Int, VarType::Float, VarType::String].map(VarType::code);
-                    dropdown(("var-type", i)).selected_text(kind_name(r.kind)).show(
-                        ui,
-                        &mut r.kind,
-                        &kinds,
-                        |k| kind_name(*k),
-                    );
-                });
-                let typed = desc.is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
-                let choices =
-                    desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
-                match (desc, choices) {
-                    (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
-                        value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
-                    }
-                    _ if edits && colored(r) => {
-                        // A color's swatch beside its text.
-                        ui.horizontal(|ui| {
-                            let swatch = ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
-                            ui.add(wide(&mut r.value, value_width - swatch));
-                            color_swatch(ui, &mut r.value);
-                        });
-                    }
-                    _ => {
-                        ui.add_enabled(edits, wide(&mut r.value, value_width));
-                    }
-                }
-                if ui.small_button("Delete").clicked() {
-                    remove = Some(i);
-                }
+    egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, in_panel_scroll]).show(
+        ui,
+        |ui| {
+            // (A table of fields: rows 22 apart, a line between.)
+            mg_uikit::table_rows(ui);
+            let rule = mg_uikit::metrics::TABLE_RULE;
+            egui::Grid::new("vars").num_columns(4).spacing([8.0, rule]).show(ui, |ui| {
+                ui.strong("Name");
+                ui.strong("Type");
+                ui.strong("Value");
                 ui.end_row();
-            }
-            if let Some((i, name)) = picked {
-                // The field keeps the keyboard, its cursor at the
-                // end: a pattern's beginning is typed on from.
-                if let Some(id) = picked_field {
-                    let end = egui::text::CCursor::new(name.chars().count());
-                    let mut state =
-                        egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
-                    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
-                    state.store(ui.ctx(), id);
-                    ui.memory_mut(|m| m.request_focus(id));
+                let mut remove = None;
+                let mut picked = None;
+                let mut picked_field: Option<egui::Id> = None;
+                for i in 0..edit.rows.len() {
+                    // (A minimum: a new window offers the fields no width yet,
+                    // and they would keep to it.)
+                    fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
+                        mg_uikit::text_field(text)
+                            .desired_width(width)
+                            .min_size(egui::vec2(width, 0.0))
+                    }
+                    // The offer's keys, before the field takes them.
+                    let offering = described && help.completing == Some(i);
+                    let count = if offering { help.offered_before } else { 0 };
+                    let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
+                    let field = wide(&mut edit.rows[i].name, name_width);
+                    let name = ui.add(field.hint_text("Name"));
+                    let r = &edit.rows[i];
+                    let desc = help.variables.describe(r.name.trim());
+                    let name = match desc {
+                        Some(d) => name.on_hover_text(description_tip(d)),
+                        None => name,
+                    };
+                    // The described names, offered as one is typed.
+                    if described {
+                        // (Escape closes the offer, until the name
+                        // changes; the name is still being typed.)
+                        let dismissed = help.dismissed.as_ref() == Some(&(i, r.name.clone()));
+                        if closed {
+                            help.completing = None;
+                            help.dismissed = Some((i, r.name.clone()));
+                            name.request_focus();
+                        } else if (name.has_focus() || name.gained_focus()) && !dismissed {
+                            help.completing = Some(i);
+                            help.dismissed = None;
+                        }
+                        if help.completing == Some(i) {
+                            let offered = help.offered(&r.name, &edit.rows, i);
+                            // (Typing anew: the first again.)
+                            let retyped = help.names.get(i).is_some_and(|n| *n != r.name);
+                            let h = if retyped || help.highlighted >= offered.len() {
+                                0
+                            } else {
+                                help.highlighted
+                            };
+                            if taken && let Some(o) = offered.get(h) {
+                                picked = Some((i, o.name.clone()));
+                            }
+                            let over = completion(ui, i, &name, &offered, h, &mut picked);
+                            let pressed = ui.input(|i| i.pointer.any_pressed());
+                            let count = offered.len();
+                            help.highlighted = h;
+                            help.offered_before = count;
+                            if picked.is_some() {
+                                // (Typed on from there, from its end.)
+                                picked_field = Some(name.id);
+                            }
+                            if count == 0
+                                || picked.is_some()
+                                || (!name.has_focus() && !over && pressed)
+                                || (name.lost_focus() && !over)
+                            {
+                                help.completing = None;
+                            }
+                        }
+                        if help.completing.is_none() {
+                            help.offered_before = 0;
+                        }
+                    }
+                    let r = &mut edit.rows[i];
+                    // An object's or a location's is shown, not
+                    // edited (it isn't set from text).
+                    let edits =
+                        VarType::of(r.kind.into()).is_some_and(|t| t.field_type().is_some());
+                    ui.add_enabled_ui(edits, |ui| {
+                        let kinds =
+                            [VarType::Int, VarType::Float, VarType::String].map(VarType::code);
+                        dropdown(("var-type", i)).selected_text(kind_name(r.kind)).show(
+                            ui,
+                            &mut r.kind,
+                            &kinds,
+                            |k| kind_name(*k),
+                        );
+                    });
+                    let typed = desc.is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
+                    let choices =
+                        desc.and_then(|d| help.choices.get(&d.name).zip(help.offered.get(&d.name)));
+                    match (desc, choices) {
+                        (Some(d), Some((c, o))) if edits && typed && !c.list.is_empty() => {
+                            value_choice(ui, i, d.other, c, o, &mut r.value, value_width);
+                        }
+                        _ if edits && colored(r) => {
+                            // A color's swatch beside its text.
+                            ui.horizontal(|ui| {
+                                let swatch =
+                                    ui.spacing().interact_size.y + ui.spacing().item_spacing.x;
+                                ui.add(wide(&mut r.value, value_width - swatch));
+                                color_swatch(ui, &mut r.value);
+                            });
+                        }
+                        _ => {
+                            ui.add_enabled(edits, wide(&mut r.value, value_width));
+                        }
+                    }
+                    if ui.small_button("Delete").clicked() {
+                        remove = Some(i);
+                    }
+                    ui.end_row();
                 }
-                edit.rows[i].name = name;
-            }
-            if let Some(i) = remove {
-                edit.rows.remove(i);
-                help.completing = None;
-            }
-            // A name changed to a described one: its type.
-            let names: Vec<String> = edit.rows.iter().map(|r| r.name.clone()).collect();
-            if names.len() == help.names.len() {
-                for (r, was) in edit.rows.iter_mut().zip(&help.names) {
-                    if r.name != *was {
-                        take_described_type(&help.variables, r);
+                if let Some((i, name)) = picked {
+                    // The field keeps the keyboard, its cursor at the
+                    // end: a pattern's beginning is typed on from.
+                    if let Some(id) = picked_field {
+                        let end = egui::text::CCursor::new(name.chars().count());
+                        let mut state =
+                            egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(end)));
+                        state.store(ui.ctx(), id);
+                        ui.memory_mut(|m| m.request_focus(id));
+                    }
+                    edit.rows[i].name = name;
+                }
+                if let Some(i) = remove {
+                    edit.rows.remove(i);
+                    help.completing = None;
+                }
+                // A name changed to a described one: its type.
+                let names: Vec<String> = edit.rows.iter().map(|r| r.name.clone()).collect();
+                if names.len() == help.names.len() {
+                    for (r, was) in edit.rows.iter_mut().zip(&help.names) {
+                        if r.name != *was {
+                            take_described_type(&help.variables, r);
+                        }
                     }
                 }
-            }
-            help.names = names;
-        });
-    });
+                help.names = names;
+            });
+        },
+    );
     let mut add_file = false;
     let mut save_file = false;
     // (Wrapping where the page is narrow: the Properties panel's, or the
@@ -5340,6 +5352,8 @@ pub(crate) struct Dropdown {
     salt: egui::Id,
     /// [`Dropdown::show_menu`]'s list has a Filter field above its rows.
     filtered: bool,
+    /// Keep the popup open after picking/toggling a row (for multi-select).
+    stays_open: bool,
     /// The box's width as asked (held to its room as it is shown).
     width: Option<f32>,
 }
@@ -5372,6 +5386,7 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
         combo: egui::ComboBox::from_id_salt(id_salt).icon(mg_uikit::combo_icon),
         salt,
         filtered: false,
+        stays_open: false,
         width: None,
     }
 }
@@ -5418,6 +5433,17 @@ impl Dropdown {
     pub(crate) fn filtered(mut self, long: bool) -> Self {
         if long {
             self.filtered = true;
+            self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        }
+        self
+    }
+
+    /// Keeps [`Dropdown::show_menu`] open when rows inside the popup are
+    /// clicked or toggled with the keyboard (only outside clicks or Escape
+    /// close it).
+    pub(crate) fn stays_open(mut self, keep: bool) -> Self {
+        if keep {
+            self.stays_open = true;
             self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
         }
         self
@@ -5546,8 +5572,15 @@ impl Dropdown {
             true => ui.data(|d| d.get_temp(filter_id)).unwrap_or_default(),
             false => String::new(),
         };
-        // (Letters typed while the rows have the arrow keys: the field's.)
-        if self.filtered && focused && open {
+        // (Letters typed while the rows or buttons have focus go to the filter field.)
+        if self.filtered && open && !ui.memory(|m| m.has_focus(field_id)) {
+            if !filter.is_empty()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+            {
+                filter.clear();
+                state.cursor = None;
+                ui.memory_mut(|m| m.request_focus(field_id));
+            }
             let typed: String = ui.input_mut(|i| {
                 let mut typed = String::new();
                 i.events.retain(|e| match e {
@@ -5632,6 +5665,8 @@ impl Dropdown {
                         if keys.pressed.take().is_some() {
                             ui.memory_mut(|m| m.request_focus(field_id));
                         }
+                    } else if self.stays_open && entered {
+                        ui.memory_mut(|m| m.request_focus(field_id));
                     }
                 });
                 if filter.is_empty() && !ui.is_sizing_pass() {
@@ -5652,7 +5687,7 @@ impl Dropdown {
         // (A click on a row closes a filtered list too, which a click
         // inside it leaves open for its field.)
         let pressed = keys.pressed.or((keys.clicked && self.filtered).then_some(0));
-        if pressed.is_some() {
+        if !self.stays_open && pressed.is_some() {
             egui::Popup::close_id(ui.ctx(), r.id.with("popup"));
         }
         state = MenuState {
@@ -5666,7 +5701,7 @@ impl Dropdown {
             },
             reveal: false,
         };
-        if pressed.is_some() {
+        if !self.stays_open && pressed.is_some() {
             state.cursor = None;
         }
         ui.data_mut(|d| d.insert_temp(state_id, state));
@@ -5817,6 +5852,21 @@ impl MenuKeys {
             }
         }
         self.pressed == Some(at)
+    }
+
+    /// A multi-select checkbox row whose label matches [`MenuKeys::shows`]:
+    /// clicking the checkbox or pressing Enter/Space on the highlighted row
+    /// toggles `checked` and returns whether it changed.
+    pub(crate) fn checkbox(&mut self, ui: &mut Ui, checked: &mut bool, label: &str) -> bool {
+        if !self.shows(label) {
+            return false;
+        }
+        let was = *checked;
+        let r = ui.add(mg_uikit::Checkbox::new(checked, label));
+        if self.row(&r) {
+            *checked = !*checked;
+        }
+        *checked != was
     }
 }
 

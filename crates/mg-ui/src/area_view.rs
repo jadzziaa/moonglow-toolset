@@ -275,8 +275,8 @@ enum Drag {
     /// `grip` from its middle) or, held by the arrow's tip, turns it:
     /// where it is and faces now, and where it was.
     Start { turn: bool, grip: Vec2, at: Vec3, facing: f32, was: (Vec3, f32) },
-    /// Selects what is inside the box.
-    Box { from: Pos2, to: Pos2 },
+    /// Selects what is inside the box (extending the selection when `adds`).
+    Box { from: Pos2, to: Pos2, adds: bool },
 }
 
 /// The ring around the selection for turning it: taken anywhere on it and
@@ -816,7 +816,6 @@ struct Drawn {
     grid: bool,
     background: Option<[u8; 3]>,
     merchant_signs: bool,
-    spawn_markers: bool,
     follows: bool,
     /// The Shaders switch.
     shaders: bool,
@@ -1534,6 +1533,22 @@ impl AreaView {
             &|i| scene.bounds(model, i),
             &|i| scene.ray_hit(model, i, &ray),
             // (Locked objects can't be picked: a click passes them by.)
+            &|o| self.show[o.kind.index()] && !o.locked,
+        )
+    }
+
+    /// All pickable objects under the pointer, nearest hit first.
+    pub fn pick_all(&self, pos: Pos2) -> Vec<usize> {
+        let (Some(model), Some(scene), Some(ray)) =
+            (self.model.as_ref(), self.scene.as_ref(), self.ray(pos))
+        else {
+            return Vec::new();
+        };
+        mg_area::pick::pick_all_precisely(
+            model,
+            &ray,
+            &|i| scene.bounds(model, i),
+            &|i| scene.ray_hit(model, i, &ray),
             &|o| self.show[o.kind.index()] && !o.locked,
         )
     }
@@ -3032,7 +3047,7 @@ fn module_clock(app: &mut Moonglow) -> mg_render::ModuleClock {
 }
 
 /// The module's start location, if it is in this area: position and facing.
-fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
+pub(crate) fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     let ws = app.ws.as_mut()?;
     let info = ws.doc(&crate::module_props::info_key()).ok()?;
     let r = &info.root;
@@ -3051,6 +3066,58 @@ fn look_at_start(app: &mut Moonglow, view: &mut AreaView) -> bool {
     };
     o.target = p;
     o.distance = o.distance.min(30.0);
+    true
+}
+
+/// Axis-aligned bounding corners for framing `o`: an outline's bounding box
+/// for triggers and encounters, or the object's position otherwise.
+fn object_bounds_for_focus(o: &mg_area::AreaObject) -> (Vec3, Vec3) {
+    if o.kind.has_outline() && !o.outline.is_empty() {
+        let mut min = o.outline[0];
+        let mut max = o.outline[0];
+        for &p in &o.outline[1..] {
+            min = min.min(p);
+            max = max.max(p);
+        }
+        (min, max)
+    } else {
+        (o.position, o.position)
+    }
+}
+
+/// Frames the camera on the center of `min..=max`, pulling back if wide.
+fn focus_bounds(orbit: &mut Orbit, min: Vec3, max: Vec3) {
+    let center = (min + max) * 0.5;
+    let half_extent = ((max - min) * 0.5).length();
+    orbit.target = center;
+    orbit.distance = if half_extent > 8.0 {
+        (half_extent * 2.4).clamp(12.0, 200.0)
+    } else {
+        orbit.distance.min(25.0)
+    };
+}
+
+/// Frames the current selection (or start location) in `view`'s camera.
+fn focus_selection(app: &mut Moonglow, view: &mut AreaView) -> bool {
+    if view.start_is_selected() {
+        return look_at_start(app, view);
+    }
+    let (Some(model), Some(orbit)) = (&view.model, &mut view.orbit) else {
+        return false;
+    };
+    let mut bounds: Option<(Vec3, Vec3)> = None;
+    for &(kind, index) in &view.selection {
+        let Some(o) = model.object(kind, index) else { continue };
+        let (omin, omax) = object_bounds_for_focus(o);
+        bounds = Some(match bounds {
+            Some((bmin, bmax)) => (bmin.min(omin), bmax.max(omax)),
+            None => (omin, omax),
+        });
+    }
+    let Some((min, max)) = bounds else {
+        return false;
+    };
+    focus_bounds(orbit, min, max);
     true
 }
 
@@ -3267,17 +3334,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     );
     view.turn_together = app.settings.turn_together;
     view.onto_objects = app.settings.place_onto_objects;
-    // An object to go to (from Find Instance).
+    // An object to go to (from Find Instance or double-click in Tree/Outliner).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
         && let Some(model) = &view.model
     {
         if let Some(o) = model.object(kind, index) {
-            let at = o.position;
+            let (min, max) = object_bounds_for_focus(o);
             view.selection = vec![(kind, index)];
+            view.start_selected = false;
             if let Some(orbit) = &mut view.orbit {
-                orbit.target = at;
-                orbit.distance = orbit.distance.min(25.0);
+                focus_bounds(orbit, min, max);
             }
         }
         // (Gone since it was found: not kept for the next object placed
@@ -3490,7 +3557,6 @@ fn viewport(
     view.turn_ring = !app.settings.no_turn_ring && view.read_only.is_none();
     if let Some(scene) = view.scene.as_mut() {
         scene.merchant_signs = app.settings.merchant_signs;
-        scene.spawn_markers = !app.settings.no_spawn_markers;
     }
     // The blueprint about to be placed, see-through where it would go.
     let ghost = ghost(app, ui, view);
@@ -3658,7 +3724,6 @@ fn viewport(
         grid: view.overlay(view.grid),
         background: app.settings.area_background,
         merchant_signs: scene.merchant_signs,
-        spawn_markers: scene.spawn_markers,
         follows,
         shaders,
         high_shadows,
@@ -4654,14 +4719,29 @@ fn overlays(
             }
             if let Some((height, width)) = marks.spawn_points {
                 for (k, &p) in o.spawn_points.iter().enumerate() {
-                    let (top, half) = (p + Vec3::Z * height, width / 2.0);
-                    draw(&mut canvas, p, top);
-                    draw(&mut canvas, top - Vec3::X * half, top + Vec3::X * half);
-                    draw(&mut canvas, top - Vec3::Y * half, top + Vec3::Y * half);
-                    // The way what spawns there faces: an arrow on the
-                    // ground.
                     let facing = o.spawn_facings.get(k).copied().unwrap_or(0.0);
                     let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
+                    let right = Vec3::new(ahead.y, -ahead.x, 0.0);
+                    let top_z = Vec3::Z * height;
+                    let nose = p + ahead * (width * 0.9);
+                    let back_l = p - ahead * (width * 0.65) - right * (width * 0.6);
+                    let back_r = p - ahead * (width * 0.65) + right * (width * 0.6);
+                    let (top_nose, top_l, top_r) = (nose + top_z, back_l + top_z, back_r + top_z);
+                    for (a, b) in [
+                        (nose, back_l),
+                        (back_l, back_r),
+                        (back_r, nose),
+                        (top_nose, top_l),
+                        (top_l, top_r),
+                        (top_r, top_nose),
+                        (nose, top_nose),
+                        (back_l, top_l),
+                        (back_r, top_r),
+                    ] {
+                        draw(&mut canvas, a, b);
+                    }
+                    // The way what spawns there faces: an arrow on the
+                    // ground.
                     let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.3;
                     let (base, tip) = (p + Vec3::Z * 0.1, p + Vec3::Z * 0.1 + ahead);
                     draw(&mut canvas, base, tip);
@@ -4848,7 +4928,7 @@ fn overlays(
         let text = format!("Scale {:.2}", visual.scale.x);
         canvas.chip(&painter, &t, c + handles::SCALE_CHIP, text, colors.scale.0);
     }
-    if let Some(Drag::Box { from, to }) = view.drag {
+    if let Some(Drag::Box { from, to, .. }) = view.drag {
         let r = Rect::from_two_pos(from, to);
         painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::YELLOW), egui::StrokeKind::Inside);
     }
@@ -4999,7 +5079,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         || view.tile_mode
         || crate::terrain_mode::active(app, view).is_some();
     let camera = (middle_moves, alt_pans);
-    camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling);
+    if camera_input(ui, view, response, (alt, shift, command), camera, &app.keymap, scaling) {
+        focus_selection(app, view);
+    }
     // F10 into tile mode: the tile brush is put down (it would sit on top).
     if view.tile_mode && !was_tile_mode {
         app.palette.tile_brush = None;
@@ -5361,6 +5443,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // to drag selected the placeable behind it.) A click on the start
     // location's marker selects it, alone.
     if response.clicked()
+        && !shift
+        && !command
         && let Some(pos) = response.interact_pointer_pos()
         && view.pick(pos).is_none()
         && start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
@@ -5376,31 +5460,66 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             || (shift && view.axis_arrow_at(pos).is_some())
             || (shift && view.scale_handle_at(pos).is_some()))
     {
-        let hit = view.pick(pos).and_then(|i| {
-            let o = &view.model.as_ref()?.objects[i];
-            Some((o.kind, o.index))
-        });
-        match (hit, command) {
-            (Some(h), true) => {
+        let hits: Vec<(ObjectKind, usize)> = view
+            .pick_all(pos)
+            .into_iter()
+            .filter_map(|i| {
+                let o = &view.model.as_ref()?.objects[i];
+                Some((o.kind, o.index))
+            })
+            .collect();
+        let double = response.double_clicked() || response.triple_clicked();
+        match (hits.is_empty(), command, shift) {
+            (false, true, _) => {
+                let h = hits[0];
                 if let Some(k) = view.selection.iter().position(|s| *s == h) {
                     view.selection.remove(k);
                 } else {
                     view.selection.push(h);
                 }
+                view.start_selected = false;
             }
-            (Some(h), false) => view.selection = vec![h],
-            (None, true) => {}
-            (None, false) => view.selection.clear(),
+            (false, false, true) => {
+                let add =
+                    hits.iter().copied().find(|h| !view.selection.contains(h)).unwrap_or(hits[0]);
+                if !view.selection.contains(&add) {
+                    view.selection.push(add);
+                }
+                view.start_selected = false;
+            }
+            (false, false, false) => {
+                if double && view.selection.len() == 1 && hits.contains(&view.selection[0]) {
+                    // Keep the already-selected overlap on the second click of a double-click.
+                } else if !double
+                    && view.selection.len() == 1
+                    && hits.len() > 1
+                    && let Some(at) = hits.iter().position(|h| *h == view.selection[0])
+                {
+                    view.selection = vec![hits[(at + 1) % hits.len()]];
+                } else {
+                    view.selection = vec![hits[0]];
+                }
+                view.start_selected = false;
+            }
+            (true, true, _) | (true, false, true) => {}
+            (true, false, false) => {
+                view.selection.clear();
+                view.start_selected = false;
+            }
         }
-        view.start_selected = false;
     }
     if response.secondary_clicked()
         && let Some(pos) = response.interact_pointer_pos()
-        && let Some(i) = view.pick(pos)
-        && !view.selected(i)
-        && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
-        view.selection = vec![(o.kind, o.index)];
+        let hits = view.pick_all(pos);
+        if !hits.is_empty()
+            && !hits.iter().any(|&i| view.selected(i))
+            && let Some(&i) = hits.first()
+            && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
+        {
+            view.selection = vec![(o.kind, o.index)];
+            view.start_selected = false;
+        }
     }
     // A right click on the start location's marker, nothing else selected,
     // selects it: its menu's Adjust Location is the start location's. (With
@@ -5417,9 +5536,17 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // A double click shows the object's Properties in the Right Dock's
     // panel (ruling Q1; a quick one after another click counts as a
     // triple).
-    if (response.double_clicked() || response.triple_clicked())
-        && let Some(pos) = response.interact_pointer_pos()
-        && let Some(i) = view.pick(pos)
+    let double_click_picked = (response.double_clicked() || response.triple_clicked())
+        .then(|| response.interact_pointer_pos())
+        .flatten()
+        .and_then(|pos| {
+            let hits = view.pick_all(pos);
+            hits.iter()
+                .copied()
+                .find(|&i| view.selection.len() == 1 && view.selected(i))
+                .or_else(|| hits.first().copied())
+        });
+    if let Some(i) = double_click_picked
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
         let (kind, index) = (o.kind, o.index);
@@ -5464,7 +5591,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && !command
         && let Some(pos) = origin
     {
-        let hit = view.pick(pos);
+        let hits = view.pick_all(pos);
+        let hit =
+            hits.iter().copied().find(|&i| view.selected(i)).or_else(|| hits.first().copied());
         // (The handle a press here takes: the one the hover lit, named and
         // gave the hand, by the same call.)
         let modifiers = ui.input(|i| i.modifiers);
@@ -5517,13 +5646,21 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
             if !view.selected(i) {
-                view.selection = vec![(o.kind, o.index)];
+                let h = (o.kind, o.index);
+                if shift {
+                    if !view.selection.contains(&h) {
+                        view.selection.push(h);
+                    }
+                } else {
+                    view.selection = vec![h];
+                }
+                view.start_selected = false;
             }
             // (Read-only: picked, and not moved.)
             let from = view.ground_at(pos, o.position.z).filter(|_| !read_only);
             from.map(|from| Drag::Move { from, offset: Vec2::ZERO })
         } else {
-            Some(Drag::Box { from: pos, to: pos })
+            Some(Drag::Box { from: pos, to: pos, adds: shift })
         };
     }
     if response.drag_started_by(egui::PointerButton::Secondary)
@@ -5552,9 +5689,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
             view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
         }
-        Some(Drag::Box { from, .. }) if held.by(button) => {
+        Some(Drag::Box { from, adds, .. }) if held.by(button) => {
             if let Some(to) = pointer {
-                view.drag = Some(Drag::Box { from, to });
+                view.drag = Some(Drag::Box { from, to, adds });
             }
         }
         Some(Drag::Spin { pivot, grip, .. }) if held.by(button) => {
@@ -5636,10 +5773,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     if !held.by(button) {
         match view.drag.take() {
-            Some(Drag::Box { from, to }) => {
+            Some(Drag::Box { from, to, adds }) => {
                 let inside = boxed(view, Rect::from_two_pos(from, to));
-                if !command {
+                if !(adds || command || shift) {
                     view.selection.clear();
+                }
+                if !inside.is_empty() {
+                    view.start_selected = false;
                 }
                 for h in inside {
                     if !view.selection.contains(&h) {
@@ -5827,7 +5967,7 @@ fn camera_input(
     keys: &crate::keys::Keymap,
     // The wheel is scaling the selection: it does not zoom.
     scaling: bool,
-) {
+) -> bool {
     let rect = view.rect;
     // The keys drive the area view the pointer was in last, wherever the
     // pointer is now (over the palette, the module tree).
@@ -5852,6 +5992,7 @@ fn camera_input(
         crate::palette_view::give_arrows(ui.ctx(), false);
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
+    let focus_active = ui.data(|d| d.get_temp::<ResRef>(last)).is_none_or(|a| a == view.area);
     // Alt + middle click, as in Blender: the focus on the ground clicked,
     // at its height, the distance and the turn kept. Alt alone (a plain
     // middle click does nothing, so a short middle drag never jumps the
@@ -5878,7 +6019,7 @@ fn camera_input(
         view.camera_press = command || (alt && alt_pans && primary);
     }
     let camera_drag = view.camera_press && held.by(egui::PointerButton::Primary);
-    let Some(o) = &mut view.orbit else { return };
+    let Some(o) = &mut view.orbit else { return false };
     if let Some(p) = focus {
         o.target = p.clamp(
             Vec3::new(f32::MIN, f32::MIN, TARGET_HEIGHTS.0),
@@ -5923,9 +6064,6 @@ fn camera_input(
     if wheel.sideways != 0.0 && response.hovered() && !scaling {
         pan(o, Vec2::new(-wheel.sideways, 0.0) * per_pixel);
     }
-    if !active {
-        return;
-    }
     use crate::keys::Cmd;
     // No key moves the camera while a field has the
     // keyboard (in a window over the view).
@@ -5937,6 +6075,11 @@ fn camera_input(
         arrows: crate::palette_view::has_arrows(ui.ctx()),
         letters: crate::palette_view::letters_taken(ui.ctx()),
     };
+    let focus_selection =
+        focus_active && ui.input(|i| keys.pressed_but(i, Cmd::FocusSelection, typing, taken));
+    if !active {
+        return focus_selection;
+    }
     let held = |c: Cmd| ui.input(|i| keys.held_but(i, c, typing, taken));
     let axis =
         |plus: Cmd, minus: Cmd| f32::from(u8::from(held(plus))) - f32::from(u8::from(held(minus)));
@@ -5969,6 +6112,7 @@ fn camera_input(
     {
         view.orbit = Some(Orbit::overview_over(model, view.ground.as_ref()));
     }
+    focus_selection
 }
 
 /// The objects (shown) whose position shows inside `rect`.
@@ -7341,6 +7485,12 @@ fn editing_items(
             Some(at) => Some(crate::area_tools::adjust_start(view.area, at)),
             None => crate::area_tools::adjust(view),
         };
+        ui.close();
+    }
+    let focus_label =
+        app.keymap.titled("Focus Selection", crate::keys::Cmd::FocusSelection, ui.ctx());
+    if ui.add_enabled(any || start.is_some(), egui::Button::new(focus_label)).clicked() {
+        focus_selection(app, view);
         ui.close();
     }
     // The quick ways of setting where the selection stands and which way

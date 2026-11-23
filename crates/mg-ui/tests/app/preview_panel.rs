@@ -926,6 +926,11 @@ fn a_lone_preview_keeps_its_own_wide_width() {
     assert!((dragged - 640.0).abs() < 2.5, "dragged: {dragged}");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     settle(&mut h);
+    // Ultrawide auto-hides Properties when nothing is selected (reclaiming to single column).
+    assert_eq!(width(&h), mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE, "no selection: 1 column");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    settle(&mut h);
     assert_eq!(width(&h), mg_uikit::shell::RIGHT_DOCK_WIDE, "the area's own two columns");
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(bandit)));
     settle(&mut h);
@@ -1157,7 +1162,11 @@ fn the_right_dock_s_edge_is_dragged_beside_the_preview() {
         let dragged = right_dock_rect(&h).width();
         assert!((dragged - first - 100.0).abs() < 2.5, "{what}: {first} dragged to {dragged}");
         let s = &h.state().settings;
-        let kept = if size.0 > 3000.0 { s.right_dock_width_wide } else { s.right_dock_width };
+        let kept = if size.0 > 3000.0 {
+            s.right_dock_width_wide.or(s.right_dock_width_wide_one)
+        } else {
+            s.right_dock_width
+        };
         let kept_blueprint = h
             .state()
             .settings
@@ -1181,6 +1190,7 @@ fn the_right_dock_s_edge_is_dragged_beside_the_preview() {
         whole(&mut h, table, &format!("{what}, the dock at its least"));
         right_dock_width(&mut h, 320.0);
         h.state_mut().settings.right_dock_width_wide = None;
+        h.state_mut().settings.right_dock_width_wide_one = None;
         for l in h.state_mut().settings.dock_layouts.values_mut() {
             l.wide_width = None;
         }

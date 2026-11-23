@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options tab page by page (folders and the NWSync upload command, area, general with Open editors (as tabs or as floating windows), the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates with installing them automatically and pre-releases) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T09:36:57Z }
+generated: { by: antigravity/gemini-3-pro, at: 2026-11-22T16:02:36Z }
 ---
 
 # Options
@@ -123,8 +123,9 @@ again from its file.
 - **Background Color** of the area viewer: with **Custom** ticked, the
   color you choose; otherwise the area's fog color.
 - **Show Encounter Spawnpoint Markers**, and their **Height** and
-  **Width** (in tenths of a meter: 12 and 4 at first): at each spawn point, the game's marker (see-through), a post
-  of that size, and an arrow the way what spawns there faces.
+  **Width** (in tenths of a meter: 12 and 4 at first): at each spawn point,
+  a 3D wireframe prism of that size and an arrow the way what spawns
+  there faces.
 - **Show Door Orientation Arrows**.
 - **Show stores as $ signs**: the game's marker for a store, rather
   than an arrow along its facing.

@@ -155,14 +155,14 @@ pub fn marker_bounds(kind: ObjectKind) -> (Vec3, Vec3) {
 /// the ground under an arch. Where the ray meets nothing so, the nearest
 /// box is taken after all, so that a thin thing can still be clicked
 /// beside.
-pub fn pick_precisely(
-    area: &AreaModel,
-    ray: &Ray,
-    bounds: &dyn Fn(usize) -> (Vec3, Vec3),
-    model: &dyn Fn(usize) -> Option<Option<f32>>,
-    pickable: &dyn Fn(&AreaObject) -> bool,
-) -> Option<usize> {
-    let hits = area.objects.iter().enumerate().filter(|(_, o)| pickable(o)).filter_map(|(i, o)| {
+fn collect_hits<'a>(
+    area: &'a AreaModel,
+    ray: &'a Ray,
+    bounds: &'a dyn Fn(usize) -> (Vec3, Vec3),
+    model: &'a dyn Fn(usize) -> Option<Option<f32>>,
+    pickable: &'a dyn Fn(&AreaObject) -> bool,
+) -> impl Iterator<Item = (usize, Hit)> + 'a {
+    area.objects.iter().enumerate().filter(|(_, o)| pickable(o)).filter_map(|(i, o)| {
         if o.kind.has_outline() {
             // Outlines lie on the ground: whatever stands on them is nearer.
             return ray.hits_outline(&o.outline).map(|t| (i, Hit::Met(t)));
@@ -177,8 +177,40 @@ pub fn pick_precisely(
                 Some(None) => Hit::Beside(boxed),
             },
         ))
-    });
-    nearest(hits)
+    })
+}
+
+pub fn pick_precisely(
+    area: &AreaModel,
+    ray: &Ray,
+    bounds: &dyn Fn(usize) -> (Vec3, Vec3),
+    model: &dyn Fn(usize) -> Option<Option<f32>>,
+    pickable: &dyn Fn(&AreaObject) -> bool,
+) -> Option<usize> {
+    nearest(collect_hits(area, ray, bounds, model, pickable))
+}
+
+/// Returns all objects `ray` meets in pick priority order (nearest hit first;
+/// if any model, marker, or outline itself is met, boxes passed through
+/// without meeting a model are excluded).
+pub fn pick_all_precisely(
+    area: &AreaModel,
+    ray: &Ray,
+    bounds: &dyn Fn(usize) -> (Vec3, Vec3),
+    model: &dyn Fn(usize) -> Option<Option<f32>>,
+    pickable: &dyn Fn(&AreaObject) -> bool,
+) -> Vec<usize> {
+    let mut met: Vec<(f32, usize)> = Vec::new();
+    let mut beside: Vec<(f32, usize)> = Vec::new();
+    for (i, hit) in collect_hits(area, ray, bounds, model, pickable) {
+        match hit {
+            Hit::Met(t) => met.push((t, i)),
+            Hit::Beside(t) => beside.push((t, i)),
+        }
+    }
+    let out = if !met.is_empty() { &mut met } else { &mut beside };
+    out.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    out.iter().map(|&(_, i)| i).collect()
 }
 
 /// How a ray meets an object, and how far along.
@@ -308,5 +340,41 @@ mod tests {
         assert_eq!(ray.hits_outline(&square), Some(10.0));
         let away = Ray { origin: Vec3::new(3.0, 0.0, 10.0), dir: Vec3::NEG_Z };
         assert!(away.hits_outline(&square).is_none());
+    }
+
+    #[test]
+    fn overlapping_outlines_are_all_picked_in_deterministic_order() {
+        let empty = mg_gff::Struct::new(0);
+        let mut area = AreaModel {
+            tileset: None,
+            width: 1,
+            height: 1,
+            height_step: 5.0,
+            tiles: Vec::new(),
+            objects: Vec::new(),
+            hooks: Vec::new(),
+            lighting: crate::Lighting::fields(&empty, &empty),
+            grass: Vec::new(),
+            border: Vec::new(),
+            problems: Vec::new(),
+        };
+        let make_outline = |kind: ObjectKind, index: usize, z: f32| -> AreaObject {
+            let mut o = AreaObject::placed(kind, index, &mg_gff::Struct::new(0));
+            o.outline = vec![
+                Vec3::new(-2.0, -2.0, z),
+                Vec3::new(2.0, -2.0, z),
+                Vec3::new(2.0, 2.0, z),
+                Vec3::new(-2.0, 2.0, z),
+            ];
+            o
+        };
+        area.objects.push(make_outline(ObjectKind::Encounter, 0, 0.0));
+        area.objects.push(make_outline(ObjectKind::Encounter, 1, 0.0));
+        area.objects.push(make_outline(ObjectKind::Trigger, 0, 1.0));
+        let ray = Ray { origin: Vec3::new(0.0, 0.0, 10.0), dir: Vec3::NEG_Z };
+        let hits =
+            pick_all_precisely(&area, &ray, &|_| (-Vec3::ONE, Vec3::ONE), &|_| None, &|_| true);
+        // Trigger at z=1.0 is nearer (distance 9.0), followed by the two encounters at z=0.0 in index order.
+        assert_eq!(hits, vec![2, 0, 1]);
     }
 }

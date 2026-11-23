@@ -356,9 +356,24 @@ fn a_double_click_shows_the_panel_and_open_in_tab_the_window() {
         // tab in front, which brings no Right Dock.)
         match mode {
             Mode::Floating => {
-                h.get_by_label_contains("open in a tab or window of their own");
+                assert!(
+                    !h.state().properties_bar_shown(),
+                    "{w}: docked Properties closed on pop-out"
+                );
+                assert!(
+                    h.query_by_label(OPEN_IN_TAB).is_none(),
+                    "{w}: no Open in Tab button when popped out"
+                );
+                assert!(
+                    h.query_by_label(mg_ui::properties_panel::HIDE_PROPERTIES).is_none(),
+                    "{w}: no Hide Properties button when popped out"
+                );
+                h.get_by_label("Pop In");
             }
-            Mode::Tabs => assert_eq!(h.state().right_dock_shows(), None, "{w}"),
+            Mode::Tabs => {
+                assert_eq!(h.state().right_dock_shows(), None, "{w}");
+                h.get_by_label("Pop In");
+            }
         }
         let label = undo_label(&h);
         let at = revision(&h);
@@ -689,7 +704,8 @@ fn a_dragged_out_area_has_properties_in_its_window() {
     settle(&mut h);
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_some(), "the window");
-    h.get_by_label_contains("open in a tab or window of their own");
+    assert!(h.query_by_label(OPEN_IN_TAB).is_none(), "window Properties closed on pop-out");
+    h.get_by_label("Pop In");
 }
 
 /// Every kind of placed object, each of its pages in the panel, at the
@@ -958,45 +974,69 @@ fn the_rail_s_pages_by_up_and_down() {
 
 /// A double click on an object's row in the Outliner (as on the object in
 /// the view, the coordinator's ruling at U6's review) selects it and
-/// shows the Properties panel in front, the Right Dock unfolded; no
-/// window opens.
+/// A single click on an Outliner row selects the object without moving the
+/// camera, and a double click goes to (focuses) it; no window opens (5.1.0).
 #[test]
-fn a_double_click_on_an_outliner_row_shows_the_panel() {
+fn a_double_click_on_an_outliner_row_focuses_the_object() {
     let Some((mut h, area)) = props_area("props-outliner", Mode::Floating, 1600.0) else {
         return;
     };
-    // (The row in sight: its kind opened as the Outliner follows a
-    // selection, then nothing selected, the Right Dock folded.)
     select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
     let chest = tag(&placeables(&mut h, area)[0]);
+    let chest_pos = h.state().area_views[&area]
+        .model
+        .as_ref()
+        .unwrap()
+        .object(ObjectKind::Placeable, 0)
+        .unwrap()
+        .position;
     select(&mut h, area, &[]);
-    h.state_mut().settings.hide_palettes = true;
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = glam::Vec3::new(2.0, 2.0, 0.0);
+        o.distance = 40.0;
+    }
     settle(&mut h);
     let row = (h.get_by_label(mg_ui::OUTLINER).query_all_by_label_contains(chest.as_str()))
         .next()
         .expect("the chest's row")
         .rect();
-    double_click_now(&mut h, row.center());
+    h.hover_at(row.center());
+    press(&h, row.center(), true, egui::Modifiers::NONE);
+    press(&h, row.center(), false, egui::Modifiers::NONE);
     settle(&mut h);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)], "selected");
-    assert!(!h.state().settings.hide_palettes, "the Right Dock unfolded");
-    h.get_by_label("Properties, Placeable");
+    assert_eq!(
+        h.state().area_views[&area].orbit.unwrap().target,
+        glam::Vec3::new(2.0, 2.0, 0.0),
+        "single click leaves the camera where it is"
+    );
+    h.run_steps(30);
+    double_click_now(&mut h, row.center());
+    settle(&mut h);
+    let orbit = h.state().area_views[&area].orbit.unwrap();
+    assert!((orbit.target - chest_pos).length() < 0.01, "double click goes to {chest_pos:?}");
+    assert!(orbit.distance <= 25.0, "zoomed in: {}", orbit.distance);
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path }).is_none(), "no window");
 }
 
 /// A double click on an object's row in the module tree while another tab
 /// is in front (As Tabs: Module Properties) brings its area to the front,
-/// selects the object and shows it in the Properties panel (the
-/// coordinator's ruling at U6's review).
+/// selects the object and focuses the camera on it (5.1.0).
 #[test]
-fn a_double_click_on_a_tree_row_brings_the_area_and_the_panel() {
+fn a_double_click_on_a_tree_row_brings_the_area_and_focuses_it() {
     let Some((mut h, area)) = props_area("props-tree-row", Mode::Tabs, 1600.0) else { return };
     tall_tree(&mut h);
     h.get_by_label_contains("Placed Objects in ").click();
     h.run_steps(3);
     h.get_by_label("Waypoints (2)").click();
     settle(&mut h);
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.target = glam::Vec3::new(2.0, 2.0, 0.0);
+        o.distance = 40.0;
+    }
     let ws = h.state_mut().ws.as_mut().unwrap();
     let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
     let tag = tag(&git.root.list("WaypointList").unwrap()[1]);
@@ -1010,7 +1050,15 @@ fn a_double_click_on_a_tree_row_brings_the_area_and_the_panel() {
     assert_eq!(h.state().active_editor(), Some(&Tab::Area(area)), "the area in front");
     let selection = &h.state().area_views[&area].selection;
     assert!(selection.len() == 1 && selection[0].0 == ObjectKind::Waypoint, "{selection:?}");
-    assert_eq!(h.state().right_dock_shows(), Some(mg_ui::Panel::Properties), "the panel");
+    let wp = h.state().area_views[&area]
+        .model
+        .as_ref()
+        .unwrap()
+        .object(selection[0].0, selection[0].1)
+        .unwrap()
+        .position;
+    let orbit = h.state().area_views[&area].orbit.unwrap();
+    assert!((orbit.target - wp).length() < 0.01, "focused on {wp:?}");
 }
 
 /// The panel's controls in the Right Dock named `name`, top to bottom.
@@ -1292,4 +1340,324 @@ fn tab_goes_down_the_pages_on_one_scroll() {
     for page in ["Basic", "Lock", "Trap", "Scripts"] {
         assert!(pages.contains(page), "Tab reached {page}: {pages:?}");
     }
+}
+
+/// Item 1: scrolling to the bottom of docked `Visuals` keeps `Visible distance`
+/// and its control strictly above the Properties panel's bottom border.
+#[test]
+fn visible_distance_scrolls_clear_of_the_panel_bottom() {
+    let Some((mut h, area)) = props_area("props-visible-dist", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Pages").get_by_label("Visuals").click();
+    settle(&mut h);
+    let dock = right_dock_rect(&h);
+    let target = h.get_by_label("Texture Replacements").rect().center() + egui::vec2(0.0, 40.0);
+    h.hover_at(target);
+    for _ in 0..40 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -200.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    settle(&mut h);
+    let label = h.get_by_label("Visible distance").rect();
+    assert!(
+        label.bottom() <= dock.bottom() - 4.0,
+        "Visible distance clipped at bottom: {label:?} vs dock {dock:?}"
+    );
+    let spin = h
+        .get_all_by_role(egui::accesskit::Role::SpinButton)
+        .filter(|n| dock.contains_rect(n.rect()))
+        .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .expect("Visible distance spin");
+    assert!(
+        spin.rect().bottom() <= dock.bottom() - 4.0,
+        "Visible distance control clipped at bottom: {:?} vs dock {dock:?}",
+        spin.rect()
+    );
+}
+
+/// Item 2: in ultrawide one-scroll Properties, empty `Variables` and
+/// `Description` stay compact without dead vertical space or a duplicate
+/// `"Description"` section heading.
+#[test]
+fn ultrawide_variables_and_description_stay_compact() {
+    let Some((mut h, area)) = props_area("props-compact-uw", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Pages").get_by_label("Variables").click();
+    settle(&mut h);
+    let drawn = pages_drawn(&h);
+    let vars = drawn.iter().find(|(n, _)| n == "Variables").expect("Variables drawn");
+    assert!(
+        vars.1.height() < 220.0,
+        "Variables page expanded too tall in ultrawide one-scroll: {:?}",
+        vars.1
+    );
+    let desc = drawn.iter().find(|(n, _)| n == "Description").expect("Description drawn");
+    assert!(
+        desc.1.height() < 220.0,
+        "Description page expanded too tall in ultrawide one-scroll: {:?}",
+        desc.1
+    );
+    assert!(
+        h.query_all_by_label_contains("Description (").next().is_none(),
+        "duplicate Description heading should not be drawn in panel"
+    );
+}
+
+/// Item 3: on `Scripts`, each label (`OnDeath`), its text field, `…`, and
+/// `Edit` share the same horizontal line in both docked and ultrawide panels.
+#[test]
+fn scripts_stay_on_one_line_with_label_and_edit() {
+    let Some((mut h, area)) = props_area("props-scripts-line", Mode::Tabs, 1600.0) else {
+        return;
+    };
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    h.get_by_label("Pages").get_by_label("Scripts").click();
+    settle(&mut h);
+    for width in [1600.0, 3440.0] {
+        h.set_size(egui::vec2(width, 900.0));
+        settle(&mut h);
+        let dock = right_dock_rect(&h);
+        let on_death = h
+            .query_all_by_label("OnDeath")
+            .map(|n| n.rect())
+            .find(|r| dock.contains_rect(*r))
+            .unwrap_or_else(|| panic!("at {width}: OnDeath label"));
+        let on_row = |r: egui::Rect| {
+            dock.contains_rect(r) && (r.center().y - on_death.center().y).abs() < 4.0
+        };
+        let field = h
+            .get_all_by_role(egui::accesskit::Role::TextInput)
+            .map(|n| n.rect())
+            .find(|&r| on_row(r))
+            .unwrap_or_else(|| panic!("at {width}: OnDeath field on same line as {on_death:?}"));
+        let dots = in_dock(&h, "…")
+            .into_iter()
+            .find(|&r| on_row(r))
+            .unwrap_or_else(|| panic!("at {width}: OnDeath … on same line as {on_death:?}"));
+        let edit = in_dock(&h, "Edit")
+            .into_iter()
+            .find(|&r| on_row(r))
+            .unwrap_or_else(|| panic!("at {width}: OnDeath Edit on same line as {on_death:?}"));
+        assert!(on_death.right() <= field.left() + 1.0, "at {width}: label before field");
+        assert!(field.right() <= dots.left() + 1.0, "at {width}: field before …");
+        assert!(dots.right() <= edit.left() + 1.0, "at {width}: … before Edit");
+    }
+}
+
+/// Popping out Properties closes the docked Properties pane even on ultrawide
+/// (reclaiming the Right Dock column width), places a `Pop In` button on both
+/// floating and docked-tab Properties windows, commits typed edits on Pop In,
+/// and restores Properties when popped in or closed.
+#[test]
+fn popping_out_closes_properties_and_pop_in_restores_it() {
+    for mode in MODES {
+        let Some((mut h, area)) = props_area("props-pop-in", mode, 3440.0) else { return };
+        let w = mode.word();
+        h.set_size(egui::vec2(3440.0, 1440.0));
+        settle(&mut h);
+        select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+        let two_col = h.state().right_dock_rect().unwrap().width();
+        assert!(two_col > 600.0, "{w}: two columns when object selected: {two_col}");
+
+        let path = mg_edit::GffPath::root().item("Placeable List", 0);
+        let tab = Tab::Instance { area, path };
+        h.get_by_label(OPEN_IN_TAB).click();
+        settle(&mut h);
+        assert!(h.state().dock.find_tab(&tab).is_some(), "{w}: popped-out tab open");
+        assert!(h.state().is_props_popped_out(area), "{w}: marked popped out");
+        if mode == Mode::Floating {
+            let reclaimed = h.state().right_dock_rect().unwrap().width();
+            assert!(
+                (reclaimed - mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE).abs() < 2.0,
+                "{w}: reclaimed space to {reclaimed}"
+            );
+            assert!(!h.state().properties_bar_shown(), "{w}: docked Properties closed");
+            assert!(h.query_by_label(OPEN_IN_TAB).is_none(), "{w}: docked Open in Tab gone");
+        }
+        // Edit Tag while popped out, then click Pop In without pressing OK.
+        let before = placeables(&mut h, area);
+        retype(&mut h, &tag(&before[0]), "POP_IN_TAG");
+        h.get_by_label("Pop In").click();
+        settle(&mut h);
+        assert!(h.state().dock.find_tab(&tab).is_none(), "{w}: popped-out tab closed");
+        assert!(!h.state().is_props_popped_out(area), "{w}: popped-out cleared");
+        assert_eq!(tag(&placeables(&mut h, area)[0]), "POP_IN_TAG", "{w}: edit kept on Pop In");
+        assert!(
+            h.state().right_dock_rect().unwrap().width() > 600.0,
+            "{w}: Properties back in 2-col"
+        );
+        // Pop out again and close via Cancel -> closing also restores docked Properties.
+        h.get_by_label(OPEN_IN_TAB).click();
+        settle(&mut h);
+        assert!(h.state().is_props_popped_out(area));
+        h.get_by_label("Cancel").click();
+        settle(&mut h);
+        assert!(h.state().dock.find_tab(&tab).is_none(), "{w}: closed");
+        assert!(!h.state().is_props_popped_out(area), "{w}: Cancel restores Properties");
+        assert!(h.state().right_dock_rect().unwrap().width() > 600.0, "{w}: back to 2-col");
+    }
+}
+
+/// On ultrawide windows (`>= 2560`), Properties auto-hides whenever nothing
+/// editable is selected (empty ground, Start Location, mixed kinds, or tiles)
+/// and reopens when an editable object (of any kind) is selected.
+#[test]
+fn ultrawide_auto_hides_properties_until_editable_object_is_selected() {
+    let Some((mut h, area)) = props_area("props-ultrawide-auto", Mode::Floating, 3440.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    let single = mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE;
+    assert!((h.state().right_dock_rect().unwrap().width() - single).abs() < 2.0, "empty: 1 col");
+    assert!(!h.state().properties_bar_shown(), "empty: no Properties");
+
+    // Start Location alone -> still auto-hidden.
+    h.state_mut().area_views.get_mut(&area).unwrap().start_selected = true;
+    settle(&mut h);
+    assert!(!h.state().properties_bar_shown(), "start location: no Properties");
+    assert!((h.state().right_dock_rect().unwrap().width() - single).abs() < 2.0);
+    h.state_mut().area_views.get_mut(&area).unwrap().start_selected = false;
+
+    // Mixed object kinds -> auto-hidden.
+    select(&mut h, area, &[(ObjectKind::Placeable, 0), (ObjectKind::Waypoint, 0)]);
+    assert!(!h.state().properties_bar_shown(), "mixed: no Properties");
+    assert!((h.state().right_dock_rect().unwrap().width() - single).abs() < 2.0);
+
+    // Waypoint selected -> Properties opens.
+    select(&mut h, area, &[(ObjectKind::Waypoint, 0)]);
+    assert!(h.state().properties_bar_shown(), "waypoint: Properties");
+    assert!(h.state().right_dock_rect().unwrap().width() > 600.0, "waypoint: 2 cols");
+
+    // Deselect -> auto-hides again.
+    select(&mut h, area, &[]);
+    assert!(!h.state().properties_bar_shown(), "deselected: hidden");
+    assert!((h.state().right_dock_rect().unwrap().width() - single).abs() < 2.0);
+}
+
+/// Clicking the dedicated Hide Properties button hides only Properties while
+/// keeping Palette and Preview visible, and View › Properties Panel brings it back.
+#[test]
+fn hide_properties_button_hides_only_properties_and_menu_restores_it() {
+    let Some((mut h, area)) = props_area("props-hide-only", Mode::Floating, 3440.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    assert!(h.state().properties_bar_shown());
+
+    h.get_by_label(mg_ui::properties_panel::HIDE_PROPERTIES).click();
+    settle(&mut h);
+    assert!(h.state().settings.hide_properties);
+    assert!(!h.state().settings.hide_palettes, "Palette and Preview stay visible");
+    assert!(!h.state().properties_bar_shown(), "Properties hidden");
+    assert!(h.state().right_dock_rect().is_some(), "Right Dock still open with Palette/Preview");
+    assert!(
+        (h.state().right_dock_rect().unwrap().width() - mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE)
+            .abs()
+            < 2.0
+    );
+
+    // Selecting another object keeps Properties hidden while hide_properties is set.
+    select(&mut h, area, &[(ObjectKind::Waypoint, 0)]);
+    assert!(!h.state().properties_bar_shown());
+
+    // View › Properties Panel brings it back.
+    menu_command(&mut h, "View", "Properties Panel");
+    settle(&mut h);
+    assert!(!h.state().settings.hide_properties);
+    assert!(h.state().properties_bar_shown(), "Properties restored");
+    assert!(h.state().right_dock_rect().unwrap().width() > 600.0);
+}
+
+/// Right-clicking or dragging in the Area Right Dock lets the builder switch
+/// between Two Columns, Stacked (Half-Height, using the single-page rail even
+/// on ultrawide), One Tab Bar, and Reset Right Dock Layout.
+#[test]
+fn rearrange_right_dock_and_half_height_on_ultrawide() {
+    let Some((mut h, area)) = props_area("props-rearrange", Mode::Floating, 3440.0) else {
+        return;
+    };
+    h.set_size(egui::vec2(3440.0, 1440.0));
+    settle(&mut h);
+    select(&mut h, area, &[(ObjectKind::Placeable, 0)]);
+    assert!(h.state().right_dock_rect().unwrap().width() > 600.0, "starts in two columns");
+    assert!(h.state().props_one_scroll());
+
+    // Right-click Properties header -> switch to Stacked (Half-Height) on ultrawide.
+    let props_open = h.get_by_label(OPEN_IN_TAB).rect();
+    let header_spot = egui::pos2(props_open.left() - 60.0, props_open.center().y);
+    h.hover_at(header_spot);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: header_spot,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    h.get_by_label("Stacked (Half-Height)").click();
+    settle(&mut h);
+    assert_eq!(
+        h.state().settings.area_right_layout,
+        Some(mg_ui::settings::AreaRightLayout::stacked())
+    );
+    assert!(
+        (h.state().right_dock_rect().unwrap().width() - mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE)
+            .abs()
+            < 2.0,
+        "stacked uses 1-column ultrawide width"
+    );
+    assert!(!h.state().props_one_scroll(), "stacked half-height uses page rail even on ultrawide");
+    // Page rail's Basic button sits beside the docked Properties panel.
+    let bar = h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Palette").rect();
+    assert!(h.get_by_label(OPEN_IN_TAB).rect().top() > bar.bottom());
+
+    // Drag Properties header up onto Palette | Preview tab bar -> combines into One Tab Bar.
+    let props_header = h.get_by_label(OPEN_IN_TAB).rect();
+    let drag_from = egui::pos2(props_header.left() - 60.0, props_header.center().y);
+    let drag_to = bar.center();
+    drag(&mut h, drag_from, drag_to);
+    settle(&mut h);
+    assert_eq!(
+        h.state().settings.area_right_layout,
+        Some(mg_ui::settings::AreaRightLayout::one_tab_bar())
+    );
+    let dock_tabs = h.get_by_label(mg_ui::RIGHT_DOCK);
+    dock_tabs.get_by_label("Palette");
+    dock_tabs.get_by_label("Preview");
+    dock_tabs.get_by_label("Properties");
+
+    // Right-click Properties tab -> Reset Right Dock Layout back to Two Columns.
+    let tab_spot = h.get_by_label(mg_ui::RIGHT_DOCK).get_by_label("Properties").rect().center();
+    h.hover_at(tab_spot);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: tab_spot,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    }
+    h.get_by_label("Reset Right Dock Layout").click();
+    settle(&mut h);
+    assert_eq!(h.state().settings.area_right_layout, None);
+    assert!(h.state().right_dock_rect().unwrap().width() > 600.0);
+    assert!(h.state().props_one_scroll());
 }

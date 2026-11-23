@@ -1042,6 +1042,7 @@ const PREVIEW_ALONE: &[Section] = &[PREVIEW_SECTION];
 /// area's in Select Tiles with Tile Properties hidden by its toggle: the
 /// palettes alone, one section.
 const AREA_RIGHT: &[Section] = &[PALETTES];
+const AREA_FOLDED: &[Panel] = &[Panel::Palette, Panel::Preview];
 /// The area's Right Dock with any tool but Select Tiles (the Main,
 /// WideArea, Floating and AreaPaint boards): the Palette and the Preview,
 /// and under them Properties; folded into one tab bar under 1400 as
@@ -1234,10 +1235,18 @@ pub(crate) fn brings_of(app: &Moonglow, tab: &crate::Tab) -> Brings {
         // lower section; in the area's own window where it is dragged
         // out.)
         crate::Tab::Area(area) if app.ws.is_some() => {
-            let right = if palettes { AREA_PROPS_RIGHT } else { PROPS_ALONE };
-            let folded = AREA_PROPS_FOLDED;
+            let props = area_properties_shown(app, *area);
+            let right = match (palettes, props) {
+                (true, true) => AREA_PROPS_RIGHT,
+                (true, false) => AREA_RIGHT,
+                (false, true) => PROPS_ALONE,
+                (false, false) => &[],
+            };
+            let folded = if props { AREA_PROPS_FOLDED } else { AREA_FOLDED };
             let shares = AREA_PROPS_SHARES;
-            let window_right = PROPS_ALONE;
+            let window_props =
+                !app.settings.hide_properties && !app.props_popped_out.contains(area);
+            let window_right = if window_props { PROPS_ALONE } else { &[] };
             let area = Some(*area);
             Brings {
                 outliner: true,
@@ -1550,6 +1559,555 @@ pub(crate) fn arrange(
     vec![sections.to_vec()]
 }
 
+fn to_area_panel(p: Panel) -> Option<crate::settings::AreaRightPanel> {
+    match p {
+        Panel::Palette => Some(crate::settings::AreaRightPanel::Palette),
+        Panel::Preview => Some(crate::settings::AreaRightPanel::Preview),
+        Panel::Properties => Some(crate::settings::AreaRightPanel::Properties),
+        _ => None,
+    }
+}
+
+fn from_area_panel(p: crate::settings::AreaRightPanel) -> Panel {
+    match p {
+        crate::settings::AreaRightPanel::Palette => Panel::Palette,
+        crate::settings::AreaRightPanel::Preview => Panel::Preview,
+        crate::settings::AreaRightPanel::Properties => Panel::Properties,
+    }
+}
+
+/// Whether `Panel::Properties` is currently shown in the main Right Dock
+/// for `area`: hidden while Select Tiles is in hand, while manually hidden,
+/// while popped out into an Instance/Instances tab or window, or in the
+/// ultrawide layout while nothing editable is selected.
+pub(crate) fn area_properties_shown(app: &Moonglow, area: mg_core::ResRef) -> bool {
+    !tiles_in_hand(app, area)
+        && !app.settings.hide_properties
+        && !app.props_popped_out.contains(&area)
+        && (!app.yields.wide
+            || crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area))))
+}
+
+fn active_area_right_base(app: &Moonglow) -> crate::settings::AreaRightLayout {
+    app.settings
+        .area_right_layout
+        .as_ref()
+        .map(crate::settings::AreaRightLayout::normalized)
+        .unwrap_or_else(|| {
+            if app.yields.wide {
+                crate::settings::AreaRightLayout::two_columns()
+            } else {
+                crate::settings::AreaRightLayout::stacked()
+            }
+        })
+}
+
+fn customizable_area(app: &Moonglow, editor: Option<&crate::Tab>) -> Option<mg_core::ResRef> {
+    let Some(crate::Tab::Area(area)) = editor else { return None };
+    #[cfg(test)]
+    if app.sample_brings.is_some() {
+        return None;
+    }
+    if app.ws.is_none() || app.game.is_none() || tiles_in_hand(app, *area) {
+        return None;
+    }
+    Some(*area)
+}
+
+fn area_visible_columns(app: &Moonglow, area: mg_core::ResRef) -> Vec<Vec<Vec<Panel>>> {
+    let base = active_area_right_base(app);
+    let raw = match area_properties_shown(app, area) {
+        true => base.columns,
+        false => base.without_properties(),
+    };
+    raw.into_iter()
+        .filter_map(|col| {
+            let kept: Vec<Vec<Panel>> = col
+                .into_iter()
+                .filter_map(|sec| {
+                    let s: Vec<Panel> =
+                        sec.into_iter().map(from_area_panel).filter(|p| p.available(app)).collect();
+                    (!s.is_empty()).then_some(s)
+                })
+                .collect();
+            (!kept.is_empty()).then_some(kept)
+        })
+        .collect()
+}
+
+fn area_wants_one_column(app: &Moonglow) -> bool {
+    let Some(area) = customizable_area(app, app.active_editor()) else { return false };
+    area_visible_columns(app, area).len() <= 1
+}
+
+/// Arranges an Area editor's Right Dock columns according to the builder's
+/// custom layout (or default), window width tier, Properties visibility,
+/// and any plugin tool sections.
+fn arrange_area(
+    app: &Moonglow,
+    area: mg_core::ResRef,
+    sections: &[Vec<Panel>],
+    folded_as: &[Panel],
+    narrow: bool,
+    columns_fit: bool,
+) -> Vec<Vec<Vec<Panel>>> {
+    let tools = crate::tool_sections::section(app, Some(area));
+    if narrow {
+        if app.settings.area_right_layout.is_none() {
+            return arrange(sections, folded_as, true, false);
+        }
+        let mut flat: Vec<Panel> = if !tools.is_empty() { tools } else { Vec::new() };
+        for p in area_visible_columns(app, area).into_iter().flatten().flatten() {
+            if !flat.contains(&p) {
+                flat.push(p);
+            }
+        }
+        return if flat.is_empty() { Vec::new() } else { vec![vec![flat]] };
+    }
+    let mut cols = area_visible_columns(app, area);
+    if (!app.yields.wide || !columns_fit) && cols.len() > 1 {
+        let single: Vec<Vec<Panel>> = cols.into_iter().flatten().collect();
+        cols = vec![single];
+    }
+    if !tools.is_empty() {
+        if let Some(last) = cols.last_mut() {
+            last.push(tools);
+        } else {
+            cols.push(vec![tools]);
+        }
+    }
+    cols
+}
+
+#[derive(Clone)]
+struct AreaRightMenuState {
+    wide: bool,
+    base: crate::settings::AreaRightLayout,
+    props_shown: bool,
+    can_show_props: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AreaRightCommand {
+    SetLayout(Option<crate::settings::AreaRightLayout>),
+    HideProperties,
+    ShowProperties(mg_core::ResRef),
+    ResetLayout,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AreaDropZone {
+    LeftColumn,
+    RightColumn,
+    IntoSection(usize, usize),
+    AboveSection(usize, usize),
+    BelowSection(usize, usize),
+    MoveTab(usize, usize, usize),
+}
+
+struct AreaSectionBox {
+    col: usize,
+    sec: usize,
+    rect: egui::Rect,
+    panels: Vec<Panel>,
+    tabs: Vec<(Panel, egui::Rect)>,
+}
+
+fn find_area_panel(
+    layout: &crate::settings::AreaRightLayout,
+    target: crate::settings::AreaRightPanel,
+) -> Option<(usize, usize, usize)> {
+    for (c, col) in layout.columns.iter().enumerate() {
+        for (s, sec) in col.iter().enumerate() {
+            if let Some(i) = sec.iter().position(|&p| p == target) {
+                return Some((c, s, i));
+            }
+        }
+    }
+    None
+}
+
+type AreaRightColumns = Vec<Vec<Vec<crate::settings::AreaRightPanel>>>;
+
+fn layout_with_panel_removed(
+    layout: &crate::settings::AreaRightLayout,
+    target: crate::settings::AreaRightPanel,
+) -> (AreaRightColumns, Option<(usize, usize)>) {
+    let norm = layout.normalized();
+    let src = find_area_panel(&norm, target);
+    let mut cols = Vec::with_capacity(norm.columns.len());
+    for col in norm.columns {
+        let mut kept_col = Vec::with_capacity(col.len());
+        for sec in col {
+            let kept_sec: Vec<_> = sec.into_iter().filter(|&p| p != target).collect();
+            if !kept_sec.is_empty() {
+                kept_col.push(kept_sec);
+            }
+        }
+        if !kept_col.is_empty() {
+            cols.push(kept_col);
+        }
+    }
+    (cols, src.map(|(c, s, _)| (c, s)))
+}
+
+fn apply_area_drop(
+    layout: &crate::settings::AreaRightLayout,
+    dragged: crate::settings::AreaRightPanel,
+    zone: AreaDropZone,
+) -> crate::settings::AreaRightLayout {
+    use crate::settings::AreaRightLayout;
+    let norm = layout.normalized();
+    match zone {
+        AreaDropZone::MoveTab(c, s, to_idx) => {
+            if let Some((sc, ss, si)) = find_area_panel(&norm, dragged)
+                && sc == c
+                && ss == s
+            {
+                let mut cols = norm.columns;
+                let sec = &mut cols[c][s];
+                if si != to_idx && to_idx < sec.len() {
+                    let p = sec.remove(si);
+                    sec.insert(to_idx, p);
+                }
+                return AreaRightLayout { columns: cols }.normalized();
+            }
+            apply_area_drop(layout, dragged, AreaDropZone::IntoSection(c, s))
+        }
+        AreaDropZone::LeftColumn => {
+            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
+            if cols.len() >= 2 {
+                cols[0].insert(0, vec![dragged]);
+            } else {
+                cols.insert(0, vec![vec![dragged]]);
+            }
+            AreaRightLayout { columns: cols }.normalized()
+        }
+        AreaDropZone::RightColumn => {
+            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
+            if cols.len() >= 2 {
+                cols[1].insert(0, vec![dragged]);
+            } else {
+                cols.push(vec![vec![dragged]]);
+            }
+            AreaRightLayout { columns: cols }.normalized()
+        }
+        AreaDropZone::IntoSection(c, s) => {
+            let Some(&anchor) = norm
+                .columns
+                .get(c)
+                .and_then(|col| col.get(s))
+                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
+            else {
+                return norm;
+            };
+            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
+            if let Some((nc, ns, _)) =
+                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
+            {
+                cols[nc][ns].push(dragged);
+            }
+            AreaRightLayout { columns: cols }.normalized()
+        }
+        AreaDropZone::AboveSection(c, s) => {
+            let Some(&anchor) = norm
+                .columns
+                .get(c)
+                .and_then(|col| col.get(s))
+                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
+            else {
+                return norm;
+            };
+            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
+            if let Some((nc, ns, _)) =
+                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
+            {
+                cols[nc].insert(ns, vec![dragged]);
+            }
+            AreaRightLayout { columns: cols }.normalized()
+        }
+        AreaDropZone::BelowSection(c, s) => {
+            let Some(&anchor) = norm
+                .columns
+                .get(c)
+                .and_then(|col| col.get(s))
+                .and_then(|sec| sec.iter().find(|&&p| p != dragged))
+            else {
+                return norm;
+            };
+            let (mut cols, _) = layout_with_panel_removed(&norm, dragged);
+            if let Some((nc, ns, _)) =
+                find_area_panel(&AreaRightLayout { columns: cols.clone() }, anchor)
+            {
+                cols[nc].insert(ns + 1, vec![dragged]);
+            }
+            AreaRightLayout { columns: cols }.normalized()
+        }
+    }
+}
+
+fn area_drop_target(
+    app: &Moonglow,
+    pane: egui::Rect,
+    dragged: Panel,
+    pos: egui::Pos2,
+    boxes: &[AreaSectionBox],
+) -> Option<(AreaDropZone, egui::Rect)> {
+    let dragged_ap = to_area_panel(dragged)?;
+    if !pane.contains(pos) {
+        return None;
+    }
+    let bar_h = mg_uikit::metrics::DOCK_TABS + 4.0;
+    let base = active_area_right_base(app);
+    // 1. Over a section's tab bar: reorder tab within the section or add to another section's tab bar.
+    for b in boxes {
+        let header_rect = b.rect.with_max_y((b.rect.top() + bar_h).min(b.rect.bottom()));
+        if header_rect.contains(pos) {
+            if b.panels.contains(&dragged) {
+                if b.panels.len() > 1 {
+                    for (idx, (p, tr)) in b.tabs.iter().enumerate() {
+                        if *p != dragged && tr.contains(pos) {
+                            return Some((AreaDropZone::MoveTab(b.col, b.sec, idx), *tr));
+                        }
+                    }
+                }
+                continue;
+            }
+            return Some((AreaDropZone::IntoSection(b.col, b.sec), header_rect));
+        }
+    }
+    // 2. Outer left/right column edges on ultrawide when removing the dragged panel leaves <= 1 column.
+    if app.yields.wide {
+        let (remaining, _) = layout_with_panel_removed(&base, dragged_ap);
+        if remaining.len() <= 1 {
+            let edge = (pane.width() * 0.18).max(40.0).min(pane.width() * 0.4);
+            if pos.x <= pane.left() + edge {
+                let preview = pane.with_max_x(pane.center().x);
+                return Some((AreaDropZone::LeftColumn, preview));
+            }
+            if pos.x >= pane.right() - edge {
+                let preview = pane.with_min_x(pane.center().x);
+                return Some((AreaDropZone::RightColumn, preview));
+            }
+        }
+    }
+    // 3. Over a section body: top -> split above, bottom -> split below, middle -> combine into tab bar.
+    for b in boxes {
+        if !b.rect.contains(pos) {
+            continue;
+        }
+        let only_self = b.panels == [dragged];
+        if only_self {
+            continue;
+        }
+        let h = b.rect.height();
+        let rel = (pos.y - b.rect.top()) / h.max(1.0);
+        if rel < 0.30 {
+            let preview = b.rect.with_max_y(b.rect.top() + h * 0.5);
+            return Some((AreaDropZone::AboveSection(b.col, b.sec), preview));
+        }
+        if rel > 0.70 {
+            let preview = b.rect.with_min_y(b.rect.top() + h * 0.5);
+            return Some((AreaDropZone::BelowSection(b.col, b.sec), preview));
+        }
+        return Some((AreaDropZone::IntoSection(b.col, b.sec), b.rect));
+    }
+    None
+}
+
+fn show_area_context_menu(
+    ui: &mut egui::Ui,
+    area: mg_core::ResRef,
+    menu: &AreaRightMenuState,
+    panel: Panel,
+    cmd: &mut Option<AreaRightCommand>,
+) {
+    use crate::settings::AreaRightLayout;
+    mg_uikit::menu_rows(ui);
+    if menu.wide {
+        let active = menu.base == AreaRightLayout::two_columns();
+        if mg_uikit::menu_radio(ui, active, "Two Columns").clicked() {
+            *cmd = Some(AreaRightCommand::SetLayout(Some(AreaRightLayout::two_columns())));
+            ui.close();
+        }
+    }
+    if mg_uikit::menu_radio(ui, menu.base == AreaRightLayout::stacked(), "Stacked (Half-Height)")
+        .clicked()
+    {
+        *cmd = Some(AreaRightCommand::SetLayout(Some(AreaRightLayout::stacked())));
+        ui.close();
+    }
+    if mg_uikit::menu_radio(ui, menu.base == AreaRightLayout::one_tab_bar(), "One Tab Bar")
+        .clicked()
+    {
+        *cmd = Some(AreaRightCommand::SetLayout(Some(AreaRightLayout::one_tab_bar())));
+        ui.close();
+    }
+    if let Some(ap) = to_area_panel(panel)
+        && let Some((c, s, i)) = find_area_panel(&menu.base, ap)
+    {
+        mg_uikit::menu_separator(ui);
+        let sec = &menu.base.columns[c][s];
+        if sec.len() > 1 {
+            if i > 0 && ui.button("Move Tab Left").clicked() {
+                *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                    &menu.base,
+                    ap,
+                    AreaDropZone::MoveTab(c, s, i - 1),
+                ))));
+                ui.close();
+            }
+            if i + 1 < sec.len() && ui.button("Move Tab Right").clicked() {
+                *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                    &menu.base,
+                    ap,
+                    AreaDropZone::MoveTab(c, s, i + 1),
+                ))));
+                ui.close();
+            }
+            if ui.button("Split Into Own Section").clicked() {
+                *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                    &menu.base,
+                    ap,
+                    AreaDropZone::BelowSection(c, s),
+                ))));
+                ui.close();
+            }
+        }
+        if s > 0 && ui.button("Move Section Up").clicked() {
+            *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                &menu.base,
+                ap,
+                AreaDropZone::AboveSection(c, s - 1),
+            ))));
+            ui.close();
+        }
+        if s + 1 < menu.base.columns[c].len() && ui.button("Move Section Down").clicked() {
+            *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                &menu.base,
+                ap,
+                AreaDropZone::BelowSection(c, s + 1),
+            ))));
+            ui.close();
+        }
+        for (oc, ocol) in menu.base.columns.iter().enumerate() {
+            for (os, osec) in ocol.iter().enumerate() {
+                if oc == c && os == s {
+                    continue;
+                }
+                let names: Vec<_> = osec.iter().map(|&p| from_area_panel(p).name()).collect();
+                let label = format!("Dock with {}", names.join(", "));
+                if ui.button(label).clicked() {
+                    *cmd = Some(AreaRightCommand::SetLayout(Some(apply_area_drop(
+                        &menu.base,
+                        ap,
+                        AreaDropZone::IntoSection(oc, os),
+                    ))));
+                    ui.close();
+                }
+            }
+        }
+        if menu.wide {
+            let can_left = c == 1;
+            let can_right = c == 0
+                && (menu.base.columns.len() == 2
+                    || sec.len() > 1
+                    || menu.base.columns[0].len() > 1);
+            if can_left && ui.button("Move to Left Column").clicked() {
+                let next = if menu.base.columns.len() == 2
+                    && sec.len() == 1
+                    && menu.base.columns[c].len() == 1
+                {
+                    apply_area_drop(&menu.base, ap, AreaDropZone::LeftColumn)
+                } else {
+                    apply_area_drop(
+                        &menu.base,
+                        ap,
+                        AreaDropZone::BelowSection(0, menu.base.columns[0].len() - 1),
+                    )
+                };
+                *cmd = Some(AreaRightCommand::SetLayout(Some(next)));
+                ui.close();
+            }
+            if can_right && ui.button("Move to Right Column").clicked() {
+                let next = apply_area_drop(&menu.base, ap, AreaDropZone::RightColumn);
+                *cmd = Some(AreaRightCommand::SetLayout(Some(next)));
+                ui.close();
+            }
+        }
+    }
+    mg_uikit::menu_separator(ui);
+    if menu.props_shown {
+        if ui.button("Hide Properties").clicked() {
+            *cmd = Some(AreaRightCommand::HideProperties);
+            ui.close();
+        }
+    } else if menu.can_show_props && ui.button("Show Properties").clicked() {
+        *cmd = Some(AreaRightCommand::ShowProperties(area));
+        ui.close();
+    }
+    if ui.button("Reset Right Dock Layout").clicked() {
+        *cmd = Some(AreaRightCommand::ResetLayout);
+        ui.close();
+    }
+}
+
+fn attach_area_interactions(
+    area: Option<mg_core::ResRef>,
+    menu: Option<&AreaRightMenuState>,
+    panels: &[Panel],
+    front: Panel,
+    bar_resp: &egui::Response,
+    tab_resps: &[egui::Response],
+    (dragged, menu_cmd): (&mut Option<Panel>, &mut Option<AreaRightCommand>),
+) {
+    let (Some(area), Some(menu)) = (area, menu) else { return };
+    if tab_resps.is_empty() {
+        if bar_resp.drag_started() {
+            *dragged = to_area_panel(front).map(from_area_panel);
+        }
+        mg_uikit::context_menu(bar_resp, |ui| {
+            show_area_context_menu(ui, area, menu, front, menu_cmd);
+        });
+        return;
+    }
+    mg_uikit::context_menu(bar_resp, |ui| {
+        show_area_context_menu(ui, area, menu, front, menu_cmd);
+    });
+    for (p, r) in panels.iter().zip(tab_resps) {
+        if r.drag_started() {
+            *dragged = to_area_panel(*p).map(from_area_panel);
+        }
+        mg_uikit::context_menu(r, |ui| {
+            show_area_context_menu(ui, area, menu, *p, menu_cmd);
+        });
+    }
+}
+
+fn apply_area_right_command(app: &mut Moonglow, cmd: AreaRightCommand) {
+    match cmd {
+        AreaRightCommand::SetLayout(layout) => {
+            app.settings.area_right_layout = layout;
+        }
+        AreaRightCommand::HideProperties => {
+            app.settings.hide_properties = true;
+        }
+        AreaRightCommand::ShowProperties(area) => {
+            app.settings.hide_properties = false;
+            app.props_popped_out.remove(&area);
+            app.show_dock_panel(Panel::Properties);
+        }
+        AreaRightCommand::ResetLayout => {
+            app.settings.area_right_layout = None;
+            app.settings.hide_properties = false;
+            if let Some(layout) = app.settings.dock_layouts.get_mut("area") {
+                layout.shares.clear();
+                layout.column = None;
+            }
+        }
+    }
+}
+
 /// The panel in front of a section (its tab selected): the Right Dock's
 /// panel chosen last where the section holds it, else the one chosen
 /// last of its panels in the run, else the one the settings keep for the
@@ -1726,12 +2284,15 @@ pub(crate) fn window_panes(app: &mut Moonglow, ui: &mut Ui, tab: &crate::Tab) {
                         app.plugins.pane = plugin_pane(app, front, Some(tab)).or(app.plugins.pane);
                     }
                     let on = (section.as_slice(), front, Some(tab));
-                    let bar = section_bar(app, &mut part, &name, on, None, |_| ());
+                    let bar = section_bar(app, &mut part, &name, on, None, None, None, |_| ());
                     if let Some(at) = bar.chosen {
                         chosen = Some(section[at]);
                     }
                     if bar.opened {
                         opened_in_tab(app, Some(tab));
+                    }
+                    if bar.hidden {
+                        app.settings.hide_properties = true;
                     }
                     if let Some(tool) = bar.node {
                         crate::dialog_view::node_tool(app, Some(tab), tool);
@@ -4163,18 +4724,21 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     app.preview_rect = None;
     app.late_slots.clear();
     app.right_columns = false;
+    app.props_full_height = false;
     app.right_bars.clear();
     app.right_places.clear();
     let sections = right_sections(app);
     let folded_as = editor_brings(app).folded;
     let held = folded_order(&sections, folded_as);
     let Some(front) = right_shown(app) else {
+        app.right_dock_drag = None;
         return;
     };
     let ctx = ui.ctx().clone();
     let t = mg_uikit::tokens(&ctx);
     let line = panel_line(ui);
     if right_folded(app) {
+        app.right_dock_drag = None;
         // (Each panel's button with the key that shows it: View › Right
         // Dock's for the one in front, which unfolds the dock as it was;
         // Tools › Palettes' and Tools › Preview's.)
@@ -4244,6 +4808,20 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
     let yields = app.yields;
     // (The editor its panels draw for: the active docked one.)
     let editor = app.active_editor().cloned();
+    let custom_area = customizable_area(app, editor.as_ref());
+    let area_menu = custom_area.map(|area| {
+        let props_shown = area_properties_shown(app, area);
+        let editable =
+            crate::properties_panel::editable_selected(app, Some(&crate::Tab::Area(area)));
+        let can_show_props = (app.settings.hide_properties || app.props_popped_out.contains(&area))
+            && (!app.yields.wide || editable);
+        AreaRightMenuState {
+            wide: app.yields.wide,
+            base: active_area_right_base(app),
+            props_shown,
+            can_show_props,
+        }
+    });
     let shown = panel.show(ui, |ui| {
         // (Where it is drawn, from now on: the Gallery's enlargement stands
         // beside it.)
@@ -4252,7 +4830,17 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         let pane = ui.max_rect();
         let pane_id = ui.unique_id();
         let columns = yields.right_dock_columns(pane.width());
-        let layout = arrange(&sections, folded_as, narrow, columns);
+        let layout = match custom_area {
+            Some(area) => arrange_area(app, area, &sections, folded_as, narrow, columns),
+            None => arrange(&sections, folded_as, narrow, columns),
+        };
+        app.props_full_height = app.yields.wide
+            && layout.len() == 2
+            && layout.iter().any(|col| col.len() == 1 && col[0] == [Panel::Properties]);
+        let mut drag_start: Option<Panel> = None;
+        let mut menu_cmd: Option<AreaRightCommand> = None;
+        let mut hidden_props = false;
+        let mut section_boxes: Vec<AreaSectionBox> = Vec::new();
         // (The pane last clicked in, whose selection a plugin's command
         // from the Plugins menu or a key runs on: the panel's editor's.)
         if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(pane) {
@@ -4271,13 +4859,36 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 && front.detail(app, editor.as_ref()).is_some();
             let (chosen, inner) = if titled {
                 let on = (bar_panels.as_slice(), front, editor.as_ref());
-                let bar = section_bar(app, ui, RIGHT_DOCK, on, Some(tools_width), |ui| {
-                    kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
+                let bar = section_bar(
+                    app,
+                    ui,
+                    RIGHT_DOCK,
+                    on,
+                    Some(tools_width),
+                    custom_area,
+                    area_menu.as_ref(),
+                    |ui| kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked(),
+                );
+                if bar.dragged.is_some() {
+                    drag_start = bar.dragged;
+                }
+                if bar.menu_cmd.is_some() {
+                    menu_cmd = bar.menu_cmd;
+                }
+                hidden_props |= bar.hidden;
+                section_boxes.push(AreaSectionBox {
+                    col: 0,
+                    sec: 0,
+                    rect: pane,
+                    panels: bar_panels.clone(),
+                    tabs: bar.tab_rects,
                 });
                 (None, bar.inner)
             } else {
                 let mut tab = bar_panels.iter().position(|p| *p == front).unwrap_or(0);
-                let mut tabs = DockTabs::new(RIGHT_DOCK).tools_width(tools_width);
+                let mut tabs = DockTabs::new(RIGHT_DOCK)
+                    .tools_width(tools_width)
+                    .draggable(custom_area.is_some());
                 for p in bar_panels {
                     tabs = tabs.with(DockTab::new(p.name()).icon(p.icon()));
                 }
@@ -4298,6 +4909,24 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     (clicked, kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked())
                 });
+                let tab_rects: Vec<(Panel, egui::Rect)> =
+                    bar_panels.iter().copied().zip(bar.tabs.iter().map(|r| r.rect)).collect();
+                attach_area_interactions(
+                    custom_area,
+                    area_menu.as_ref(),
+                    bar_panels,
+                    front,
+                    &bar.response,
+                    &bar.tabs,
+                    (&mut drag_start, &mut menu_cmd),
+                );
+                section_boxes.push(AreaSectionBox {
+                    col: 0,
+                    sec: 0,
+                    rect: pane,
+                    panels: bar_panels.clone(),
+                    tabs: tab_rects,
+                });
                 let (clicked, folded) = bar.inner;
                 if let Some(tool) = clicked {
                     crate::dialog_view::node_tool(app, editor.as_ref(), tool);
@@ -4308,6 +4937,52 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
             };
             app.right_bars.push(front);
             panel_body(app, ui, (front, titled), Host::Dock, pane_id, editor.as_ref());
+            if let Some(p) = drag_start {
+                app.right_dock_drag = Some(p);
+            }
+            if let Some(area) = custom_area
+                && !narrow
+                && let Some(dragged) = app.right_dock_drag
+            {
+                let pointer =
+                    ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
+                let drop = pointer
+                    .and_then(|pos| area_drop_target(app, pane, dragged, pos, &section_boxes));
+                if let Some((_, preview)) = drop {
+                    let layer = egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("right-dock-drop-preview"),
+                    );
+                    let painter = ui.ctx().layer_painter(layer);
+                    painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
+                    painter.rect_stroke(
+                        preview,
+                        2.0,
+                        egui::Stroke::new(2.0, t.accent),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                if !ui.input(|i| i.pointer.any_down()) {
+                    if let Some((zone, _)) = drop
+                        && let Some(dragged_ap) = to_area_panel(dragged)
+                    {
+                        let base = active_area_right_base(app);
+                        let next = apply_area_drop(&base, dragged_ap, zone);
+                        let _ = area;
+                        app.settings.area_right_layout = Some(next);
+                        app.right_panel = Some(dragged);
+                    }
+                    app.right_dock_drag = None;
+                }
+            } else {
+                app.right_dock_drag = None;
+            }
+            if let Some(cmd) = menu_cmd {
+                apply_area_right_command(app, cmd);
+            }
+            if hidden_props {
+                app.settings.hide_properties = true;
+            }
             return (chosen, None, inner);
         }
         // In the wide layout, a dock wider than two narrow ones stands in
@@ -4357,9 +5032,19 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 let fold_here = last_column && s == 0;
                 let tools = fold_here.then_some(tools_width);
                 let on = (section.as_slice(), front, editor.as_ref());
-                let bar = section_bar(app, &mut part, &name, on, tools, |ui| {
-                    fold_here && kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
-                });
+                let bar = section_bar(
+                    app,
+                    &mut part,
+                    &name,
+                    on,
+                    tools,
+                    custom_area,
+                    area_menu.as_ref(),
+                    |ui| {
+                        fold_here
+                            && kit::fold_button_tip(ui, Side::Right, RIGHT_DOCK, &fold).clicked()
+                    },
+                );
                 folded |= bar.inner;
                 if let Some(at) = bar.chosen {
                     chosen = Some(section[at]);
@@ -4367,9 +5052,23 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
                 if bar.opened {
                     opened_in_tab(app, editor.as_ref());
                 }
+                hidden_props |= bar.hidden;
+                if bar.dragged.is_some() {
+                    drag_start = bar.dragged;
+                }
+                if bar.menu_cmd.is_some() {
+                    menu_cmd = bar.menu_cmd;
+                }
                 if let Some(tool) = bar.node {
                     crate::dialog_view::node_tool(app, editor.as_ref(), tool);
                 }
+                section_boxes.push(AreaSectionBox {
+                    col: c,
+                    sec: s,
+                    rect: place,
+                    panels: section.clone(),
+                    tabs: bar.tab_rects,
+                });
                 app.right_bars.push(front);
                 // (A section of one panel has its header over it.)
                 let titled = section.len() == 1;
@@ -4384,6 +5083,51 @@ pub(crate) fn right_dock(app: &mut Moonglow, ui: &mut Ui) {
         // the kind, each column at least the narrow dock's 280.)
         if let [one, _] = rects.as_slice() {
             column_seam(app, ui, pane, one.right());
+        }
+        if let Some(p) = drag_start {
+            app.right_dock_drag = Some(p);
+        }
+        if let Some(area) = custom_area
+            && !narrow
+            && let Some(dragged) = app.right_dock_drag
+        {
+            let pointer = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos());
+            let drop =
+                pointer.and_then(|pos| area_drop_target(app, pane, dragged, pos, &section_boxes));
+            if let Some((_, preview)) = drop {
+                let layer = egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("right-dock-drop-preview"),
+                );
+                let painter = ui.ctx().layer_painter(layer);
+                painter.rect_filled(preview, 2.0, t.accent.gamma_multiply(0.22));
+                painter.rect_stroke(
+                    preview,
+                    2.0,
+                    egui::Stroke::new(2.0, t.accent),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            if !ui.input(|i| i.pointer.any_down()) {
+                if let Some((zone, _)) = drop
+                    && let Some(dragged_ap) = to_area_panel(dragged)
+                {
+                    let base = active_area_right_base(app);
+                    let next = apply_area_drop(&base, dragged_ap, zone);
+                    let _ = area;
+                    app.settings.area_right_layout = Some(next);
+                    app.right_panel = Some(dragged);
+                }
+                app.right_dock_drag = None;
+            }
+        } else {
+            app.right_dock_drag = None;
+        }
+        if let Some(cmd) = menu_cmd {
+            apply_area_right_command(app, cmd);
+        }
+        if hidden_props {
+            app.settings.hide_properties = true;
         }
         ui.advance_cursor_after_rect(pane);
         app.right_columns = true;
@@ -4587,8 +5331,16 @@ struct SectionBar<R> {
     inner: R,
     /// The panel's own Open in Tab was clicked (Properties').
     opened: bool,
+    /// The Hide Properties button was clicked (Properties').
+    hidden: bool,
     /// The Node section's own tool clicked (Bookmark, Test).
     node: Option<crate::dialog_view::NodeTool>,
+    /// Drag started on a tab or header (`AreaRightPanel`).
+    dragged: Option<Panel>,
+    /// Context action chosen from the Area Right Dock menu.
+    menu_cmd: Option<AreaRightCommand>,
+    /// Tab rects for drop hit-testing.
+    tab_rects: Vec<(Panel, egui::Rect)>,
 }
 
 /// A stacked section's bar, named `name`, of `section` with `front` in
@@ -4598,58 +5350,83 @@ struct SectionBar<R> {
 /// has tools), or where it holds one panel with a detail of its own
 /// ([`Panel::detail`]: Tile Properties' "6 tiles") the kit's
 /// `PanelHeader`, its title and detail, named by both ("Tile Properties,
-/// 6 tiles"), and before `tools` the panel's own (Properties' Open in Tab,
-/// at the bar's end as the Main and WideArea boards draw it).
+/// 6 tiles"), and before `tools` the panel's own (Properties' Open in Tab
+/// and Hide Properties, at the bar's end as the Main and WideArea boards
+/// draw it).
+#[allow(clippy::too_many_arguments)]
 fn section_bar<R>(
     app: &Moonglow,
     ui: &mut Ui,
     name: &str,
     (section, front, editor): (&[Panel], Panel, Option<&crate::Tab>),
     tools_width: Option<f32>,
+    area: Option<mg_core::ResRef>,
+    area_menu: Option<&AreaRightMenuState>,
     tools: impl FnOnce(&mut Ui) -> R,
 ) -> SectionBar<R> {
+    let mut dragged = None;
+    let mut menu_cmd = None;
     if let [one] = section
         && let Some(detail) = one.detail(app, editor)
     {
         // (Named with its detail, "Tile Properties, 6 tiles", as a screen
         // reader says it.)
         let said = format!("{}, {detail}", one.name());
-        let header = mg_uikit::shell::PanelHeader::new(one.name()).detail(detail).name(said);
+        let header = mg_uikit::shell::PanelHeader::new(one.name())
+            .detail(detail)
+            .name(said)
+            .draggable(area_menu.is_some());
         let mut opened = false;
-        let inner = header
-            .show(ui, |ui| {
-                // (A NUI designer's Element Actions there, M4's U18.)
-                if *one == Panel::Properties && crate::nui_view::panels::nui_of(editor).is_some() {
-                    crate::nui_view::panels::actions(app, ui, editor);
-                } else if *one == Panel::Bindings {
-                    // (A NUI designer's Create Bind, the board's plus, M4's
-                    // U19.)
-                    crate::nui_view::panels::bindings_plus(ui, editor);
-                } else if *one == Panel::Properties {
-                    opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
-                } else if *one == Panel::Preview
-                    && crate::tileset_view::tileset_of(editor).is_some()
-                {
-                    // (A tileset's Open the Model in a Tab, the Tileset
-                    // board's icon at its Preview's header's end: M4's U20.)
-                    opened = crate::tileset_view::open_model_button(app, ui, editor);
-                } else if *one == Panel::Preview && crate::hak_view::hak_of(editor).is_some() {
-                    // (A hak's Open the Model in a Tab and Close, the Hak
-                    // board's icons: M4's U21.)
-                    opened = crate::hak_view::open_model_button(app, ui, editor);
-                }
-                // (A talk table's Copy the StrRef at String's header's end,
-                // the Talk board's.)
-                if *one == Panel::String {
-                    crate::talk_view::panels::copy_tool(app, ui, editor);
-                }
-                tools(ui)
-            })
-            .inner;
-        return SectionBar { chosen: None, inner, opened, node: None };
+        let mut hidden = false;
+        let bar_resp = header.show(ui, |ui| {
+            // (A NUI designer's Element Actions there, M4's U18.)
+            if *one == Panel::Properties && crate::nui_view::panels::nui_of(editor).is_some() {
+                crate::nui_view::panels::actions(app, ui, editor);
+            } else if *one == Panel::Bindings {
+                // (A NUI designer's Create Bind, the board's plus, M4's
+                // U19.)
+                crate::nui_view::panels::bindings_plus(ui, editor);
+            } else if *one == Panel::Properties {
+                opened = crate::properties_panel::open_in_tab_button(app, ui, editor);
+                hidden = crate::properties_panel::hide_button(ui);
+            } else if *one == Panel::Preview && crate::tileset_view::tileset_of(editor).is_some() {
+                // (A tileset's Open the Model in a Tab, the Tileset
+                // board's icon at its Preview's header's end: M4's U20.)
+                opened = crate::tileset_view::open_model_button(app, ui, editor);
+            } else if *one == Panel::Preview && crate::hak_view::hak_of(editor).is_some() {
+                // (A hak's Open the Model in a Tab and Close, the Hak
+                // board's icons: M4's U21.)
+                opened = crate::hak_view::open_model_button(app, ui, editor);
+            }
+            // (A talk table's Copy the StrRef at String's header's end,
+            // the Talk board's.)
+            if *one == Panel::String {
+                crate::talk_view::panels::copy_tool(app, ui, editor);
+            }
+            tools(ui)
+        });
+        attach_area_interactions(
+            area,
+            area_menu,
+            section,
+            *one,
+            &bar_resp.response,
+            &[],
+            (&mut dragged, &mut menu_cmd),
+        );
+        return SectionBar {
+            chosen: None,
+            inner: bar_resp.inner,
+            opened,
+            hidden,
+            node: None,
+            dragged,
+            menu_cmd,
+            tab_rects: Vec::new(),
+        };
     }
     let mut at = section.iter().position(|p| *p == front).unwrap_or(0);
-    let mut tabs = DockTabs::new(name);
+    let mut tabs = DockTabs::new(name).draggable(area_menu.is_some());
     // (The Conversation board's "Node" before Data and Search.)
     if let Some(title) = section.first().and_then(|p| p.section_title()) {
         tabs = tabs.title(title);
@@ -4676,8 +5453,28 @@ fn section_bar<R>(
         let clicked = node.then(|| crate::dialog_view::node_tools(ui, enabled, &tip)).flatten();
         (clicked, tools(ui))
     });
+    let tab_rects: Vec<(Panel, egui::Rect)> =
+        section.iter().copied().zip(bar.tabs.iter().map(|r| r.rect)).collect();
+    attach_area_interactions(
+        area,
+        area_menu,
+        section,
+        front,
+        &bar.response,
+        &bar.tabs,
+        (&mut dragged, &mut menu_cmd),
+    );
     let (node, inner) = bar.inner;
-    SectionBar { chosen: bar.changed.then_some(at), inner, opened: false, node }
+    SectionBar {
+        chosen: bar.changed.then_some(at),
+        inner,
+        opened: false,
+        hidden: false,
+        node,
+        dragged,
+        menu_cmd,
+        tab_rects,
+    }
 }
 
 /// A section header's open in a tab clicked ([`SectionBar::opened`]):
@@ -4749,13 +5546,26 @@ struct Stack<'a> {
     brings: &'a Brings,
 }
 
+fn section_share_index(brings: &Brings, section: &[Panel]) -> Option<usize> {
+    if brings.area.is_some() && section == [Panel::Preview] {
+        return Some(2);
+    }
+    if brings.area.is_some()
+        && section.contains(&Panel::Properties)
+        && !section.contains(&Panel::Palette)
+    {
+        return Some(1);
+    }
+    own_index(brings, section)
+}
+
 impl Stack<'_> {
     /// A section's share as kept (`Settings::dock_layouts`, by its place
     /// among the kind's own: [`own_index`]), else the kind's own at first
     /// (`Brings::shares`), 1000 where it has none.
     fn share(&self, app: &Moonglow, section: &[Panel]) -> f32 {
         let layout = self.kind.and_then(|k| app.settings.dock_layouts.get(k));
-        let index = own_index(self.brings, section);
+        let index = section_share_index(self.brings, section);
         let kept = layout.zip(index).and_then(|(l, i)| l.shares.get(i));
         let first = index.and_then(|i| self.brings.shares.get(i));
         kept.or(first).map_or(1000.0, |s| f32::from((*s).max(1)))
@@ -4885,10 +5695,13 @@ fn section_seams(
         now[i + 1] = pair - upper;
         let total: f32 = now.iter().sum();
         let count = now.len() as f32;
-        let own: Vec<Option<usize>> = sections.iter().map(|s| own_index(stack.brings, s)).collect();
+        let own: Vec<Option<usize>> =
+            sections.iter().map(|s| section_share_index(stack.brings, s)).collect();
         let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
-        if layout.shares.len() < stack.brings.right.len() {
-            layout.shares.resize(stack.brings.right.len(), 1000);
+        let need =
+            stack.brings.right.len().max(own.iter().flatten().copied().max().map_or(0, |m| m + 1));
+        if layout.shares.len() < need {
+            layout.shares.resize(need, 1000);
         }
         for (h, index) in now.iter().zip(own) {
             if let Some(index) = index {
@@ -4978,6 +5791,12 @@ fn right_alone(app: &Moonglow) -> bool {
 /// wide layout for two columns, or [`RIGHT_DOCK_WIDE_ONE`] there where
 /// the active editor brings one panel.
 fn right_layout_width(app: &Moonglow) -> f32 {
+    if app.yields.wide && area_wants_one_column(app) {
+        return match app.settings.palette_gallery {
+            true => mg_uikit::shell::RIGHT_COLUMN_GALLERY,
+            false => mg_uikit::shell::RIGHT_DOCK_WIDE_SINGLE,
+        };
+    }
     match app.yields.wide && right_alone(app) {
         true => RIGHT_DOCK_WIDE_ONE,
         false if gallery_wide(app) => mg_uikit::shell::RIGHT_DOCK_GALLERY,
@@ -4989,37 +5808,42 @@ fn right_layout_width(app: &Moonglow) -> f32 {
 /// palettes showing their Gallery (Options keep the switch: toggling it
 /// writes no width; a width or column dragged to still wins).
 fn gallery_wide(app: &Moonglow) -> bool {
-    app.yields.wide && app.settings.palette_gallery && !right_alone(app)
+    app.yields.wide
+        && app.settings.palette_gallery
+        && !right_alone(app)
+        && !area_wants_one_column(app)
 }
 
 /// The Right Dock's width as chosen for the layout of this frame: the one
 /// dragged to in the wide layout (from 2560, where it stands in two
 /// columns wider than 560) apart from the one dragged to below it, so that
 /// neither layout's choice is the other's (`Settings::right_dock_width`,
-/// `right_dock_width_wide`); and in the wide layout, where the active
-/// editor's dock holds one panel alone (a form's Preview, M4's U11), the
-/// one dragged to for its kind (`DockLayout::wide_width`), apart from the
-/// area's two columns.
+/// `right_dock_width_wide`, `right_dock_width_wide_one`); and in the wide
+/// layout, where the active editor's dock holds one panel alone (a form's
+/// Preview, M4's U11), the one dragged to for its kind
+/// (`DockLayout::wide_width`), apart from the area's two columns.
 fn kept_right_width(app: &Moonglow) -> Option<u32> {
-    match (app.yields.wide, right_alone(app)) {
-        (true, true) => (editor_kind(app).and_then(|k| app.settings.dock_layouts.get(k)))
+    match (app.yields.wide, area_wants_one_column(app), right_alone(app)) {
+        (true, true, _) => app.settings.right_dock_width_wide_one,
+        (true, false, true) => (editor_kind(app).and_then(|k| app.settings.dock_layouts.get(k)))
             .and_then(|l| l.wide_width)
             .map(u32::from),
-        (true, false) => app.settings.right_dock_width_wide,
-        (false, _) => app.settings.right_dock_width,
+        (true, false, false) => app.settings.right_dock_width_wide,
+        (false, _, _) => app.settings.right_dock_width,
     }
 }
 
 /// Keeps the Right Dock's width dragged to, `width`, where
 /// [`kept_right_width`] reads it.
 fn keep_right_width(app: &mut Moonglow, width: u32) {
-    match (app.yields.wide, right_alone(app), editor_kind(app)) {
-        (true, true, Some(kind)) => {
+    match (app.yields.wide, area_wants_one_column(app), right_alone(app), editor_kind(app)) {
+        (true, true, _, _) => app.settings.right_dock_width_wide_one = Some(width),
+        (true, false, true, Some(kind)) => {
             let layout = app.settings.dock_layouts.entry(kind.to_string()).or_default();
             layout.wide_width = Some(width.min(u32::from(u16::MAX)) as u16);
         }
-        (true, _, _) => app.settings.right_dock_width_wide = Some(width),
-        (false, _, _) => app.settings.right_dock_width = Some(width),
+        (true, false, _, _) => app.settings.right_dock_width_wide = Some(width),
+        (false, _, _, _) => app.settings.right_dock_width = Some(width),
     }
 }
 
@@ -6272,5 +7096,29 @@ mod dock_tests {
         assert_eq!(layout_kind(&app, &crate::Tab::NoArea), "area");
         assert_eq!(layout_kind(&app, &crate::Tab::Manual), "manual");
         assert_eq!(*owner_of(&app, &crate::Tab::Manual), crate::Tab::Manual);
+    }
+
+    #[test]
+    fn area_right_layout_mutations_and_drop_targets() {
+        use crate::settings::{AreaRightLayout, AreaRightPanel as P};
+        let two = AreaRightLayout::two_columns();
+        // Stack Properties below Palette | Preview.
+        let stacked = apply_area_drop(&two, P::Properties, AreaDropZone::BelowSection(0, 0));
+        assert_eq!(stacked, AreaRightLayout::stacked());
+        // Combine Properties into Palette | Preview tab bar.
+        let tabbed = apply_area_drop(&two, P::Properties, AreaDropZone::IntoSection(0, 0));
+        assert_eq!(tabbed, AreaRightLayout::one_tab_bar());
+        // Dragging Properties out of One Tab Bar into RightColumn restores Two Columns.
+        let split_right = apply_area_drop(&tabbed, P::Properties, AreaDropZone::RightColumn);
+        assert_eq!(split_right, two);
+        // Dragging Properties to LeftColumn swaps columns.
+        let props_left = apply_area_drop(&two, P::Properties, AreaDropZone::LeftColumn);
+        assert_eq!(
+            props_left.columns,
+            vec![vec![vec![P::Properties]], vec![vec![P::Palette, P::Preview]]]
+        );
+        // Reordering tabs in One Tab Bar.
+        let reordered = apply_area_drop(&tabbed, P::Properties, AreaDropZone::MoveTab(0, 0, 0));
+        assert_eq!(reordered.columns, vec![vec![vec![P::Properties, P::Palette, P::Preview]]]);
     }
 }

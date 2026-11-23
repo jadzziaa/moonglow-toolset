@@ -1353,10 +1353,15 @@ fn modified(app: &Moonglow, tab: &Tab, watch: &mut Watch<'_>) -> bool {
 /// close all ([`WINDOW_CLOSE_ALL`]) and the room before it for Maximize
 /// ([`WINDOW_END_ROOM`]).
 pub(crate) fn tab_room(main: bool, width: f32) -> f32 {
+    tab_room_for(main, width, false)
+}
+
+pub(crate) fn tab_room_for(main: bool, width: f32, pop_in: bool) -> f32 {
     if main {
         width - SPLIT_ROOM
     } else {
-        width - WINDOW_BAR_START - WINDOW_CLOSE_ALL - WINDOW_END_ROOM
+        let extra = if pop_in { mg_uikit::metrics::ICON_BUTTON + 2.0 } else { 0.0 };
+        width - WINDOW_BAR_START - WINDOW_CLOSE_ALL - WINDOW_END_ROOM - extra
     }
 }
 
@@ -1539,8 +1544,12 @@ pub(crate) fn prepare(app: &mut Moonglow, ctx: &egui::Context) {
             named.iter().map(|(_, n, m)| (lay(n, None, *m).width, *m)).collect();
         // (A pane not drawn yet, a group or window just made, has no width
         // to fit: its titles whole until it has.)
+        let pop_in = !main
+            && named
+                .iter()
+                .any(|(t, _, _)| matches!(t, Tab::Instance { .. } | Tab::Instances { .. }));
         let cap = (width > 0.0)
-            .then(|| mg_uikit::dock::doc_tab_cap(tab_room(main, width), &whole))
+            .then(|| mg_uikit::dock::doc_tab_cap(tab_room_for(main, width, pop_in), &whole))
             .flatten();
         for (tab, name, modified) in named {
             let title = lay(&name, cap, modified);

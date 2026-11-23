@@ -333,6 +333,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     // (Side by side; in a narrow room, the Properties panel's, one over
     // the other, the buttons in a row between.)
     let narrow = super::narrow(ui);
+    let in_panel_scroll = super::panel_scroll(ui);
     super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
             ui.set_width(super::part_width(narrow, ui, 240.0));
@@ -341,9 +342,11 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
                 .hint("Find")
                 .show(ui);
             let needle = mg_core::text::Needle::new(&filter);
-            egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
-                ui,
-                |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(("utm-bases", key))
+                .max_height(if in_panel_scroll { 220.0 } else { 360.0 })
+                .auto_shrink([false, in_panel_scroll])
+                .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
@@ -358,8 +361,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
                             add = Some(row);
                         }
                     }
-                },
-            );
+                });
         });
         super::down_or_row(narrow, ui, |ui| {
             if !narrow {
@@ -379,9 +381,11 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width(super::part_width(narrow, ui, 240.0));
             ui.label("Restricted items");
-            egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
-                ui,
-                |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(("utm-restricted", key))
+                .max_height(if in_panel_scroll { 220.0 } else { 390.0 })
+                .auto_shrink([false, in_panel_scroll])
+                .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
                     for row in &current {
                         let r = ui.selectable_label(right == Some(*row), name(*row));
@@ -392,8 +396,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
                             remove = Some(*row);
                         }
                     }
-                },
-            );
+                });
         });
     });
     if let Some(row) = add.filter(|r| !current.contains(r)) {
@@ -511,6 +514,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
     // (Side by side; in a narrow room, the Properties panel's, one over
     // the other, the buttons in a row between.)
     let narrow = super::narrow(ui);
+    let in_panel_scroll = super::panel_scroll(ui);
     super::beside_or_over(ui, |ui| {
         ui.vertical(|ui| {
             ui.set_width(super::part_width(narrow, ui, 240.0));
@@ -519,9 +523,11 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                 .hint("Find")
                 .show(ui);
             let needle = mg_core::text::Needle::new(&filter);
-            egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
-                ui,
-                |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(("utm-bases", key))
+                .max_height(if in_panel_scroll { 220.0 } else { 360.0 })
+                .auto_shrink([false, in_panel_scroll])
+                .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
                     for c in &items {
                         let row = c.row as i64;
@@ -537,8 +543,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                             add = Some(row);
                         }
                     }
-                },
-            );
+                });
         });
         super::down_or_row(narrow, ui, |ui| {
             if !narrow {
@@ -566,9 +571,11 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width(super::part_width(narrow, ui, 260.0));
             ui.label("Restricted items");
-            egui::ScrollArea::vertical().id_salt(("utm-restricted", key)).max_height(390.0).show(
-                ui,
-                |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt(("utm-restricted", key))
+                .max_height(if in_panel_scroll { 220.0 } else { 390.0 })
+                .auto_shrink([false, in_panel_scroll])
+                .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
                     for m in &merged {
                         super::row(ui, |ui| {
@@ -582,8 +589,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                             super::entry_mark(ui, m.having.len(), total);
                         });
                     }
-                },
-            );
+                });
         });
     });
     if let Some(row) = add.or(give) {

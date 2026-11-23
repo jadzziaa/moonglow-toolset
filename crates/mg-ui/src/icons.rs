@@ -91,9 +91,10 @@ icons! {
     FAVORITE = Bookmark;
     /// The palette's Exact Tile (the tile put down as chosen).
     EXACT_TILE = Pin;
-    /// A window's bar: Maximize, and Restore while it is maximized.
+    /// A window's bar: Maximize, and Restore while it is maximized, and Pop In.
     MAXIMIZE = Maximize;
     RESTORE = Restore;
+    POP_IN = PanelRight;
 }
 
 /// An object type's icon (the set's kind icons, the same everywhere a kind

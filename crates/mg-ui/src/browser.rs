@@ -56,7 +56,7 @@ pub struct Browser {
     /// How many resources there are (the copies the game reads).
     resources: usize,
     types: Vec<ResType>,
-    pub restype: Option<ResType>,
+    pub restypes: std::collections::BTreeSet<ResType>,
     pub filter: String,
     /// The copies that others override are listed under them (a builder's
     /// report: of a table in two haks, only the higher one was found).
@@ -65,7 +65,7 @@ pub struct Browser {
     shown: Vec<usize>,
     /// How many of those are overridden copies.
     shown_copies: usize,
-    query: Option<(Option<ResType>, String, bool)>,
+    query: Option<(std::collections::BTreeSet<ResType>, String, bool)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
     /// Export as Files writes compiled models as text.
@@ -169,7 +169,7 @@ impl Browser {
 
     fn filtered(&mut self) -> &[usize] {
         let needle = mg_core::text::Needle::new(&self.filter);
-        let query = (self.restype, needle.as_str().to_string(), self.show_copies);
+        let query = (self.restypes.clone(), needle.as_str().to_string(), self.show_copies);
         if self.query.as_ref() != Some(&query) {
             self.shown = self
                 .entries
@@ -177,7 +177,7 @@ impl Browser {
                 .enumerate()
                 .filter(|(_, r)| {
                     (query.2 || r.over.is_none())
-                        && query.0.is_none_or(|t| r.key.restype == t)
+                        && (query.0.is_empty() || query.0.contains(&r.key.restype))
                         && needle.finds(&r.key.resref.to_string())
                 })
                 .map(|(i, _)| i)
@@ -262,6 +262,19 @@ pub(crate) fn run_tools(app: &mut Moonglow, asked: Asked) {
             .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.clone())))
             .collect();
         app.actions.push(Action::SaveResources(keys));
+    }
+}
+
+fn type_summary(types: &std::collections::BTreeSet<ResType>) -> String {
+    if types.is_empty() {
+        return "all types".to_string();
+    }
+    let mut exts: Vec<&str> = types.iter().map(|t| t.extension().unwrap_or("?")).collect();
+    exts.sort_unstable();
+    match exts.len() {
+        1 => exts[0].to_string(),
+        2 | 3 => exts.join(", "),
+        n => format!("{n} types ({}, {}…)", exts[0], exts[1]),
     }
 }
 
@@ -534,16 +547,55 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, pane: egui::Rect) {
     egui::Frame::new().inner_margin(8).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         let width = ui.available_width();
-        let current = browser.restype.and_then(|t| t.extension()).unwrap_or("all types");
-        let types: Vec<Option<ResType>> =
-            std::iter::once(None).chain(browser.types.iter().copied().map(Some)).collect();
+        let types = browser.types.clone();
         crate::widgets::dropdown("browser-type")
-            .selected_text(current)
+            .selected_text(type_summary(&browser.restypes))
             .width(width)
-            .show(ui, &mut browser.restype, &types, |t| {
-                t.map_or("all types", |t| t.extension().unwrap_or("?"))
+            .filtered(true)
+            .stays_open(true)
+            .show_menu(ui, |ui, keys| {
+                let any_matching_unselected = types.iter().any(|t| {
+                    let ext = t.extension().unwrap_or("?");
+                    keys.shows(ext) && !browser.restypes.contains(t)
+                });
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            !browser.restypes.is_empty(),
+                            egui::Button::new("Clear All").small(),
+                        )
+                        .clicked()
+                    {
+                        browser.restypes.clear();
+                    }
+                    if ui
+                        .add_enabled(
+                            any_matching_unselected,
+                            egui::Button::new("Select Matching").small(),
+                        )
+                        .clicked()
+                    {
+                        for &t in &types {
+                            if keys.shows(t.extension().unwrap_or("?")) {
+                                browser.restypes.insert(t);
+                            }
+                        }
+                    }
+                });
+                mg_uikit::menu_separator(ui);
+                for t in types {
+                    let ext = t.extension().unwrap_or("?");
+                    let mut on = browser.restypes.contains(&t);
+                    if keys.checkbox(ui, &mut on, ext) {
+                        if on {
+                            browser.restypes.insert(t);
+                        } else {
+                            browser.restypes.remove(&t);
+                        }
+                    }
+                }
             })
-            .on_hover_text("Only the resources of one type");
+            .on_hover_text("Filter by one or more resource types");
         // The Name's keys, as the side panes' Filters have them (GitHub
         // issue 12): Find's (Ctrl+F) with the pointer over the panel go to
         // it, Escape clears it and then leaves it, Down goes into the list.

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - the Top Bar, the menus, Quick Open (go to a resource or a command by its name; the Command Palette is Quick Open among the commands), keyboard shortcuts, the three docks (what they hold, folding, the Right Dock's sections, the Properties panel and its states, tool sections) and how they yield in narrow and wide windows, the module tree (names, ResRefs, tags and file extensions), the Outliner (an area's placed objects by kind, with the show or hide eyes), tabs, editor groups, floating windows, dialogs, Escape, undo and redo, the palette and the galleries, the resource browser, the model viewer, the Bottom Dock (Problems, Search Results, the report tabs, the log), the Status Bar (switches, hints, counts and the running job), updates (the check and installing an update from the app), and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-22T10:57:17Z }
+generated: { by: antigravity/gemini-3-pro, at: 2026-11-22T16:02:36Z }
 ---
 
 # The main window
@@ -64,7 +64,7 @@ Dock's panels (Tools › Palettes, Tools › Preview). Each kind of object has o
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Import Files…, Import Folder… ([files dropped onto the window](03-modules.md#import-and-export) are imported too), Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes, or, from a hak's or a 2DA's editor, that editor's: see Undo and redo under [Tabs and windows](#tabs-and-windows); with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Claims Table… ([whose each area is](03-modules.md#claimed-areas), in a project that keeps claims), Resize Area…, Rotate Area…, Change Tileset… ([Areas](04-areas.md)), Find Instance…, Prefabs, Edit Areas Together…, Update All Instances… ([every blueprint's](05-blueprints.md#update-instances)), Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Left Dock (the Module and Resources panels), Right Dock (the Palette and Preview panels), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
+| View | Left Dock (the Module and Resources panels), Right Dock (the Palette, Preview, and Properties panels, plus Tile Properties), Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Go to Start Location, Split Editor (see [Tabs and windows](#tabs-and-windows)), Hide All Panels (Show All Panels while they are hidden), Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint), and the enabled plugins' wizards |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, New NUI Window… ([NUI Creator](18-nui-creator.md)), Palettes, Preview, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Round-Trip Check, Test Module, Test Module, Choose Character, Pack *file* and Add Left-Out Files to nasher.cfg (both in a nasher project alone), Area Statistics |
@@ -305,44 +305,46 @@ left of the Status Bar, lit while the log is open (View › Log shows the
 log in front of the Bottom Dock, or closes the dock); it comes back as
 high as it was.
 
-**The Right Dock beside an area** holds the palettes and the Preview,
-each on a tab of its tab bar, the one in front filling the dock (their
-words, or their icons alone where the dock is too narrow for the words;
-Left and Right on a tab go to the other). Under them is a second section
-by the area's tool in hand, with its own header and the seam between
-them dragged to share the dock's height (the palettes take a little
-more than half at first): **Properties**, with every tool but Select
-Tiles, and while **Select Tiles** is on, **Tile Properties** in its
-place (and nothing there while its header toggle hides it), what it
-shows ("6 tiles"; [Areas](04-areas.md#tile-properties)). In a window
-under 1400 points the second is a tab of the one tab bar: Palette,
-Properties, Preview (Palette, Preview, Tile Properties in Select
-Tiles). The tab you choose in front is remembered, also when the module
-is opened again and the next time Moonglow starts (with nothing chosen,
-the palette is in front; under 1400, the one tab bar remembers its
-own). Each kind of editor remembers its own docks' tabs and the shares
-of panels stacked in them. An area dragged out into a window of its own
-has Properties (or Tile Properties) in its window's right pane, the
-palettes staying in the Right Dock; in a window too narrow for the pane
-and a view of 400 points beside it, the pane is not drawn, and comes
-back as the window is widened (or dock the area again). The panels stay
-where they are: none can be dragged into the middle, to the left or
-into a window of its own.
+**The Right Dock beside an area** holds **Palette**, **Preview**, and
+**Properties** (or **Tile Properties** while **Select Tiles** is on,
+when its header toggle shows it). By default in windows from 1400
+points wide, Palette and Preview share tabs in the top pane above a
+seam-separated Properties pane (`340` points or half the dock wide),
+while windows under 1400 show all three on one tab bar and windows
+**2560** points or wider place Palette and Preview in a left column
+beside a full-height Properties column. You can rearrange these three
+panes freely: drag any tab or panel header onto another pane or dock edge
+(a highlight shows where it will land), or right-click a Right Dock
+tab or panel header to choose **Two Columns**, **Stacked
+(Half-Height)**, **One Tab Bar**, per-pane moves, or **Reset Right Dock
+Layout** (keeping half-height Properties available even on ultrawide
+displays). Each panel or column remembers its selected tab and share. An
+area dragged out into a window of its own has Properties (or Tile
+Properties) in its window's right pane, the palettes staying in the
+Right Dock; in a window too narrow for the pane and a view of 400 points
+beside it, the pane is not drawn, and comes back as the window is
+widened (or dock the area again).
 
 **Properties** shows what is selected in the area's view, its header
 saying what ("Placeable", "3 placeables", "5 objects", "none selected"):
 one object's fields, or those of several of one type edited together
 ([Blueprints](05-blueprints.md#instances), which also says how its
-pages stand on one scroll in the wide layout). With nothing selected it
-says "Click an object to see its properties here, or drag a box over
-several of one type."; with the start location alone selected, that
-Adjust Location in its menu places it exactly; with objects of several
-types, how many of how many types are selected, and to select objects
-of one type to edit them together. Its header's **Open in Tab** opens
-the same objects' Properties in a tab or window of their own, with OK
-and Cancel; while any Properties tab or window is open on them, the
-panel says so, with **Show It** to bring that tab or window to the
-front.
+pages stand on one scroll when shown full-height in wide windows). With
+nothing selected it says "Click an object to see its properties here, or
+drag a box over several of one type."; with the start location alone
+selected, that Adjust Location in its menu places it exactly; with
+objects of several types, how many of how many types are selected, and
+to select objects of one type to edit them together. Its header's
+**Open in Tab** closes the docked Properties pane (reclaiming space in
+the dock) and opens the same objects' Properties in a floating window or
+tab of their own, with OK and Cancel; click the **Pop In** icon beside
+Maximize/Restore on the floating window's bar (or next to OK/Cancel in a
+docked Properties tab) to return Properties to the Right Dock without
+losing the pane's layout. While a Properties window or tab is open,
+clicking **Hide Properties** (`X`) in the Properties header hides only
+the Properties pane while keeping Palette and Preview visible; restore
+or toggle it anytime from **View › Properties Panel** or **Show
+Properties** / **Hide Properties** in the Right Dock's context menu.
 
 **A tool section** (**Edit Areas Together**, beside any tab; **Custom
 Light** or Change Light and **Bake Walkmesh to Transform**, beside their
@@ -417,15 +419,21 @@ width you haven't chosen is wider: the Left Dock 320 and the Right Dock
 741, and the Module panel 760 high over the Outliner unless you dragged
 the seam. The Right Dock's width you drag there is kept apart from the
 one you drag in a narrower window: each layout gives back its own.
-There a Right Dock wider than 560 (at its width at first, or dragged
-so) stands in two columns, the Palette and the Preview as tabs in the
-first (340, or half the dock) and Properties (or Tile Properties) in
-the second, an open tool section under it, a line between them that you
-drag to share the dock (each column at least 280; kept for each kind of
-editor, and forgotten by View › Reset Layout), the arrow that folds the
-dock at the end of the second's header, by the window's edge as in one
-column; F6 stops at each, and the one you press in or reach is the
-dock's panel (the one its strip and View › Right Dock bring back).
+There a Right Dock wider than 560 in the **Two Columns** layout (at its
+width at first, or dragged so) stands in two columns, Palette and
+Preview as tabs in the first and Properties (or Tile Properties) in the
+second, an open tool section under it, a seam between them that you drag
+to share the dock (each column at least 280; kept for each kind of
+editor, and forgotten by View › Reset Layout), the **Fold the Right
+Dock** arrow at the top-right corner of the outer column. On ultrawide
+displays (`2560` or wider), Properties automatically hides itself and
+reclaims its extra column width whenever nothing editable is selected
+(empty ground, the start location, mixed object kinds, or tiles without
+Tile Properties) or while popped out, returning automatically when an
+editable selection is made; switching to **Stacked (Half-Height)** keeps
+Properties half-height on ultrawide. F6 stops at each pane, and the one
+you press in or reach is the dock's panel (the one its strip and View ›
+Right Dock bring back).
 Beside an editor whose dock holds one panel alone (a blueprint's editor
 and its Preview), the dock there is 549 wide at first: a creature's
 pages beside it stand in five columns of 480 on a 3440 screen, where at
@@ -537,9 +545,11 @@ nothing in it, are left out with Tools › Options › General › **Hide
 empty groups in the module tree**), sorted by name (its tag, without one). Waypoints are listed
 by tag instead, as Aurora lists them (they often share a name, and their
 tags are what scripts and transitions go by); the pointer resting
-on a row shows its name and its tag, as the Outliner's does. Click an object to go to it in the area's view,
-selected (the tree stays still, so a second click makes a double click);
-double-click for its Properties; right-click for **Go To**, for
+on a row shows its name and its tag, as the Outliner's does. Click an
+object to select it in the area's view (the camera stays where it is and
+the tree stays still, so a second click makes a double click);
+double-click to focus the camera on it; press **F** or `.` to focus the
+selection; right-click for **Go To**, for
 **Adjust Location…** (the object, or those chosen, selected in the
 area's view and [Adjust Location](04-areas.md) opened for them, as the
 view's own menu has it), for **Preview** (creatures, doors, items and placeables, as placed),
@@ -743,17 +753,18 @@ selected in the view since is the one it goes from). Going to or
 selecting an object of a kind hidden in the view, from the Outliner or
 from the module tree, shows that kind in every view, as its Show toggle
 would: you asked to see that object. Double-click a row
-for the object's Properties; right-click it for the module tree's
-menu of a placed object (Go To, Adjust Location…, Preview, Copy,
-Delete, Export as Blueprint…, the plugins' commands, Variables…,
-Properties), on all of those selected where you right-click one of
-them. A click on a row gives it the arrow keys, as in the module tree:
-Up and Down go from row to row (Page Up and Page Down by ten, Home and
-End to the ends), Right and Left open and close a kind, Enter goes to
-the object (selected, the camera to it), letters go to the row whose
-name begins with them, Delete deletes the object at the row (those
-selected with it too), Escape hands the keys back. F6 reaches it after
-the Left Dock's tab.
+to go to (focus the camera on) the object in the area; right-click it
+for the module tree's menu of a placed object (Go To, Adjust Location…,
+Preview, Copy, Delete, Export as Blueprint…, the plugins' commands,
+Variables…, Properties), on all of those selected where you right-click
+one of them. A click on a row gives it the arrow keys, as in the module
+tree: Up and Down go from row to row (Page Up and Page Down by ten, Home
+and End to the ends), Right and Left open and close a kind, Enter goes
+to the object (selected, the camera to it), `.` focuses the selection in
+the area without clearing the Outliner, letters go to the row whose name
+begins with them, Delete deletes the object at the row (those selected
+with it too), Escape hands the keys back. F6 reaches it after the Left
+Dock's tab.
 
 **The seam** between the Left Dock's tabs and the Outliner is dragged
 to give either more room. It is 496 points from the dock's top at
@@ -1203,9 +1214,11 @@ its load order (the game's files, haks, override, the module), with the
 layer each one comes from. **Tools › Resource Browser** shows it: the
 dock unfolded on that tab (with no module open, the Left Dock with the
 Resources tab alone). Click **Module** to go back to the module tree;
-the dock shows the tab chosen last while Moonglow runs. At the top of the panel are **Type** (one type of
-resource, or all), the **Name** field and **Overridden copies**, and
-under them how many resources are listed, of how many ("12 of 113538
+the dock shows the tab chosen last while Moonglow runs. At the top of the
+panel are **Type** (a form-fillable type-ahead filter with checkboxes to
+select one or several resource types, **Clear All**, and **Select
+Matching**), the **Name** field and **Overridden copies**, and under
+them how many resources are listed, of how many ("12 of 113538
 resources", and the overridden copies listed). Each row has its kind's
 icon, its name, and at the right the layer it comes from. Where the
 dock is too narrow for both, the name comes first: the layer is cut
