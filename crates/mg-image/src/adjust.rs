@@ -51,6 +51,9 @@ pub fn resize(image: &Rgba, width: u32, height: u32) -> Rgba {
     if (w, h) == (nw, nh) {
         return image.clone();
     }
+    if w == 0 || h == 0 {
+        return Rgba::new(nw as u32, nh as u32);
+    }
     // Five channels: color times weight, the weight, alpha.
     let src: Vec<[f32; 5]> = image
         .data
@@ -240,5 +243,13 @@ mod tests {
         let got: Vec<u32> =
             [0, 1, 3, 5, 6, 700, 724, 725, 1000, 1024].map(nearest_power_of_two).into();
         assert_eq!(got, [1, 1, 4, 4, 8, 512, 512, 1024, 1024, 1024]);
+    }
+
+    #[test]
+    fn resize_zero_dimension_input_does_not_panic() {
+        let zw = resize(&Rgba::new(0, 4), 2, 2);
+        assert_eq!((zw.width, zw.height), (2, 2));
+        let zh = resize(&Rgba::new(4, 0), 2, 2);
+        assert_eq!((zh.width, zh.height), (2, 2));
     }
 }

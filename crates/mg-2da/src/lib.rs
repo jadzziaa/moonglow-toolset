@@ -567,8 +567,8 @@ impl Widths {
         let labels = (rows.iter())
             .map(|l| split_cells(l, 1).into_iter().next().flatten().unwrap_or_default())
             .collect();
-        let tabs = rows.iter().any(|l| l.contains('\t'))
-            && rows.iter().all(|l| !l.contains("  ") && !l.contains(" \t") && !l.contains("\t "));
+        let tabs = rows.iter().any(|l| has_unquoted_tab(l))
+            && rows.iter().all(|l| !has_unquoted_padding_pair(l));
         Widths { columns, numbers: starts.first().copied().unwrap_or(0), lf, labels, tabs }
     }
 
@@ -596,7 +596,7 @@ impl Layout {
         let padded = data
             .split(|b| *b == b'\n')
             .skip(3)
-            .any(|line| line.trim_ascii().windows(2).any(|w| w.iter().all(|b| b" \t".contains(b))));
+            .any(|line| has_unquoted_blank_run(line.trim_ascii()));
         let rows = data.split(|b| *b == b'\n').skip(3).any(|l| !l.trim_ascii().is_empty());
         if rows && !padded { Layout::Compact } else { Layout::Aligned }
     }
@@ -605,6 +605,41 @@ impl Layout {
 /// Parses an integer cell like the game: optional sign, then decimal digits
 /// or a `0x` hexadecimal number; trailing garbage is ignored. `None` if no
 /// digits.
+fn scan_unquoted_blanks(bytes: &[u8], mut f: impl FnMut(Option<u8>, u8) -> bool) -> bool {
+    let mut quoted = false;
+    let mut prev: Option<u8> = None;
+    for &b in bytes {
+        if b == b'"' {
+            quoted = !quoted;
+            prev = None;
+            continue;
+        }
+        if !quoted {
+            if f(prev, b) {
+                return true;
+            }
+            prev = Some(b);
+        }
+    }
+    false
+}
+
+fn has_unquoted_blank_run(line: &[u8]) -> bool {
+    scan_unquoted_blanks(line, |prev, cur| {
+        matches!(prev, Some(b' ' | b'\t')) && matches!(cur, b' ' | b'\t')
+    })
+}
+
+fn has_unquoted_tab(line: &str) -> bool {
+    scan_unquoted_blanks(line.as_bytes(), |_, cur| cur == b'\t')
+}
+
+fn has_unquoted_padding_pair(line: &str) -> bool {
+    scan_unquoted_blanks(line.as_bytes(), |prev, cur| {
+        matches!((prev, cur), (Some(b' '), b' ' | b'\t') | (Some(b'\t'), b' '))
+    })
+}
+
 pub fn parse_int(s: &str) -> Option<i32> {
     let s = s.trim();
     let (neg, rest) = match s.as_bytes().first() {
@@ -873,5 +908,23 @@ mod tests {
             ["0  ****        1    ****", "1  ****        **** ****", "2  \"two words\" **** 7"]
         );
         assert_eq!(TwoDa::parse(text.as_bytes(), Codepage::default()).unwrap(), t);
+    }
+
+    #[test]
+    fn quoted_double_spaces_keep_compact_and_tab_delimited_layouts() {
+        let compact = b"2DA V2.0\n\n Label Text\n0 Foo \"a  b\"\n";
+        assert_eq!(Layout::of(compact), Layout::Compact);
+        let mut t = TwoDa::parse(compact, Codepage::default()).unwrap();
+        t.set(0, 0, Some("Bar".into())).unwrap();
+        let rewritten = t.to_bytes_like(Codepage::default(), compact).unwrap();
+        assert_eq!(Layout::of(&rewritten), Layout::Compact);
+
+        let tabbed = b"2DA V2.0\n\n\tLabel\tText\n0\tFoo\t\"a  b\"\n";
+        assert_eq!(Layout::of(tabbed), Layout::Compact);
+        let mut t2 = TwoDa::parse(tabbed, Codepage::default()).unwrap();
+        t2.set(0, 0, Some("Baz".into())).unwrap();
+        let out =
+            String::from_utf8(t2.to_bytes_like(Codepage::default(), tabbed).unwrap()).unwrap();
+        assert!(out.contains("0\tBaz\t\"a  b\""), "{out:?}");
     }
 }

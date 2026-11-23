@@ -373,7 +373,7 @@ fn vec2s(rows: &[Vec<&str>]) -> Vec<Vec2> {
 fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     let orientation = name == "orientation";
     let width = rows.iter().map(|r| r.len().saturating_sub(1)).max().unwrap_or(0);
-    let bezier = bezier && width >= 3 && width % 3 == 0;
+    let bezier = bezier && if orientation { width == 12 } else { width >= 3 && width % 3 == 0 };
     let columns = if bezier { width / 3 } else { width };
     let mut c = Controller {
         name: ctrl::canonical(name).into(),
@@ -1666,5 +1666,22 @@ donemodel u
     fn preorder_follows_file_order_of_children() {
         let (order, _) = preorder(&[None, Some(0), Some(0), Some(1)]);
         assert_eq!(order, [0, 1, 3, 2]);
+    }
+
+    #[test]
+    fn orientation_bezier_requires_12_floats_else_falls_back_to_linear() {
+        let short = key_controller("orientation", &[vec![0.0, 0.0, 0.0, 1.0, 0.5, 0.1, 0.2]], true);
+        assert_eq!(short.columns, 4);
+        assert_eq!(short.values.len(), 4);
+        assert!(short.handles.is_empty());
+
+        let full = key_controller(
+            "orientation",
+            &[vec![0.0, 0.0, 0.0, 1.0, 0.5, 0.0, 1.0, 0.0, 0.2, 1.0, 0.0, 0.0, 0.3]],
+            true,
+        );
+        assert_eq!(full.columns, 4);
+        assert_eq!(full.values.len(), 4);
+        assert_eq!(full.handles.len(), 8);
     }
 }

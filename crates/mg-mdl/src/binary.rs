@@ -292,7 +292,7 @@ impl<'a> Bin<'a> {
                 Ok(Face { vertices: v.map(u32::from), material: self.u32(f + 0x10)? })
             })
             .collect::<Result<_, MdlError>>()?;
-        m.drawn = self.drawn(n, count, &m.faces);
+        m.drawn = self.drawn(n, &m.vertices, &m.faces);
         m.source = (0..count as u32).collect();
         m.source_uv = m.source.clone();
         m.extra = if node_flags & flags::SKIN != 0 {
@@ -321,12 +321,13 @@ impl<'a> Bin<'a> {
         Ok(m)
     }
 
-    /// The mesh's index list (what the game draws), when it has more
-    /// triangles than the faces and is sound (whole triangles of the mesh's
-    /// vertices, the faces first); else nothing, and the faces are drawn. Most files' lists
-    /// repeat their faces; EE files also have empty ones, and counts that
-    /// are an allocated size.
-    fn drawn(&self, n: usize, count: usize, faces: &[Face]) -> Vec<[u32; 3]> {
+    /// The mesh's index list (what the game draws), when it differs from the
+    /// faces (more triangles or handedness seam split copies) and is sound
+    /// (whole triangles matching each face's vertices); else nothing, and the
+    /// faces are drawn. Most files' lists repeat their faces; EE files also
+    /// have empty ones, and counts that are an allocated size.
+    fn drawn(&self, n: usize, vertices: &[Vec3], faces: &[Face]) -> Vec<[u32; 3]> {
+        let count = vertices.len();
         let list = || -> Option<Vec<[u32; 3]>> {
             let (counts, k) = self.array(n + 0x204, 4).ok()?;
             let (lists, l) = self.array(n + 0x210, 4).ok()?;
@@ -334,7 +335,7 @@ impl<'a> Bin<'a> {
                 return None;
             }
             let indices = self.u32(counts).ok()? as usize;
-            if !indices.is_multiple_of(3) || indices / 3 <= faces.len() {
+            if !indices.is_multiple_of(3) || indices / 3 < faces.len() {
                 return None;
             }
             let at = self.raw(lists).ok()??;
@@ -342,8 +343,17 @@ impl<'a> Bin<'a> {
             let all: Vec<u32> =
                 b.as_chunks::<2>().0.iter().map(|c| u32::from(u16::from_le_bytes(*c))).collect();
             let drawn = all.as_chunks::<3>().0;
+            if drawn.len() == faces.len() && faces.iter().zip(drawn).all(|(f, d)| f.vertices == *d)
+            {
+                return None;
+            }
             let sound = all.iter().all(|&i| (i as usize) < count)
-                && faces.iter().zip(drawn).all(|(f, d)| f.vertices == *d);
+                && faces.iter().zip(drawn).all(|(f, d)| {
+                    (0..3).all(|k| {
+                        d[k] == f.vertices[k]
+                            || vertices[d[k] as usize] == vertices[f.vertices[k] as usize]
+                    })
+                });
             sound.then(|| drawn.to_vec())
         };
         list().unwrap_or_default()

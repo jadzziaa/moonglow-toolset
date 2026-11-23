@@ -182,7 +182,7 @@ impl ResMan {
     ) {
         let at =
             self.layers.iter().position(|l| l.priority < priority).unwrap_or(self.layers.len());
-        let fingerprint = c.fingerprint();
+        let fingerprint = c.initial_fingerprint();
         self.layers.insert(
             at,
             Layer { label: label.into(), priority, class, container: Box::new(c), fingerprint },
@@ -209,7 +209,7 @@ impl ResMan {
         c: impl Container + 'static,
     ) -> Option<Box<dyn Container>> {
         let layer = self.layer_mut(label)?;
-        layer.fingerprint = c.fingerprint();
+        layer.fingerprint = c.initial_fingerprint();
         Some(std::mem::replace(&mut layer.container, Box::new(c)))
     }
 
@@ -220,7 +220,7 @@ impl ResMan {
         match self.layer_mut(label) {
             Some(l) => {
                 l.container.rescan()?;
-                l.fingerprint = l.container.fingerprint();
+                l.fingerprint = l.container.initial_fingerprint();
                 Ok(true)
             }
             None => Ok(false),
@@ -853,6 +853,26 @@ mod tests {
         std::fs::remove_file(folder.join("a.2da")).unwrap();
         assert_eq!(rm.changed_layers(|_| true), ["override"]);
         assert!(rm.changed_layers(|l| l.label != "override").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn dir_fingerprint_ignores_non_resources_and_matches_initial_scan() {
+        let dir = mg_testkit::scratch_dir("mg-resman-fp-filter");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("foo.uti"), b"uti").unwrap();
+        let c = DirContainer::open(&dir);
+        let base = Container::initial_fingerprint(&c);
+        assert_eq!(base, Container::fingerprint(&c));
+
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".git/HEAD"), b"ref: main").unwrap();
+        std::fs::write(dir.join("notes.readme.unknown"), b"ignore").unwrap();
+        assert_eq!(Container::fingerprint(&c), base);
+
+        std::fs::write(dir.join("bar.uti"), b"uti2").unwrap();
+        assert_ne!(Container::fingerprint(&c), base);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

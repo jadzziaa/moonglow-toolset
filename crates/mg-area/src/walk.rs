@@ -218,6 +218,10 @@ impl Ground {
                 Some(level? + to.transform_point3(Vec3::ZERO).z)
             })
             .collect();
+        let active: std::collections::HashSet<&str> =
+            area.tiles.iter().filter_map(|t| t.model.as_deref()).collect();
+        self.cache.retain(|k, _| active.contains(k.as_str()));
+        self.level_cache.retain(|k, _| active.contains(k.as_str()));
         self.width = area.width;
     }
 
@@ -490,6 +494,60 @@ mod tests {
         let down = Ray { origin: Vec3::new(12.5, 5.0, 50.0), dir: Vec3::NEG_Z };
         let hit = g.hit(&down).unwrap();
         assert!((hit - Vec3::new(12.5, 5.0, 5.75)).length() < 1e-4, "{hit}");
+    }
+
+    #[test]
+    fn ground_update_evicts_removed_tile_caches() {
+        let empty =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut g = Ground::default();
+        g.cache.insert("keep".into(), None);
+        g.cache.insert("old".into(), None);
+        g.level_cache.insert("keep".into(), Some(1.0));
+        g.level_cache.insert("old".into(), Some(2.0));
+        let area = AreaModel {
+            tileset: None,
+            width: 1,
+            height: 1,
+            height_step: 5.0,
+            tiles: vec![crate::AreaTile {
+                index: 0,
+                column: 0,
+                row: 0,
+                id: 0,
+                model: Some("keep".into()),
+                height: 0,
+                orientation: 0,
+                main_lights: [0; 2],
+                source_lights: [0; 2],
+                anim_loops: [false; 3],
+                replace_texture: None,
+                position: glam::Vec3::ZERO,
+            }],
+            objects: Vec::new(),
+            hooks: Vec::new(),
+            lighting: crate::Lighting {
+                sun: crate::Sky::default(),
+                moon: crate::Sky::default(),
+                is_night: false,
+                day_night_cycle: false,
+                fog_clip: 45.0,
+                sky_box: 0,
+                env_map: None,
+                shadow_opacity: 0,
+                flags: 0,
+                wind_power: 0,
+                sun_direction: None,
+                moon_direction: None,
+                wallpaper: None,
+            },
+            grass: Vec::new(),
+            border: Vec::new(),
+            problems: Vec::new(),
+        };
+        g.update(&empty, &area);
+        assert!(g.cache.contains_key("keep") && !g.cache.contains_key("old"));
+        assert!(g.level_cache.contains_key("keep") && !g.level_cache.contains_key("old"));
     }
 }
 

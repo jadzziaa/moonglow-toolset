@@ -90,8 +90,11 @@ impl<'a> Gatherer<'a> {
             self.model(&part.model, 0);
             // (Textures put in place of the model's own, and what it
             // mirrors.)
-            for t in part.textures.values().chain(&part.env_map) {
+            for t in part.textures.values() {
                 self.texture(mg_image::plt::split_colors(t).0, 0);
+            }
+            if let Some(env) = &part.env_map {
+                self.env_map(mg_image::plt::split_colors(env).0, 0);
             }
         }
     }
@@ -123,8 +126,11 @@ impl<'a> Gatherer<'a> {
         let name = are.resref("Tileset").filter(|n| self.add(*n, ResType::SET));
         let owned = name.filter(|_| set.is_none()).and_then(|n| read(self, n));
         if let Some(set) = set.or(owned.as_ref()) {
-            for t in [&set.general.env_map, &set.grass.texture].into_iter().flatten() {
-                self.texture(t, 0);
+            if let Some(env) = &set.general.env_map {
+                self.env_map(env, 0);
+            }
+            if let Some(grass) = &set.grass.texture {
+                self.texture(grass, 0);
             }
             let replacements = game.table("replacetexture").ok();
             for tile in are.list("Tile_List").unwrap_or_default() {
@@ -221,6 +227,12 @@ impl<'a> Gatherer<'a> {
     /// A texture by the name a model, a material or a TXI gives it: its
     /// MTR and what that names, its image (as the game picks it, and a PLT
     /// of the name), its TXI and what that names.
+    fn env_map(&mut self, name: &str, depth: u8) {
+        if !name.eq_ignore_ascii_case("default") {
+            self.texture(name, depth);
+        }
+    }
+
     fn texture(&mut self, name: &str, depth: u8) {
         let Some(resref) = ResRef::cut(name) else { return };
         if name.eq_ignore_ascii_case("null") || depth > 4 {
@@ -254,7 +266,12 @@ impl<'a> Gatherer<'a> {
         }
         if txi && let Some(data) = self.data(resref, ResType::TXI) {
             for e in Txi::parse(&data).entries {
-                if e.key.to_ascii_lowercase().ends_with("texture") {
+                let key = e.key.to_ascii_lowercase();
+                if key.contains("envmap") {
+                    for v in &e.values {
+                        self.env_map(v, depth + 1);
+                    }
+                } else if key.ends_with("texture") {
                     for v in &e.values {
                         self.texture(v, depth + 1);
                     }
@@ -643,5 +660,44 @@ mod tests {
         assert!(chest.text.ends_with("\n0 Chest plc_c01 ****\n"), "{}", chest.text);
         utp.set("Appearance", mg_gff::Value::Dword(7));
         assert_eq!(look_row(&game, ObjectKind::Placeable, &utp), None);
+    }
+
+    #[test]
+    fn default_env_map_sentinel_is_not_reported_missing() {
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("mg_item.mdl"),
+            b"newmodel mg_item\nbeginmodelgeom mg_item\nnode trimesh a\n  parent NULL\n  bitmap mg_mat\nendnode\nendmodelgeom mg_item\ndonemodel mg_item\n"
+                .as_slice(),
+        );
+        hak.insert(key("mg_mat.tga"), &b"tga"[..]);
+        hak.insert(key("mg_mat.txi"), b"envmaptexture DEFAULT\n".as_slice());
+        let mut missing_env_hak = hak.clone();
+        missing_env_hak.insert(key("mg_bad.tga"), &b"tga"[..]);
+        missing_env_hak.insert(key("mg_bad.txi"), b"envmaptexture nope_env\n".as_slice());
+
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:mg", LayerClass::Erf, missing_env_hak);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut g = Gatherer::new(&game.resman);
+        let mut p = Preview::model("mg_item");
+        p.base.env_map = Some("default".into());
+        g.preview(&p);
+
+        let mut set = mg_set::Tileset::parse(
+            b"[GENERAL]\nName=Test\nEnvMap=Default\n[GRASS]\nGrass=0\n",
+            mg_core::Codepage::default(),
+        )
+        .unwrap();
+        set.general.env_map = Some("default".into());
+        g.area(&game, &Struct::default(), Some(&set), None);
+        assert!(g.missing().is_empty(), "{:?}", g.missing());
+
+        let mut p_bad = Preview::model("mg_item");
+        p_bad.base.textures.insert("mg_mat".into(), "mg_bad".into());
+        p_bad.base.env_map = Some("missing_part_env".into());
+        g.preview(&p_bad);
+        assert_eq!(g.missing(), ["nope_env", "missing_part_env"]);
     }
 }

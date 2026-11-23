@@ -7576,3 +7576,109 @@ fn a_texture_ripples_as_far_and_as_fast_as_the_client_s() {
         assert!(near(rate, change, 0.2), "{rate} a second, the client's {change}");
     }
 }
+
+/// Custom fragment shaders referencing `m_bones` (alone or alongside the
+/// vertex stage) bind group 3 with matching dynamic offsets without panicking.
+#[test]
+fn fragment_bones_uniform_binds_matching_dynamic_offsets() {
+    let Some(gpu) = gpu() else { return };
+    let vs_plain = "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\n\
+        attribute vec4 vPos;\nattribute vec2 vTcIn;\nvarying vec2 vUv;\nvoid main ()\n{\n    \
+        vUv = vTcIn;\n    gl_Position = m_proj * (m_mv * vPos);\n}\n";
+    let vs_bones = "#define SHADER_TYPE 1\nuniform mat4 m_mv;\nuniform mat4 m_proj;\n\
+        uniform mat4 m_bones[4];\nuniform int iSkinmesh;\n\
+        attribute vec4 vPos;\nattribute vec2 vTcIn;\nattribute vec4 vIndex;\nattribute vec4 vWeight;\n\
+        varying vec2 vUv;\nvoid main ()\n{\n    vUv = vTcIn;\n    vec4 p = vPos;\n    \
+        if (iSkinmesh != 0) { p = m_bones[int(vIndex.x)] * p * vWeight.x + p * (1.0 - vWeight.x); }\n    \
+        gl_Position = m_proj * (m_mv * p);\n}\n";
+    let fs_bones = "#define SHADER_TYPE 2\nuniform mat4 m_bones[4];\nuniform sampler2D texUnit0;\n\
+        varying vec2 vUv;\nvoid main ()\n{\n    float k = abs(m_bones[0][0][0]) * 0.0;\n    \
+        gl_FragColor = vec4(texture2D(texUnit0, vUv).rgb + k, 1.0);\n}\n";
+
+    let mut assets = TestAssets::default();
+    assets.shaders.insert("vs_plain_b".into(), vs_plain.into());
+    assets.shaders.insert("vs_both_b".into(), vs_bones.into());
+    assets.shaders.insert("fs_bones".into(), fs_bones.into());
+    assets.opaque("fs_only_b", [0, 220, 0]);
+    assets.opaque("vs_fs_b", [0, 0, 220]);
+    assets.materials.insert(
+        "fs_only_b".into(),
+        mg_image::mtr::Mtr::parse(b"customshadervs vs_plain_b\ncustomshaderfs fs_bones\n"),
+    );
+    assets.materials.insert(
+        "vs_fs_b".into(),
+        mg_image::mtr::Mtr::parse(b"customshadervs vs_both_b\ncustomshaderfs fs_bones\n"),
+    );
+
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+
+    // 1. FS alone uses m_bones on an unskinned mesh (0 offsets previously panicked).
+    let mut pm = quad();
+    if let NodeKind::Mesh(m) = &mut pm.nodes[1].kind {
+        m.textures[0] = Some("fs_only_b".into());
+    }
+    let plain = Arc::new(GpuModel::new(&gpu, Arc::new(pm)));
+    let s1 = Scene {
+        instances: vec![Instance::new(plain, Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::ONE, ..Default::default() },
+        ..Default::default()
+    };
+    let i1 = r.render_image(&gpu, &assets, &s1, &camera, 32, 32);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert!(i1.pixel(16, 16)[1] > 150, "{:?}", i1.pixel(16, 16));
+
+    // 2. Both VS and FS use m_bones on a skinned mesh (1 offset instead of 2 previously panicked).
+    let mut sm = skinned_quad(0.0);
+    if let NodeKind::Mesh(m) = &mut sm.nodes[2].kind {
+        m.textures[0] = Some("vs_fs_b".into());
+    }
+    let skin = Arc::new(GpuModel::new(&gpu, Arc::new(sm)));
+    let pose = Arc::new(vec![Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY]);
+    let s2 = Scene {
+        instances: vec![Instance { pose: Some(pose), ..Instance::new(skin, Mat4::IDENTITY) }],
+        area: AreaLight { ambient: Vec3::ONE, ..Default::default() },
+        ..Default::default()
+    };
+    let i2 = r.render_image(&gpu, &assets, &s2, &camera, 32, 32);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert!(i2.pixel(16, 16)[2] > 150, "{:?}", i2.pixel(16, 16));
+}
+
+/// A skinned mesh whose bone carries it from outside a point light's range
+/// into the light's radius receives illumination at its posed position.
+#[test]
+fn skinned_mesh_queries_point_lights_at_its_posed_position() {
+    let Some(gpu) = gpu() else { return };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(skinned_quad(20.0))));
+    let pose =
+        Arc::new(vec![Mat4::IDENTITY, Mat4::from_translation(Vec3::X * -20.0), Mat4::IDENTITY]);
+    let scene = Scene {
+        instances: vec![Instance { pose: Some(pose), ..Instance::new(model, Mat4::IDENTITY) }],
+        lights: vec![mg_render::PointLight::new(
+            Vec3::new(0.0, 0.0, 2.0),
+            Vec3::ONE,
+            8.0,
+            false,
+            4,
+        )],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, 32, 32);
+    assert!(img.pixel(16, 16)[0] > 40, "expected posed mesh to be lit: {:?}", img.pixel(16, 16));
+}

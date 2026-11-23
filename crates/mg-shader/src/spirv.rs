@@ -536,20 +536,39 @@ pub(crate) fn index_lights(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     let mut m = Module::parse(words)?;
     // The one uniform block, its type and variable (as `add_spare_blocks`).
     let blocks = m.block_types()?;
-    let mut block = None;
-    let mut vars = Vec::new();
+    let mut vars: Vec<(u32, u32)> = Vec::new();
     for i in m.insts.iter().filter(|i| i.op == OP_TYPE_POINTER) {
         if i.arg(1)? == STORAGE_UNIFORM && blocks.contains(&i.arg(2)?) {
             let ptr = i.arg(0)?;
+            let block_ty = i.arg(2)?;
             for v in m.insts.iter().filter(|v| v.op == OP_VARIABLE) {
                 if v.arg(0)? == ptr {
-                    vars.push(v.arg(1)?);
-                    block = Some(i.arg(2)?);
+                    vars.push((block_ty, v.arg(1)?));
                 }
             }
         }
     }
-    let (Some(block), &[var]) = (block, &vars[..]) else { return Ok(words.to_vec()) };
+    let has_lights = |block_ty: u32| {
+        m.insts.iter().any(|i| {
+            i.op == OP_MEMBER_NAME
+                && i.args.first() == Some(&block_ty)
+                && LIGHT_ARRAYS.contains(&string_at(&i.args, 2).as_str())
+        })
+    };
+    let is_default = |block_ty: u32| {
+        m.insts.iter().any(|i| {
+            i.op == OP_NAME
+                && i.args.first() == Some(&block_ty)
+                && string_at(&i.args, 1) == "gl_DefaultUniformBlock"
+        })
+    };
+    let chosen = vars
+        .iter()
+        .copied()
+        .find(|&(b, _)| has_lights(b))
+        .or_else(|| vars.iter().copied().find(|&(b, _)| is_default(b)))
+        .or_else(|| (vars.len() == 1).then(|| vars[0]));
+    let Some((block, var)) = chosen else { return Ok(words.to_vec()) };
     // Its light arrays: member index, which (0 position, 1 colour), length.
     let mut consts: HashMap<u32, u32> = HashMap::new();
     let mut types: HashMap<u32, Inst> = HashMap::new();
@@ -1327,5 +1346,37 @@ mod tests {
             let _ = index_lights(&[MAGIC, 0x10000, 10, 0, 0, (1 << 16) | u32::from(op)]);
         }
         assert!(add_spare_blocks(&[MAGIC, 0x10000, 10, 0, 0, (9 << 16) | 59, 1]).is_err());
+    }
+
+    #[test]
+    fn index_lights_works_alongside_named_uniform_blocks() {
+        let mut src = std::collections::BTreeMap::new();
+        src.insert(
+            "fs_named_lights".to_string(),
+            r#"
+#define SHADER_TYPE 2
+uniform Extra { vec4 tint; };
+uniform vec4 lightPosition[4];
+uniform vec4 lightColor[4];
+void main() {
+    vec4 sum = tint;
+    for (int i = 0; i < 4; i++) {
+        sum += lightPosition[i] * lightColor[i];
+    }
+    gl_FragColor = sum;
+}
+"#
+            .to_string(),
+        );
+        let assembled = crate::assemble(
+            "fs_named_lights",
+            crate::Stage::Fragment,
+            &crate::Preamble::default(),
+            &src,
+        )
+        .unwrap();
+        let spv = crate::glsl::compile(&assembled).unwrap();
+        let indexed = index_lights(&spv).unwrap();
+        assert_ne!(indexed, spv, "expected index_lights to rewrite light indexing");
     }
 }

@@ -778,8 +778,6 @@ fn split_module(
         }
     }
     // Each part's members, laid out anew (those never read in none).
-    let mut layouter = naga::proc::Layouter::default();
-    layouter.update(module.to_ctx()).map_err(naga_err)?;
     let order = [Part::Draw, Part::Frame, Part::Bones, Part::Lights];
     let mut parts: [Vec<StructMember>; 4] = Default::default();
     let mut ends = [0u32; 4];
@@ -794,24 +792,14 @@ fn split_module(
             p => p,
         };
         let k = order.iter().position(|p| *p == part).unwrap_or(0);
-        let (ty, align, size) = if matches!(order[k], Part::Draw | Part::Lights) {
-            // (An element of a storage array: by std430, as OpenGL lays it
-            // out, an array's stride and a nested struct's too. See
-            // `crate::layout`.)
-            let ty = layout::relayout(module, m.ty, Rules::Std430);
-            let (align, size) = layout::of(module, ty, Rules::Std430)
-                .ok_or_else(|| naga_err("a uniform of a type no block holds"))?;
-            (ty, align, size)
+        let rules = if matches!(order[k], Part::Draw | Part::Lights) {
+            Rules::Std430
         } else {
-            let inner = &module.types[m.ty].inner;
-            // (std140's: a vec2 by 8, a vec3, vec4, matrix or array by 16.)
-            let own = match inner {
-                TypeInner::Scalar(_) => 4,
-                TypeInner::Vector { size: naga::VectorSize::Bi, .. } => 8,
-                _ => 16,
-            };
-            (m.ty, own.max(layouter[m.ty].alignment * 1), inner.size(module.to_ctx()))
+            Rules::Std140
         };
+        let ty = layout::relayout(module, m.ty, rules);
+        let (align, size) = layout::of(module, ty, rules)
+            .ok_or_else(|| naga_err("a uniform of a type no block holds"))?;
         let offset = ends[k].div_ceil(align) * align;
         ends[k] = offset + size;
         moved.push(Some((k, parts[k].len() as u32)));
@@ -1570,5 +1558,39 @@ void main ()
             .filter_map(|(_, g)| g.binding.map(|b| b.group))
             .collect();
         assert!(!groups.is_empty() && groups.iter().all(|&g| g == 1), "{groups:?}");
+    }
+
+    #[test]
+    fn frame_block_relayouts_members_to_std140() {
+        let src: BTreeMap<String, String> = [(
+            "fs_frame".to_string(),
+            "#define SHADER_TYPE 2\nstruct FrameS { float x; vec2 y; };\n\
+             uniform FrameS frameS;\nuniform float frameArr[2];\n\
+             void main () { gl_FragColor = vec4(frameS.x, frameS.y, frameArr[1]); }\n"
+                .to_string(),
+        )]
+        .into();
+        let mut p = compile("fs_frame", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        // Re-lay the input uniform block out by Std430 (e.g. stride 4, struct span 8):
+        // split_uniforms must normalize Part::Frame back to Std140 so OpenGL validation passes.
+        let (var_h, var_ty) = p
+            .module
+            .global_variables
+            .iter()
+            .find_map(|(h, g)| {
+                (g.space == naga::AddressSpace::Uniform
+                    && !crate::spirv::SPARE_BLOCKS.contains(&g.name.as_deref().unwrap_or("")))
+                .then_some((h, g.ty))
+            })
+            .unwrap();
+        let std430_ty = layout::relayout(&mut p.module, var_ty, Rules::Std430);
+        p.module.global_variables[var_h].ty = std430_ty;
+        assert!(p.split_uniforms(|_| Part::Frame).unwrap());
+        assert_eq!(p.opengl_layout_differs(), None);
+        let block = p.reflection.uniforms.iter().find(|b| b.part == Part::Frame).unwrap();
+        assert_eq!(block.member("frameS").unwrap().size, 16);
+        assert_eq!(block.member("frameArr").unwrap().offset, 16);
+        assert_eq!(block.member("frameArr").unwrap().stride, 16);
+        assert_eq!(block.size, 48);
     }
 }

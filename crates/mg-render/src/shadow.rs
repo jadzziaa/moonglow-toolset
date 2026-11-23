@@ -286,20 +286,23 @@ pub(crate) fn plan<'a>(
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
         let node = |n: usize| inst.transform * pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
         let model: &'a crate::GpuModel = &inst.model;
-        // (A tile's box's bottom, of all its meshes.)
-        let bottom = (inst.tile && volumes).then(|| {
-            (model.meshes.iter().chain(&model.shadow_only))
-                .map(|m| world_box(node(m.node), m).0.z)
-                .fold(f32::MAX, f32::min)
-        });
+        let track_bottom = inst.tile && volumes;
+        let caster_start = casters.len();
+        let mut tile_bottom = f32::MAX;
         for (j, mesh) in inst.model.meshes.iter().enumerate() {
             let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
             let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+            let world = node(mesh.node);
             if alpha <= 0.0 {
+                if track_bottom {
+                    tile_bottom = tile_bottom.min(world_box(world, mesh).0.z);
+                }
                 continue;
             }
-            let world = node(mesh.node);
             let bounds = world_box(world, mesh);
+            if track_bottom {
+                tile_bottom = tile_bottom.min(bounds.0.z);
+            }
             // (A mesh that is nowhere, its instance's place no number: it
             // neither receives nor casts. Its box took every receiver's
             // before it with it, and the area's shadows where it came
@@ -316,20 +319,31 @@ pub(crate) fn plan<'a>(
             }
             let skinned = mesh.skin.is_some();
             if casts(inst, mesh, alpha) && (skins || !skinned) {
-                let caster = Caster { mesh, model, world, bones: None, bottom };
+                let caster = Caster { mesh, model, world, bones: None, bottom: None };
                 casters.push((caster, posed_box(bounds, skinned), skinned.then_some(pose)));
             }
         }
         for mesh in &inst.model.shadow_only {
             let skinned = mesh.skin.is_some();
+            let world = node(mesh.node);
             if casts(inst, mesh, 1.0) && (skins || !skinned) {
-                let world = node(mesh.node);
-                let bounds = posed_box(world_box(world, mesh), skinned);
+                let raw = world_box(world, mesh);
+                if track_bottom {
+                    tile_bottom = tile_bottom.min(raw.0.z);
+                }
+                let bounds = posed_box(raw, skinned);
                 if !somewhere(bounds) {
                     continue;
                 }
-                let caster = Caster { mesh, model, world, bones: None, bottom };
+                let caster = Caster { mesh, model, world, bones: None, bottom: None };
                 casters.push((caster, bounds, skinned.then_some(pose)));
+            } else if track_bottom {
+                tile_bottom = tile_bottom.min(world_box(world, mesh).0.z);
+            }
+        }
+        if track_bottom {
+            for (caster, ..) in &mut casters[caster_start..] {
+                caster.bottom = Some(tile_bottom);
             }
         }
     }
@@ -431,19 +445,29 @@ impl Share {
     /// Of `scene`, the lights `sources` (each map's, by its place in the
     /// scene's), and the others nearest `target`.
     fn of(scene: &Scene, sources: &[usize], target: Vec3) -> Share {
-        let mut chosen: Vec<usize> = Vec::new();
+        let mut chosen: Vec<usize> = Vec::with_capacity(MAX_SHARE_LIGHTS);
         for &s in sources {
             if !chosen.contains(&s) {
                 chosen.push(s);
+                if chosen.len() == MAX_SHARE_LIGHTS {
+                    break;
+                }
             }
         }
-        let mut others: Vec<(f32, usize)> = (0..scene.lights.len())
-            .filter(|i| !chosen.contains(i))
-            .map(|i| (scene.lights[i].position.distance_squared(target), i))
-            .collect();
-        others.sort_by(|a, b| a.0.total_cmp(&b.0));
-        chosen.extend(others.into_iter().map(|(_, i)| i));
-        chosen.truncate(MAX_SHARE_LIGHTS);
+        let need = MAX_SHARE_LIGHTS.saturating_sub(chosen.len());
+        if need > 0 {
+            let mut others: Vec<(f32, usize)> = (0..scene.lights.len())
+                .filter(|i| !chosen.contains(i))
+                .map(|i| (scene.lights[i].position.distance_squared(target), i))
+                .collect();
+            let cmp = |a: &(f32, usize), b: &(f32, usize)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
+            if others.len() > need {
+                others.select_nth_unstable_by(need, cmp);
+                others.truncate(need);
+            }
+            others.sort_unstable_by(cmp);
+            chosen.extend(others.into_iter().map(|(_, i)| i));
+        }
         let mut share = <Share as bytemuck::Zeroable>::zeroed();
         let a = &scene.area;
         share.area = [
@@ -1763,6 +1787,25 @@ mod tests {
             let (a, b) = (v.transform_point3(Vec3::ZERO), v.transform_point3(dir * 10.0));
             assert!((b.z - a.z - 10.0).abs() < 1e-3, "{dir}: {a} {b}");
             assert!(v.is_finite());
+        }
+    }
+
+    #[test]
+    fn share_of_keeps_the_nearest_32_lights() {
+        let lights = (0..80)
+            .map(|i| {
+                // Deliberately reversed distances so selection is non-trivial.
+                let x = (80 - i) as f32;
+                PointLight::new(Vec3::new(x, 0.0, 0.0), Vec3::ONE, 100.0, false, 4)
+            })
+            .collect();
+        let scene = Scene { lights, ..Default::default() };
+        let share = Share::of(&scene, &[2], Vec3::ZERO);
+        assert_eq!(share.falloff[2] as usize, MAX_SHARE_LIGHTS);
+        assert_eq!(share.lights[0][0][0], 78.0, "explicit source comes first");
+        // Closest remaining lights are x = 1.0 .. 31.0 (31 lights).
+        for k in 1..MAX_SHARE_LIGHTS {
+            assert_eq!(share.lights[k][0][0], k as f32, "slot {k}");
         }
     }
 }

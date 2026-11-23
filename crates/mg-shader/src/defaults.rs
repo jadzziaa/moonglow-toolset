@@ -35,10 +35,11 @@ pub fn uniform_defaults(text: &str) -> Vec<(String, UniformDefault)> {
     let mut found: Vec<(String, Option<UniformDefault>, bool)> = Vec::new();
     let code = kept(text);
     for statement in code.split(';') {
-        let certain = !statement.contains(UNSURE);
-        let statement = statement.replace(UNSURE, "");
-        // (After a function's body, which no `;` ends.)
-        let s = statement.rsplit(['{', '}']).next().unwrap_or_default().trim();
+        // (After a function's body, which no `;` ends: check certainty only after the last brace.)
+        let tail = statement.rsplit(['{', '}']).next().unwrap_or_default();
+        let certain = !tail.contains(UNSURE);
+        let cleaned = tail.replace(UNSURE, "");
+        let s = cleaned.trim();
         let Some(rest) = s.strip_prefix("uniform") else { continue };
         if !rest.starts_with(char::is_whitespace) {
             continue;
@@ -125,7 +126,13 @@ fn kept(text: &str) -> String {
                 Known::Yes => out.push_str(line),
                 Known::Maybe => {
                     out.push(UNSURE);
-                    out.push_str(line);
+                    let mut chars = line.chars();
+                    while let Some(ch) = chars.next() {
+                        out.push(ch);
+                        if (ch == '{' || ch == '}') && chars.as_str().trim_start().len() > 0 {
+                            out.push(UNSURE);
+                        }
+                    }
                 }
                 Known::No => {}
             }
@@ -490,5 +497,20 @@ mod tests {
         assert_eq!(defaults(&deep), [("a".to_string(), 1.0)]);
         let _ = uniform_defaults(&"#if 1\n".repeat(50_000));
         let _ = uniform_defaults(&"#endif\n#else\n#elif\n/*".repeat(1_000));
+    }
+
+    #[test]
+    fn unsure_closing_brace_does_not_bleed_into_subsequent_uniform() {
+        let text = "#if UNKNOWN_COND
+void helper() {}
+#endif
+uniform float a;
+uniform float a = 2.0;
+#if UNKNOWN_COND
+void helper2() {} uniform float b = 3.0;
+#endif
+uniform float b = 4.0;
+";
+        assert_eq!(defaults(text), [("a".to_string(), 2.0)]);
     }
 }

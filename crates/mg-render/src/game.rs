@@ -1345,8 +1345,8 @@ pub(crate) struct GameDraw<'a> {
     /// Its place among its pipeline's values this frame: each stage's draw
     /// and lights.
     places: [u32; 4],
-    /// Its bones' offset in the bones' buffer (a skinned draw's).
-    bones: Option<u32>,
+    /// Each stage's bones offset in the bones buffer, where that stage reads it.
+    bones: [Option<u32>; 2],
     /// The instance it is drawn as: its place in the order of draws.
     instance: u32,
     /// Drawn after the framebuffer's copy, which it reads (shiny water
@@ -1392,7 +1392,7 @@ impl GameDraw<'_> {
     /// and material (and the renderer's mesh); `None` for a skinned draw,
     /// whose bones are its own.
     pub(crate) fn batch_key(&self) -> Option<(u32, u32)> {
-        self.bones.is_none().then_some((self.pipeline.id, self.material))
+        (self.bones == [None, None]).then_some((self.pipeline.id, self.material))
     }
 
     /// Whether `next` can be drawn as the next instance of this draw.
@@ -1401,8 +1401,8 @@ impl GameDraw<'_> {
             && self.material == next.material
             && matches!((self.geometry, next.geometry), (Geometry::Mesh(a), Geometry::Mesh(b)) if std::ptr::eq(a, b))
             && self.dynamic == next.dynamic
-            && self.bones.is_none()
-            && next.bones.is_none()
+            && self.bones == [None, None]
+            && next.bones == [None, None]
     }
 }
 
@@ -2600,11 +2600,13 @@ impl GameShaders {
                 };
             }
         }
-        let bones = pipeline.stages[0].bones.as_ref().filter(|_| !d.bones.is_empty()).map(|b| {
-            let at = self.bones.take(b.plan.size, self.align);
-            let end = (at + b.plan.size) as usize;
-            fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
-            at
+        let bones = std::array::from_fn(|s| {
+            pipeline.stages[s].bones.as_ref().filter(|_| !d.bones.is_empty()).map(|b| {
+                let at = self.bones.take(b.plan.size, self.align);
+                let end = (at + b.plan.size) as usize;
+                fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
+                at
+            })
         });
         GameDraw {
             pipeline,
@@ -2955,8 +2957,19 @@ impl GameShaders {
             found_for = Some(((id, d.material), groups, own));
             // (A pipeline of skinned meshes binds each draw's bones; the
             // others, the zeros once.)
-            let skinned = d.pipeline.skin_slot.is_some() && d.pipeline.stages[0].bones.is_some();
-            let has_bones = d.pipeline.stages[0].bones.is_some();
+            let stage_has =
+                [d.pipeline.stages[0].bones.is_some(), d.pipeline.stages[1].bones.is_some()];
+            let any_bones = stage_has[0] || stage_has[1];
+            let skinned = d.pipeline.skin_slot.is_some() && any_bones;
+            let mut bone_offsets = [0u32; 2];
+            let mut offset_len = 0usize;
+            for (has, at) in stage_has.into_iter().zip(d.bones) {
+                if has {
+                    bone_offsets[offset_len] = if skinned { at.unwrap_or(0) } else { 0 };
+                    offset_len += 1;
+                }
+            }
+            let bone_offsets = &bone_offsets[..offset_len];
             if *pipeline != Some(id) {
                 pass.set_pipeline(&d.pipeline.pipeline);
                 *pipeline = Some(id);
@@ -2974,13 +2987,12 @@ impl GameShaders {
                     *storage = true;
                 }
                 if !skinned {
-                    let zeros: &[u32] = if has_bones { &[0] } else { &[] };
-                    pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), zeros);
+                    pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
                 }
             }
             if skinned {
                 // (Its bones, or the zeros of a draw without.)
-                pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), &[d.bones.unwrap_or(0)]);
+                pass.set_bind_group(BONES_GROUP, self.bones_group(d, own), bone_offsets);
             }
             if *material != Some(d.material) {
                 // (A vertex program that samples no texture binds the same

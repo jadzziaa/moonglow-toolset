@@ -2463,8 +2463,6 @@ impl Renderer {
                     }
                     let world =
                         inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
-                    let half = (mesh.max - mesh.min) * 0.5;
-                    let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
                     let moved = replaced.and_then(|r| r.vertices.as_ref());
                     // Bones: bind pose to current pose, in the skin node's space.
                     let bone_base = bones.len() as u32;
@@ -2479,21 +2477,23 @@ impl Renderer {
                     // Out of the camera's sight: not drawn. A mesh that stays
                     // in its box, by its box; one a skin moves, by the box its
                     // bones carry it to; one whose vertices an animation
-                    // replaces, by theirs.
-                    let mut bounds = None;
-                    if !is_sky {
-                        let (min, max) = match (moved, &mesh.skin) {
+                    // replaces, by theirs. Also drives posed/animated light reach.
+                    let (min, max) = if !is_sky {
+                        match (moved, &mesh.skin) {
                             (Some(v), _) => vertices_box(v),
                             (None, Some(skin)) => {
                                 let bones = &bones[bone_base as usize..];
                                 posed_box(mesh.min, mesh.max, skin.weighed, skin.unweighed, bones)
                             }
                             (None, None) => (mesh.min, mesh.max),
-                        };
-                        // (The box as it lies in the scene, turned and scaled,
-                        // and a ball around it.)
-                        let (centre, half) =
-                            (world.transform_point3((min + max) * 0.5), (max - min) * 0.5);
+                        }
+                    } else {
+                        (mesh.min, mesh.max)
+                    };
+                    let half = (max - min) * 0.5;
+                    let centre = world.transform_point3((min + max) * 0.5);
+                    let mut bounds = None;
+                    if !is_sky {
                         let turned = glam::Mat3::from_mat4(world);
                         let around = turned.x_axis.abs() * half.x
                             + turned.y_axis.abs() * half.y

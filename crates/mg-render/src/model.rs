@@ -255,14 +255,7 @@ impl GpuModel {
                     if !s.bones.is_empty() && s.weights.len() == m.vertices.len() =>
                 {
                     // (A copy's its original's.)
-                    let data: Vec<SkinVertex> = originals
-                        .iter()
-                        .map(|&v| &s.weights[v as usize])
-                        .map(|w| SkinVertex {
-                            bones: w.map(|(b, _)| u32::from(b)),
-                            weights: w.map(|(_, x)| x),
-                        })
-                        .collect();
+                    let data = skin_vertices(&originals, &s.weights, s.bones.len());
                     Some((s, data))
                 }
                 _ => None,
@@ -477,6 +470,28 @@ fn made_tangents_split(
 
 /// A mesh's vertices as uploaded (a vertex on a mirrored seam two, where
 /// the renderer makes its tangents: [`made_tangents`]).
+fn skin_vertices(
+    originals: &[u32],
+    weights: &[[(u16, f32); 4]],
+    bone_count: usize,
+) -> Vec<SkinVertex> {
+    originals
+        .iter()
+        .map(|&v| &weights[v as usize])
+        .map(|w| {
+            let mut bones = [0u32; 4];
+            let mut ws = [0.0f32; 4];
+            for (slot, &(b, x)) in w.iter().enumerate() {
+                if usize::from(b) < bone_count {
+                    bones[slot] = u32::from(b);
+                    ws[slot] = x;
+                }
+            }
+            SkinVertex { bones, weights: ws }
+        })
+        .collect()
+}
+
 pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
     uploaded(m).vertices
 }
@@ -749,5 +764,14 @@ mod tests {
         assert_eq!((binds[0], binds[1]), (Mat4::IDENTITY, rest[2]));
         // And a skin node that is itself out of range doesn't panic either.
         assert_eq!(inverse_binds(&skin, &rest, 9).len(), 2);
+    }
+
+    #[test]
+    fn skin_vertices_clamp_and_zero_out_of_range_bones() {
+        let weights = [[(1u16, 0.6), (5u16, 0.4), (0u16, 0.0), (9u16, 0.2)]];
+        let got = skin_vertices(&[0], &weights, 2);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].bones, [1, 0, 0, 0]);
+        assert_eq!(got[0].weights, [0.6, 0.0, 0.0, 0.0]);
     }
 }

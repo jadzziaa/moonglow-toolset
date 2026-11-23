@@ -360,6 +360,22 @@ impl<T> Looks<T> {
 /// order: its tiles' (each tile's model and whether it is loaded) and
 /// its objects' (what each one's look is missing). Of what the area has
 /// now: a model no tile or object names any more is not among them.
+fn chunk_names<'a>(
+    of: impl Iterator<Item = &'a Arc<GpuModel>>,
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for gm in of {
+        for n in &gm.model.nodes {
+            if let mg_mdl::NodeKind::Emitter(e) = &n.kind
+                && let Some(c) = &e.chunk
+            {
+                names.insert(c.to_ascii_lowercase());
+            }
+        }
+    }
+    names
+}
+
 fn missing_models<'a>(
     tiles: impl Iterator<Item = (Option<&'a String>, bool)>,
     objects: &[Option<Arc<Vec<String>>>],
@@ -560,10 +576,32 @@ impl AreaScene {
     /// read that nothing drawn is made of; and says what is missing of
     /// what `area` has now.
     fn settle(&mut self, area: &AreaModel) {
-        let gone = self.object_cache.sweep();
+        let mut gone = self.object_cache.sweep();
+        let active_tiles: std::collections::HashSet<&str> =
+            area.tiles.iter().filter_map(|t| t.model.as_deref()).collect();
+        let loaded_tiles: std::collections::HashSet<&str> = active_tiles
+            .iter()
+            .copied()
+            .chain(area.border.iter().map(|b| b.model.as_str()))
+            .collect();
+        self.tile_cache.retain(|name, loaded| {
+            let keep = loaded_tiles.contains(name.as_str());
+            if !keep && let Some(l) = loaded {
+                gone.push(Arc::as_ptr(l) as usize);
+            }
+            keep
+        });
         if !gone.is_empty() {
             self.failed.borrow_mut().retain(|ptr| !gone.contains(ptr));
         }
+        self.broken.retain(|name| active_tiles.contains(name.as_str()));
+        self.walkmesh_cache.retain(|name, _| active_tiles.contains(name.as_str()));
+        self.grass_cache.retain(|(name, _), _| active_tiles.contains(name.as_str()));
+        let active_chunks: std::collections::HashSet<(i32, i32)> =
+            area.tiles.iter().map(|t| crate::grass_view::chunk_of(t.position)).collect();
+        self.chunk_grass.retain(|k, _| active_chunks.contains(k));
+        let active_chunk_models = chunk_names(self.active_gpu_models());
+        self.chunk_models.retain(|k, _| active_chunk_models.contains(k));
         self.parsed.retain(|_, m| m.as_ref().is_none_or(|m| Arc::strong_count(m) > 1));
         let tiles =
             area.tiles.iter().zip(&self.tiles).map(|(t, l)| (t.model.as_ref(), l.is_some()));
@@ -626,6 +664,9 @@ impl AreaScene {
         self.update_with(gpu, area, &models);
         self.keep(models);
         self.settle(area);
+        if let Some(worker) = &mut self.chunk_worker {
+            worker.clear_failed();
+        }
         self.update_grass(gpu, game, area, &area.grass);
     }
 
@@ -689,13 +730,19 @@ impl AreaScene {
     /// Loads the models the chunk emitters of the tiles' and objects'
     /// models throw, those not loaded yet. (Most models have none: a
     /// look at each one's emitters.)
-    fn load_chunks(&mut self, gpu: &Gpu, models: &Models<'_>) {
-        // (Each tile model once; the objects whose models emit.)
-        let tiles = self.tile_cache.values().flatten().map(|l| &l.gpu);
+    fn active_gpu_models(&self) -> impl Iterator<Item = &Arc<GpuModel>> {
+        let tiles = self.tiles.iter().chain(&self.border).flatten().map(|l| &l.gpu);
         let flame = self.flame.iter().flatten().map(|l| &l.gpu);
         let emitting = self.objects.iter().flatten().filter(|s| s.composed.emits());
         let objects = emitting.flat_map(|s| s.composed.models());
-        let names = self.chunks_of(tiles.chain(flame).chain(objects));
+        tiles.chain(flame).chain(objects)
+    }
+
+    fn load_chunks(&mut self, gpu: &Gpu, models: &Models<'_>) {
+        let names: Vec<String> = chunk_names(self.active_gpu_models())
+            .into_iter()
+            .filter(|c| !self.chunk_models.contains_key(c))
+            .collect();
         self.load_chunk_models(gpu, models, names);
     }
 
@@ -708,23 +755,8 @@ impl AreaScene {
         self.load_chunk_models(gpu, models, names);
     }
 
-    /// The models the chunk emitters of `of` throw that are not loaded yet,
-    /// each once, lower case.
     fn chunks_of<'a>(&self, of: impl Iterator<Item = &'a Arc<GpuModel>>) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for gm in of {
-            for n in &gm.model.nodes {
-                if let mg_mdl::NodeKind::Emitter(e) = &n.kind
-                    && let Some(c) = &e.chunk
-                {
-                    let c = c.to_ascii_lowercase();
-                    if !self.chunk_models.contains_key(&c) && !names.contains(&c) {
-                        names.push(c);
-                    }
-                }
-            }
-        }
-        names
+        chunk_names(of).into_iter().filter(|c| !self.chunk_models.contains_key(c)).collect()
     }
 
     /// Loads the chunk models `names`.
@@ -820,6 +852,9 @@ impl AreaScene {
             self.grass_for = growing.to_vec();
             self.grass_cache.clear();
             self.chunk_grass.clear();
+            if let Some(worker) = &mut self.chunk_worker {
+                worker.reset();
+            }
         }
         let (grass, walkmeshes) = (&mut self.grass_cache, &mut self.walkmesh_cache);
         self.tile_grass = area
@@ -2270,5 +2305,73 @@ mod tests {
         let lights_alone = View { creature_shadows: false, ..both };
         assert_eq!(lights_alone.light_shadows_of(&l), None);
         assert!(lights_alone.light_shadows, "kept as the builder left it");
+    }
+
+    #[test]
+    fn settle_evicts_removed_tile_walkmesh_grass_and_chunk_caches() {
+        let mut scene = AreaScene::default();
+        scene.tile_cache.insert("keep_tile".into(), None);
+        scene.tile_cache.insert("keep_border".into(), None);
+        scene.tile_cache.insert("old_tile".into(), None);
+        scene.broken.insert("old_tile".into());
+        scene.broken.insert("keep_tile".into());
+        scene.walkmesh_cache.insert("keep_tile".into(), None);
+        scene.walkmesh_cache.insert("old_tile".into(), None);
+        scene.grass_cache.insert(("keep_tile".into(), 0), None);
+        scene.grass_cache.insert(("old_tile".into(), 0), None);
+        scene.chunk_models.insert("old_chunk".into(), None);
+
+        let tile = |model: &str| AreaTile {
+            index: 0,
+            column: 0,
+            row: 0,
+            id: 0,
+            model: Some(model.into()),
+            height: 0,
+            orientation: 0,
+            main_lights: [0; 2],
+            source_lights: [0; 2],
+            anim_loops: [false; 3],
+            replace_texture: None,
+            position: Vec3::ZERO,
+        };
+        let area = AreaModel {
+            tileset: None,
+            width: 1,
+            height: 1,
+            height_step: 5.0,
+            tiles: vec![tile("keep_tile")],
+            objects: Vec::new(),
+            hooks: Vec::new(),
+            lighting: crate::Lighting {
+                sun: crate::Sky::default(),
+                moon: crate::Sky::default(),
+                is_night: false,
+                day_night_cycle: false,
+                fog_clip: 45.0,
+                sky_box: 0,
+                env_map: None,
+                shadow_opacity: 0,
+                flags: 0,
+                wind_power: 0,
+                sun_direction: None,
+                moon_direction: None,
+                wallpaper: None,
+            },
+            grass: Vec::new(),
+            border: vec![crate::border::BorderTile {
+                model: "keep_border".into(),
+                transform: Mat4::IDENTITY,
+            }],
+            problems: Vec::new(),
+        };
+        scene.settle(&area);
+        assert!(scene.tile_cache.contains_key("keep_tile"));
+        assert!(scene.tile_cache.contains_key("keep_border"));
+        assert!(!scene.tile_cache.contains_key("old_tile"));
+        assert!(!scene.broken.contains("old_tile") && scene.broken.contains("keep_tile"));
+        assert!(!scene.walkmesh_cache.contains_key("old_tile"));
+        assert!(!scene.grass_cache.contains_key(&("old_tile".into(), 0)));
+        assert!(!scene.chunk_models.contains_key("old_chunk"));
     }
 }

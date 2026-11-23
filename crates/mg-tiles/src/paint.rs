@@ -392,6 +392,17 @@ impl Grid {
         y: u32,
         only: Option<Crosser>,
     ) -> Option<Stroke> {
+        self.erase_only_unlocking(index, x, y, only, &[])
+    }
+
+    fn erase_only_unlocking(
+        &self,
+        index: &TileIndex,
+        x: u32,
+        y: u32,
+        only: Option<Crosser>,
+        unlocked: &[(u32, u32)],
+    ) -> Option<Stroke> {
         if !self.lattice.has_cell(x, y) {
             return None;
         }
@@ -437,7 +448,7 @@ impl Grid {
                 clear(&mut lattice, n, None, &mut queue);
             }
         }
-        self.stroke(index, lattice, BTreeSet::new(), cells)
+        self.stroke_unlocking(index, lattice, BTreeSet::new(), cells, unlocked)
     }
 
     /// Choosing the tiles of `cells` again, the terrain as it is (the
@@ -467,7 +478,6 @@ impl Grid {
         }
         let mut grid = self.clone();
         let mut chosen: Vec<(u32, u32)> = Vec::new();
-        let mut unlocked = Vec::new();
         // (A group's tile: the whole group, where it is whole.)
         let mut all: Vec<(u32, u32)> = Vec::new();
         let mut seen = BTreeSet::new();
@@ -477,6 +487,9 @@ impl Grid {
                 group.unwrap_or_else(|| vec![(x, y)]).into_iter().filter(|c| seen.insert(*c)),
             );
         }
+        // Unlock the entire batch upfront so clearing an internal crosser between
+        // two grouped tiles does not fail against an unvisited sibling cell.
+        let unlocked = all.clone();
         // (Refused on the copy: what refused it is this grid's to show.)
         let refused = |at: Vec<(u32, u32)>| {
             *self.blocked.borrow_mut() = at;
@@ -485,7 +498,6 @@ impl Grid {
         let mut seen = BTreeSet::new();
         for &(x, y) in &all {
             let stroke = if index.is_grouped(grid.tile(x, y).tile) {
-                unlocked.push((x, y));
                 let mut lattice = grid.lattice.clone();
                 let mut also = vec![(x, y)];
                 for edge in 0..4 {
@@ -496,7 +508,7 @@ impl Grid {
                 }
                 grid.stroke_unlocking(index, lattice, BTreeSet::new(), also, &unlocked)
             } else {
-                grid.erase(index, x, y)
+                grid.erase_only_unlocking(index, x, y, None, &unlocked)
             };
             let Some(stroke) = stroke else { return refused(grid.blocked()) };
             // Stand-in tiles, so that the next tile sees what this one leaves.
@@ -1658,5 +1670,40 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert_eq!(only.len(), 1, "{only:?}");
         assert_eq!(step_appearance(&index, &end, only[0], false), None);
         assert_eq!(turn_fit(&index, &end, only[0], false), None);
+    }
+
+    #[test]
+    fn delete_and_erase_remove_groups_with_internal_crossers() {
+        let mut set = set();
+        let n = set.tiles.len() as u32;
+        let mut west = set.tiles[0].clone();
+        west.model = "bridge_w".into();
+        west.edges[crate::EAST] = "R".into();
+        let mut east = set.tiles[0].clone();
+        east.model = "bridge_e".into();
+        east.edges[crate::WEST] = "R".into();
+        set.tiles.extend([west, east]);
+        set.groups.push(mg_set::Group {
+            name: "Bridge".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 2,
+            tiles: vec![Some(n), Some(n + 1)],
+        });
+        let index = TileIndex::new(&set);
+        let bridge = set.groups[0].clone();
+        let mut g = grid(&index, 5);
+        apply(&mut g, &index, |g| g.place_group(&index, &bridge, 1, 2, 0));
+        assert_eq!(g.group_cells(&index, 1, 2), Some(vec![(1, 2), (2, 2)]));
+
+        let via_erase = g.erase(&index, 1, 2).expect("erase clears group with internal crosser");
+        assert!(via_erase.cells.contains(&(1, 2)) && via_erase.cells.contains(&(2, 2)));
+        assert_eq!(via_erase.lattice.cell(1, 2).edges, [None; 4]);
+        assert_eq!(via_erase.lattice.cell(2, 2).edges, [None; 4]);
+
+        let via_delete =
+            g.delete(&index, &[(2, 2)]).expect("delete clears group with internal crosser");
+        assert!(via_delete.cells.contains(&(1, 2)) && via_delete.cells.contains(&(2, 2)));
+        assert_eq!(via_delete.lattice, via_erase.lattice);
     }
 }
