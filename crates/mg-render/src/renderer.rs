@@ -4564,7 +4564,7 @@ mod tests {
         let txi = |t: &str| mg_image::txi::Txi::parse(t.as_bytes());
         let rippling = txi("proceduretype arturo\ndistort 1\ndistortionamplitude 10\nspeed 16\n");
         let picture = mg_image::Rgba { width: 4, height: 4, data: [200, 40, 10, 128].repeat(16) };
-        let tga = picture.clone().into_texture(true);
+        let tga = picture.into_texture(true);
         let dds = mg_image::Texture { format: mg_image::Format::Bc3, ..tga.clone() };
         assert!(procedure_picture(&tga, &rippling).is_none(), "a TGA's picture ripples");
         let flat = procedure_picture(&dds, &rippling).unwrap().to_rgba();

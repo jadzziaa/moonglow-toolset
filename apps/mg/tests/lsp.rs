@@ -143,7 +143,7 @@ fn the_language_server_answers() {
     assert!(labels.contains(&"x") && labels.contains(&"Twice"), "{labels:?}");
 
     // Errors as you type (with the game, whose nwscript.nss the compiler needs).
-    if let Some(_) = mg_testkit::nwn_root() {
+    if mg_testkit::nwn_root().is_some() {
         c.notify(
             "textDocument/didChange",
             json!({

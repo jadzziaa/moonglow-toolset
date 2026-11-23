@@ -1,14 +1,13 @@
-//! Two passes over glslang's SPIR-V words before naga reads them, as
-//! `spirv-opt --split-combined-image-sampler` and glslang's own mapping
-//! would do them:
+//! Five passes over glslang's SPIR-V words before naga reads them, as
+//! `spirv-opt` and glslang's own mapping would do them:
 //!
 //! - **Combined image samplers split** ([`split_samplers`]). GLSL 330's
 //!   `sampler2D` is one object; naga has textures and samplers apart. Each
 //!   such variable becomes `NAME_image` and `NAME_sampler`, each function
 //!   parameter two parameters (`DisplaceTextureCoords` and
 //!   `SetupOcclusionFromTexture` take one), each load a load of both and an
-//!   `OpSampledImage`. Arrays of samplers aren't split (no shader seen has
-//!   one): such a program is refused.
+//!   `OpSampledImage`. Sampler arrays are split across scalar bindings when
+//!   seen; unsupported indexed arrays are refused.
 //! - **Spare blocks** ([`add_spare_blocks`]): two more variables of the
 //!   uniform block's type, which [`crate::Program::split_uniforms`] makes
 //!   the frame's and the bones' blocks in the IR. (naga gives every
@@ -20,10 +19,12 @@
 //!   `lightPosition[i]` or `lightColor[i]` becomes a read of the frame's
 //!   lights at the draw's `i`th index, so that a draw's lights are a list
 //!   of numbers rather than its lights' values.
+//! - **Draw index input** ([`add_draw_index`]): adds the per-draw vertex
+//!   attribute (`a_draw_index`) consumed by instanced/batched storage indexing.
 //! - **Locations** ([`assign_locations`]): every input and output without
 //!   a `Location` or `BuiltIn` gets the next free one, in the order glslang
-//!   declares them. M1 gives vertex inputs Moonglow's own locations and
-//!   matches the varyings by name, in the IR.
+//!   declares them. Vertex inputs receive Moonglow's fixed locations, and
+//!   varyings match by name in the IR.
 //!
 //! The words come from glslang, but the passes check every index all the
 //! same: a module they don't understand is an error, not a panic.
@@ -343,7 +344,7 @@ fn split_sampler_arrays(m: &mut Module) -> Result<(), ShaderError> {
                 out.push(Inst::new(OP_LOAD, a));
             }
             OP_FUNCTION_CALL if inst.args.iter().skip(3).any(|a| alias.contains_key(a)) => {
-                let mut a = inst.args.clone();
+                let mut a = inst.args;
                 for arg in a.iter_mut().skip(3) {
                     *arg = alias.get(arg).copied().unwrap_or(*arg);
                 }

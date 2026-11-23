@@ -273,10 +273,10 @@ impl Grid {
         if !self.all_inside(edges.iter().map(|(c, _)| c).chain(click)) {
             return (None, edges.to_vec());
         }
-        let mut lattice = self.lattice.clone();
         let mut cells: Vec<(u32, u32)> = click.to_vec();
-        let (mut laid, mut held, mut blocked) = (false, Vec::new(), Vec::new());
-        // The lattice and cells with `with` laid on what is laid so far,
+        let mut last_stroke: Option<Stroke> = None;
+        let (mut held, mut blocked) = (Vec::new(), Vec::new());
+        // The cells and validated stroke with `with` laid on what is laid so far,
         // if every tile they touch fits.
         let tried = |lattice: &Lattice, cells: &[(u32, u32)], with: &[((u32, u32), usize)]| {
             let mut l = lattice.clone();
@@ -289,20 +289,19 @@ impl Grid {
                     }
                 }
             }
-            let fits = self.stroke(index, l.clone(), BTreeSet::new(), more.clone()).is_some();
-            fits.then_some((l, more))
+            self.stroke(index, l, BTreeSet::new(), more.clone()).map(|stroke| (more, stroke))
         };
         for &e in edges {
+            let cur_lattice = last_stroke.as_ref().map_or(&self.lattice, |s| &s.lattice);
             let mut with = held.clone();
             with.push(e);
-            if let Some(t) = tried(&lattice, &cells, &with) {
-                (lattice, cells) = t;
-                (laid, held) = (true, Vec::new());
-            } else if let Some(t) =
-                (!held.is_empty()).then(|| tried(&lattice, &cells, &[e])).flatten()
+            if let Some((more, stroke)) = tried(cur_lattice, &cells, &with) {
+                (cells, last_stroke) = (more, Some(stroke));
+                held.clear();
+            } else if let Some((more, stroke)) =
+                (!held.is_empty()).then(|| tried(cur_lattice, &cells, &[e])).flatten()
             {
-                (lattice, cells) = t;
-                laid = true;
+                (cells, last_stroke) = (more, Some(stroke));
             } else {
                 if !held.contains(&e) {
                     held.push(e);
@@ -315,11 +314,16 @@ impl Grid {
             }
         }
         // (Those still held at the end are the ones passed over.)
-        if !laid {
-            *self.blocked.borrow_mut() = blocked;
-            return (None, held);
+        match last_stroke {
+            Some(stroke) => {
+                self.blocked.borrow_mut().clear();
+                (Some(stroke), held)
+            }
+            None => {
+                *self.blocked.borrow_mut() = blocked;
+                (None, held)
+            }
         }
-        (self.stroke(index, lattice, BTreeSet::new(), cells), held)
     }
 
     /// The Eraser on cell (x, y): the crossers on its edges go and its tile
@@ -1365,7 +1369,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         let pond = group("Pond", vec![Some(n + 2)]);
         // (A barn whose west tile is the hut's.)
         let barn = group("Barn", vec![Some(n), Some(n + 3)]);
-        set.groups.extend([hut.clone(), pond.clone(), barn.clone()]);
+        set.groups.extend([hut.clone(), pond, barn.clone()]);
         let index = TileIndex::new(&set);
         let mut g = grid(&index, 5);
         // (A step up under where the hut goes.)
@@ -1408,7 +1412,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert!(before.place_group_exact(&index, &hut, 4, 0, 0).is_none());
         // Over half of a hut: refused, the hut flashing; over all of it
         // (the same hut put again): it goes.
-        let mut g = before.clone();
+        let mut g = before;
         let s = g.place_group_exact(&index, &hut, 0, 4, 0);
         put(&mut g, s);
         assert!(g.place_group_exact(&index, &hut, 1, 4, 0).is_none());
@@ -1663,7 +1667,7 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         }
         // A tile alone in its cell has no other appearance.
         let r = index.crosser("R").unwrap();
-        let mut l = g.lattice.clone();
+        let mut l = g.lattice;
         l.set_edge(1, 1, crate::NORTH, Some(r));
         let end = l.cell(1, 1);
         let only = index.fits(&end);

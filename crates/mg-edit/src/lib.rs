@@ -790,19 +790,19 @@ impl Workspace {
             gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
         let saved = self.saved.shared(key);
         let matches_saved = match saved {
-            Some(s) if &s[..] == &bytes[..] => true,
+            Some(s) if s[..] == bytes[..] => true,
             Some(_) => self.parsed_saved(key).is_some_and(|parsed| *parsed == *gff),
             None => false,
         };
         if matches_saved {
             let saved = saved.expect("matched above");
             let current = self.module.shared(key);
-            if !current.is_some_and(|c| std::sync::Arc::ptr_eq(c, saved) || &c[..] == &saved[..]) {
+            if !current.is_some_and(|c| std::sync::Arc::ptr_eq(c, saved) || c[..] == saved[..]) {
                 self.module.set(*key, saved.to_vec());
             }
         } else {
             match self.module.shared(key) {
-                Some(cur) if &cur[..] == &bytes[..] => {}
+                Some(cur) if cur[..] == bytes[..] => {}
                 Some(cur) if saved.is_some_and(|s| std::sync::Arc::ptr_eq(cur, s)) => {
                     self.module.set(*key, bytes);
                 }

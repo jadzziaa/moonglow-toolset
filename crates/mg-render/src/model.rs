@@ -613,7 +613,7 @@ mod tests {
         let mut own = card.clone();
         own.tangents = vec![[1.0, 0.0, 0.0, 1.0]; 6];
         assert_eq!(uploaded(&own).vertices.len(), 6);
-        let mut animated = card.clone();
+        let mut animated = card;
         animated.extra = MeshExtra::Anim(Default::default());
         assert_eq!(uploaded(&animated).vertices.len(), 6);
     }

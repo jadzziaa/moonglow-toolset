@@ -1894,8 +1894,8 @@ mod tests {
         assert_eq!(share.falloff[2] as usize, MAX_SHARE_LIGHTS);
         assert_eq!(share.lights[0][0][0], 78.0, "explicit source comes first");
         // Closest remaining lights are x = 1.0 .. 31.0 (31 lights).
-        for k in 1..MAX_SHARE_LIGHTS {
-            assert_eq!(share.lights[k][0][0], k as f32, "slot {k}");
+        for (k, light) in share.lights[..MAX_SHARE_LIGHTS].iter().enumerate().skip(1) {
+            assert_eq!(light[0][0], k as f32, "slot {k}");
         }
     }
 }

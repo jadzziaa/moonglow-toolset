@@ -147,7 +147,8 @@ pub fn merge(base: &TwoDa, ours: &TwoDa, theirs: &TwoDa, prefer: Prefer) -> Merg
         (_, true) => ours.len(),
         _ => ours.len().max(theirs.len()),
     };
-    let col_map: Vec<(&str, Option<usize>, Option<usize>, Option<usize>)> = columns
+    type ColMap<'a> = (&'a str, Option<usize>, Option<usize>, Option<usize>);
+    let col_map: Vec<ColMap<'_>> = columns
         .iter()
         .map(|c| (c.as_str(), base.column(c), ours.column(c), theirs.column(c)))
         .collect();
@@ -190,9 +191,10 @@ pub fn merge(base: &TwoDa, ours: &TwoDa, theirs: &TwoDa, prefer: Prefer) -> Merg
     table.rows = rows;
     table.default = if ours.default == base.default {
         theirs.default.clone()
-    } else if theirs.default == base.default || ours.default == theirs.default {
-        ours.default.clone()
-    } else if prefer == Prefer::Ours {
+    } else if theirs.default == base.default
+        || ours.default == theirs.default
+        || prefer == Prefer::Ours
+    {
         ours.default.clone()
     } else {
         theirs.default.clone()

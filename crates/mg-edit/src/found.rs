@@ -497,7 +497,7 @@ fn set_fields(
                 if !objects_done.insert(o.clone()) {
                     continue;
                 }
-                (o.key, o.path.clone())
+                (o.key, o.path)
             }
         };
         if !done.insert((key, path.clone())) {
@@ -512,7 +512,7 @@ fn set_fields(
             out.skipped.push(format!("{place}: no {label}"));
             continue;
         };
-        let real = f.label.to_string_lossy().to_string();
+        let real = f.label.to_string_lossy();
         match value(&f.value) {
             Some(v) => {
                 out.edits.push(Edit::SetField { key, path, label: real, value: Some(v) });
@@ -540,7 +540,7 @@ pub fn events(module: &Module, hits: &[&Hit]) -> Vec<String> {
         for f in &s.fields {
             let l = f.label.to_string_lossy();
             if matches!(f.value, Value::ResRef(_)) && mg_module::refs::is_script_field(&l) {
-                out.push(l.to_string());
+                out.push(l);
             }
         }
     }

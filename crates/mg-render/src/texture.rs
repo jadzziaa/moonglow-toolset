@@ -547,7 +547,7 @@ mod tests {
         let one_level = Texture { mips: vec![stored.mips[0].clone()], ..stored.clone() };
         assert_eq!(cube(&one_level).texture.format(), wgpu::TextureFormat::Rgba8Unorm);
         let mut mixed: [Texture; 6] = std::array::from_fn(|_| stored.clone());
-        mixed[3] = plain.clone();
+        mixed[3] = plain;
         let mixed = GpuTexture::upload_cube(&gpu, "cube", &mixed);
         assert_eq!(mixed.texture.format(), wgpu::TextureFormat::Rgba8Unorm);
         assert_eq!(size(&mixed), (16, 5));

@@ -31,11 +31,11 @@ pub struct Reshaped {
     pub deleted: usize,
 }
 
-/// The placed groups in a grid: the group (index in the tileset `set`) and
-/// the cells of its tiles, by the painting grid's own rule for which group
-/// stands in a cell ([`Grid::groups`], `TileIndex::group_at`: from any of
-/// its tiles, turned and raised as one).
-pub fn groups_in(index: &TileIndex, _set: &Tileset, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
+/// The placed groups in a grid: the group and the cells of its tiles, by
+/// the painting grid's own rule for which group stands in a cell
+/// ([`Grid::groups`], `TileIndex::group_at`: from any of its tiles, turned
+/// and raised as one).
+pub fn groups_in(index: &TileIndex, grid: &Grid) -> Vec<(usize, Vec<(u32, u32)>)> {
     grid.groups(index)
 }
 
@@ -105,7 +105,7 @@ pub fn resize(
         }
     }
     // Groups the new edge cuts.
-    let cut: Vec<(u32, u32)> = groups_in(index, set, &old)
+    let cut: Vec<(u32, u32)> = groups_in(index, &old)
         .into_iter()
         .filter(|(_, cells)| cells.iter().any(|&(x, y)| x >= width || y >= height))
         .flat_map(|(_, cells)| cells)
@@ -385,7 +385,7 @@ Border=A\nDefault=A\nFloor=A\n[TERRAIN TYPES]\nCount=1\n[TERRAIN0]\nName=A\n\
         let set = Tileset::parse(SET.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
         let index = TileIndex::new(&set);
         let grid = crate::terrain::grid(&are, &index).unwrap();
-        assert_eq!(groups_in(&index, &set, &grid), [(0, vec![(3, 1), (2, 2), (3, 2)])]);
+        assert_eq!(groups_in(&index, &grid), [(0, vec![(3, 1), (2, 2), (3, 2)])]);
         // Three wide: the column with two of its tiles goes, and the one
         // that stays, at (2, 2), is open ground.
         let r = resized(&are, 3, 4).unwrap();

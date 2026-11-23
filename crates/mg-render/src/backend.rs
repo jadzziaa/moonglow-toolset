@@ -633,7 +633,7 @@ mod tests {
         let p = pick(&list, None, Platform::Linux);
         assert_eq!(p, picked(0, Why::Automatic, None));
         // (Nor would a Direct3D 12 adapter there change it: Windows only.)
-        let mut odd = list.clone();
+        let mut odd = list;
         odd.insert(1, adapter(Backend::Dx12, AMD, 0x7550, DeviceType::DiscreteGpu));
         assert_eq!(pick(&odd, None, Platform::Linux).index, 0);
     }
@@ -847,7 +847,7 @@ mod tests {
         let p = pick_adapter(&list, None, false, HIGH, Platform::Windows, &both).unwrap();
         assert_eq!(p, picked(1, Why::AmdOnWindows, None));
         // Another GPU left: taken.
-        let mut two = list.clone();
+        let mut two = list;
         two.push(adapter(Backend::Vulkan, NVIDIA, 0x2520, DeviceType::DiscreteGpu));
         let p = pick_adapter(&two, None, false, HIGH, Platform::Windows, &both).unwrap();
         assert_eq!((p.index, p.why), (4, Why::Automatic));

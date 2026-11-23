@@ -169,9 +169,9 @@ impl SetFile {
             return Some((at, self.lines.len() - before, Vec::new()));
         }
         let (a, b) = self.body(section).expect("section exists");
-        for i in a..b {
-            let line = &self.lines[i];
+        for (offset, line) in self.lines[a..b].iter().enumerate() {
             if key_of(line).is_some_and(|k| k.eq_ignore_ascii_case(key)) {
+                let i = a + offset;
                 let written = line.split_once('=').map(|(k, _)| k).unwrap_or(key);
                 let next = format!("{written}={value}");
                 if *line == next {

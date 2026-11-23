@@ -1650,6 +1650,72 @@ fn with_params(at: usize, cond: Option<&str>, call: String) -> Result<String, St
     }
 }
 
+fn parse_ink_choice(at: usize, line: &str) -> Result<Reply, String> {
+    let named = |tags: &str| tags.split('#').map(|t| t.trim().to_string()).collect();
+    let joined;
+    let (choice, mut tags): (&str, Vec<String>) = match ink_find(line, '#') {
+        Some(hash) => match line[hash..].rfind("->") {
+            Some(arrow) => {
+                joined = format!("{} {}", &line[..hash], &line[hash + arrow..]);
+                (joined.as_str(), named(&line[hash + 1..hash + arrow]))
+            }
+            None => (&line[..hash], named(&line[hash + 1..])),
+        },
+        None => (line, Vec::new()),
+    };
+    let mut rest = choice.trim();
+    let mut cond = None;
+    if let Some(r) = rest.strip_prefix('{') {
+        let end = r.find('}').ok_or(format!("line {at}: a condition doesn't end"))?;
+        cond = Some(r[..end].trim().to_string());
+        rest = r[end + 1..].trim();
+    }
+    if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
+        let call = tags.remove(i)["if:".len()..].trim().to_string();
+        if tags.iter().any(|t| t.starts_with("if:")) {
+            return Err(format!("line {at}: a choice has one condition, one # if:"));
+        }
+        cond = Some(with_params(at, cond.as_deref(), call)?);
+    }
+    let (text, after) = match rest.strip_prefix('[') {
+        Some(r) => {
+            let end =
+                ink_find(r, ']').ok_or(format!("line {at}: a choice's [text] doesn't end"))?;
+            (r[..end].to_string(), r[end + 1..].trim())
+        }
+        None => match rest.split_once("->") {
+            Some((t, _)) => (t.trim().to_string(), &rest[t.len()..]),
+            None => (rest.to_string(), ""),
+        },
+    };
+    let target = after
+        .trim()
+        .strip_prefix("->")
+        .map(|t| t.trim().to_string())
+        .ok_or(format!("line {at}: a choice must divert (-> KNOT or -> END)"))?;
+    let text = text.trim();
+    let text = if text == "(Continue)" { String::new() } else { ink_choice_unescape(text) };
+    let to = (target != "END" && target != "DONE").then_some(target);
+    Ok((text, cond, tags, to))
+}
+
+fn parse_ink_divert(
+    at: usize,
+    inner: &str,
+    pending_if: Option<(usize, String)>,
+) -> Result<(Option<String>, String), String> {
+    let body = inner.strip_suffix('}').ok_or(format!("line {at}: logic isn't read"))?;
+    let (cond, target) = body
+        .split_once(':')
+        .and_then(|(c, t)| Some((c.trim(), t.trim().strip_prefix("->")?.trim())))
+        .ok_or(format!("line {at}: only {{condition: -> KNOT}} is read"))?;
+    let cond = match pending_if {
+        Some((from, call)) => with_params(from, Some(cond), call)?,
+        None => cond.to_string(),
+    };
+    Ok((Some(cond), target.to_string()))
+}
+
 /// Reads an Ink story as a new conversation: the subset [`to_ink`]
 /// writes (knots, `# tags`, text, choices with a condition and a divert,
 /// conditional diverts). Anything else (stitches, gathers, logic, glue) is
@@ -1723,68 +1789,9 @@ pub fn from_ink_over(source: &str, replaced: Option<&Gff>) -> Result<Gff, String
                 None => k.tags.push(tag.trim().to_string()),
             }
         } else if let Some(choice) = line.strip_prefix('+').or_else(|| line.strip_prefix('*')) {
-            // + {cond} [text] # tag -> target (and, as Moonglow wrote it
-            // before 1.22.1, + {cond} [text] -> target # tag)
-            let named = |tags: &str| tags.split('#').map(|t| t.trim().to_string()).collect();
-            let joined;
-            let (choice, tags): (&str, Vec<String>) = match ink_find(choice, '#') {
-                Some(at) => match choice[at..].rfind("->") {
-                    Some(arrow) => {
-                        joined = format!("{} {}", &choice[..at], &choice[at + arrow..]);
-                        (joined.as_str(), named(&choice[at + 1..at + arrow]))
-                    }
-                    None => (&choice[..at], named(&choice[at + 1..])),
-                },
-                None => (choice, Vec::new()),
-            };
-            let mut rest = choice.trim();
-            let mut cond = None;
-            if let Some(r) = rest.strip_prefix('{') {
-                let end = r.find('}').ok_or(format!("line {at}: a condition doesn't end"))?;
-                cond = Some(r[..end].trim().to_string());
-                rest = r[end + 1..].trim();
-            }
-            // `# if:c_x key=value`: the condition's parameters.
-            let mut tags = tags;
-            if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
-                let call = tags.remove(i)["if:".len()..].trim().to_string();
-                if tags.iter().any(|t| t.starts_with("if:")) {
-                    return Err(format!("line {at}: a choice has one condition, one # if:"));
-                }
-                cond = Some(with_params(at, cond.as_deref(), call)?);
-            }
-            let (text, after) = match rest.strip_prefix('[') {
-                Some(r) => {
-                    let end = ink_find(r, ']')
-                        .ok_or(format!("line {at}: a choice's [text] doesn't end"))?;
-                    (r[..end].to_string(), r[end + 1..].trim())
-                }
-                None => match rest.split_once("->") {
-                    Some((t, _)) => (t.trim().to_string(), &rest[t.len()..]),
-                    None => (rest.to_string(), ""),
-                },
-            };
-            let target = after
-                .trim()
-                .strip_prefix("->")
-                .map(|t| t.trim().to_string())
-                .ok_or(format!("line {at}: a choice must divert (-> KNOT or -> END)"))?;
-            let text = text.trim();
-            let text = if text == "(Continue)" { String::new() } else { ink_choice_unescape(text) };
-            let to = (target != "END" && target != "DONE").then_some(target);
-            k.replies.push((text, cond, tags, to));
+            k.replies.push(parse_ink_choice(at, choice)?);
         } else if let Some(r) = line.strip_prefix('{') {
-            // {cond: -> target}
-            let inner = r.strip_suffix('}').ok_or(format!("line {at}: logic isn't read"))?;
-            let (cond, target) = inner
-                .split_once(':')
-                .and_then(|(c, t)| Some((c.trim(), t.trim().strip_prefix("->")?.trim())))
-                .ok_or(format!("line {at}: only {{condition: -> KNOT}} is read"))?;
-            let cond = match pending_if {
-                Some((from, call)) => with_params(from, Some(cond), call)?,
-                None => cond.to_string(),
-            };
-            k.choice.get_or_insert_with(Vec::new).push((Some(cond), target.to_string()));
+            k.choice.get_or_insert_with(Vec::new).push(parse_ink_divert(at, r, pending_if)?);
         } else if let Some(t) = line.strip_prefix("->") {
             k.choice.get_or_insert_with(Vec::new).push((None, t.trim().to_string()));
         } else if line.starts_with('-')

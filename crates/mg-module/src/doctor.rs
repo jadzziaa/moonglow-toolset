@@ -95,370 +95,359 @@ pub enum Check {
     BakeUnused,
 }
 
-impl Check {
-    pub const ALL: [Check; 55] = [
-        Check::CustomTlk,
-        Check::ErfSize,
-        Check::SetRead,
-        Check::SetLineEnds,
-        Check::SetCount,
-        Check::SetHole,
-        Check::SetModel,
-        Check::SetDoor,
-        Check::SetGroup,
-        Check::SetTransition,
-        Check::SetData,
-        Check::TileFaces,
-        Check::MdlRead,
-        Check::MdlText,
-        Check::MtrName,
-        Check::MtrTexture,
-        Check::ShaderCompile,
-        Check::ShaderPair,
-        Check::TwoDaRow,
-        Check::TwoDaRead,
-        Check::TwoDaLimit,
-        Check::TwoDaShadow,
-        Check::TwoDaStrRef,
-        Check::TwoDaRef,
-        Check::TwoDaDescribed,
-        Check::TwoDaSpells,
-        Check::ObjectRow,
-        Check::PcFaction,
-        Check::StaticTransform,
-        Check::StaticTint,
-        Check::TintStored,
-        Check::AppearanceRange,
-        Check::AreaVariables,
-        Check::TileReplace,
-        Check::TileSeam,
-        Check::SoundSilent,
-        Check::TransitionHidden,
-        Check::TagUnique,
-        Check::NuiSources,
-        Check::VarType,
-        Check::VarValue,
-        Check::VarObject,
-        Check::VarName,
-        Check::VarRuntime,
-        Check::VarRequires,
-        Check::VarScript,
-        Check::ClaimsMerged,
-        Check::ClaimsTag,
-        Check::TalkRange,
-        Check::PaletteRules,
-        Check::PaletteGroupEmpty,
-        Check::PaletteListMissing,
-        Check::BakeRules,
-        Check::BakeRowPending,
-        Check::BakeUnused,
-    ];
+macro_rules! check_table {
+    ($(($variant:ident, $id:expr, $group:ident, $about:expr),)+) => {
+        impl Check {
+            pub const ALL: [Check; 55] = [$(Check::$variant),+];
 
-    pub fn id(self) -> &'static str {
-        match self {
-            Check::CustomTlk => "custom-tlk",
-            Check::ErfSize => "erf-size",
-            Check::SetRead => "set-read",
-            Check::SetLineEnds => "set-line-ends",
-            Check::SetCount => "set-count",
-            Check::SetHole => "set-hole",
-            Check::SetModel => "set-model",
-            Check::SetDoor => "set-door",
-            Check::SetGroup => "set-group",
-            Check::SetTransition => "set-transition",
-            Check::SetData => "set-data",
-            Check::TileFaces => "tile-faces",
-            Check::MdlRead => "mdl-read",
-            Check::MdlText => "mdl-text",
-            Check::MtrName => "mtr-name",
-            Check::MtrTexture => "mtr-texture",
-            Check::ShaderCompile => "shader-compile",
-            Check::ShaderPair => "shader-pair",
-            Check::TwoDaRow => "2da-row",
-            Check::TwoDaRead => "2da-read",
-            Check::TwoDaLimit => "2da-limit",
-            Check::TwoDaShadow => "2da-shadow",
-            Check::TwoDaStrRef => "2da-strref",
-            Check::TwoDaRef => "2da-ref",
-            Check::TwoDaDescribed => "2da-described",
-            Check::TwoDaSpells => "2da-spells",
-            Check::ObjectRow => "object-row",
-            Check::PcFaction => "pc-faction",
-            Check::StaticTransform => "static-transform",
-            Check::StaticTint => "static-tint",
-            Check::TintStored => "tint-stored",
-            Check::AppearanceRange => "appearance-range",
-            Check::AreaVariables => "area-variables",
-            Check::TileReplace => "tile-replace",
-            Check::TileSeam => "tile-seam",
-            Check::SoundSilent => "sound-silent",
-            Check::TransitionHidden => "transition-hidden",
-            Check::TagUnique => "tag-unique",
-            Check::NuiSources => "nui-sources",
-            Check::VarType => "var-type",
-            Check::VarValue => "var-value",
-            Check::VarObject => "var-object",
-            Check::VarName => "var-name",
-            Check::VarRuntime => "var-runtime",
-            Check::VarRequires => "var-requires",
-            Check::VarScript => "var-script",
-            Check::ClaimsMerged => "claims-merged",
-            Check::ClaimsTag => "claims-tag",
-            Check::TalkRange => "talk-range",
-            Check::PaletteRules => "palette-rules",
-            Check::PaletteGroupEmpty => "palette-group-empty",
-            Check::PaletteListMissing => "palette-list-missing",
-            Check::BakeRules => "bake-rules",
-            Check::BakeRowPending => "bake-row-pending",
-            Check::BakeUnused => "bake-unused",
-        }
-    }
+            pub fn id(self) -> &'static str {
+                match self {
+                    $(Check::$variant => $id,)+
+                }
+            }
 
-    pub fn from_id(id: &str) -> Option<Check> {
-        Check::ALL.into_iter().find(|c| c.id() == id)
-    }
+            pub fn from_id(id: &str) -> Option<Check> {
+                Check::ALL.into_iter().find(|c| c.id() == id)
+            }
 
-    /// What the check holds to be true (a finding says where it is not).
-    pub fn about(self) -> &'static str {
-        match self {
-            Check::CustomTlk => "the module's custom talk table is where the game looks for it",
-            Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
-            Check::SetRead => "a tileset can be read",
-            Check::SetLineEnds => {
-                "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
-                 the game's server never finishes loading a module that uses it, nor with more \
-                 than 256 bytes after its last CRLF, nor with a longer line)"
+            /// What the check holds to be true (a finding says where it is not).
+            pub fn about(self) -> &'static str {
+                match self {
+                    $(Check::$variant => $about,)+
+                }
             }
-            Check::SetCount => "a tileset's tile and group counts match its sections",
-            Check::SetHole => {
-                "every tile, terrain, crosser and rule a tileset counts has its section, and every \
-                 tile a Model= (the game draws a hole as nothing, with no walkmesh)"
-            }
-            Check::SetModel => "each tile's model is in the haks or the game",
-            Check::SetDoor => "a tile's door types are doortypes.2da rows with a model",
-            Check::SetGroup => {
-                "a tileset's groups have a size, a first tile of their own and tiles that exist"
-            }
-            Check::SetTransition => "a tileset with groups has a height transition",
-            Check::SetData => {
-                "a tileset's tiles, terrains, crossers and rules agree with each other"
-            }
-            Check::TileFaces => "a tile model has no more faces than Aurora can paint",
-            Check::MdlRead => "a tile's model can be read",
-            Check::MdlText => {
-                "a model kept as text has nothing the game refuses, misreads or crashes on"
-            }
-            Check::MtrName => "a material's texture names fit a resource name",
-            Check::MtrTexture => "a material's textures are in the load order",
-            Check::ShaderCompile => {
-                "a shader program of the module's content compiles (the game draws one that \
-                 doesn't magenta; Moonglow draws with its own shader instead)"
-            }
-            Check::ShaderPair => {
-                "a material that names a custom shader names both its programs \
-                 (`customshaderVS` and `customshaderFS`: the game takes the two or neither)"
-            }
-            Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
-            Check::TwoDaRead => "a 2DA can be read",
-            Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
-            Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
-            Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
-            Check::TwoDaRef => {
-                "a 2DA's changed rows name rows of other 2DAs that exist and aren't blank, and \
-                 2DAs that are there"
-            }
-            Check::TwoDaDescribed => {
-                "a table of the module's or its haks' that has a description (name.2da.toml) \
-                 holds what it says"
-            }
-            Check::TwoDaSpells => {
-                "a spellcasting class's spells: its SpellTableColumn is a column of spells.2da, \
-                 and the spells its packages prefer are ones it can learn"
-            }
-            Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
-            Check::PcFaction => "no object belongs to the PC faction, the players' alone",
-            Check::StaticTransform => {
-                "a static placeable has no visual transform: the game draws it without one"
-            }
-            Check::StaticTint => {
-                "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
-                 the game draws it as made"
-            }
-            Check::TintStored => {
-                "a material's tint is set in one place: a tdodTint stored in the object's shader \
-                 parameters isn't also given by its tdod_tint variables, which the module's \
-                 script sets over it as the module loads"
-            }
-            Check::AppearanceRange => {
-                "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
-                 (it carries the row as a 16-bit number and draws a placeable of row 65536 as \
-                 row 0's: another model, silently)"
-            }
-            Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
-            Check::TileReplace => {
-                "a tile whose model has a replace_tex texture names a replacetexture.2da row \
-                 (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
-                 or a value past the table)"
-            }
-            Check::TileSeam => {
-                "an area's neighboring tiles agree about the corners and edge they share: its \
-                 terrain and height, and its crosser (a road, a stream), as Aurora's painting \
-                 leaves them"
-            }
-            Check::SoundSilent => {
-                "an area's music and ambient sounds (its MusicDay, MusicNight and MusicBattle \
-                 rows of ambientmusic.2da, its AmbientSndDay and AmbientSndNight rows of \
-                 ambientsound.2da) and the sounds of its placed sound objects and of sound \
-                 blueprints are files the game finds and plays there: music a .bmu holding MP3, \
-                 an ambient sound a .wav holding a WAVE or a .bmu holding MP3, a placed sound a \
-                 .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
-                 V1.0 header"
-            }
-            Check::TransitionHidden => {
-                "an area transition trigger's points run counterclockwise (seen from above), as \
-                 the game needs to show it under the pointer and take a click on it, and they are \
-                 not all more than 1 m off the ground (their ZPosition + PointZ), left at another \
-                 level, where the game may not"
-            }
-            Check::TagUnique => {
-                "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
-                 object only, or on one of each area (unique_in_area)"
-            }
-            Check::NuiSources => {
-                "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
-                 nasher otherwise doesn't pack and Moonglow doesn't read back"
-            }
-            Check::VarType => {
-                "a variable the project describes (variables.toml) is of the type it says: one \
-                 of another type reads as that type's empty value (an Int read as a String is \"\")"
-            }
-            Check::VarValue => {
-                "a described variable's value is one of those it lists, within its range"
-            }
-            Check::VarObject => "a described variable is on the kind of object it says",
-            Check::VarName => {
-                "a variable named as the project's are (variables.toml's undescribed) is \
-                 described, and a described one is named in the case it is described in"
-            }
-            Check::VarRuntime => {
-                "a variable the project describes as the scripts' alone (variables.toml's \
-                 runtime = true: state or a test's hook, set while the server runs) is kept in no \
-                 file of the module"
-            }
-            Check::VarRequires => {
-                "a variable the project says needs others beside it (variables.toml's requires, \
-                 and its [[rules]]: one needed where another has a value) has them on the same \
-                 object"
-            }
-            Check::VarScript => {
-                "a variable kept in a file is of a type the module's scripts read it as (by its \
-                 name written out: GetLocalInt(o, \"tdod_lit\")): one of another type reads as \
-                 that type's empty value"
-            }
-            Check::ClaimsMerged => {
-                "an area the project's claims table says is merged (in the game) is in the module \
-                 under its ResRef, which keeps players' first visits"
-            }
-            Check::ClaimsTag => {
-                "a merged area's Tag is the one the claims table records, which keeps players' \
-                 positions"
-            }
-            Check::TalkRange => {
-                "the custom talk table's lines the project gives typed text (moonglow.toml's \
-                 [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
-                 own that no other shares"
-            }
-            Check::PaletteRules => {
-                "the project's palette groupings (moonglow.toml's [palette.*]) and the lists \
-                 their from files hold read without a fault (a grouping works without what \
-                 isn't understood)"
-            }
-            Check::PaletteGroupEmpty => {
-                "every group of a palette grouping has a blueprint in it, in the standard or the \
-                 custom palettes it is offered in (by its words, its ResRef patterns or its list)"
-            }
-            Check::PaletteListMissing => {
-                "a blueprint a palette grouping's from file lists is in the module, its haks or \
-                 the game, of a type the group is offered in"
-            }
-            Check::BakeRules => {
-                "the project's [bake] (moonglow.toml) and its rows file read without a fault, \
-                 its rows end by 65535 (the last the game carries), and they are rows the game's \
-                 placeables.2da doesn't hold already (a bake never takes one)"
-            }
-            Check::BakeRowPending => {
-                "each row of the bake's rows file is in the placeables.2da the module's haks give \
-                 the game, with its baked model: until the project's build adds it, the game has \
-                 no such row (Moonglow draws it as the build will make it)"
-            }
-            Check::BakeUnused => {
-                "every row of the bake's rows file, and every baked model in its hak, is used by \
-                 a placeable of this module (placed or a blueprint); another module or a hak's \
-                 blueprint may still use one, so none is taken out unasked"
+
+            /// The group it is reported in.
+            pub fn group(self) -> Group {
+                match self {
+                    $(Check::$variant => Group::$group,)+
+                }
             }
         }
-    }
+    };
+}
 
-    /// The group it is reported in.
-    pub fn group(self) -> Group {
-        match self {
-            Check::SetRead
-            | Check::SetLineEnds
-            | Check::SetHole
-            | Check::SetCount
-            | Check::SetModel
-            | Check::SetDoor
-            | Check::SetGroup
-            | Check::SetTransition
-            | Check::SetData
-            | Check::TileFaces
-            | Check::MdlRead => Group::Tilesets,
-            Check::MdlText
-            | Check::MtrName
-            | Check::MtrTexture
-            | Check::ShaderCompile
-            | Check::ShaderPair => Group::Models,
-            Check::TwoDaRow
-            | Check::TwoDaRead
-            | Check::TwoDaLimit
-            | Check::TwoDaShadow
-            | Check::TwoDaStrRef
-            | Check::TwoDaRef
-            | Check::TwoDaDescribed
-            | Check::TwoDaSpells => Group::Tables,
-            Check::ObjectRow
-            | Check::PcFaction
-            | Check::StaticTransform
-            | Check::StaticTint
-            | Check::TintStored
-            | Check::AppearanceRange
-            | Check::AreaVariables
-            | Check::TileReplace
-            | Check::TileSeam
-            | Check::SoundSilent
-            | Check::TransitionHidden
-            | Check::TagUnique
-            | Check::VarType
-            | Check::VarValue
-            | Check::VarObject
-            | Check::VarName
-            | Check::VarRuntime
-            | Check::VarRequires
-            | Check::VarScript => Group::Objects,
-            Check::CustomTlk
-            | Check::ErfSize
-            | Check::NuiSources
-            | Check::ClaimsMerged
-            | Check::ClaimsTag
-            | Check::TalkRange
-            | Check::PaletteRules
-            | Check::PaletteGroupEmpty
-            | Check::PaletteListMissing
-            | Check::BakeRules
-            | Check::BakeRowPending
-            | Check::BakeUnused => Group::Module,
-        }
-    }
+check_table! {
+    (
+        CustomTlk,
+        "custom-tlk",
+        Module,
+        "the module's custom talk table is where the game looks for it"
+    ),
+    (
+        ErfSize,
+        "erf-size",
+        Module,
+        "an archive's resources start within the 2 GiB the game can read"
+    ),
+    (SetRead, "set-read", Tilesets, "a tileset can be read"),
+    (
+        SetLineEnds,
+        "set-line-ends",
+        Tilesets,
+        "a tileset's lines end in CRLF and have at most 255 characters (with a bare LF \
+         the game's server never finishes loading a module that uses it, nor with more \
+         than 256 bytes after its last CRLF, nor with a longer line)"
+    ),
+    (
+        SetCount,
+        "set-count",
+        Tilesets,
+        "a tileset's tile and group counts match its sections"
+    ),
+    (
+        SetHole,
+        "set-hole",
+        Tilesets,
+        "every tile, terrain, crosser and rule a tileset counts has its section, and every \
+         tile a Model= (the game draws a hole as nothing, with no walkmesh)"
+    ),
+    (SetModel, "set-model", Tilesets, "each tile's model is in the haks or the game"),
+    (SetDoor, "set-door", Tilesets, "a tile's door types are doortypes.2da rows with a model"),
+    (
+        SetGroup,
+        "set-group",
+        Tilesets,
+        "a tileset's groups have a size, a first tile of their own and tiles that exist"
+    ),
+    (SetTransition, "set-transition", Tilesets, "a tileset with groups has a height transition"),
+    (
+        SetData,
+        "set-data",
+        Tilesets,
+        "a tileset's tiles, terrains, crossers and rules agree with each other"
+    ),
+    (TileFaces, "tile-faces", Tilesets, "a tile model has no more faces than Aurora can paint"),
+    (MdlRead, "mdl-read", Tilesets, "a tile's model can be read"),
+    (
+        MdlText,
+        "mdl-text",
+        Models,
+        "a model kept as text has nothing the game refuses, misreads or crashes on"
+    ),
+    (MtrName, "mtr-name", Models, "a material's texture names fit a resource name"),
+    (MtrTexture, "mtr-texture", Models, "a material's textures are in the load order"),
+    (
+        ShaderCompile,
+        "shader-compile",
+        Models,
+        "a shader program of the module's content compiles (the game draws one that \
+         doesn't magenta; Moonglow draws with its own shader instead)"
+    ),
+    (
+        ShaderPair,
+        "shader-pair",
+        Models,
+        "a material that names a custom shader names both its programs \
+         (`customshaderVS` and `customshaderFS`: the game takes the two or neither)"
+    ),
+    (
+        TwoDaRow,
+        "2da-row",
+        Tables,
+        "a 2DA row has no more cells than the table has columns"
+    ),
+    (TwoDaRead, "2da-read", Tables, "a 2DA can be read"),
+    (TwoDaLimit, "2da-limit", Tables, "a 2DA has no more rows than the game or Aurora takes"),
+    (TwoDaShadow, "2da-shadow", Tables, "a 2DA does not hide a longer copy in another hak"),
+    (
+        TwoDaStrRef,
+        "2da-strref",
+        Tables,
+        "a 2DA's changed rows name talk-table strings that exist"
+    ),
+    (
+        TwoDaRef,
+        "2da-ref",
+        Tables,
+        "a 2DA's changed rows name rows of other 2DAs that exist and aren't blank, and \
+         2DAs that are there"
+    ),
+    (
+        TwoDaDescribed,
+        "2da-described",
+        Tables,
+        "a table of the module's or its haks' that has a description (name.2da.toml) \
+         holds what it says"
+    ),
+    (
+        TwoDaSpells,
+        "2da-spells",
+        Tables,
+        "a spellcasting class's spells: its SpellTableColumn is a column of spells.2da, \
+         and the spells its packages prefer are ones it can learn"
+    ),
+    (
+        ObjectRow,
+        "object-row",
+        Objects,
+        "objects use 2DA rows that exist and have what they need"
+    ),
+    (
+        PcFaction,
+        "pc-faction",
+        Objects,
+        "no object belongs to the PC faction, the players' alone"
+    ),
+    (
+        StaticTransform,
+        "static-transform",
+        Objects,
+        "a static placeable has no visual transform: the game draws it without one"
+    ),
+    (
+        StaticTint,
+        "static-tint",
+        Objects,
+        "a static placeable has no tint (The Domains of Dread's tdod_tint variables): \
+         the game draws it as made"
+    ),
+    (
+        TintStored,
+        "tint-stored",
+        Objects,
+        "a material's tint is set in one place: a tdodTint stored in the object's shader \
+         parameters isn't also given by its tdod_tint variables, which the module's \
+         script sets over it as the module loads"
+    ),
+    (
+        AppearanceRange,
+        "appearance-range",
+        Objects,
+        "a placeable's Appearance is a placeables.2da row the game can carry, 0 to 65535 \
+         (it carries the row as a 16-bit number and draws a placeable of row 65536 as \
+         row 0's: another model, silently)"
+    ),
+    (
+        AreaVariables,
+        "area-variables",
+        Objects,
+        "an area's variables are in its GIT, where the game reads them"
+    ),
+    (
+        TileReplace,
+        "tile-replace",
+        Objects,
+        "a tile whose model has a replace_tex texture names a replacetexture.2da row \
+         (Tile_ReplaceTex, one past the row: the game crashes as it loads the area on 0 \
+         or a value past the table)"
+    ),
+    (
+        TileSeam,
+        "tile-seam",
+        Objects,
+        "an area's neighboring tiles agree about the corners and edge they share: its \
+         terrain and height, and its crosser (a road, a stream), as Aurora's painting \
+         leaves them"
+    ),
+    (
+        SoundSilent,
+        "sound-silent",
+        Objects,
+        "an area's music and ambient sounds (its MusicDay, MusicNight and MusicBattle \
+         rows of ambientmusic.2da, its AmbientSndDay and AmbientSndNight rows of \
+         ambientsound.2da) and the sounds of its placed sound objects and of sound \
+         blueprints are files the game finds and plays there: music a .bmu holding MP3, \
+         an ambient sound a .wav holding a WAVE or a .bmu holding MP3, a placed sound a \
+         .wav holding a WAVE (mono where the sound is positional) or MP3 behind the BMU \
+         V1.0 header"
+    ),
+    (
+        TransitionHidden,
+        "transition-hidden",
+        Objects,
+        "an area transition trigger's points run counterclockwise (seen from above), as \
+         the game needs to show it under the pointer and take a click on it, and they are \
+         not all more than 1 m off the ground (their ZPosition + PointZ), left at another \
+         level, where the game may not"
+    ),
+    (
+        TagUnique,
+        "tag-unique",
+        Objects,
+        "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
+         object only, or on one of each area (unique_in_area)"
+    ),
+    (
+        NuiSources,
+        "nui-sources",
+        Module,
+        "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
+         nasher otherwise doesn't pack and Moonglow doesn't read back"
+    ),
+    (
+        VarType,
+        "var-type",
+        Objects,
+        "a variable the project describes (variables.toml) is of the type it says: one \
+         of another type reads as that type's empty value (an Int read as a String is \"\")"
+    ),
+    (
+        VarValue,
+        "var-value",
+        Objects,
+        "a described variable's value is one of those it lists, within its range"
+    ),
+    (VarObject, "var-object", Objects, "a described variable is on the kind of object it says"),
+    (
+        VarName,
+        "var-name",
+        Objects,
+        "a variable named as the project's are (variables.toml's undescribed) is \
+         described, and a described one is named in the case it is described in"
+    ),
+    (
+        VarRuntime,
+        "var-runtime",
+        Objects,
+        "a variable the project describes as the scripts' alone (variables.toml's \
+         runtime = true: state or a test's hook, set while the server runs) is kept in no \
+         file of the module"
+    ),
+    (
+        VarRequires,
+        "var-requires",
+        Objects,
+        "a variable the project says needs others beside it (variables.toml's requires, \
+         and its [[rules]]: one needed where another has a value) has them on the same \
+         object"
+    ),
+    (
+        VarScript,
+        "var-script",
+        Objects,
+        "a variable kept in a file is of a type the module's scripts read it as (by its \
+         name written out: GetLocalInt(o, \"tdod_lit\")): one of another type reads as \
+         that type's empty value"
+    ),
+    (
+        ClaimsMerged,
+        "claims-merged",
+        Module,
+        "an area the project's claims table says is merged (in the game) is in the module \
+         under its ResRef, which keeps players' first visits"
+    ),
+    (
+        ClaimsTag,
+        "claims-tag",
+        Module,
+        "a merged area's Tag is the one the claims table records, which keeps players' \
+         positions"
+    ),
+    (
+        TalkRange,
+        "talk-range",
+        Module,
+        "the custom talk table's lines the project gives typed text (moonglow.toml's \
+         [talk]) have room, are not mg tlk-alloc's, and each builder has a part of their \
+         own that no other shares"
+    ),
+    (
+        PaletteRules,
+        "palette-rules",
+        Module,
+        "the project's palette groupings (moonglow.toml's [palette.*]) and the lists \
+         their from files hold read without a fault (a grouping works without what \
+         isn't understood)"
+    ),
+    (
+        PaletteGroupEmpty,
+        "palette-group-empty",
+        Module,
+        "every group of a palette grouping has a blueprint in it, in the standard or the \
+         custom palettes it is offered in (by its words, its ResRef patterns or its list)"
+    ),
+    (
+        PaletteListMissing,
+        "palette-list-missing",
+        Module,
+        "a blueprint a palette grouping's from file lists is in the module, its haks or \
+         the game, of a type the group is offered in"
+    ),
+    (
+        BakeRules,
+        "bake-rules",
+        Module,
+        "the project's [bake] (moonglow.toml) and its rows file read without a fault, \
+         its rows end by 65535 (the last the game carries), and they are rows the game's \
+         placeables.2da doesn't hold already (a bake never takes one)"
+    ),
+    (
+        BakeRowPending,
+        "bake-row-pending",
+        Module,
+        "each row of the bake's rows file is in the placeables.2da the module's haks give \
+         the game, with its baked model: until the project's build adds it, the game has \
+         no such row (Moonglow draws it as the build will make it)"
+    ),
+    (
+        BakeUnused,
+        "bake-unused",
+        Module,
+        "every row of the bake's rows file, and every baked model in its hak, is used by \
+         a placeable of this module (placed or a blueprint); another module or a hak's \
+         blueprint may still use one, so none is taken out unasked"
+    ),
 }
 
 /// What Verify reports, in groups a builder can leave out (a tileset of a

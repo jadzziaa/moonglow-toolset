@@ -15,10 +15,10 @@
 //! the one whose copy the game reads, or above it ([`plan`] refuses
 //! another). Two lights of the same settings share a model and a row.
 //!
-//! What the client has yet to say (the next client batch): whether such a
-//! light lights creatures and placeables or only tiles, and how many
-//! dynamic lights the game draws at one place. The node says it lights
-//! dynamic objects (`affectdynamic`, [`LightSpec::lights_objects`]) and
+//! In the client (`model_light_uniforms`), placeable model light nodes light
+//! dynamic draws when `affectdynamic` is set ([`LightSpec::lights_objects`]),
+//! and each draw keeps at most 32 lights sorted by `lightpriority`, then
+//! distance. The node marks whether it casts shadows ([`LightSpec::shadows`]);
 //! its priority ([`LightSpec::priority`]): either answer changes a
 //! default, not what is written.
 

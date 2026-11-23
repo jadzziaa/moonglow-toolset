@@ -231,9 +231,9 @@ fn color_block(px: &[[u8; 4]; 16], mode: Mode) -> [u8; 8] {
     };
     let mut visible = [[0f32; 3]; 16];
     let mut visible_len = 0;
-    for i in 0..16 {
+    for (i, p) in px.iter().enumerate() {
         if hidden & (1 << i) == 0 {
-            visible[visible_len] = [px[i][0] as f32, px[i][1] as f32, px[i][2] as f32];
+            visible[visible_len] = [p[0] as f32, p[1] as f32, p[2] as f32];
             visible_len += 1;
         }
     }

@@ -133,7 +133,7 @@ fn kept(text: &str) -> String {
                     let mut chars = line.chars();
                     while let Some(ch) = chars.next() {
                         out.push(ch);
-                        if (ch == '{' || ch == '}') && chars.as_str().trim_start().len() > 0 {
+                        if (ch == '{' || ch == '}') && !chars.as_str().trim_start().is_empty() {
                             out.push(UNSURE);
                         }
                     }

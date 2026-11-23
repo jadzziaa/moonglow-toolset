@@ -376,22 +376,22 @@ impl Program {
         self.revalidate()
     }
 
-    /// Splits the program's uniform block into three by what each member
-    /// is (`part_of`, which says [`Part::Draw`], [`Part::Frame`] or
-    /// [`Part::Bones`]): one a renderer writes for each draw, one written
-    /// once a frame (the projection, the fog, the clock: the same for
-    /// every draw), one of the bones (a skinned draw's). Each is laid out
-    /// anew, its members in the order they came in, and those the program
+    /// Splits the program's uniform block into up to four parts by what each member
+    /// is (`part_of`, which says [`Part::Draw`], [`Part::Frame`], [`Part::Bones`],
+    /// or [`Part::Lights`]): per-draw state (moved into the `DRAWS` storage array),
+    /// per-frame state (the projection, fog, and clock), bone matrices (for skinned
+    /// draws), and light entries (moved into the `LIGHTS` storage array). Each is
+    /// laid out anew, its members in the order they came in, and those the program
     /// never reads left out (glslang keeps every one declared), so a draw's
-    /// block is as small as its own members make it (`vslit`'s whole block is 8.7
+    /// entry is as small as its own members make it (`vslit`'s whole block is 8.7
     /// KB, 4 KB of it `m_bones`). A part with no members holds one unused
     /// `vec4`. The draw's and the lights' parts, elements of storage
     /// arrays, are laid out by OpenGL's std430 and filled to their 16-byte
     /// span; the frame's and the bones' by std140 (`crate::layout`: naga's
     /// GLSL keeps no offsets). A program whose parts OpenGL would lay out
-    /// otherwise all the same is an error. The draw's block keeps the
-    /// block's binding; the frame's and the bones' take the two that were
-    /// kept for them (bound after the rest).
+    /// otherwise all the same is an error. Storage buffers (`DRAWS` and `LIGHTS`)
+    /// drop the original uniform block binding; `Frame` and `Bones` take the
+    /// uniform buffer bindings reserved after them.
     ///
     /// `false`, the program unchanged, where it has no one block to split
     /// (no loose uniforms) or uses it otherwise than member by member.

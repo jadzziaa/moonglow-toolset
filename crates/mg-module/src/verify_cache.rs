@@ -64,12 +64,15 @@ impl Facts {
     }
 }
 
+/// Cached verification facts keyed by resource within one archive layer.
+type LayerFacts = HashMap<ResKey, Facts>;
+
 /// What earlier runs found of the archives of a Verify's game data, by
 /// layer: `None` for a layer not kept (a folder, the game's own).
 #[derive(Debug, Default)]
 pub(crate) struct Memo {
     dir: PathBuf,
-    layers: Vec<Option<(PathBuf, [String; 2], HashMap<ResKey, Facts>)>>,
+    layers: Vec<Option<(PathBuf, [String; 2], LayerFacts)>>,
 }
 
 /// What tells an archive from another of its label, and from itself

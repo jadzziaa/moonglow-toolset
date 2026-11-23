@@ -500,49 +500,7 @@ pub const STORE_PANEL_PAGE: [u32; 5] = {
     [pages[0].0, pages[1].0, pages[2].0, pages[3].0, pages[4].0]
 };
 
-/// Where an inventory's entry is in its grid (`Repos_PosX`, `Repos_Posy`),
-/// for [`place`]: a number below 0 (a file's INT of -1) is 0, as a place
-/// left out is. The one reading of it: cast to an unsigned number, -1
-/// was the grid's far end, and a sum with it overflowed.
-pub fn placed_at(entry: &Struct) -> (u32, u32) {
-    let at =
-        |label: &str| u32::try_from(entry.integer(label).unwrap_or(0).max(0)).unwrap_or(u32::MAX);
-    (at("Repos_PosX"), at("Repos_Posy"))
-}
-
-/// The first free place for a `w`×`h` item in an inventory grid
-/// `width` wide, row by row, among `taken` rectangles (x, y, w, h).
-///
-/// The rows looked at are the first and those just under a taken
-/// rectangle: the first free place is in one of them (a place free in a
-/// row and not in the row above is right under what was in its way), so
-/// a rectangle of any height costs one look, not a row at a time down
-/// its side (four billion of them, for a height a file can give). Where
-/// every such row is past what a place can be (rectangles down to the
-/// last row), the last row is given.
-pub fn place(taken: &[(u32, u32, u32, u32)], width: u32, w: u32, h: u32) -> (u32, u32) {
-    let width = width.max(1);
-    let w = w.clamp(1, width);
-    // (A place and a size are numbers a file gives: added in 64 bits, an
-    // item at the far end of what a field holds wraps onto no row.)
-    let end = |at: u32, size: u32| u64::from(at) + u64::from(size);
-    let free = |x: u32, y: u32| {
-        taken.iter().all(|&(tx, ty, tw, th)| {
-            end(x, w) <= u64::from(tx)
-                || end(tx, tw) <= u64::from(x)
-                || end(y, h) <= u64::from(ty)
-                || end(ty, th) <= u64::from(y)
-        })
-    };
-    let mut rows: Vec<u32> = std::iter::once(0)
-        .chain(taken.iter().filter_map(|&(_, ty, _, th)| u32::try_from(end(ty, th)).ok()))
-        .collect();
-    rows.sort_unstable();
-    rows.dedup();
-    (rows.into_iter())
-        .find_map(|y| (0..=width - w).find(|&x| free(x, y)).map(|x| (x, y)))
-        .unwrap_or((0, u32::MAX))
-}
+pub use mg_rules::levelup::{place, placed_at};
 
 /// The item blueprint an inventory's entry is of (`InventoryRes`,
 /// `EquippedRes`, a whole item's `TemplateResRef`), lowercase.

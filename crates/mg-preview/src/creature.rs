@@ -227,10 +227,7 @@ pub(crate) fn dressed_with(
             {
                 let mut p = with(model, None, true, None, false);
                 p.local = look.cloak_transform.and_then(|t| t.matrix());
-                let texture =
-                    format!("cloak_{:03}", cell_int(&cloaks, row, "TEXTURE").unwrap_or(1));
-                p.textures =
-                    lk.bitmaps(&p.model).into_iter().map(|b| (b, texture.clone())).collect();
+                p.textures = cloak_textures(&lk, &cloaks, row, &p.model);
                 p.colors = Some(c.colors_over(colors));
                 p.env_map = env_map(cell(&cloaks, row, "ENVMAP"));
                 p.item = true;
@@ -420,6 +417,18 @@ pub(crate) fn helmet_textures(
     let found = read();
     kept.helmets.borrow_mut().insert(model, found.clone());
     found
+}
+
+/// Texture overrides for a cloak part, mapping every bitmap named by `model`
+/// to `cloak_NNN` from `cloaks` at `row`.
+pub(crate) fn cloak_textures(
+    lk: &Lookup<'_>,
+    cloaks: &mg_2da::TwoDa,
+    row: usize,
+    model: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let texture = format!("cloak_{:03}", cell_int(cloaks, row, "TEXTURE").unwrap_or(1));
+    lk.bitmaps(model).into_iter().map(|b| (b, texture.clone())).collect()
 }
 
 /// `own` on every mesh of `model` (a part or a helmet with a PLT of that

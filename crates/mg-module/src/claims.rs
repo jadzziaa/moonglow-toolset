@@ -23,15 +23,25 @@
 //! two rows the table has make two changes git merges by itself. Two who
 //! each add a row add it at the same place, under the same number, which
 //! git calls a conflict: both lines kept resolve it, as the table is read
-//! by its `Area` column and not by its rows' numbers (the TDoD Module
-//! session's finding, 2026-11-06), and [`merge`] (`mg merge-claims`, git's
-//! merge driver) merges the table by area itself.
+//! by its `Area` column and not by its rows' numbers, and [`merge`] (`mg
+//! merge-claims`, git's merge driver) merges the table by area itself.
 
 use std::path::{Path, PathBuf};
 
 use mg_core::ResRef;
 
 use crate::project_file::Patterns;
+
+/// Length of a leading `\r\n` or `\n` line ending in `s` (`0` if none).
+fn line_ending_len(s: &str) -> usize {
+    if s.starts_with("\r\n") {
+        2
+    } else if s.starts_with('\n') {
+        1
+    } else {
+        0
+    }
+}
 
 /// The columns a table Moonglow makes has.
 pub const COLUMNS: [&str; 5] = ["Area", "Builder", "Status", "Date", "Tag"];
@@ -718,14 +728,7 @@ impl<'t> Table<'t> {
     fn without_row(&self, row: usize) -> Result<String, String> {
         let l = self.data_line(row).ok_or("no such row")?;
         let (a, b) = self.lines[l];
-        let rest = &self.text[b..];
-        let ending = if rest.starts_with("\r\n") {
-            2
-        } else if rest.starts_with('\n') {
-            1
-        } else {
-            0
-        };
+        let ending = line_ending_len(&self.text[b..]);
         Ok(format!("{}{}", &self.text[..a], &self.text[b + ending..]))
     }
 
@@ -761,14 +764,7 @@ impl<'t> Table<'t> {
             n => self.data_line(n - 1).unwrap_or(self.header),
         };
         let end = self.lines[after].1;
-        let rest = &self.text[end..];
-        let ending = if rest.starts_with("\r\n") {
-            2
-        } else if rest.starts_with('\n') {
-            1
-        } else {
-            0
-        };
+        let ending = line_ending_len(&self.text[end..]);
         let (head, tail) = self.text.split_at(end + ending);
         let lead = if ending == 0 { self.newline } else { "" };
         Ok(format!("{head}{lead}{line}{}{tail}", self.newline))

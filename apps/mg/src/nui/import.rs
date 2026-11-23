@@ -7,7 +7,6 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use mg_edit::Workspace;
 use mg_nui::import::{Found, command, gather, incoming};
-use mg_resman::ResKey;
 use serde_json::json;
 
 use crate::{Output, path_text};
@@ -52,7 +51,7 @@ pub(crate) fn import(
         );
     }
     let made = command(&windows);
-    let resources: Vec<ResKey> = made.edits.iter().map(|e| *e.key()).collect();
+    let resources = crate::edits::unique_keys(&made.edits);
     let left = super::left_out(&ws.module, &resources);
     let saved = !dry_run && !resources.is_empty();
     if !resources.is_empty() {

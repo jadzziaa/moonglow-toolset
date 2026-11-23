@@ -109,8 +109,8 @@ pub struct ParticleBatch {
     /// the client, 10 over the larger of the emitter's `sizeStart` and
     /// `sizeEnd` (a particle fades over its last tenth), at either shader
     /// quality; 0 for the emitters the client lays along an axis
-    /// (`Billboard_to_Local_Z`, `Billboard_to_World_Z`) and, not read,
-    /// lightning ([`softness`]).
+    /// (`Billboard_to_Local_Z`, `Billboard_to_World_Z`), while lightning
+    /// uses `sizeEnd` 0 for its end size in [`softness`].
     pub softness: f32,
 }
 

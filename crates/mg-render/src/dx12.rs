@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(said.to_string(), "Direct3D 12 compiles shaders as WGPU_DX12_COMPILER=fxc says");
         assert!(choose(true, Some(&exe), Some("DXC"), loaded).1.is_dxc());
         let (_, said) = choose(true, Some(&exe), Some("speedy"), loaded);
-        assert_eq!(said, ShaderCompiler::Dxc(dll.clone()));
+        assert_eq!(said, ShaderCompiler::Dxc(dll));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

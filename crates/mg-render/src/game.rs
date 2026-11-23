@@ -11,10 +11,10 @@
 //!   has no data for (`vColor`, the engine's baked static light, with
 //!   `staticLighting` 0) read zeros from a buffer of their own.
 //! - **Varyings** are matched by name ([`Program::link_inputs`]).
-//! - **Bind groups**: the vertex program's resources in group 0, the
-//!   fragment program's in group 1 (each binds its own uniform block at
-//!   binding 0), each block at a dynamic offset into one buffer of the
-//!   frame's blocks.
+//! - **Bind groups**: group 0 holds the shared draw/light/order storage buffers
+//!   ([`DRAW_GROUP`]), group 1 holds skinned bone uniforms and framebuffer
+//!   textures ([`BONES_GROUP`]), and groups 2 and 3 hold the vertex and fragment
+//!   stages' per-material frame blocks and textures ([`STAGE_GROUPS`]).
 //! - **The uniform contract**: every member of a block is filled by name
 //!   from what the renderer has ([`key`]); names it doesn't know are an
 //!   MTR `parameter` of that name, else zero.
@@ -923,8 +923,8 @@ const DRAW_GROUP: u32 = 0;
 const BONES_GROUP: u32 = 1;
 const STAGE_GROUPS: [u32; 2] = [2, 3];
 
-/// The storage buffers of group 2: the variable's name, the stage, the
-/// binding.
+/// The storage buffers of group 0 (`DRAW_GROUP`): the variable's name, the
+/// stage, the binding.
 const STORAGE: [(&str, usize, u32); 7] = [
     (mg_shader::ORDER, 0, 0),
     (mg_shader::DRAWS, 0, 1),
@@ -2009,7 +2009,7 @@ impl Worker {
             .zip(visibility)
             .filter_map(|(s, v)| s.bones.as_ref().map(|b| block_entry(b, v, true)))
             .collect();
-        // (The framebuffer's copies with the bones: group 0 stays the same
+        // (Group 1 holds bones and framebuffer copies so group 0 stays the same
         // for every pipeline.)
         if reads_fb {
             bones.extend(fb_layout_entries());

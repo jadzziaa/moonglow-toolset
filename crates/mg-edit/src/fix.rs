@@ -151,9 +151,12 @@ struct Seen<'a> {
     /// Parsed GFFs reused across findings on the same resource.
     gffs: HashMap<ResKey, Option<mg_gff::Gff>>,
     /// Duplicate tags indexed by `(first resource, described places)` for O(1) lookup.
-    dups_whole: Option<HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)>>,
-    dups_areas: Option<HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)>>,
+    dups_whole: Option<DupMap>,
+    dups_areas: Option<DupMap>,
 }
+
+/// Duplicate tags indexed by `(first resource, described places)` for O(1) lookup.
+type DupMap = HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)>;
 
 impl Seen<'_> {
     fn gff(&mut self, module: &Module, key: ResKey) -> Option<&mg_gff::Gff> {
@@ -288,9 +291,7 @@ fn outline_fix(module: &Module, f: &Finding, nth: usize, seen: &mut Seen<'_>) ->
     (!edits.is_empty()).then(|| Fix { label: PUT_OUTLINE_RIGHT.into(), edits, asks: None })
 }
 
-fn index_duplicates<'a, T: AsRef<[Tagged]>>(
-    list: Vec<(&'a [u8], T)>,
-) -> HashMap<(ResKey, String), (Vec<u8>, Vec<Tagged>)> {
+fn index_duplicates<T: AsRef<[Tagged]>>(list: Vec<(&[u8], T)>) -> DupMap {
     let mut map = HashMap::with_capacity(list.len());
     for (tag, places) in list {
         let places = places.as_ref();

@@ -514,7 +514,6 @@ impl ShadowVolumes {
     /// as the game's shadow plane lays it, for `camera` seeing a picture
     /// of `size`; `fog`: the scene's.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn lay(
         &mut self,
         gpu: &crate::Gpu,
@@ -570,8 +569,7 @@ impl ShadowVolumes {
                 gpu,
                 encoder,
                 (stencil, depth),
-                set,
-                &counted,
+                (set, &counted),
                 !copied,
                 copy_cache.as_deref_mut(),
             );
@@ -831,8 +829,7 @@ impl Pipelines {
         gpu: &crate::Gpu,
         encoder: &mut wgpu::CommandEncoder,
         (stencil, depth): (&wgpu::TextureView, &wgpu::TextureView),
-        set: &mut Set,
-        counted: &Counted,
+        (set, counted): (&mut Set, &Counted),
         copy: bool,
         copy_cache: Option<&mut Option<wgpu::BindGroup>>,
     ) {

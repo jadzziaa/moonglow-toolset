@@ -946,6 +946,16 @@ fn restructured(
     Ok(fresh)
 }
 
+/// Whether `module` and `before` hold different bytes for `key` (or only one
+/// holds it). Comparing `Arc` pointers avoids byte-slice scans across unchanged
+/// blueprints.
+fn resource_differs(module: &Module, before: &Module, key: &mg_resman::ResKey) -> bool {
+    match (module.shared(key), before.shared(key)) {
+        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
+        (a, b) => a.is_some() != b.is_some(),
+    }
+}
+
 /// The module's custom palette of `kind` brought up to date with what
 /// changed since `before` (the module as it was opened or last saved), as
 /// Aurora keeps it: only the entries of the module's blueprints that were
@@ -980,16 +990,10 @@ pub fn update_custom_palette(
         return rebuild_custom_palette(module, game, kind).map(Some);
     }
     let restype = kind.restype();
-    // (The same bytes, most often shared: compared only where they aren't,
-    // as comparing every blueprint of a large module took milliseconds.)
-    let differs = |k: &mg_resman::ResKey| match (module.shared(k), before.shared(k)) {
-        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
-        (a, b) => a.is_some() != b.is_some(),
-    };
-    let skeleton_changed = differs(&kind.skeleton_key());
+    let skeleton_changed = resource_differs(module, before, &kind.skeleton_key());
     let changed: Vec<mg_resman::ResKey> = (module.keys_of(restype))
         .chain(before.keys_of(restype))
-        .filter(|k| differs(k))
+        .filter(|k| resource_differs(module, before, k))
         .copied()
         .collect();
     updated(module, Some(before), game, kind, changed, skeleton_changed)
@@ -1208,17 +1212,13 @@ fn update_palettes(
 /// have something to bring up to date ([`update_custom_palettes`]), for a
 /// command that writes the module to know without reading the game.
 pub fn blueprints_changed(module: &Module, before: &Module) -> bool {
-    let differs = |k: &mg_resman::ResKey| match (module.shared(k), before.shared(k)) {
-        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
-        (a, b) => a.is_some() != b.is_some(),
-    };
     let repute = mg_resman::ResKey::parse("repute", ResType::FAC).expect("valid");
-    differs(&repute)
+    resource_differs(module, before, &repute)
         || BlueprintKind::ALL.iter().any(|kind| {
-            differs(&kind.skeleton_key())
+            resource_differs(module, before, &kind.skeleton_key())
                 || (module.keys_of(kind.restype()))
                     .chain(before.keys_of(kind.restype()))
-                    .any(&differs)
+                    .any(|k| resource_differs(module, before, k))
         })
 }
 

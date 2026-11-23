@@ -16,8 +16,8 @@
 //! put into one mesh, made the first time the chunk is seen (on a thread
 //! of its own, [`crate::AreaScene::grow_grass`]) and kept: a large area seen
 //! from high up is some sixty draws of grass rather than a thousand. Until
-//! a chunk's mesh is made, its tiles are drawn by themselves, with the
-//! same tufts: nothing in the picture changes when it is.
+//! a chunk's mesh is made, its tiles are drawn individually with per-tile
+//! wind sway (`SWAY_NODE`), whereas completed chunk meshes are static.
 
 use std::collections::HashSet;
 use std::sync::{Arc, mpsc};

@@ -360,7 +360,7 @@ impl crate::GameData {
                 let cached = std::sync::Arc::clone(said);
                 drop(judged);
                 let mut w = self.judged.write().expect("judged cache poisoned");
-                if w.current.get(&key).is_none() {
+                if !w.current.contains_key(&key) {
                     w.prev.remove(&key);
                     w.insert_current(key, std::sync::Arc::clone(&cached));
                 }

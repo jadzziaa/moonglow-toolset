@@ -297,6 +297,17 @@ pub(crate) fn run(
 /// Like [`run`], running `before_save` right after `guard.before` accepts
 /// and before palettes/module saving, and invoking `rollback` if `before_save`,
 /// palette updates, or saving fails.
+/// Distinct resource keys touched by `edits` in first-seen order.
+pub(crate) fn unique_keys(edits: &[Edit]) -> Vec<ResKey> {
+    let mut resources: Vec<ResKey> = Vec::new();
+    for e in edits {
+        if !resources.contains(e.key()) {
+            resources.push(*e.key());
+        }
+    }
+    resources
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_with_before_save(
     mut ws: Workspace,
@@ -310,12 +321,7 @@ pub(crate) fn run_with_before_save(
     before_save: impl FnOnce() -> Result<()>,
     rollback: impl FnOnce(),
 ) -> Result<Output> {
-    let mut resources: Vec<ResKey> = Vec::new();
-    for e in &cmd.edits {
-        if !resources.contains(e.key()) {
-            resources.push(*e.key());
-        }
-    }
+    let resources = unique_keys(&cmd.edits);
     let written = command_to_json(&cmd, codepage).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
     let was = guard.map(|_| ws.module.clone());
