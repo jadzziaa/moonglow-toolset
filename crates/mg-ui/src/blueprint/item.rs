@@ -405,6 +405,25 @@ const LOWER_PARTS: [(&str, &[&str], &str); 3] = [
     ("Robe", &["ArmorPart_Robe"], "parts_robe"),
 ];
 
+const ARMOR_TITLES: [&str; 16] = [
+    "Neck",
+    "Torso",
+    "Belt",
+    "Pelvis",
+    "Right Shoulder",
+    "Left Shoulder",
+    "Right Bicep",
+    "Left Bicep",
+    "Right Forearm",
+    "Left Forearm",
+    "Right Hand",
+    "Left Hand",
+    "Thighs",
+    "Shins",
+    "Feet",
+    "Robe",
+];
+
 fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-colors", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         // The colors of layered items and armor, and their palettes.
@@ -487,11 +506,19 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
 /// or the number needs one).
 fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
     let mut s = item.clone();
-    s.set(label, Value::Byte(n.min(255) as u8));
-    if n > 255 || s.get(&wide_label(label)).is_some() {
-        s.set(&wide_label(label), Value::Word(n));
-    }
+    let keep_wide = s.get(&wide_label(label)).is_some();
+    set_model_in_place(&mut s, label, n, keep_wide);
     s
+}
+
+fn set_model_in_place(s: &mut Struct, label: &str, n: u16, keep_wide: bool) {
+    s.set(label, Value::Byte(n.min(255) as u8));
+    let wide = wide_label(label);
+    if n > 255 || keep_wide {
+        s.set(&wide, Value::Word(n));
+    } else {
+        s.remove(&wide);
+    }
 }
 
 /// An item's icon layers (the game lent to the page).
@@ -576,8 +603,11 @@ fn part_grid(
     // once, and the item copied for each every frame. A whole item's
     // icons are of one size, the first one drawn's; a part alone is as
     // large as it was when last drawn.)
-    let mut usual: Option<egui::Vec2> = None;
     let sizes_id = egui::Id::new(id).with("sizes");
+    let usual_id = sizes_id.with("usual");
+    let usual_was: Option<egui::Vec2> =
+        if letter.is_none() { ui.data(|d| d.get_temp(usual_id)) } else { None };
+    let mut usual = usual_was;
     type Sizes = std::collections::HashMap<u16, egui::Vec2>;
     let mut sizes: Sizes = match letter {
         Some(_) => ui.data(|d| d.get_temp(sizes_id)).unwrap_or_default(),
@@ -644,6 +674,12 @@ fn part_grid(
     if learned {
         ui.data_mut(|d| d.insert_temp(sizes_id, sizes));
     }
+    if letter.is_none()
+        && usual != usual_was
+        && let Some(u) = usual
+    {
+        ui.data_mut(|d| d.insert_temp(usual_id, u));
+    }
     if ui.data(|d| d.get_temp::<f32>(row_id)) != Some(tallest) {
         ui.data_mut(|d| d.insert_temp(row_id, tallest));
         ui.ctx().request_repaint();
@@ -680,17 +716,26 @@ const PART_PIECES: [&[&str]; 16] = [
 /// an armor class, a torso's with it said, and 0 as well, which most of
 /// the game's tables leave out: no part, so the wearer's own shows there,
 /// as in the game (a builder's report).
-fn armor_part_choices(game: &GameData, table: &str) -> Vec<Choice> {
-    let t = game.table(table).ok();
-    let numbers: Vec<u16> = t.as_ref().map_or_else(Vec::new, |t| {
-        (0..t.len()).filter(|&r| t.get(r, "ACBONUS").is_some()).map(|r| r as u16).collect()
-    });
-    let ac_of = |n: u16| t.as_ref().and_then(|t| t.get_float(n as usize, "ACBONUS")).unwrap_or(0.0);
-    if table == "parts_chest" {
-        super::situated::part_choices(&numbers, |n| format!("{n} (AC {})", ac_of(n).round()))
-    } else {
-        super::situated::part_choices(&numbers, |n| n.to_string())
-    }
+fn armor_part_choices(
+    ctx: &egui::Context,
+    load_order: u64,
+    game: &GameData,
+    table: &'static str,
+) -> Arc<Vec<Choice>> {
+    super::kept_for_key(ctx, egui::Id::new(("armor-part-choices", table)), &load_order, || {
+        let t = game.table(table).ok();
+        let numbers: Vec<u16> = t.as_ref().map_or_else(Vec::new, |t| {
+            (0..t.len()).filter(|&r| t.get(r, "ACBONUS").is_some()).map(|r| r as u16).collect()
+        });
+        let ac_of =
+            |n: u16| t.as_ref().and_then(|t| t.get_float(n as usize, "ACBONUS")).unwrap_or(0.0);
+        let built = if table == "parts_chest" {
+            super::situated::part_choices(&numbers, |n| format!("{n} (AC {})", ac_of(n).round()))
+        } else {
+            super::situated::part_choices(&numbers, |n| n.to_string())
+        };
+        Arc::new(built)
+    })
 }
 
 /// The pictures of an armor's part, each of its models alone (as the body
@@ -706,26 +751,17 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 3.0);
         crate::widgets::field_label(ui, "Pictures of");
-        for (i, (text, ..)) in all.iter().enumerate() {
+        for (i, title) in ARMOR_TITLES.iter().enumerate() {
             // (On, the kit's toggle in the accent fill; off, flat, still
             // said as a toggle that is off.)
             let look = match at == i {
                 true => mg_uikit::ButtonLook::Toggle,
                 false => mg_uikit::ButtonLook::Flat,
             };
-            // (A button's words in title case: "Right Shoulder".)
-            let title: Vec<String> = text
-                .split(' ')
-                .map(|w| {
-                    let mut c = w.chars();
-                    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
-                })
-                .collect();
-            let title = title.join(" ");
-            let r = ui.add(mg_uikit::KitButton::new(None, &title).toggle(at == i).look(look));
+            let r = ui.add(mg_uikit::KitButton::new(None, *title).toggle(at == i).look(look));
             let on = at == i;
-            r.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, &title)
+            r.widget_info(move || {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, *title)
             });
             if r.clicked() {
                 at = i;
@@ -734,7 +770,7 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     });
     ui.data_mut(|d| d.insert_temp(id, at));
     let &(text, labels, table) = all[at];
-    let choices = armor_part_choices(game, table);
+    let choices = armor_part_choices(ui.ctx(), f.app.load_order, game, table);
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let (female, pieces) = (on_woman(f), PART_PIECES[at]);
     // (Its number as the name, a torso's armor class the detail under it:
@@ -787,10 +823,17 @@ fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         .max_height(high)
         .min_scrolled_height(high)
         .auto_shrink([false, true]);
+    let mut slim = mg_preview::ItemLook::from_uti(&f.root).to_uti(0);
+    let had_wide: [bool; 2] = [
+        labels.first().is_some_and(|l| slim.get(&wide_label(l)).is_some()),
+        labels.get(1).is_some_and(|l| slim.get(&wide_label(l)).is_some()),
+    ];
     let shown = area.show(ui, |ui| {
-        let key_of = |f: &mut Form<'_>, n: u16| {
-            let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
-            f.app.thumbnails.item_part(&item, female, Some(pieces))
+        let mut key_of = |f: &mut Form<'_>, n: u16| {
+            for (j, l) in labels.iter().enumerate() {
+                set_model_in_place(&mut slim, l, n, had_wide[j]);
+            }
+            f.app.thumbnails.item_part(&slim, female, Some(pieces))
         };
         let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
             let c = &choices[i];
@@ -935,7 +978,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         |ui| {
                             for (text, labels, table) in parts {
                                 crate::widgets::field_label(ui, *text);
-                                let choices = armor_part_choices(game, table);
+                                let choices =
+                                    armor_part_choices(ui.ctx(), f.app.load_order, game, table);
                                 pick_part(f, ui, text, labels, &choices);
                                 ui.end_row();
                             }

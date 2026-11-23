@@ -32,7 +32,7 @@ mod item;
 pub(crate) mod picker;
 mod placeable;
 mod replacements;
-mod situated;
+pub(crate) mod situated;
 mod sound;
 pub(crate) mod store;
 pub(crate) mod tint;
@@ -406,10 +406,8 @@ fn ok_cancel_header_with(
 ) -> (Option<Pressed>, bool) {
     use mg_uikit::KitButton;
     let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
-    let measure = |text: &str| {
-        let galley =
-            ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE);
-        galley.size().x
+    let shape_plain = |text: &str| {
+        ui.painter().layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER)
     };
     const GAP: f32 = 8.0;
     let mut buttons: Vec<KitButton> = Vec::new();
@@ -439,18 +437,17 @@ fn ok_cancel_header_with(
         - 2.0)
         .max(0.0);
     let frame = 4.0 + mg_uikit::metrics::ICON + GAP + 4.0;
-    let name_w = measure(title.name);
-    let sub_w = if title.sub.is_empty() { 0.0 } else { GAP + measure(title.sub) };
+    let name_galley = shape_plain(title.name);
+    let name_w = name_galley.size().x;
+    let sub_galley = (!title.sub.is_empty()).then(|| shape_plain(title.sub));
+    let sub_w = sub_galley.as_ref().map_or(0.0, |g| GAP + g.size().x);
     let (shown_sub, name_room) = match frame + name_w + sub_w <= room {
-        true => (title.sub.to_string(), name_w),
-        false => (String::new(), (room - frame).min(name_w).max(0.0)),
+        true => (sub_galley, name_w),
+        false => (None, (room - frame).min(name_w).max(0.0)),
     };
-    let width = frame + name_room + if shown_sub.is_empty() { 0.0 } else { sub_w };
-    let (icon, name, sub) = (title.icon, title.name.to_string(), shown_sub);
-    let whole = match title.sub.is_empty() {
-        true => title.name.to_string(),
-        false => format!("{} {}", title.name, title.sub),
-    };
+    let width = frame + name_room + shown_sub.as_ref().map_or(0.0, |g| GAP + g.size().x);
+    let (icon, name, sub) = (title.icon, title.name.to_string(), title.sub.to_string());
+    let fits_whole = name_w <= name_room;
     let item = mg_uikit::header::Item::custom("Title", width.ceil(), move |ui| {
         ui.spacing_mut().item_spacing.x = GAP;
         ui.add_space(4.0);
@@ -459,15 +456,22 @@ fn ok_cancel_header_with(
             .allocate_exact_size(egui::Vec2::splat(mg_uikit::metrics::ICON), egui::Sense::hover());
         icon.paint(ui.painter(), rect, t.text);
         // (Painted; one accessible label, the whole title, on the icon.)
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole));
-        let font = egui::FontId::proportional(mg_uikit::metrics::BODY_SIZE);
-        let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
-        job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
-        let galley = ui.painter().layout_job(job);
+        let name_info = name.clone();
+        response.widget_info(move || {
+            let whole =
+                if sub.is_empty() { name_info.clone() } else { format!("{name_info} {sub}") };
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &whole)
+        });
+        let galley = if fits_whole {
+            name_galley
+        } else {
+            let mut job = egui::text::LayoutJob::simple_singleline(name, font.clone(), t.text);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(name_room.ceil() + 0.5);
+            ui.painter().layout_job(job)
+        };
         let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
         ui.painter().galley(rect.min, galley, t.text);
-        if !sub.is_empty() {
-            let galley = ui.painter().layout_no_wrap(sub, font, t.text_3);
+        if let Some(galley) = shown_sub {
             let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
             ui.painter().galley(rect.min, galley, t.text_3);
         }
@@ -922,8 +926,8 @@ pub(crate) fn let_go_of_unseen(app: &mut Moonglow, ctx: &egui::Context) {
 /// by `Arc::ptr_eq`.
 ///
 /// Do not pass `&Arc<GameData>` here: holding an extra `Arc` in egui memory
-/// blocks `crate::exclusive(&mut app.game)`. Use [`kept_for_load_order`] or
-/// [`kept_for_key`] keyed on `app.load_order` instead.
+/// blocks `crate::exclusive(&mut app.game)`. Use [`kept_for_key`] keyed on
+/// `app.load_order` instead.
 pub(crate) fn kept_for<S, K, T>(
     ctx: &egui::Context,
     id: egui::Id,
@@ -1036,12 +1040,19 @@ impl Form<'_> {
     /// ([`mg_rules::GameData::appearance_choices`]).
     pub(crate) fn appearance_rows(
         &self,
+        ctx: &egui::Context,
         kind: mg_rules::ObjectKind,
-        choices: &[Choice],
+        choices: &std::sync::Arc<Vec<Choice>>,
     ) -> std::sync::Arc<Vec<Choice>> {
         match self.app.game.as_deref() {
-            Some(game) => game.appearance_choices(kind, choices),
-            None => std::sync::Arc::new(choices.to_vec()),
+            Some(game) => kept_for(
+                ctx,
+                egui::Id::new(("appearance-rows", kind)),
+                choices,
+                &self.app.load_order,
+                || game.appearance_choices(kind, choices),
+            ),
+            None => choices.clone(),
         }
     }
 
@@ -1150,7 +1161,16 @@ impl Form<'_> {
     /// Whether the others edited with this one have another value in
     /// field `label` (not looked at past [`MIXED_LIMIT`] of them).
     pub(crate) fn differs(&mut self, label: &str) -> bool {
-        self.differs_by(label, |v| v.cloned())
+        if self.also.is_empty() || self.also.len() > MIXED_LIMIT {
+            return false;
+        }
+        let Some(ws) = self.app.ws.as_mut() else { return false };
+        let mine = self.root.get(label);
+        self.also.iter().any(|(key, path)| {
+            let theirs =
+                ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(label));
+            theirs != mine
+        })
     }
 
     /// Whether the others edited with this one have another value in
@@ -1274,13 +1294,16 @@ impl Form<'_> {
     /// with all they carry, each frame a list page was shown.
     pub(crate) fn list_targets(&mut self) -> Arc<Vec<lists::Target>> {
         let revision = self.app.ws.as_ref().map(mg_edit::Workspace::revision);
-        if let Some(((at, key, path, also), kept)) = &self.app.palette.kept.targets
-            && (*at, *key) == (revision, self.key)
-            && *path == self.path
-            && (Arc::ptr_eq(also, &self.also) || *also == self.also)
-            && kept.first().is_some_and(|t| t.at == self.root)
+        let kept = &mut self.app.palette.kept;
+        if kept.targets_revision != revision {
+            kept.targets_revision = revision;
+            kept.targets.clear();
+        }
+        let map_key = (self.key, self.path.clone(), self.also.clone());
+        if let Some(hit) = kept.targets.get(&map_key)
+            && hit.first().is_some_and(|t| t.at == self.root)
         {
-            return kept.clone();
+            return hit.clone();
         }
         let mut out = vec![lists::Target::new(self.key, self.path.clone(), self.root.clone())];
         if let Some(ws) = self.app.ws.as_mut() {
@@ -1291,8 +1314,7 @@ impl Form<'_> {
             }
         }
         let out = Arc::new(out);
-        let read_for = (revision, self.key, self.path.clone(), self.also.clone());
-        self.app.palette.kept.targets = Some((read_for, out.clone()));
+        self.app.palette.kept.targets.insert(map_key, out.clone());
         out
     }
 
@@ -2465,20 +2487,23 @@ impl Form<'_> {
     /// The Variables page: the list in place ([`crate::widgets::variables_page`]),
     /// read-only for an object of a read-only area.
     pub(crate) fn variables_page(&mut self, ui: &mut Ui) {
-        let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
         self.mark_mixed(ui, "VarTable");
         let locked =
             crate::claims::area_of(&self.key).and_then(|a| crate::claims::read_only(self.app, a));
         let target = self.target("VarTable");
-        crate::widgets::variables_page(self.app, ui, target, &list, locked);
+        let root = std::mem::replace(&mut self.root, Struct::new(0));
+        let list = root.list("VarTable").unwrap_or(&[]);
+        crate::widgets::variables_page(self.app, ui, target, list, locked);
+        self.root = root;
     }
 
     /// The Variables… button (off for an object of a read-only area).
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
-        let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
+        let count = self.root.list("VarTable").map_or(0, <[_]>::len);
         self.mark_mixed(ui, "VarTable");
-        if crate::claims::variables_button(self.app, ui, &self.key, list.len()) {
-            self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
+        if crate::claims::variables_button(self.app, ui, &self.key, count) {
+            let list = self.root.list("VarTable").unwrap_or(&[]);
+            self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), list));
         }
     }
 
@@ -2685,8 +2710,22 @@ const LOC_FIELD: std::ops::Range<f32> = 160.0..360.0;
 fn resref_beside_buttons(ui: &Ui) -> f32 {
     let s = ui.spacing();
     let small = egui::TextStyle::Button.resolve(ui.style());
-    let color = ui.visuals().text_color();
-    let edit = ui.fonts_mut(|f| f.layout_no_wrap("Edit".into(), small, color)).size().x;
+    let key = (small.size.to_bits(), ui.ctx().pixels_per_point().to_bits());
+    let id = egui::Id::new("bp-edit-btn-w");
+    let edit =
+        ui.data(|d| d.get_temp::<((u32, u32), f32)>(id)).filter(|(k, _)| *k == key).map_or_else(
+            || {
+                let w = ui
+                    .fonts_mut(|f| {
+                        f.layout_no_wrap("Edit".into(), small, egui::Color32::PLACEHOLDER)
+                    })
+                    .size()
+                    .x;
+                ui.data_mut(|d| d.insert_temp(id, (key, w)));
+                w
+            },
+            |(_, w)| w,
+        );
     let buttons = s.interact_size.y + edit + 2.0 * s.button_padding.x;
     let width = ui.available_width() - buttons - 3.0 * s.item_spacing.x - 8.0;
     let least = if narrow(ui) { 36.0 } else { SCRIPT_FIELD_LEAST };

@@ -271,13 +271,26 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         app.log.error("The Creature Wizard needs the game data");
         return;
     }
+    let load_order = app.load_order;
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
     // The ResRef the name gives, as Finish makes it (on the names' page).
     let names = Names {
         naming: crate::blueprint_wizard::naming(app, ResType::UTC),
         taken: match (w.page == NAMES_PAGE, app.ws.as_ref()) {
-            (true, Some(ws)) => ws.module.keys_of(ResType::UTC).map(|k| k.resref).collect(),
+            (true, Some(ws)) => {
+                let ws_key = (ws.identity(), ws.revision());
+                crate::blueprint::kept_for_key(
+                    ctx,
+                    egui::Id::new("creature-wizard-taken"),
+                    &ws_key,
+                    || {
+                        std::sync::Arc::new(
+                            ws.module.keys_of(ResType::UTC).map(|k| k.resref).collect(),
+                        )
+                    },
+                )
+            }
             _ => Default::default(),
         },
     };
@@ -314,7 +327,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         .inner_margin(egui::Margin::symmetric(pad.x as i8, pad.y as i8))
                         .show(ui, |ui| {
                             ui.set_min_size(ui.available_size());
-                            page(ui, &mut loader, &mut w, &summary, &mut looks, &names);
+                            page(ui, &mut loader, load_order, &mut w, &summary, &mut looks, &names);
                         });
                 });
             });
@@ -397,7 +410,7 @@ const NAMES_PAGE: usize = 5;
 /// the module's creatures' ResRefs.
 struct Names {
     naming: mg_module::project_file::Naming,
-    taken: std::collections::HashSet<ResRef>,
+    taken: std::sync::Arc<std::collections::HashSet<ResRef>>,
 }
 
 /// The most classes a creature is given.
@@ -589,7 +602,6 @@ fn look_page(
     });
     let found =
         crate::blueprint::found_kept(ui.ctx(), "creature-wizard", &appearances, &w.appearance_find);
-    let shown: Vec<&Choice> = found.iter().map(|&i| &appearances[i]).collect();
     // (Pictures from 96 points, grown to share the width.)
     let side = 96.0;
     let tall = side + mg_uikit::gallery::label_height(false, 2, false);
@@ -600,7 +612,7 @@ fn look_page(
         egui::Id::new("cw-appearance-at"),
         &found,
         &w.appearance,
-        || shown.iter().position(|c| usize::from(w.appearance) == c.row),
+        || found.iter().position(|&idx| usize::from(w.appearance) == appearances[idx].row),
     );
     // (In a well with its drawn scroll bar: the Pickers board's,
     // half the page's room left.)
@@ -616,7 +628,7 @@ fn look_page(
         crate::widgets::picture_well(ui, egui::Id::new("cw-appearances"), well, pad, |ui| {
             let id = egui::Id::new("cw-appearance-pictures");
             let keys = !egui::Popup::is_any_open(ui.ctx());
-            let grid = mg_uikit::gallery::GalleryGrid::new(id, shown.len(), side)
+            let grid = mg_uikit::gallery::GalleryGrid::new(id, found.len(), side)
                 .cursor(current)
                 .keys_allowed(keys)
                 .name("Appearances");
@@ -626,7 +638,7 @@ fn look_page(
                 look
             };
             let out = grid.show(ui, |ui, i, rect, tile, r, cell| {
-                let c = shown[i];
+                let c = &appearances[found[i]];
                 let made = looks.ready.made(crate::model_view::Pictured::Look(look_of(c)));
                 let on = usize::from(w.appearance) == c.row;
                 let picture = crate::widgets::cell_picture(made);
@@ -640,9 +652,9 @@ fn look_page(
             });
             // (The keys choose as they move: a picker's.)
             if let Some(i) = out.moved.or(out.activated) {
-                w.appearance = shown[i].row as u16;
+                w.appearance = appearances[found[i]].row as u16;
             }
-            looks.shown.extend(out.ahead.clone().map(|i| look_of(shown[i])));
+            looks.shown.extend(out.ahead.clone().map(|i| look_of(&appearances[found[i]])));
             out
         });
     // (The well's room taken: the page's rows go on under it.)
@@ -785,6 +797,7 @@ fn look_page(
 fn page(
     ui: &mut Ui,
     loader: &mut Loader<'_>,
+    load_order: u64,
     w: &mut CreatureWizard,
     summary: &str,
     looks: &mut Looks,
@@ -918,7 +931,19 @@ fn page(
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");
             let module = loader.ws.map(|ws| &ws.module);
-            let nodes = crate::blueprint_wizard::categories(game, module, BlueprintKind::Creature);
+            let mark = (load_order, loader.ws.map(|ws| (ws.identity(), ws.revision())));
+            let nodes = crate::blueprint::kept_for_key(
+                ui.ctx(),
+                egui::Id::new("creature-wizard-categories"),
+                &mark,
+                || {
+                    std::sync::Arc::new(crate::blueprint_wizard::categories(
+                        game,
+                        module,
+                        BlueprintKind::Creature,
+                    ))
+                },
+            );
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 mg_uikit::list_rows(ui);
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);

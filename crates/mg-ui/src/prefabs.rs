@@ -53,39 +53,71 @@ pub fn rename(dir: Option<&std::path::Path>, from: &str, to: &str) -> Result<(),
 /// What a prefab holds, in a line or two: how many objects of each kind,
 /// and their tags.
 pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, String> {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::SystemTime;
+
+    type Key = PathBuf;
+    type Entry = (u64, Option<SystemTime>, Result<String, String>);
+    static CACHE: OnceLock<Mutex<HashMap<Key, Entry>>> = OnceLock::new();
+
     let path = file(dir, name)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let g = from_json(&json, Codepage::default()).map_err(|e| e.to_string())?;
-    let mut counts = [0usize; ObjectKind::ALL.len()];
-    let mut tags: Vec<String> = Vec::new();
-    for item in g.root.list("Objects").unwrap_or(&[]) {
-        let kind = item.integer("Kind").and_then(|k| usize::try_from(k).ok());
-        if let Some(n) = kind.and_then(|k| counts.get_mut(k)) {
-            *n += 1;
+    let meta = std::fs::metadata(&path).ok();
+    let stamp = meta.as_ref().map(|m| (m.len(), m.modified().ok()));
+    if let Some((len, mtime)) = stamp
+        && let Ok(cache) = CACHE.get_or_init(Default::default).lock()
+        && let Some((clen, cmtime, res)) = cache.get(&path)
+        && *clen == len
+        && *cmtime == mtime
+    {
+        return res.clone();
+    }
+
+    let computed = (|| -> Result<String, String> {
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let g = from_json(&json, Codepage::default()).map_err(|e| e.to_string())?;
+        let mut counts = [0usize; ObjectKind::ALL.len()];
+        let mut tags: Vec<String> = Vec::new();
+        for item in g.root.list("Objects").unwrap_or(&[]) {
+            let kind = item.integer("Kind").and_then(|k| usize::try_from(k).ok());
+            if let Some(n) = kind.and_then(|k| counts.get_mut(k)) {
+                *n += 1;
+            }
+            if let Some(Value::Struct(s)) = item.get("Object")
+                && let Some(tag) = s.string("Tag").map(crate::text::decode)
+                && !tag.is_empty()
+                && !tags.contains(&tag)
+            {
+                tags.push(tag);
+            }
         }
-        if let Some(Value::Struct(s)) = item.get("Object")
-            && let Some(tag) = s.string("Tag").map(crate::text::decode)
-            && !tag.is_empty()
-            && !tags.contains(&tag)
-        {
-            tags.push(tag);
+        let kinds: Vec<String> = ObjectKind::ALL
+            .iter()
+            .zip(counts)
+            .filter(|(_, n)| *n > 0)
+            .map(|(k, n)| format!("{n} {}", k.label().to_lowercase()))
+            .collect();
+        if kinds.is_empty() {
+            return Err("no objects".into());
         }
+        let mut line = kinds.join(", ");
+        if !tags.is_empty() {
+            line.push_str(&format!("\nTags: {}", crate::text::some_of(&tags, SUMMARY_TAGS)));
+        }
+        Ok(line)
+    })();
+
+    if let Some((len, mtime)) = stamp
+        && let Ok(mut cache) = CACHE.get_or_init(Default::default).lock()
+    {
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(path, (len, mtime, computed.clone()));
     }
-    let kinds: Vec<String> = ObjectKind::ALL
-        .iter()
-        .zip(counts)
-        .filter(|(_, n)| *n > 0)
-        .map(|(k, n)| format!("{n} {}", k.label().to_lowercase()))
-        .collect();
-    if kinds.is_empty() {
-        return Err("no objects".into());
-    }
-    let mut line = kinds.join(", ");
-    if !tags.is_empty() {
-        line.push_str(&format!("\nTags: {}", crate::text::some_of(&tags, SUMMARY_TAGS)));
-    }
-    Ok(line)
+    computed
 }
 
 /// How many tags a prefab's summary names.

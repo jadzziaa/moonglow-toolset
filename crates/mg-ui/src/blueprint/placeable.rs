@@ -69,7 +69,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = f.choices("placeables", Some("StrRef"), Some("Label"));
-    let appearances = f.appearance_rows(mg_rules::ObjectKind::Placeable, &appearances);
+    let appearances = f.appearance_rows(ui.ctx(), mg_rules::ObjectKind::Placeable, &appearances);
     super::form_grid(ui, ("utp-basic", f.key)).spacing([12.0, 6.0]).show(ui, |ui| {
         f.name_and_tag(ui, "LocName");
         crate::widgets::field_label(ui, "Appearance type");
@@ -171,7 +171,8 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         return;
     }
     let key = f.key;
-    let items: Vec<Struct> = f.root.list("ItemList").unwrap_or(&[]).to_vec();
+    let root = std::mem::replace(&mut f.root, mg_gff::Struct::new(0));
+    let items = root.list("ItemList").unwrap_or(&[]);
     let names = f.blueprint_names(BlueprintKind::Item);
     let mut add = None;
     let (mut adds, mut taken) = (Vec::new(), Vec::new());
@@ -192,13 +193,16 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
             copied,
             palette: &names,
         };
-        let mut out = inventory::item_list(ui, key, &base, &items, look);
+        let mut out = inventory::item_list(ui, key, &base, items, look);
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added here.
         let whose = inventory::owner(key, &base);
-        (adds, taken) = f.list_events(ui, &items, &mut out, whose, &base);
+        (adds, taken) = f.list_events(ui, items, &mut out, whose, &base);
         edits = out.edits;
     });
+    f.root = root;
     adds.extend(add.map(inventory::Added::Blueprint));
+    let items =
+        if adds.is_empty() { Vec::new() } else { f.root.list("ItemList").unwrap_or(&[]).to_vec() };
     f.apply_list(&base, &items, adds, taken, edits);
 }

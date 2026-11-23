@@ -224,9 +224,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut finish, mut close) = (false, false);
     let mut go_to_finish = false;
     let choices = w.listed.as_ref().map_or(&[][..], |(_, l)| l.as_slice()).to_vec();
-    let faction_names: Vec<String> = factions(app)
-        .map(|f| f.factions.iter().map(|x| x.name.clone()).collect())
-        .unwrap_or_else(|| mg_module::factions::STANDARD.iter().map(|s| s.to_string()).collect());
+    let faction_names = crate::blueprint::situated::faction_names_kept(app, ctx);
     // (A name the module has already: Finish replaces what is there.)
     let there = |name: &str, types: &[ResType]| {
         let name = ResRef::from_str(name.trim()).ok().filter(|r| *r != ResRef::EMPTY);

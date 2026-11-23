@@ -153,17 +153,13 @@ struct Offered {
 }
 
 /// The textures and animations of the object's models, read again only
-/// when the module or the game data changes (reading a creature's part
-/// models each frame would show in its frame time). A creature is its own
-/// body: its appearance's model, or, for a body of parts, the parts its
-/// armor or its own fields name (whose textures are PLTs), its head, wings
-/// and tail; not its weapons, helmet or cloak, which are items' models.
-fn offered(f: &Form<'_>, ui: &Ui) -> Offered {
+/// when the model/appearance fields or load order change (not on unrelated edits).
+fn offered(f: &mut Form<'_>, ui: &Ui) -> Offered {
     let Some(game) = f.app.game.clone() else { return Offered::default() };
     let id = f.id("replacements-offered");
-    let stamp: Stamp = (f.app.ws.as_ref().map(|w| w.revision()), f.app.load_order);
-    if let Some((was, o)) = ui.data(|d| d.get_temp::<(Stamp, Offered)>(id))
-        && was == stamp
+    let sig = model_sig(f);
+    if let Some((was, o)) = ui.data(|d| d.get_temp::<(u64, Offered)>(id))
+        && was == sig
     {
         return o;
     }
@@ -176,10 +172,24 @@ fn offered(f: &Form<'_>, ui: &Ui) -> Offered {
             if let Some(Value::List(slots)) = body.get_mut("Equip_ItemList") {
                 slots.retain(|s| s.id == CHEST_SLOT);
             }
+            let ws_armor: Vec<(ResRef, mg_gff::Gff)> = body
+                .list("Equip_ItemList")
+                .into_iter()
+                .flatten()
+                .filter_map(|s| s.resref("EquippedRes"))
+                .filter(|r| !r.is_empty())
+                .filter_map(|r| {
+                    let key = mg_resman::ResKey::new(r, ResType::UTI);
+                    let doc = f.app.ws.as_mut()?.doc(&key).ok()?;
+                    Some((r, doc.clone()))
+                })
+                .collect();
             let armor = |r: ResRef| -> Option<mg_gff::Gff> {
+                if let Some((_, doc)) = ws_armor.iter().find(|(cr, _)| *cr == r) {
+                    return Some(doc.clone());
+                }
                 let key = mg_resman::ResKey::new(r, ResType::UTI);
-                let module = f.app.ws.as_ref().and_then(|w| w.module.get(&key).map(<[u8]>::to_vec));
-                let data = module.or_else(|| game.resman.get(&key).ok().map(|d| d.into_owned()))?;
+                let data = game.resman.get(&key).ok()?;
                 mg_gff::Gff::read(&data).ok()
             };
             mg_preview::creature(&game, &body, &armor)
@@ -195,14 +205,48 @@ fn offered(f: &Form<'_>, ui: &Ui) -> Offered {
         },
         Err(e) => Offered { problem: Some(e.to_string()), ..Default::default() },
     };
-    ui.data_mut(|d| d.insert_temp(id, (stamp, o.clone())));
+    ui.data_mut(|d| d.insert_temp(id, (sig, o.clone())));
     o
 }
 
-/// What [`offered`] was read for: the module's revision and the load
-/// order ([`crate::Moonglow::load_order`]; not the game data's address,
-/// which Reload Resources leaves as it was).
-type Stamp = (Option<u64>, u64);
+fn model_sig(f: &mut Form<'_>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    f.app.load_order.hash(&mut h);
+    f.restype().0.hash(&mut h);
+    match f.restype() {
+        ResType::UTP | ResType::UTD => {
+            f.root.integer("Appearance").hash(&mut h);
+            f.root.integer("GenericType_New").hash(&mut h);
+            f.root.integer("GenericType").hash(&mut h);
+        }
+        ResType::UTI => {
+            format!("{:?}", mg_preview::ItemLook::from_uti(&f.root)).hash(&mut h);
+        }
+        ResType::UTC => {
+            format!("{:?}", mg_preview::DressedLook::from_utc(&f.root, &|_| None)).hash(&mut h);
+            let chest =
+                f.root.list("Equip_ItemList").and_then(|l| l.iter().find(|s| s.id == CHEST_SLOT));
+            if let Some(slot) = chest
+                && slot.integer("BaseItem").is_none()
+                && let Some(r) = slot.resref("EquippedRes").filter(|r| !r.is_empty())
+            {
+                r.hash(&mut h);
+                let key = mg_resman::ResKey::new(r, ResType::UTI);
+                if let Some(ws) = f.app.ws.as_mut()
+                    && let Ok(doc) = ws.doc(&key)
+                {
+                    true.hash(&mut h);
+                    format!("{:?}", mg_preview::ItemLook::from_uti(&doc.root)).hash(&mut h);
+                } else {
+                    false.hash(&mut h);
+                }
+            }
+        }
+        _ => {}
+    }
+    h.finish()
+}
 
 /// A row of the texture table: a texture of the models, or an entry whose
 /// texture they don't have.
@@ -434,10 +478,20 @@ struct TexturePick {
     interface: bool,
     /// Scrolled to the one chosen, once.
     placed: bool,
-    /// The pictures it made (their keys in the app's pictures), oldest
-    /// first: let go of when it closes, and the oldest out of sight past
-    /// [`PICTURES_KEPT`] (a scroll through every texture kept gigabytes).
-    made: Vec<String>,
+}
+
+#[derive(Clone, Default)]
+struct MadePictures {
+    queue: std::collections::VecDeque<String>,
+    set: std::collections::HashSet<String>,
+}
+
+impl MadePictures {
+    fn insert(&mut self, key: String) {
+        if self.set.insert(key.clone()) {
+            self.queue.push_back(key);
+        }
+    }
 }
 
 /// How many of its pictures Select Texture keeps while open (64 KB each).
@@ -542,20 +596,47 @@ fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
         }
         Arc::new(Textures::of(names, &icon_prefixes(&game)))
     });
-    let own: Vec<String> = app.ws.as_ref().map_or_else(Vec::new, |ws| {
-        ws.module
-            .keys()
-            .filter(|k| matches!(k.restype, ResType::DDS | ResType::TGA))
-            .map(|k| k.resref.to_lowercase().to_string())
-            .filter(|n| listed.names.binary_search(n).is_err())
-            .collect()
-    });
-    if own.is_empty() {
+    let own_sig: (usize, u64) = match &app.ws {
+        Some(ws) => {
+            use std::hash::{Hash, Hasher};
+            let mut count = 0usize;
+            let mut xor = 0u64;
+            for t in [ResType::DDS, ResType::TGA] {
+                for k in ws.module.keys_of(t) {
+                    count += 1;
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    k.hash(&mut h);
+                    xor ^= h.finish();
+                }
+            }
+            (count, xor)
+        }
+        None => (0, 0),
+    };
+    if own_sig.0 == 0 {
         return listed;
     }
-    let mut names = listed.names.clone();
-    names.extend(own);
-    Arc::new(Textures::of(names, &icon_prefixes(&game)))
+    super::kept_for_key(
+        ui.ctx(),
+        egui::Id::new("select-texture-names-merged"),
+        &(app.load_order, own_sig),
+        || {
+            let Some(ws) = &app.ws else { return listed.clone() };
+            let own: Vec<String> = ws
+                .module
+                .keys_of(ResType::DDS)
+                .chain(ws.module.keys_of(ResType::TGA))
+                .map(|k| k.resref.to_lowercase().to_string())
+                .filter(|n| listed.names.binary_search(n).is_err())
+                .collect();
+            if own.is_empty() {
+                return listed.clone();
+            }
+            let mut names = listed.names.clone();
+            names.extend(own);
+            Arc::new(Textures::of(names, &icon_prefixes(&game)))
+        },
+    )
 }
 
 fn open_gallery(f: &mut Form<'_>, ui: &Ui, entry: Option<usize>, old: String, current: String) {
@@ -587,7 +668,9 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     });
     let name_at = |i: u32| &textures.names[i as usize];
     registered(ui, id);
-    let (mut wanted, mut in_sight) = (Vec::new(), Vec::new());
+    let mut wanted = Vec::new();
+    let mut new_made = Vec::new();
+    let mut in_sight_indices = 0..0;
     // (No wider than the body's room: at the least window it ran past both
     // its edges.)
     let wide = (ui.ctx().content_rect().width() * 0.8)
@@ -691,9 +774,9 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                         *ok = true;
                     }
                     // (Those in sight and a row ahead: made, a few a frame.)
+                    in_sight_indices = out.ahead.clone();
                     for i in out.ahead.clone() {
                         let name = name_at(shown[i]);
-                        in_sight.push(thumb_key(name, GALLERY_THUMB));
                         if picture_made(f, name).is_none() {
                             wanted.push(name.clone());
                         }
@@ -720,9 +803,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                 let shown = state.chosen.clone().or_else(|| (!old.is_empty()).then(|| old.clone()));
                 if let Some(c) = shown {
                     let key = thumb_key(&c, PREVIEW_THUMB);
-                    if !state.made.contains(&key) {
-                        state.made.push(key);
-                    }
+                    new_made.push(key);
                     let picture =
                         f.app.loader().and_then(|mut l| l.thumbnail(ui.ctx(), &c, PREVIEW_THUMB));
                     if let Some(p) = picture {
@@ -749,23 +830,12 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                 break;
             }
             l.thumbnail(ui.ctx(), name, GALLERY_THUMB);
-            state.made.push(thumb_key(name, GALLERY_THUMB));
+            new_made.push(thumb_key(name, GALLERY_THUMB));
             left -= 1;
         }
     }
     if left > 0 {
         ui.ctx().request_repaint_after(Duration::from_millis(10));
-    }
-    if state.made.len() > PICTURES_KEPT {
-        let mut over = state.made.len() - PICTURES_KEPT;
-        state.made.retain(|k| {
-            let gone = over > 0 && !in_sight.contains(k);
-            if gone {
-                f.app.pictures.remove(k);
-                over -= 1;
-            }
-            !gone
-        });
     }
     let picked = state
         .chosen
@@ -773,12 +843,44 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
         .filter(|_| ok)
         .and_then(|c| ResRef::from_str(c).ok())
         .map(|r| (state.entry, state.old.clone(), r));
+    let made_id = id.with("made");
     if ok || cancel {
-        for k in &state.made {
-            f.app.pictures.remove(k);
+        if let Some(made) = ui.data_mut(|d| d.remove_temp::<MadePictures>(made_id)) {
+            for k in &made.queue {
+                f.app.pictures.remove(k);
+            }
+        }
+        for k in new_made {
+            f.app.pictures.remove(&k);
         }
         ui.data_mut(|d| d.remove::<TexturePick>(id));
     } else {
+        if !new_made.is_empty() {
+            ui.data_mut(|d| {
+                let made = d.get_temp_mut_or_default::<MadePictures>(made_id);
+                for k in new_made {
+                    made.insert(k);
+                }
+                if made.queue.len() > PICTURES_KEPT {
+                    let in_sight: std::collections::HashSet<String> = in_sight_indices
+                        .clone()
+                        .map(|i| thumb_key(name_at(shown[i]), GALLERY_THUMB))
+                        .collect();
+                    let mut over = made.queue.len() - PICTURES_KEPT;
+                    let mut kept = std::collections::VecDeque::with_capacity(made.queue.len());
+                    while let Some(k) = made.queue.pop_front() {
+                        if over > 0 && !in_sight.contains(&k) {
+                            f.app.pictures.remove(&k);
+                            made.set.remove(&k);
+                            over -= 1;
+                        } else {
+                            kept.push_back(k);
+                        }
+                    }
+                    made.queue = kept;
+                }
+            });
+        }
         ui.data_mut(|d| d.insert_temp(id, state));
     }
     picked
@@ -819,9 +921,11 @@ pub(crate) fn let_go_of_unseen(app: &mut crate::Moonglow, ctx: &egui::Context) {
         unseen.into_iter().map(|(id, _)| id).collect()
     });
     for id in gone {
-        let Some(state) = ctx.data_mut(|d| d.remove_temp::<TexturePick>(id)) else { continue };
-        for k in &state.made {
-            app.pictures.remove(k);
+        ctx.data_mut(|d| d.remove_temp::<TexturePick>(id));
+        if let Some(made) = ctx.data_mut(|d| d.remove_temp::<MadePictures>(id.with("made"))) {
+            for k in &made.queue {
+                app.pictures.remove(k);
+            }
         }
     }
 }

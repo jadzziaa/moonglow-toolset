@@ -207,14 +207,23 @@ impl Form<'_> {
     /// [`mark_mixed`](Form::mark_mixed) for fields of the struct `field`
     /// (`MiscVisuals`' highlight color).
     fn mark_mixed_in(&mut self, ui: &Ui, field: &str, labels: &[&str]) {
-        let seen = |v: Option<&Value>| -> Vec<Option<Value>> {
-            let s = match v {
-                Some(Value::Struct(s)) => Some(s),
-                _ => None,
-            };
-            labels.iter().map(|l| s.and_then(|s| s.get(l)).cloned()).collect()
+        if self.also.is_empty() || self.also.len() > super::MIXED_LIMIT {
+            return;
+        }
+        let Some(ws) = self.app.ws.as_mut() else { return };
+        let mine = match self.root.get(field) {
+            Some(Value::Struct(s)) => Some(s),
+            _ => None,
         };
-        if self.differs_by(field, seen) {
+        let differs = self.also.iter().any(|(key, path)| {
+            let theirs =
+                match ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(field)) {
+                    Some(Value::Struct(s)) => Some(s),
+                    _ => None,
+                };
+            labels.iter().any(|l| theirs.and_then(|s| s.get(l)) != mine.and_then(|s| s.get(l)))
+        });
+        if differs {
             self.paint_mixed(ui, &format!("{field}#{}", labels.join("#")));
         }
     }

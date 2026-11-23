@@ -174,7 +174,8 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     }
     let base = f.path.clone();
     let key = f.key;
-    let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
+    let root = std::mem::replace(&mut f.root, Struct::new(0));
+    let pages = root.list("StoreList").unwrap_or(&[]);
     let names = f.blueprint_names(BlueprintKind::Item);
     let shown_id = f.id("utm-page");
     let first = STORE_PAGES
@@ -188,6 +189,8 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let mut add = None;
     let (mut adds, mut taken) = (Vec::new(), Vec::new());
     let mut edits = Vec::new();
+    let mark_up = root.integer("MarkUp").unwrap_or(100).max(0) as u64;
+    let mark_down = root.integer("MarkDown").unwrap_or(0).max(0) as u64;
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             add = f.item_picker(ui, "Add Item");
@@ -209,12 +212,9 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         };
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
-        let items = items.to_vec();
         // What the store sells each for and buys it for: its cost at the
         // store's mark up and mark down, as Aurora shows them (a buyer's
         // Appraise is the game's to add).
-        let mark_up = f.root.integer("MarkUp").unwrap_or(100).max(0) as u64;
-        let mark_down = f.root.integer("MarkDown").unwrap_or(0).max(0) as u64;
         let copied = f.app.item_clip.len();
         let ctx = ui.ctx().clone();
         let mut row = |_: usize, it: &Struct| {
@@ -237,13 +237,14 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             copied,
             palette: &names,
         };
-        let mut out = inventory::item_list(ui, key, &path, &items, look);
+        let mut out = inventory::item_list(ui, key, &path, items, look);
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added (to the page its kind goes on).
         let whose = inventory::owner(key, &path);
-        (adds, taken) = f.list_events(ui, &items, &mut out, whose, &path);
+        (adds, taken) = f.list_events(ui, items, &mut out, whose, &path);
         edits = out.edits;
     });
+    f.root = root;
     // (A moved item's removal goes with it, as one step; the page shown,
     // the last one's.)
     adds.extend(add.map(Added::Blueprint));
@@ -264,14 +265,16 @@ pub(crate) fn price(cost: u32, percent: u64) -> u64 {
 }
 
 /// The base items a store can list (those with a store panel), by name.
-fn base_items(f: &Form<'_>) -> Vec<Choice> {
-    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
-    let Ok(table) = game.table("baseitems") else { return Vec::new() };
-    let named = f.choices("baseitems", Some("Name"), Some("label"));
-    let items = (0..table.len())
-        .filter(|&row| table.get_int(row, "StorePanel").is_some())
-        .map(|row| Choice { row, text: mg_rules::choice_text(&named, row as i64) });
-    mg_rules::by_name(items.collect())
+fn base_items(f: &Form<'_>, ctx: &egui::Context) -> std::sync::Arc<Vec<Choice>> {
+    super::kept_for_key(ctx, egui::Id::new("store-base-items"), &f.app.load_order, || {
+        let Some(game) = f.app.game.as_deref() else { return Default::default() };
+        let Ok(table) = game.table("baseitems") else { return Default::default() };
+        let named = f.choices("baseitems", Some("Name"), Some("label"));
+        let items = (0..table.len())
+            .filter(|&row| table.get_int(row, "StorePanel").is_some())
+            .map(|row| Choice { row, text: mg_rules::choice_text(&named, row as i64) });
+        std::sync::Arc::new(mg_rules::by_name(items.collect()))
+    })
 }
 
 fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
@@ -326,7 +329,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     ui.separator();
-    let items = base_items(f);
+    let items = base_items(f, ui.ctx());
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let mut add = None;
     let mut remove = None;
@@ -348,7 +351,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
                 .auto_shrink([false, in_panel_scroll])
                 .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
-                    for c in &items {
+                    for c in items.iter() {
                         let row = c.row as i64;
                         if current.contains(&row) || !needle.finds(&c.text) {
                             continue;
@@ -507,7 +510,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
         });
     });
     ui.separator();
-    let items = base_items(f);
+    let items = base_items(f, ui.ctx());
     let name = |row: i64| mg_rules::choice_text(&items, row);
     let (mut add, mut remove, mut give) = (None, None, None);
     let mut clear = false;
@@ -529,7 +532,7 @@ fn restrictions_together(f: &mut Form<'_>, ui: &mut Ui) {
                 .auto_shrink([false, in_panel_scroll])
                 .show(ui, |ui| {
                     mg_uikit::list_rows(ui);
-                    for c in &items {
+                    for c in items.iter() {
                         let row = c.row as i64;
                         let all = merged.iter().any(|m| m.key == row && m.all(total));
                         if all || !needle.finds(&c.text) {

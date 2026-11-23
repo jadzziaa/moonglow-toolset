@@ -481,10 +481,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         match w.page() {
             Step::ItemType => {
                 ui.label("Please choose the type of item you wish to create");
-                let types = item_types(app.game.as_deref().expect("checked"));
+                let game = app.game.as_deref().expect("checked");
+                let types = crate::blueprint::kept_for_key(
+                    ui.ctx(),
+                    egui::Id::new("blueprint-wizard-item-types"),
+                    &app.load_order,
+                    || std::sync::Arc::new(item_types(game)),
+                );
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     mg_uikit::list_rows(ui);
-                    for (row, name) in types {
+                    for &(row, ref name) in types.iter() {
                         if ui.selectable_label(w.base_item == Some(row), name).clicked() {
                             w.base_item = Some(row);
                         }
