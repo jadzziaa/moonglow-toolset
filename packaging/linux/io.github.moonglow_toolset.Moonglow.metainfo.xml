@@ -45,6 +45,21 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="5.1.0" date="2026-11-23">
+      <description>
+        <p>An outline color of its own for each placed encounter
+        (Properties, Basic), Focus Selection (F or .), a triple click
+        on an object's row in the Module Tree or Outliner to open its
+        Properties, Hide Properties and Pop In, a Right Dock you can
+        rearrange, and a Resource Browser Type list that takes several
+        types.</p>
+        <p>A single click in the Module Tree no longer moves the
+        camera, Shift adds to the selection, and Adjust Location saves
+        as you go. Test Module starts a Steam copy through Steam only
+        when Options, Folders, Read Steam Workshop content is on. See
+        the release notes.</p>
+      </description>
+    </release>
     <release version="5.0.0" date="2026-11-22">
       <description>
         <p>A new shell around every editor: a Top Bar with Quick Open
