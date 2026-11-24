@@ -17764,3 +17764,63 @@ fn colored_icons_more() {
         shoot_in(&mut h, &dir, &format!("colored-icons-hak-{theme}"), light);
     }
 }
+
+/// File › Export Changed Resources… (Twohand's ask): the Export window
+/// with what changed since the module was opened ticked, its line saying
+/// so, and the notes under it (an area's other files ticked with it,
+/// module.ifo left unticked, a resource removed).
+#[test]
+#[ignore]
+fn export_changed_resources() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Gff, Value};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let mut m = mg_module::Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let key = |n: &str, t: ResType| ResKey::parse(n, t).unwrap();
+    for area in ["harbor", "market", "temple"] {
+        m.set(key(area, ResType::ARE), Gff::new(*b"ARE ").to_bytes().unwrap());
+        m.set(key(area, ResType::GIT), Gff::new(*b"GIT ").to_bytes().unwrap());
+        m.set(key(area, ResType::GIC), Gff::new(*b"GIC ").to_bytes().unwrap());
+    }
+    for script in ["harbor_enter", "market_bell", "old_test"] {
+        m.set(key(script, ResType::NSS), b"void main() {}\n".to_vec());
+    }
+    let path = dir.join("changed.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 680.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    themed(&mut h);
+    settle(&mut h);
+    let set = |k: ResKey, data: &[u8]| Edit::SetResource { key: k, data: Some(data.to_vec()) };
+    let tag = |t: &str| Edit::SetField {
+        key: key("harbor", ResType::GIT),
+        path: GffPath::root(),
+        label: "Tag".into(),
+        value: Some(Value::String(t.as_bytes().to_vec())),
+    };
+    let xp = Edit::SetField {
+        key: key("module", ResType::IFO),
+        path: GffPath::root(),
+        label: "Mod_XPScale".into(),
+        value: Some(Value::Byte(50)),
+    };
+    let edits = vec![
+        tag("HARBOR"),
+        set(key("market_bell", ResType::NSS), b"void main() { /* rung */ }\n"),
+        set(key("guard_post", ResType::NSS), b"void main() {}\n"),
+        set(key("gate_guard", ResType::UTC), &Gff::new(*b"UTC ").to_bytes().unwrap()),
+        xp,
+        Edit::SetResource { key: key("old_test", ResType::NSS), data: None },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Edits", edits)));
+    h.state_mut().actions.push(mg_ui::Action::ExportChangedDialog);
+    settle(&mut h);
+    shoot(&mut h, &dir, "export-changed-resources");
+}

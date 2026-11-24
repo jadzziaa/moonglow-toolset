@@ -321,6 +321,9 @@ pub enum Action {
     Recover(recovery::Copy),
     /// Opens the Export window with these resources chosen.
     ExportDialog(Vec<ResKey>),
+    /// Opens the Export window with the resources changed since the module
+    /// was opened chosen (File › Export Changed Resources…).
+    ExportChangedDialog,
     /// Writes resources as loose files (a script with its compiled script,
     /// an area with its `.git` and `.gic`; with `dependencies`, the module
     /// resources they use too): into the scratch folder (Options › Folders;
@@ -5640,6 +5643,7 @@ impl Moonglow {
                     });
                 }
             }
+            Action::ExportChangedDialog => self.open_export_changed(),
             Action::Export(draft) => self.run_export(draft),
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);

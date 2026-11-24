@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T14:56:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-24T23:49:55Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -74,6 +74,7 @@ unless their file (under `crates/`) follows the name.
 | Aurora | Moonglow | |
 |---|---|---|
 | Export chosen resources (+ dependencies) to `.erf` | Export Resources window | ✅ [export_then_import_into_another_module] |
+| (none: Aurora's export has each resource ticked by hand) | File › Export Changed Resources…: the Export Resources window with the resources changed since the module was opened ticked (saved or not, by any route; `module.ifo` listed unticked), and its **Select the N Changed** | — Moonglow's own (Twohand's ask) [export_changed_resources_ticks_what_changed_since_the_module_was_opened], [what_changed_since_the_module_was_opened] |
 | Import `.erf`, ask about overwriting | Import Resources window with overwrite choices, one undoable step | ✅ |
 
 ## Options (`TdlgOptions`)
@@ -396,7 +397,7 @@ Wizard.
 |---|---|---|
 | File › New (Ctrl+N), Open (Ctrl+O), Close, Save (Ctrl+S), Save As | File › New Module…, Open Module…, Close, Save, Save As…, with Aurora's keys; also Open Folder…, Recent Modules, Save As nasher Project… | ✅ |
 | File › Save To Savegame (hidden, disabled) | none | — Aurora hides it |
-| File › Import…, Export… | File › Import…, Export… (and Import Files…, Import Folder…, Import Conversation…) | ✅ |
+| File › Import…, Export… | File › Import…, Export… (and Import Files…, Import Folder…, Export Changed Resources…, Import Conversation…) | ✅ |
 | File › Exit (Alt+X) | File › Exit (Alt+X) | ✅ [closing_the_window_asks_first] |
 | Edit › Undo (Ctrl+Z), Redo (Ctrl+Shift+Z) | Edit › Undo, Redo, each naming its step; the same keys, and Ctrl+Y | ✅ |
 | Edit › Copy (Ctrl+C), Cut (Ctrl+X), Paste (Ctrl+V), the area's too | the same keys wherever there is something to copy (and Ctrl+Insert, Shift+Delete, Shift+Insert); in the area view's and the module tree's context menus, not the Edit menu | ✅ |

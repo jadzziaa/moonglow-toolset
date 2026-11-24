@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-11-23T16:58:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-11-24T23:49:55Z }
 ---
 
 # Modules
@@ -2520,6 +2520,29 @@ plugin reads a description with `mg.twoda.describe`
   appends or overwrites without asking (the log says which); set it back
   to Ask there. (The file dialog may ask about replacing the file
   first; this question comes after it.)
+- **File › Export Changed Resources…** opens the same window with the
+  resources changed since the module was opened ticked: for a builder
+  who works in a copy of the module and sends the team what they
+  changed. It counts what changed in this run of Moonglow, from opening
+  the module (or making it) until it is closed or another opened, saves
+  or not: a resource saved an hour ago is still one you changed. What
+  counts is the content, by any route (an editor, the module-wide tools,
+  Import, a new or copied resource, a plugin, a file changed outside and
+  read again, what a save makes, such as a compiled script or a custom
+  palette); an edit undone, or a field set back by hand, does not. An
+  area's `.git` and `.gic` and a script's compiled script are ticked
+  with it. `module.ifo` is listed unticked when it changed (adding an
+  area changes it): imported into another module, it would replace that
+  module's own areas, haks and start. Resources removed can't be
+  exported; the window says how many. A line at the top says what is
+  ticked ("12 resources changed since the module was opened"); untick
+  some or tick more, then **Export N…** or **Export N as Files…** as
+  always. **Include the resources they use** starts off here (what they
+  use did not change). The command is grayed while nothing has changed.
+  The window's **Select the N Changed** ticks the same resources in an
+  Export opened any other way. Scripts and 2DAs open with unsaved
+  changes are named in a warning: an export takes them as they were last
+  saved.
 - **An export says what it was made from.** After the description, the
   archive holds a stamp: the module's git commit, if the module is in a
   git checkout (a nasher project's folder, a module folder, or the

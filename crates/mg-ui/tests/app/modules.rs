@@ -550,6 +550,82 @@ fn export_to_an_archive_that_is_there_asks_to_append_overwrite_or_cancel() {
     assert!(!replaced.contains(&keep) && replaced.contains(&area), "{replaced:?}");
 }
 
+/// File › Export Changed Resources… (Twohand's ask): grayed on a module
+/// just opened, with its tip; after edits and a save (the session
+/// outlives a save), the Export window with exactly the resources changed
+/// ticked (an edited area, an edited script, a new script), alone (not
+/// what they use) and said; its Export writes those, as they are now.
+#[test]
+fn export_changed_resources_ticks_what_changed_since_the_module_was_opened() {
+    let dir = mg_testkit::scratch_dir("ui-export-changed");
+    let path = sample_module(&dir);
+    let erf = dir.join("changed.erf");
+    let mut app =
+        Moonglow::new(None, Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() }));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = window_harness(app);
+    h.run();
+    let menu_item = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("File").click();
+        h.run();
+        let item = h.get_by_label("Export Changed Resources…");
+        let off = item.accesskit_node().is_disabled();
+        item.hover();
+        h.run();
+        off
+    };
+    assert!(menu_item(&mut h), "nothing changed yet");
+    assert!(h.query_by_label("No resource has changed since the module was opened").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    // An area's field and a script edited, a script added; saved.
+    let area = ResKey::parse("start", ResType::ARE).unwrap();
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let added = ResKey::parse("mg_added", ResType::NSS).unwrap();
+    let text = |t: &str| Some(t.as_bytes().to_vec());
+    let edits = vec![
+        mg_edit::Edit::SetField {
+            key: area,
+            path: mg_gff::GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"CHANGED".to_vec())),
+        },
+        mg_edit::Edit::SetResource { key: hello, data: text("void main() { int changed; }\n") },
+        mg_edit::Edit::SetResource { key: added, data: text("void main() {}\n") },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Edits", edits)));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    settle(&mut h);
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "saved");
+    assert!(!menu_item(&mut h), "changed since the module was opened, saved or not");
+    h.get_by_label("Export Changed Resources…").click();
+    h.run();
+    let draft = h.state().export.clone().expect("the Export window");
+    let wanted: std::collections::BTreeSet<ResKey> = [area, hello, added].into();
+    assert_eq!(draft.selected, wanted);
+    assert!(!draft.dependencies, "what changed alone, not what it uses");
+    h.get_by_label("3 resources changed since the module was opened");
+    h.run_steps(3);
+    assert!(
+        h.get_by_label("Select the 3 Changed").accesskit_node().is_disabled(),
+        "all ticked already"
+    );
+    h.get_by_label("Export 3…").click();
+    settle(&mut h);
+    let bytes = std::fs::read(&erf).expect("written");
+    let archive = mg_erf::Erf::read(&bytes).unwrap();
+    let held: std::collections::BTreeSet<ResKey> =
+        archive.entries.iter().map(|e| ResKey::new(e.resref, e.restype)).collect();
+    assert_eq!(held, wanted);
+    let ws = h.state().ws.as_ref().unwrap();
+    for e in &archive.entries {
+        let k = ResKey::new(e.resref, e.restype);
+        assert_eq!(archive.data(e).ok().as_deref(), ws.module.get(&k), "{k}: as it is now");
+    }
+}
+
 /// File dialogs that answer from `NoDialogs`' lists and note where each
 /// started (what a save suggested, where an open began).
 struct Started(NoDialogs, std::rc::Rc<std::cell::RefCell<Vec<Option<std::path::PathBuf>>>>);

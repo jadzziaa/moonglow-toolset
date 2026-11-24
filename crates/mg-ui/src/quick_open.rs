@@ -1186,6 +1186,7 @@ pub(crate) fn runs_from_field(id: Id) -> bool {
         | Id::SaveAs
         | Id::SaveAsProject
         | Id::Export
+        | Id::ExportChanged
         | Id::CompileAll
         | Id::CompileModels
         | Id::BuildModule
