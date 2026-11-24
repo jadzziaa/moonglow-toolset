@@ -237,20 +237,18 @@ fn resolve_ignoring_case(root: &Path, rel: &str) -> PathBuf {
             p.push(c.as_os_str());
             continue;
         };
-        let exact = p.join(name);
-        if exact.symlink_metadata().is_ok() {
-            p = exact;
-            continue;
-        }
+        // The name as the folder lists it, not as the pattern spells it: on
+        // Windows and macOS `SRC` opens `src`, and the paths found must be
+        // the files' own (as `Cover` and the walk below give them).
         let wanted = name.to_string_lossy();
         let found = std::fs::read_dir(&p).ok().and_then(|entries| {
             entries
                 .flatten()
                 .map(|e| e.file_name())
                 .filter(|n| n.to_string_lossy().eq_ignore_ascii_case(&wanted))
-                .min()
+                .min_by_key(|n| (n != name, n.clone()))
         });
-        p = found.map_or(exact, |n| p.join(n));
+        p = found.map_or_else(|| p.join(name), |n| p.join(n));
     }
     p
 }
